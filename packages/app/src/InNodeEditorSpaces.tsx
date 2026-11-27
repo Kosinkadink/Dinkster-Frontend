@@ -1,4 +1,4 @@
-import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, effectiveWidgetDefault, elabInputsOf, occurrenceKey, type AssetRef, type ElaboratedInterface, type Json, type JsonObject } from '@dinkster/core'
+import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, effectiveWidgetDefault, elabInputsOf, formatByteSize, occurrenceKey, type AssetRef, type ElaboratedInterface, type Json, type JsonObject } from '@dinkster/core'
 import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind, curveEditorInterpolations, curveInterpolator, isSaveTarget, isProjectDefaultTarget, saveTargetDraft, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
@@ -18,8 +18,9 @@ import {
   type CanvasCurveStrip,
 } from '@dinkster/ui'
 import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack, type JSX } from 'solid-js'
-import type { ExecutionState, MountSettings } from '@dinkster/client'
+import { RequestFailure, type ExecutionState, type MountSettings } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 import { frameFromVideo, webcamError, type WebcamDimensions } from './webcam.js'
 import { overlayClipStyle, type EditorWorldRect } from './widget-editor-position.js'
 
@@ -287,9 +288,6 @@ export function NodeEditorSpaceOverlay(props: {
   )
 }
 
-/** Whether an editor's controls are live at this zoom; below it the canvas draws only its panel. */
-export const editorSpaceInteractive = (scale: number): boolean => scale >= defaultTokens.mediaControlMinScale
-
 /** Save target controls inside the shared fold-out editor space. */
 export function SaveTargetSpace(props: {
   readonly value: Json | undefined
@@ -346,8 +344,8 @@ export function SaveTargetSpace(props: {
     void fetch?.().then((value) => { if (live) setSettings(value) }).catch(() => { if (live) setFailed(true) })
     onCleanup(() => { live = false })
   }))
-  const ready = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready').map((entry) => entry.id) ?? []
-  const noDefault = () => settings() !== undefined && settings()!.activeOutputMount === undefined
+  const ready = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready' && !entry.saveError).map((entry) => entry.id) ?? []
+  const noDefault = () => settings() !== undefined && !ready().includes(settings()!.activeOutputMount ?? '')
   const projectMount = () => settings()?.activeOutputMount ?? message(noDefault() ? 'saveTargetWidget.noOutputMount' : 'saveTargetWidget.projectDefault')
   const options = () => [
     { id: '', label: message('saveTargetWidget.projectDefaultIs', { mount: projectMount() }), closedLabel: message('saveTargetWidget.projectDefault') },
@@ -355,7 +353,7 @@ export function SaveTargetSpace(props: {
     ...(mount() !== null && !ready().includes(mount()!) ? [{ id: mount()!, label: message('saveTargetWidget.notHere', { id: mount()! }), closedLabel: mount()!, unavailable: true }] : []),
   ]
   const draft = () => saveTargetDraft({ stored: props.value ?? null, mount: mount(), prefix: prefix(),
-    ready: settings() === undefined || ready().length === 0 ? undefined : ready(), projectMount: projectMount() })
+    ready: settings() === undefined ? undefined : ready(), projectMount: projectMount() })
   createEffect(() => {
     const unchanged = mount() === sourceMount() && prefix() === sourcePrefix()
     const valuePreview = props.wired || blocked() || mountUnknown() || prefixUnknown() || unchanged ? undefined
@@ -378,7 +376,8 @@ export function SaveTargetSpace(props: {
     <CanvasEditorNote tone={mountTone() === 'warning' ? 'warning' : 'problem'} details={{
       label: message('runs.details'),
       title: failed() ? message('mountWidget.error') : mountStops()
-        ? message(mountGone() ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.noDefaultTitle', mountWords())
+        ? message(mountGone() ? settings()?.activeOutputMount === undefined ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.bothUnavailableTitle'
+          : 'saveTargetWidget.noDefaultTitle', mountWords())
         : mountGone() ? message('saveTargetWidget.missingTitle', mountWords()) : message('saveTargetWidget.noMounts'),
       body: message(mountStops() || !mountGone() ? 'saveTargetWidget.noDefaultBody' : 'saveTargetWidget.missingBody', mountWords()),
       ...(mountGone() && !noDefault() && !mountBlocked() ? { action: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } } }
@@ -747,7 +746,7 @@ export class AudioRecordController {
       this.setStatus('idle')
     } catch (reason) {
       if (request !== this.generation || abort.signal.aborted) return
-      this.setError(reason instanceof Error ? reason.message : String(reason))
+      this.setError(failureMessage(reason, 'Recording could not be saved.'))
       this.setStatus('uploadFailed')
     }
   }
@@ -811,8 +810,6 @@ export class AudioRecordController {
 }
 
 const clock = (seconds: number): string => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
-const roundedSize = (bytes: number): string =>
-  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 
 const isClip = (value: Json | undefined): value is AudioClip =>
   value !== null && audioRecordKind.valueSchema.validate(value)
@@ -860,7 +857,7 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
   }
   const detail = () => {
     if (props.wired) return undefined
-    if (recording()) return `${clock(recorder.seconds())}, ${roundedSize(recorder.bytes())}`
+    if (recording()) return `${clock(recorder.seconds())}, ${formatByteSize(recorder.bytes())}`
     const seconds = recorder.clipSeconds()
     return (shown() === 'ready' || shown() === 'uploadFailed') && seconds !== undefined ? clock(seconds) : undefined
   }
@@ -1212,7 +1209,7 @@ export function WebcamSpace(props: {
       setCamera('live')
     } catch (reason) {
       if (signal.aborted) return
-      setError(webcamError(reason))
+      setError(reason instanceof RequestFailure ? failureMessage(reason, 'Frame could not be saved.') : webcamError(reason))
       setCamera('live')
     }
   }

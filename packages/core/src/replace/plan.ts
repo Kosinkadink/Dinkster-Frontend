@@ -499,6 +499,7 @@ const groupMembersOf = (elaborated: ElaboratedInterface, path: string): readonly
   const keys: string[] = []
   for (const item of elaborated.items) {
     if (item.kind !== 'input' && item.kind !== 'output') continue
+    if (item.kept !== undefined) continue
     const origin = item.ancestry?.find((ancestor) => ancestor.construct === path)
     if (origin === undefined || origin.ghost === true) continue
     if (!keys.includes(origin.member)) keys.push(origin.member as string)

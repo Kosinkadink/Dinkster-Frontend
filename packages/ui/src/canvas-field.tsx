@@ -667,6 +667,7 @@ function StepGlyph(props: { path: string }) {
  */
 export function CanvasSidePart(props: {
   result?: string
+  note?: string
   problem?: string
   /** Id of the problem line, so the field can name it as its error. */
   problemId?: string
@@ -680,6 +681,9 @@ export function CanvasSidePart(props: {
     <>
       <Show when={props.result}>
         <p class="dinkster-canvas-side-result">{props.result}</p>
+      </Show>
+      <Show when={props.note}>
+        <p class="dinkster-canvas-side-kept">{props.note}</p>
       </Show>
       <Show when={props.problem}>
         <p
@@ -1028,11 +1032,20 @@ export function CanvasSideActions(props: {
 
 export type CanvasSeedMode = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
-/** A seed's after-run mode as the icon drawn before its value. */
-export function CanvasSeedModeIcon(props: { mode: CanvasSeedMode }) {
+/** The mode's arrow follows numbers up/down and choices next/previous. */
+export function CanvasSeedModeIcon(props: {
+  mode: CanvasSeedMode
+  trigger?: 'after_generate' | 'after_refresh'
+}) {
+  const icon = () =>
+    props.trigger === 'after_refresh' && props.mode === 'increment'
+      ? ArrowDown
+      : props.trigger === 'after_refresh' && props.mode === 'decrement'
+        ? ArrowUp
+        : SEED_MODE_ICONS[props.mode]
   return (
     <Dynamic
-      component={SEED_MODE_ICONS[props.mode]}
+      component={icon()}
       class="dinkster-canvas-field-glyph"
       aria-label={props.mode}
       role="img"

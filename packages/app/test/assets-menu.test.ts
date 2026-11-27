@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../src/asset-browser/types.js'
 import { allAssetsCollectionSource } from '../src/asset-browser/cross-mount-collection-source.js'
 import { assetItemOf } from '../src/asset-browser/collection-adapter.js'
+import { RequestFailure } from '@dinkster/client'
 
 const asset = (source: string, name: string, virtualPath = name): AssetBrowserItem => ({
   id: `${source}:${virtualPath}`,
@@ -113,7 +114,7 @@ describe('All assets collection source', () => {
     const result = await source.page({ query: '', limit: 24 })
     expect(result.items.map((entry) => entry.title)).toEqual(['ok.png'])
     expect(onSourceFailures).toHaveBeenCalledWith([
-      { sourceId: 'offline', label: 'offline', message: 'index unavailable' },
+      { sourceId: 'offline', label: 'offline', message: 'Assets could not be loaded.' },
     ])
   })
 
@@ -143,7 +144,7 @@ describe('All assets collection source', () => {
       adapter('unstable', page),
     ], [], undefined, { onSourceFailures })
 
-    await expect(source.page({ query: '', limit: 24 })).rejects.toThrow('unstable: index unavailable')
+    await expect(source.page({ query: '', limit: 24 })).rejects.toThrow('index unavailable')
     const controller = new AbortController()
     const cancelled = source.page({ query: 'new', limit: 24, signal: controller.signal })
     controller.abort()
@@ -152,19 +153,18 @@ describe('All assets collection source', () => {
     await expect(cancelled).rejects.toMatchObject({ name: 'AbortError' })
     expect(onSourceFailures).toHaveBeenCalledOnce()
     expect(onSourceFailures).toHaveBeenCalledWith([
-      { sourceId: 'unstable', label: 'unstable', message: 'index unavailable' },
+      { sourceId: 'unstable', label: 'unstable', message: 'Assets could not be loaded.' },
     ])
   })
 
   it('fails truthfully when every ready mount listing fails', async () => {
+    const failure = new RequestFailure('GET', '/api/mounts/left/entries', 500)
     const source = allAssetsCollectionSource([
-      adapter('left', vi.fn().mockRejectedValue(new Error('request failed (500)'))),
+      adapter('left', vi.fn().mockRejectedValue(failure)),
       adapter('right', vi.fn().mockRejectedValue(new Error('offline'))),
     ], [], undefined, { failWhenAllSourcesFail: true })
 
-    await expect(source.page({ query: '', limit: 24 })).rejects.toThrow(
-      'left: request failed (500); right: offline',
-    )
+    await expect(source.page({ query: '', limit: 24 })).rejects.toBe(failure)
   })
 
   it('does not duplicate unavailable mount notes on appended pages', async () => {

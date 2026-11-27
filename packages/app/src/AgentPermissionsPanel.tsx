@@ -1,8 +1,10 @@
 import { createSignal, For, onMount, Show } from 'solid-js'
 import type { Delegation, DinksterConnection, PrincipalSummary } from '@dinkster/client'
 import { ProductCheckbox } from './ProductControls.js'
+import { ProductSelect } from '@dinkster/ui'
 import { ProductField, ProductNotice } from './ProductForm.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 
 type PermissionsConnection = Pick<DinksterConnection, 'fetchPrincipals' | 'updatePrincipalPermissions' | 'mintDelegation' | 'fetchDelegations' | 'revokeDelegation'>
 
@@ -63,7 +65,7 @@ export function AgentPermissionsPanel(props: { readonly connection: PermissionsC
       })
       setToken(result.token)
       await refreshDelegations()
-    } catch (error) { setNotice(error instanceof Error ? error.message : String(error)) }
+    } catch (error) { setNotice(failureMessage(error, message('request.agentConnectFailed'))) }
     finally { setBusy(false) }
   }
 
@@ -71,7 +73,7 @@ export function AgentPermissionsPanel(props: { readonly connection: PermissionsC
     setBusy(true)
     setToken('')
     try { await props.connection.revokeDelegation(id); await refreshDelegations() }
-    catch (error) { setNotice(error instanceof Error ? error.message : String(error)) }
+    catch (error) { setNotice(failureMessage(error, message('request.revokeFailed'))) }
     finally { setBusy(false) }
   }
 
@@ -83,7 +85,7 @@ export function AgentPermissionsPanel(props: { readonly connection: PermissionsC
       const categories = await props.connection.updatePrincipalPermissions(principal.principalId, { [category]: value })
       setPrincipals((current) => current?.map((item) => item.principalId === principal.principalId ? { ...item, categories } : item))
     } catch (cause) {
-      setErrors((current) => ({ ...current, [principal.principalId]: cause instanceof Error ? cause.message : String(cause) }))
+      setErrors((current) => ({ ...current, [principal.principalId]: failureMessage(cause, message('request.permissionsSaveFailed')) }))
     } finally {
       setSaving((current) => new Set([...current].filter((id) => id !== principal.principalId)))
     }
@@ -101,9 +103,8 @@ export function AgentPermissionsPanel(props: { readonly connection: PermissionsC
               <input id="delegate-name" value={name()} maxLength={64} onInput={(event) => setName(event.currentTarget.value)} />
             </ProductField>
             <ProductField controlId="delegate-scope" label={message('agentPermissions.scope')}>
-              <select id="delegate-scope" value={scope()} onChange={(event) => setScope(event.currentTarget.value)}>
-                <For each={self()?.scopes}>{(value) => <option value={value}>{value}</option>}</For>
-              </select>
+              <ProductSelect id="delegate-scope" value={scope()} onChange={setScope}
+                options={(self()?.scopes ?? []).map((value) => ({ value, label: value }))} />
             </ProductField>
             <ProductField controlId="delegate-session" label={message('agentPermissions.session')}>
               <input id="delegate-session" value={sessionId()} onInput={(event) => setSessionId(event.currentTarget.value)} />

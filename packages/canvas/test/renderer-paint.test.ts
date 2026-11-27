@@ -1133,6 +1133,91 @@ describe('scene visual bounds and fitting', () => {
   })
 })
 
+describe('automatic node details', () => {
+  it.each([
+    [40, 0.15], [41, 0.22], [150, 0.22], [151, 0.3],
+  ])('uses the visible-node cutoff for %i nodes', (count, cutoff) => {
+    vi.useFakeTimers()
+    const { ctx } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    try {
+      const template = fixtureScene('clean').nodes[0]!
+      const visible = Array.from({ length: count }, (_, i) => ({ ...template, id: `visible-${i}`, x: i % 10 * 30, y: Math.floor(i / 10) * 30 }))
+      // The last visible node only intersects the left edge; offscreen nodes do not count.
+      visible[count - 1] = { ...visible[count - 1]!, x: -template.layout.width + 1 }
+      const outside = Array.from({ length: 200 }, (_, i) => ({ ...template, id: `outside-${i}`, x: 100000, y: 100000 }))
+      renderer.setScene(emptyScene({ nodes: [...visible, ...outside] }))
+      renderer.setDetailMode('automatic')
+      renderer.setViewport({ x: 0, y: 0, scale: cutoff - 0.001 })
+      vi.advanceTimersByTime(150)
+      expect(renderer.getDetailLevel()).toBe('overview')
+      renderer.setViewport({ x: 0, y: 0, scale: cutoff })
+      vi.advanceTimersByTime(150)
+      expect(renderer.getDetailLevel()).toBe('controls')
+    } finally {
+      renderer.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('recounts additions and removals but holds the cutoff throughout navigation', () => {
+    vi.useFakeTimers()
+    const { ctx } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    try {
+      const template = fixtureScene('clean').nodes[0]!
+      const nodes = Array.from({ length: 41 }, (_, i) => ({ ...template, id: `n${i}`, x: 10, y: 10 }))
+      renderer.setViewport({ x: 0, y: 0, scale: 0.2 })
+      renderer.setScene(emptyScene({ nodes: nodes.slice(0, 40) }))
+      renderer.setDetailMode('automatic')
+      expect(renderer.getDetailLevel()).toBe('controls')
+      renderer.setScene(emptyScene({ nodes }))
+      expect(renderer.getDetailLevel()).toBe('overview')
+      renderer.setViewportGesture(true)
+      renderer.setViewport({ x: 100000, y: 0, scale: 0.2 })
+      vi.advanceTimersByTime(1000)
+      expect(renderer.getDetailLevel()).toBe('overview')
+      renderer.setViewportGesture(false)
+      expect(renderer.getDetailLevel()).toBe('controls')
+      renderer.setViewport({ x: 0, y: 0, scale: 0.2 })
+      vi.advanceTimersByTime(149)
+      expect(renderer.getDetailLevel()).toBe('controls')
+      vi.advanceTimersByTime(1)
+      expect(renderer.getDetailLevel()).toBe('overview')
+      renderer.setScene(emptyScene({ nodes: nodes.slice(0, 40) }))
+      expect(renderer.getDetailLevel()).toBe('controls')
+    } finally {
+      renderer.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('switches back to the saved fixed threshold without replacing it with an automatic cutoff', () => {
+    const { ctx } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    renderer.setViewport({ x: 0, y: 0, scale: 0.2 })
+    renderer.setScene(fixtureScene('clean'))
+    renderer.setDetailMode('automatic')
+    expect(renderer.getDetailLevel()).toBe('controls')
+    renderer.setDetailMode('fixed')
+    expect(renderer.getDetailLevel()).toBe('overview')
+    renderer.setDetailMinScale(0.1)
+    expect(renderer.getDetailLevel()).toBe('controls')
+    renderer.setDetailMode('automatic')
+    renderer.setDetailMinScale(0.75)
+    expect(renderer.getDetailLevel()).toBe('controls')
+    renderer.setDetailMode('fixed')
+    expect(renderer.getDetailLevel()).toBe('overview')
+    renderer.setDetailMode('automatic')
+    renderer.setViewport({ x: 1, y: 0, scale: 0.2 })
+    renderer.setDetailMode('fixed')
+    renderer.setViewport({ x: 2, y: 0, scale: 0.2 })
+    renderer.setDetailMode('automatic')
+    expect(renderer.getDetailLevel()).toBe('controls')
+    renderer.dispose()
+  })
+})
+
 describe('viewport culling regressions', () => {
 
   it('keeps nodes within the 12px PIN_OVERHANG and culls nodes beyond it', () => {

@@ -80,22 +80,25 @@ for (const theme of ['dark', 'light'] as const) {
       await panel.locator(`[data-tab-id="${id}"]`).blur()
       await page.mouse.move(600, 400)
       await expect(page.getByTestId('app-tooltip')).toBeHidden()
+      if (zone === 'bottom') await page.evaluate(() => {
+        const app = window.__dinksterTest!.app as unknown as {
+          clearLogs(): void
+          recordHostLog(severity: 'info', source: string, message: string): void
+        }
+        app.clearLogs()
+        app.recordHostLog('info', 'Local', 'connecting')
+        app.recordHostLog('info', 'Local', 'connected')
+      })
       await expect(panel).toHaveScreenshot(`panel-tabs-${zone}-${theme}.png`, { animations: 'disabled' })
     }
   })
 }
 
 const closeGallery = async (page: Page): Promise<void> => {
-  const close = page.locator('.template-gallery-close')
+  const close = page.getByRole('button', { name: 'Close Templates', exact: true })
   if ((await close.count()) > 0 && (await close.first().isVisible()))
     await close.first().click()
-  else
-    await page.evaluate(() =>
-      (window.__dinksterTest!.app as unknown as {
-        readonly templateGalleryOpen: { set(value: boolean): void }
-      }).templateGalleryOpen.set(false),
-    )
-  await expect(page.getByTestId('template-gallery')).toBeHidden()
+  await expect(page.getByTestId('templates-page')).toBeHidden()
 }
 
 for (const theme of ['dark', 'light'] as const) {
@@ -114,6 +117,11 @@ for (const theme of ['dark', 'light'] as const) {
   })
 
   test(`brand assets and persisted ${theme} theme`, async ({ page }) => {
+    await page.route('/api/templates*', (route) => route.fulfill({ json: { templates: [] } }))
+    await page.route('/api/models/settings*', (route) => route.fulfill({ json: {
+      settings: { version: 1, locations: [], downloadLocation: null }, locations: [],
+      revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+    } }))
     await page.addInitScript((selected) => {
       localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
     }, theme)
@@ -157,12 +165,12 @@ for (const theme of ['dark', 'light'] as const) {
     await page.evaluate(() => {
       const app = window.__dinksterTest!.app as unknown as {
         readonly backends: { get(): readonly { readonly templatesEnabled: { set(value: boolean): void } }[] }
-        readonly templateGalleryOpen: { set(value: boolean): void }
+        readonly commands: { get(id: string): { run(): void } }
       }
       app.backends.get()[0]!.templatesEnabled.set(true)
-      app.templateGalleryOpen.set(true)
+      app.commands.get('workflow.openTemplateGallery').run()
     })
-    await expect(page.getByTestId('template-gallery')).toBeVisible()
+    await expect(page.getByTestId('templates-page')).toBeVisible()
     await screenshot(page, `brand-gallery-${theme}`)
     await closeGallery(page)
     await screenshot(page, `brand-shell-${theme}`)
@@ -275,7 +283,7 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     }] } })
   } else if (path.endsWith('/api/sessions')) {
     await route.fulfill({ json: { sessions: [] } })
-  } else if (path.endsWith('/api/history/runs')) {
+  } else if (path.endsWith('/api/history') || path.endsWith('/api/history/runs')) {
     await route.fulfill({ json: { records: [] } })
   } else if (path.endsWith('/api/projects/default')) {
     await route.fulfill({ json: { project: {
@@ -359,10 +367,10 @@ test('stored run outputs load only after selection and retain their original ide
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
   await page.screenshot({ path: testInfo.outputPath('stored-run-selected.png'), animations: 'disabled' })
   await rows.nth(1).click()
-  await expect(rows.nth(1)).toContainText('Could not load outputs:')
+  await expect(rows.nth(1)).toContainText('Could not load outputs.')
   await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true')
   await rows.nth(2).click()
-  await expect(rows.nth(2)).toContainText('response run identity mismatch')
+  await expect(rows.nth(2)).toContainText('Could not load outputs.')
   await expect(rows.nth(2).locator('.output-thumbnail')).toHaveCount(0)
   await rows.nth(2).scrollIntoViewIfNeeded()
   await page.mouse.move(600, 400)
@@ -529,7 +537,7 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
     for (const [toggle, name] of [['library-toggle', 'library'], ['assets-toggle', 'assets']] as const) {
       await openDock(page, toggle)
       const state = page.getByTestId('dock-zone-left').getByRole('alert').filter({ hasText: 'Backend data unavailable' })
-      await expect(state).toContainText('GET /api/nodes failed: 503')
+      await expect(state).toContainText('The engine reported an error.')
       await expect(state.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
       await page.mouse.move(width / 2, height / 2)
       await page.keyboard.press('Escape')
@@ -597,12 +605,15 @@ test('Library Assets and Runs use shared empty and loading states', async ({ pag
     const presentation = library.locator('[data-collection-state]')
     await expect(presentation).toHaveAttribute('data-collection-state', state)
     if (state === 'loading') await expect(presentation.getByRole('status')).toContainText('Loading workflows')
-    if (state === 'error') await expect(presentation.getByRole('alert')).toContainText('GET /api/library failed: 503')
+    if (state === 'error') {
+      const error = presentation.getByRole('alert')
+      await expect(error).toHaveText('Could not load Workflows. Retry')
+      await expect(error.getByTestId('collection-retry')).toBeEnabled()
+    }
     if (state === 'empty') {
       await expect(presentation).toContainText('No saved workflows')
       await expect(presentation.locator('img')).toHaveCount(0)
     }
-    if (state === 'error') await expect(library.getByTestId('collection-retry')).toBeEnabled()
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
       await page.mouse.move(width / 2, height / 2)
@@ -979,7 +990,7 @@ test('Storage settings distinguish accounting policy and permission failures', a
   await screenshot(page, 'storage-unavailable-900')
   state = 'forbidden'
   await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
-  await expect(panel.getByRole('alert')).toContainText('403')
+  await expect(panel.getByRole('alert')).toContainText('You do not have access.')
   await expect(panel.getByRole('button', { name: 'Apply limit', exact: true })).toBeDisabled()
   await screenshot(page, 'storage-forbidden-900')
 })
@@ -1005,11 +1016,12 @@ test('Settings and subgraph cleanup empty states remain usable', async ({ page }
 
 test('Collaboration discovery distinguishes unavailable loading empty and failed reads', async ({ page }) => {
   let mode: 'loading' | 'empty' | 'error' | 'ready' = 'loading'
-  let release: (() => void) | undefined
+  let release!: () => void
+  const loaded = new Promise<void>((resolve) => { release = resolve })
   await page.route('**/collab-visual/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/api/sessions')) {
-      if (mode === 'loading') await new Promise<void>((resolve) => { release = resolve })
+      if (mode === 'loading') await loaded
       return mode === 'error'
         ? route.fulfill({ status: 503, body: 'Session fixture unavailable' })
         : route.fulfill({ json: { sessions: mode === 'ready' ? [{
@@ -1070,8 +1082,7 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
   })
   await capture('loading')
   mode = 'empty'
-  await expect.poll(() => release !== undefined).toBe(true)
-  release?.()
+  release()
   await expect(page.getByTestId('collab-empty')).toContainText('No shared sessions')
   await capture('empty')
   mode = 'error'
@@ -1119,9 +1130,8 @@ test('App view explains an empty flow and an empty arrangement group', async ({ 
   }
 })
 
-test('Template gallery presents loading error retry and empty search states', async ({ page }) => {
-  let mode: 'loading' | 'empty' | 'error' = 'loading'
-  let mountChangesAllowed = false
+test('Templates page presents loading error retry and empty search states', async ({ page }) => {
+  let mode: 'loading' | 'empty' | 'error' | 'settings-error' = 'loading'
   let release: (() => void) | undefined
   await page.route('**/gallery-visual/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
@@ -1131,7 +1141,12 @@ test('Template gallery presents loading error retry and empty search states', as
         ? route.fulfill({ status: 503, body: 'Template fixture unavailable' })
         : route.fulfill({ json: { templates: [] } })
     }
-    if (path.endsWith('/api/mounts')) return route.fulfill({ json: { mounts: [], mountChangesAllowed } })
+    if (path.endsWith('/api/models/settings')) return mode === 'settings-error'
+      ? route.fulfill({ status: 503, body: 'Model settings fixture unavailable' })
+      : route.fulfill({ json: {
+        settings: { version: 1, locations: [], downloadLocation: null }, locations: [],
+        revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+      } })
     if (path.endsWith('/api/settings')) return route.fulfill({ json: { features: { templates: { enabled: true } }, categories: { available: [], granted: [] }, settings: {} } })
     await emptyVisualBackend(route)
   })
@@ -1140,61 +1155,60 @@ test('Template gallery presents loading error retry and empty search states', as
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as unknown as {
       activeTab(): { id: string }
-      addBackend(url: string, label: string, persist: boolean, protocol: string): { id: string }
+      addBackend(url: string, label: string, persist: boolean, protocol: string): { id: string; templatesEnabled: { set(value: boolean): void } }
       setTabTarget(tab: string, backend: string): void
       refreshBackendSchemas(backend: unknown): Promise<void>
-      templateGalleryOpen: { set(value: boolean): void }
+      commands: { get(id: string): { run(): void } }
     }
     const backend = app.addBackend('/gallery-visual', 'Gallery visual', false, 'dinkster')
     app.setTabTarget(app.activeTab().id, backend.id)
     await app.refreshBackendSchemas(backend)
-    app.templateGalleryOpen.set(true)
+    backend.templatesEnabled.set(true)
   })
-  const gallery = page.getByTestId('template-gallery')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.commands.get('workflow.openTemplateGallery') !== undefined)).toBe(true)
+  await page.evaluate(() => {
+    const commands = window.__dinksterTest!.app.commands as unknown as { get(id: string): { run(): void } }
+    commands.get('workflow.openTemplateGallery').run()
+  })
+  const gallery = page.getByTestId('templates-page')
   const capture = async (state: string): Promise<void> => {
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
-      if (state === 'folder-form') {
-        const grant = gallery.getByRole('button', { name: 'Grant folder', exact: true })
-        await grant.scrollIntoViewIfNeeded()
-        await expect(grant).toBeInViewport({ ratio: 1 })
-      }
+      const search = await gallery.getByRole('searchbox').boundingBox()
+      const blank = await gallery.getByRole('button', { name: 'Blank workflow', exact: true }).boundingBox()
+      expect(search).not.toBeNull()
+      expect(blank).not.toBeNull()
+      expect(search!.x + search!.width).toBeLessThanOrEqual(blank!.x)
       await page.mouse.move(0, 0)
       await screenshot(page, `gallery-${state}-${width}`)
     }
   }
-  await expect(gallery.getByRole('status')).toContainText('Loading starter templates...')
+  await expect(gallery.getByText('Loading starter templates...', { exact: true })).toBeVisible()
   await capture('loading')
   await expect.poll(() => release !== undefined).toBe(true)
   mode = 'error'
   release?.()
-  await expect(gallery.getByRole('alert')).toContainText('GET /api/templates failed: 503')
+  await expect(gallery.getByRole('alert')).toContainText('Could not load templates. The engine reported an error.')
+  await expect(gallery).not.toContainText('GET /api/templates')
+  await expect(gallery.getByRole('listbox', { name: 'Makes', exact: true })).toHaveCount(0)
+  await expect(gallery.getByText('No templates yet. Packs you add can bring their own.', { exact: true })).toHaveCount(0)
   await expect(gallery.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
   await capture('error')
+  mode = 'settings-error'
+  await gallery.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(gallery.getByRole('alert')).toContainText('Could not load templates')
+  await expect(gallery).not.toContainText('GET /api/models/settings')
+  await expect(gallery.getByRole('listbox', { name: 'Makes', exact: true })).toHaveCount(0)
+  await expect(gallery.getByText('No templates yet. Packs you add can bring their own.', { exact: true })).toHaveCount(0)
   mode = 'empty'
   await gallery.getByRole('button', { name: 'Retry', exact: true }).click()
-  await expect(gallery.getByText('No starter templates are available.', { exact: true })).toBeVisible()
+  await expect(gallery.getByText('No templates yet. Packs you add can bring their own.', { exact: true })).toBeVisible()
   await expect(gallery.getByRole('alert')).toHaveCount(0)
-  await expect(gallery.getByText('Grant read-only access to an existing folder. Dinkster indexes models in place without copying them.', { exact: true })).toBeVisible()
   await capture('empty')
-  await gallery.getByTestId('template-gallery-search').fill('unmatched-template-507')
-  await expect(gallery.getByText('No starter templates match this search.', { exact: true })).toBeVisible()
-  await capture('no-matches')
-  await gallery.getByTestId('template-gallery-search').press('Escape')
-  await expect(gallery.getByTestId('template-gallery-search')).toHaveValue('')
-  await expect(gallery.getByText('No starter templates are available.', { exact: true })).toBeVisible()
+  await gallery.getByRole('searchbox', { name: 'Search templates' }).fill('unmatched-template-507')
+  await expect(gallery.getByText('No templates yet. Packs you add can bring their own.', { exact: true })).toBeVisible()
   await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toHaveCount(0)
-  mountChangesAllowed = true
-  await closeGallery(page)
-  await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as { templateGalleryOpen: { set(value: boolean): void } }
-    app.templateGalleryOpen.set(true)
-  })
-  await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toBeVisible()
-  await gallery.getByLabel('Path', { exact: true }).fill('/models/shared')
-  await gallery.getByLabel('Mount name', { exact: true }).fill('shared-models')
-  await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toBeEnabled()
-  await capture('folder-form')
+  await expect(gallery.locator('form')).toHaveCount(0)
 })
 
 test('Problems Selection only explains an empty selection and absent document', async ({ page }) => {
@@ -1262,9 +1276,6 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
   })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(2)
   for (const [name, badge, text] of [
-    ['error', 'core.error', 'No error details recorded.'],
-    ['info', 'core.log.info', 'No log records for this run.'],
-    ['warning', 'core.log.warning', 'No log records for this run.'],
     ['problem', 'core.problem.error', 'No problem details recorded.'],
     ['subgraph', 'core.subgraph', 'Definition missing.'],
     ['replacement', 'core.deprecated', 'Node missing.'],
@@ -1280,11 +1291,9 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       document.querySelector('.canvas-pane')!.append(host)
       const dispose = render(() => BadgePopover({
         anchor: { x: 32, y: 96, nodeId: 'source', badge: { id: badge, glyph: '!', color: '#f00' } },
-        errors: () => [], nodeLogs: () => [], problems: () => [],
+        problems: () => [],
         subgraphInfo: () => undefined, deprecationInfo: () => undefined,
         onOpenSubgraph: () => {}, onClose: () => {},
-        onDismissError: () => { host.dataset['action'] = 'dismiss' },
-        onOpenExecutionLog: () => { host.dataset['action'] = 'log' },
       }), host)
       target.disposeBadgeVisual = () => { dispose(); host.remove() }
     }, badge)
@@ -1295,14 +1304,6 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       await page.setViewportSize({ width, height })
       await page.mouse.move(0, 0)
       await screenshot(page, `badge-${name}-empty-${width}`)
-    }
-    if (badge === 'core.error') {
-      await popover.getByRole('button', { name: 'Dismiss', exact: true }).click()
-      await expect(popover.locator('..')).toHaveAttribute('data-action', 'dismiss')
-    }
-    if (badge === 'core.log.info' || badge === 'core.log.warning') {
-      await popover.getByRole('button', { name: 'Open in Execution log', exact: true }).click()
-      await expect(popover.locator('..')).toHaveAttribute('data-action', 'log')
     }
   }
   await page.evaluate(() => (window as unknown as { disposeBadgeVisual(): void }).disposeBadgeVisual())
@@ -1420,6 +1421,7 @@ test('Workflow queue empty popover preserves disclosure and Escape focus', async
   await expect(popover.getByText('No jobs for this workflow.', { exact: true })).toBeVisible()
   await toggle.evaluate((element) => element.blur())
   await page.mouse.move(0, 0)
+  await expect(toggle).toHaveCSS('background-color', 'rgb(50, 65, 67)')
   await expect(page.getByTestId('app-tooltip')).toBeHidden()
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
@@ -1429,6 +1431,7 @@ test('Workflow queue empty popover preserves disclosure and Escape focus', async
   await toggle.press('Escape')
   await expect(popover).toBeHidden()
   await expect(toggle).toBeFocused()
+  await expect(toggle).toHaveCSS('outline-offset', '-1px')
   await control.getByTestId('queue-button').click()
   await expect(control.locator('..')).toHaveAttribute('data-queued', 'true')
   await page.evaluate(() => (window as unknown as { disposeQueueVisual(): void }).disposeQueueVisual())
@@ -1523,7 +1526,7 @@ test('Saved connection rows retain actions, credential editing and connection fa
     document.querySelector('.canvas-pane')!.append(host)
     desktopWindow.dinksterDesktop = {
       locale: async () => 'en',
-      status: async () => ({ phase: 'running', detail: 'Ready' }),
+      info: async () => ({}),
       connectionCredentials: async () => ({ custody: true, profiles: [profile.id] }),
       setConnectionCredential: async () => { host.dataset['savedToken'] = 'true' },
     }

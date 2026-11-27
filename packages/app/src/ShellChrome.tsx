@@ -109,6 +109,11 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   const resetFit = (): void => {
     readoutHeight = undefined
     setFitted(undefined)
+    if (element.isConnected) {
+      // A dialog may have entered the top layer since the previous target.
+      element.hidePopover()
+      element.showPopover()
+    }
     queueMicrotask(position)
   }
   createEffect(on(() => props.tip, resetFit))
@@ -122,6 +127,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     onCleanup(() => observer.unobserve(container))
   })
   onMount(() => {
+    element.showPopover()
     observer.observe(element)
     window.addEventListener('resize', resetFit)
     window.addEventListener('scroll', position, true)
@@ -132,7 +138,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     })
   })
   return (
-    <aside ref={element} class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip">
+    <aside ref={element} popover="manual" class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip">
       <div ref={content} role="tooltip">
         <Show when={displayed().title}><div class="app-tooltip-title">
           {displayed().title}<Show when={displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
@@ -140,6 +146,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
         <For each={displayed().lines}>{(line, index) => <div>
           {line}<Show when={index() === 0 && !displayed().title && displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
         </div>}</For>
+        <Show when={displayed().note}>{(note) => <div class="app-tooltip-note">{note()}</div>}</Show>
         <Show when={props.tip.detailed}><For each={displayed().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
       </div>
     </aside>
@@ -186,6 +193,8 @@ export function ActivityBarButton(props: {
   readonly panelId?: string | undefined
   readonly testId?: string | undefined
   readonly class?: string | undefined
+  /** Drawn unavailable: it keeps its tooltip, which says why, and does nothing when pressed. */
+  readonly unavailable?: boolean | undefined
   readonly onActivate: () => void
 }) {
   const tooltip = () => props.tooltip !== props.label
@@ -201,11 +210,25 @@ export function ActivityBarButton(props: {
       data-tooltip-immediate="true"
       aria-label={props.accessibleName === props.label ? props.label : `${props.label}: ${props.accessibleName}`}
       aria-pressed={props.pressed}
-      onClick={props.onActivate}
+      aria-disabled={props.unavailable ? 'true' : undefined}
+      onClick={() => { if (!props.unavailable) props.onActivate() }}
     >
       <span class="sidebar-button-icon" aria-hidden="true"><Icon icon={props.icon ?? PanelLeft} /></span>
     </button>
   )
+}
+
+/** Desktop supplies the platform after mounting its native window chrome. */
+export function windowBarPlatform(frame: () => HTMLElement) {
+  const [platform, setPlatform] = createSignal<string>()
+  onMount(() => {
+    const read = () => setPlatform(frame().querySelector<HTMLElement>('.dinkster-window-toolbar-host')?.dataset['platform'])
+    read()
+    const observer = new MutationObserver(read)
+    observer.observe(frame(), { childList: true, subtree: true, attributes: true, attributeFilter: ['data-platform'] })
+    onCleanup(() => observer.disconnect())
+  })
+  return platform
 }
 
 /**
@@ -221,6 +244,8 @@ export function IconBar(props: {
   readonly children: JSX.Element
   readonly account: JSX.Element
   readonly onSettings: () => void
+  /** Why Settings cannot open here; draws it unavailable with this as its tooltip. */
+  readonly settingsUnavailable?: string | undefined
 }) {
   const message = useAppMessage()
   return (
@@ -234,8 +259,9 @@ export function IconBar(props: {
         icon={Settings}
         label={message('shell.panel.settings.title')}
         accessibleName={message('shell.panel.settings.title')}
-        tooltip={message('shell.panel.settings.title')}
-        tooltipShortcut="Ctrl+,"
+        tooltip={props.settingsUnavailable ?? message('shell.panel.settings.title')}
+        tooltipShortcut={props.settingsUnavailable === undefined ? 'Ctrl+,' : undefined}
+        unavailable={props.settingsUnavailable !== undefined}
         pressed={undefined}
         testId="settings-button"
         class="sidebar-settings-button"

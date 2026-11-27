@@ -3,7 +3,7 @@
  * save, browse, and reopen; the bridge is used only for deterministic setup
  * and a document command whose persisted result can be asserted exactly.
  */
-import { expect, selectProductOption, nativeTest as test, type Page } from './fixtures.js'
+import { expect, selectProductOption, waitForWorkspaceReady, nativeTest as test, type Page } from './fixtures.js'
 
 const uniqueName = (label: string): string =>
   `e2e-${label}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -73,6 +73,7 @@ function workflowRow(page: Page, title: string) {
 }
 
 async function targetNativeBackend(page: Page): Promise<void> {
+  await waitForWorkspaceReady(page)
   const alreadyNative = await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()

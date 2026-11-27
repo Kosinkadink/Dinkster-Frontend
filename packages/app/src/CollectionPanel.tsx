@@ -25,6 +25,7 @@
 import { batch, createEffect, createSignal as createSolidSignal, createUniqueId, For, onCleanup, Show, type JSX } from 'solid-js'
 import type { CollectionEntry, CollectionSource } from '@dinkster/core'
 import { requestWithDeadline } from '@dinkster/client'
+import { ProductErrorBanner } from '@dinkster/ui'
 // Barrel import, NOT lucide-solid/icons/* deep imports: this module is
 // transitively imported by unit-tested code (WidgetEditor), and the deep
 // icon paths resolve to lucide's client-compiled ESM under vitest's node
@@ -60,6 +61,11 @@ export function CollectionPanel(props: {
   }) => JSX.Element
   /** Optional entry activation (open frozen view, insert blueprint, ...). */
   readonly onActivate?: (sourceId: string, entry: CollectionEntry) => void
+  /** Hosts own the transfer format; collections only expose the row gesture. */
+  readonly drag?: {
+    readonly enabled: (entry: CollectionEntry, owner?: string) => boolean
+    readonly start: (entry: CollectionEntry, event: DragEvent, owner?: string) => void
+  }
   /** Optional handler for per-entry actions (entry.actions clicks). */
   readonly onAction?: (sourceId: string, entry: CollectionEntry, actionId: string) => void
   /** Source-scoped toolbar operations (bulk clear, ...), host-provided. */
@@ -241,6 +247,8 @@ export function CollectionPanel(props: {
     ...(pickGroupChildren(entry) === undefined && expandedIds().has(entry.id) ? visibleChildren(entry) : []),
   ])
 
+  const mixedKinds = (): boolean => new Set(navigableItems().map((entry) => entry.kind).filter((kind) => kind !== undefined)).size > 1
+
   const selectedEntry = (): CollectionEntry | undefined => navigableItems().find((e) => e.id === selectedId())
   const selectedElementId = (): string | undefined => {
     const selected = selectedId()
@@ -257,6 +265,9 @@ export function CollectionPanel(props: {
     if (common.query !== '' || activeFilters().length > 0) return { ...common, kind: 'no-match' }
     return { ...common, kind: 'empty' }
   }
+
+  const firstLoadFailed = (): boolean => error() !== undefined && visibleItems().length === 0
+  const showCount = (): boolean => !firstLoadFailed() && total() !== undefined && items().length < total()!
 
   const searchDescription = (): string => {
     const state = panelState()
@@ -281,6 +292,7 @@ export function CollectionPanel(props: {
   // sources stop wasted transfers, but a source that ignores the signal
   // still cannot overwrite newer results.
   let generation = 0
+  let loadedScope = ''
   let controller: AbortController | undefined
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
   // One-shot: armed until a fresh page in the navigated folder contains
@@ -319,12 +331,14 @@ export function CollectionPanel(props: {
       ...(src.folders === true && folder() !== '' ? { folder: folder() } : {}),
       ...(cur !== undefined ? { cursor: cur } : {}),
     }
+    const scope = JSON.stringify([src.id, req.query, req.filters, req.folder])
     setLoading(true)
     setError(undefined)
     if (!append) setPageOwner(undefined)
     void requestWithDeadline((signal) => src.page({ ...req, signal: AbortSignal.any([req.signal, signal]) }))
       .then((page) => {
         if (gen !== generation) return // a newer query/source superseded us
+        loadedScope = scope
         // Preserve row focus across refreshed pages. If the row disappears,
         // use the roving stop; never steal focus from a nested control.
         const active = document.activeElement
@@ -352,15 +366,16 @@ export function CollectionPanel(props: {
           })
         }
       })
-      .catch((reason: unknown) => {
+      .catch(() => {
         if (gen !== generation) return // superseded (incl. our own abort)
-        if (!append) {
+        if (scope !== loadedScope) {
           setItems([])
-          setPageOwner(undefined)
+          setTotal(undefined)
         }
+        if (!append) setPageOwner(undefined)
         setCursor(undefined)
         setLoading(false)
-        setError(reason instanceof Error ? reason.message : String(reason))
+        setError(message('collection.state.failed', { source: source()?.label ?? '' }))
       })
   }
 
@@ -505,8 +520,8 @@ export function CollectionPanel(props: {
       <For each={p.entry.details ?? []}>
         {(d) => (
           <>
-            <dt>{d.label}</dt>
-            <dd>{d.text}</dd>
+            <dt title={d.title}>{d.label}</dt>
+            <dd title={d.title}>{d.text}</dd>
           </>
         )}
       </For>
@@ -553,6 +568,13 @@ export function CollectionPanel(props: {
       data-testid="collection-entry"
       data-entry={p.entry.id}
       role="option"
+      draggable={props.drag?.enabled(p.entry, pageOwner()) === true}
+      onDragStart={(event) => {
+        if (!props.drag) return
+        if ((event.target as Element).closest('button, input, textarea, a') ||
+            !props.drag.enabled(p.entry, pageOwner())) { event.preventDefault(); return }
+        props.drag.start(p.entry, event, pageOwner())
+      }}
       aria-selected={highlighted(p.entry)}
       aria-disabled={props.pick !== undefined && p.entry.folder === undefined && !props.pick.pickable(p.entry) ? 'true' : undefined}
       // A host that draws its own entry content already shows these facts, and the tooltip would cover the rows under it.
@@ -567,8 +589,11 @@ export function CollectionPanel(props: {
         <Show when={p.entry.subtitle}>
           <span class="collection-subtitle">{p.entry.subtitle}</span>
         </Show>
-        <Show when={(p.entry.badges ?? []).length > 0}>
+        <Show when={(p.entry.badges ?? []).length > 0 || (mixedKinds() && p.entry.kind !== undefined)}>
           <span class="collection-badges">
+            <Show when={mixedKinds() && p.entry.kind !== undefined}>
+              <span class="collection-badge" data-badge={p.entry.kind}>{p.entry.kind}</span>
+            </Show>
             <For each={p.entry.badges}>{(b) => <span class="collection-badge" data-badge={b.toLocaleLowerCase()}>{b}</span>}</For>
           </span>
         </Show>
@@ -678,22 +703,24 @@ export function CollectionPanel(props: {
       data-testid={stateProps.state.kind === 'error' ? 'collection-error' : 'collection-empty'}
       data-collection-state={stateProps.state.kind}
     >
+      <Show when={stateProps.state.kind !== 'error'} fallback={
+        <ProductErrorBanner onDismiss={firstLoadFailed() ? undefined : () => setError(undefined)}>
+          {message('collection.state.failed', { source: stateProps.state.sourceLabel })}{' '}
+          <ProductButton type="button" data-testid="collection-retry" disabled={loading()} onClick={() => runPage(false)}>{message('templateGallery.retry')}</ProductButton>
+        </ProductErrorBanner>
+      }>
       {props.renderState?.(stateProps.state) ?? (
         <ProductEmptyState
-          tone={stateProps.state.kind === 'error' ? 'error' : stateProps.state.kind === 'loading' ? 'loading' : 'empty'}
+          tone={stateProps.state.kind === 'loading' ? 'loading' : 'empty'}
           title={stateProps.state.kind === 'loading'
             ? message('collection.state.loading')
-            : stateProps.state.kind === 'error'
-              ? stateProps.state.message
-              : stateProps.state.kind === 'no-match'
+            : stateProps.state.kind === 'no-match'
                 ? message('collection.state.noMatches')
                 : stateProps.state.kind === 'no-compatible'
                   ? message('collection.state.noAvailable')
                   : message('collection.state.empty')}
         />
       )}
-      <Show when={stateProps.state.kind === 'error'}>
-        <ProductButton type="button" data-testid="collection-retry" disabled={loading()} onClick={() => runPage(false)}>{message('templateGallery.retry')}</ProductButton>
       </Show>
     </div>
   )
@@ -766,6 +793,7 @@ export function CollectionPanel(props: {
       onKeyDown={keydown}
     >
       <div class="collection-toolbar">
+        <Show when={!firstLoadFailed()} fallback={<SourceControl />}>
         <Controls />
         <For each={(props.sourceActions ?? []).filter((a) => a.sourceId === sourceId())}>
           {(a) => (
@@ -791,9 +819,10 @@ export function CollectionPanel(props: {
             <Icon icon={Grid2X2} />
           </Show>
         </button></Show>
+        </Show>
       </div>
 
-      <Show when={source()?.folders === true}>
+      <Show when={source()?.folders === true && !firstLoadFailed()}>
         <nav class="collection-folders" data-testid="collection-folders" aria-label={message('collection.folder.ariaLabel')}>
           <button type="button" aria-current={folder() === '' ? 'page' : undefined} onClick={() => navigateFolder('')}>{message('collection.folder.root')}</button>
           <For each={folder().split('/').filter(Boolean)}>
@@ -863,8 +892,9 @@ export function CollectionPanel(props: {
         {props.detailRail?.(selectedEntry())}
       </div>
 
-      <div class="collection-footer">
-        <Show when={total() !== undefined}>
+      <Show when={showCount() || cursor() !== undefined}>
+      <div class="collection-footer" data-count={showCount() ? '' : undefined}>
+        <Show when={showCount()}>
           <span class="collection-total" data-testid="collection-total">
             {message('collection.result.total', { count: items().length, total: total()! })}
           </span>
@@ -880,6 +910,7 @@ export function CollectionPanel(props: {
           </button>
         </Show>
       </div>
+      </Show>
     </div>
   )
 }

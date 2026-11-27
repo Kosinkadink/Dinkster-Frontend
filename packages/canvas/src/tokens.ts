@@ -46,7 +46,7 @@ export const canvasPaintTokens = {
   },
   viewport: { initialOffset: 40, fitMargin: 60, minFitScale: 0.1, maxFitScale: 2 },
   keyboardFocus: { stroke: 1, outset: 2 },
-  graphCache: { tilePixels: 512, bleedPixels: 2 },
+  graphCache: { tilePixels: 512, bleedPixels: 2, detailMaxScale: 0.5 },
   badge: {
     radius: 3,
     baselineOffset: 0.5,
@@ -144,6 +144,8 @@ export const canvasPaintTokens = {
     textOutputMaxRows: 6,
     /** Rows an open text result shows at least. */
     textOutputMinRows: 2,
+    /** Waveform, two transport rows and padding, without the caption. */
+    audioPreview: { minWidth: 240, minHeight: 126 },
     /**
      * The bar of a node whose preview is open: the text box's bar
      * (`widget.textBoxEdge`), its top `barRise` above the node's bottom edge
@@ -765,12 +767,11 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
 /** Minimum zoom for text detail and transient media DOM. */
 export const CANVAS_DETAIL_MIN_SCALE = canvasPaintTokens.detailMinScale
 
-/** Typed presentation density derived from the two shared Canvas thresholds. */
-export type CanvasDetailLevel = 'overview' | 'content' | 'controls'
+/** Node content and its controls share the configured detail threshold. */
+export type CanvasDetailLevel = 'overview' | 'controls'
 
-export function canvasDetailLevel(scale: number, mediaControlMinScale: number, detailMinScale: number = CANVAS_DETAIL_MIN_SCALE): CanvasDetailLevel {
-  if (scale >= mediaControlMinScale) return 'controls'
-  return scale >= detailMinScale ? 'content' : 'overview'
+export function canvasDetailLevel(scale: number, detailMinScale: number = CANVAS_DETAIL_MIN_SCALE): CanvasDetailLevel {
+  return scale >= detailMinScale ? 'controls' : 'overview'
 }
 
 export type NodeLook = 'original' | 'flat-title'
@@ -818,7 +819,6 @@ export interface DesignTokens {
   readonly previewGap: number
   readonly mediaTransportHeight: number
   readonly detailMinScale: number
-  readonly mediaControlMinScale: number
   readonly nodeMinWidth: number
   readonly nodeMaxAutoWidth: number
   readonly pinRadius: number
@@ -1019,6 +1019,18 @@ export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFal
   typeFallbackLightness: 62,
 }
 
+/** Engine model kinds reuse the named pin colors in every theme. */
+export const modelKindColorMap: Readonly<Record<string, string>> = {
+  'model/checkpoint': 'MODEL',
+  'model/diffusion': 'MODEL',
+  'model/text-encoder': 'CLIP',
+  'model/vae': 'VAE',
+  'model/controlnet': 'CONTROL_NET',
+  'model/lora': 'LATENT',
+  'model/upscale': 'IMAGE',
+  'model/upscaler': 'IMAGE',
+}
+
 /** A field's box inset from the node's edge in the default look; a pin's name lines up with the field's label inside it. */
 const defaultFieldInsetX = 8
 
@@ -1033,7 +1045,6 @@ export const defaultTokens: DesignTokens = {
   previewGap: 6,
   mediaTransportHeight: 64,
   detailMinScale: CANVAS_DETAIL_MIN_SCALE,
-  mediaControlMinScale: 0.75,
   nodeMinWidth: 140,
   nodeMaxAutoWidth: 420,
   pinRadius: 5.5,

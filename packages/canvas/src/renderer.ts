@@ -25,7 +25,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutLine, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectNodeLayoutWidth, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutLine, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -1060,7 +1060,7 @@ export class CanvasRenderer {
   private reducedMotion = false
   private animationTimeMs = 0
   private previewChecker: CanvasPattern | null | undefined
-  private readonly graphTiles = new Map<string, ImageBitmap>()
+  private readonly graphTiles = new Map<string, ImageBitmap | null>()
   private graphTileTransform = ''
   private graphTileSurface: OffscreenCanvas | undefined
   private canvasLayers: readonly CanvasLayerContribution[] = []
@@ -1073,6 +1073,7 @@ export class CanvasRenderer {
     private tokens: DesignTokens,
     private readonly paintWidget: WidgetPainter = defaultWidgetPainter,
   ) {
+    this.fixedDetailMinScale = tokens.detailMinScale
     this.loop = this.loop.bind(this)
     this.scheduleFrame()
   }
@@ -1103,6 +1104,7 @@ export class CanvasRenderer {
   setScene(scene: Scene): void {
     this.baseScene = scene
     this.replacePaintScene(this.sceneWithBodyRegions(scene))
+    this.refreshDetailMinScale()
     this.refreshConnectivity()
     this.canvasLayerNodes = Object.freeze(this.scene.nodes.map((node) => Object.freeze({
       id: node.id,
@@ -1393,10 +1395,48 @@ export class CanvasRenderer {
     this.invalidate()
   }
 
+  private fixedDetailMinScale: number
+  private automaticDetails = false
+  private viewportGesture = false
+  private detailSettleTimer: ReturnType<typeof setTimeout> | undefined
+  private readonly detailScaleListeners = new Set<(scale: number) => void>()
+
   setDetailMinScale(scale: number): void {
-    if (this.tokens.detailMinScale === scale) return
-    this.tokens = { ...this.tokens, detailMinScale: scale }
+    this.fixedDetailMinScale = scale
+    this.refreshDetailMinScale()
+  }
+
+  setDetailMode(mode: 'automatic' | 'fixed'): void {
+    this.automaticDetails = mode === 'automatic'
+    this.refreshDetailMinScale()
+  }
+
+  onDetailMinScaleChange(listener: (scale: number) => void): () => void {
+    this.detailScaleListeners.add(listener)
+    return () => this.detailScaleListeners.delete(listener)
+  }
+
+  setViewportGesture(active: boolean): void {
+    if (this.viewportGesture === active) return
+    this.viewportGesture = active
+    if (active) {
+      clearTimeout(this.detailSettleTimer)
+      this.detailSettleTimer = undefined
+    } else this.refreshDetailMinScale()
+  }
+
+  refreshDetailMinScale(): void {
+    if (this.automaticDetails && (this.viewportGesture || this.viewportAnimation !== undefined || this.detailSettleTimer !== undefined)) return
+    const { x, y, scale } = this.viewport
+    const count = this.automaticDetails ? this.scene.nodes.filter((node) =>
+      node.x * scale + x <= this.canvas.clientWidth && (node.x + node.layout.width) * scale + x >= 0 &&
+      node.y * scale + y <= this.canvas.clientHeight && (node.y + node.layout.height) * scale + y >= 0,
+    ).length : 0
+    const threshold = this.automaticDetails ? count <= 40 ? 0.15 : count <= 150 ? 0.22 : 0.3 : this.fixedDetailMinScale
+    if (this.tokens.detailMinScale === threshold) return
+    this.tokens = { ...this.tokens, detailMinScale: threshold }
     this.invalidate()
+    for (const listener of this.detailScaleListeners) listener(threshold)
   }
 
   setColors(colors: DesignTokens['colors'], typePaint?: Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'>): void {
@@ -1609,7 +1649,7 @@ export class CanvasRenderer {
   }
 
   getDetailLevel(): CanvasDetailLevel {
-    return canvasDetailLevel(this.viewport.scale, this.tokens.mediaControlMinScale, this.tokens.detailMinScale)
+    return canvasDetailLevel(this.viewport.scale, this.tokens.detailMinScale)
   }
 
   private badges: BadgeMap = {}
@@ -1885,20 +1925,41 @@ export class CanvasRenderer {
       const folded = previewFoldedOf(node)
       const preview = previews[node.id]
       const outputText = outputTexts[node.id]
+      const audio = preview?.kind === 'audio' || node.audioPreview === true ? canvasPaintTokens.node.audioPreview : undefined
+      const tokens = audio === undefined ? this.tokens : { ...this.tokens, previewMinHeight: audio.minHeight, previewDefaultHeight: audio.minHeight }
       if (node.layout.minimized === true) {
         const content = minimizedStripContent(preview, outputText)
         return content === 'picture'
-          ? { ...node, layout: folded ? withFoldedPreviewRegion(node.layout, this.tokens) : withPreviewRegion(node.layout, this.tokens) }
+          ? { ...node, layout: folded ? withFoldedPreviewRegion(node.layout, tokens) : withPreviewRegion(node.layout, tokens) }
           : content === 'text'
             ? { ...node, layout: withTextOutputRegion(node.layout, this.tokens, this.outputTextLineCount(node.layout, outputText!.text), folded) }
             : node
       }
       // Only the caption row: before a picture, while it loads or failed, and folded.
       const panel = preview !== undefined && previewHasPanel(preview) && !folded
-      const baseLayout = node.previewCapable === true || (preview !== undefined && !panel)
-        ? withCompactPreviewRegion(node.layout, this.tokens)
+      let baseLayout = node.previewCapable === true || (preview !== undefined && !panel)
+        ? withCompactPreviewRegion(node.layout, tokens)
         : node.layout
-      if (panel) return { ...node, layout: withPreviewRegion(baseLayout, this.tokens) }
+      if (!panel && node.audioPreview === true && baseLayout.preview?.compact === true) {
+        const ctx = this.canvas.getContext('2d')!
+        const caption = canvasPaintTokens.preview.caption
+        ctx.save()
+        ctx.font = `${tokens.fontSize}px ${tokens.fontFamily}`
+        const labelWidth = measureWidth(ctx, 'Preview')
+        ctx.font = `${Math.max(canvasPaintTokens.type.smallMinSize, tokens.fontSize - canvasPaintTokens.type.smallReduction)}px ${tokens.fontFamily}`
+        const detailWidth = measureWidth(ctx, 'no sound yet')
+        ctx.restore()
+        const minWidth = Math.max(baseLayout.minWidth, Math.ceil(tokens.padX * 2 + caption.padLeft + labelWidth + caption.gap + Math.ceil(detailWidth) + caption.padRight))
+        baseLayout = { ...projectNodeLayoutWidth(baseLayout, Math.max(baseLayout.width, minWidth)), minWidth }
+      }
+      if (panel) {
+        let layout = withPreviewRegion(baseLayout, tokens)
+        if (audio !== undefined) {
+          const minWidth = Math.max(layout.minWidth, audio.minWidth)
+          layout = { ...projectNodeLayoutWidth(layout, Math.max(layout.width, minWidth)), minWidth }
+        }
+        return { ...node, layout }
+      }
       if (preview !== undefined && folded && previewHasPanel(preview)) {
         return { ...node, layout: withFoldedPreviewRegion(baseLayout, this.tokens) }
       }
@@ -2100,6 +2161,14 @@ export class CanvasRenderer {
     this.viewport = viewport
     this.dirty = true
     for (const cb of this.viewportListeners) cb(viewport)
+    clearTimeout(this.detailSettleTimer)
+    this.detailSettleTimer = undefined
+    if (this.automaticDetails && !this.viewportGesture) {
+      this.detailSettleTimer = setTimeout(() => {
+        this.detailSettleTimer = undefined
+        this.refreshDetailMinScale()
+      }, 150)
+    }
   }
 
   /** Observe every viewport change (pan/zoom/fit/jump). Returns unsubscribe. */
@@ -2113,7 +2182,7 @@ export class CanvasRenderer {
   }
 
   private clearGraphTiles(): void {
-    for (const tile of this.graphTiles.values()) tile.close()
+    for (const tile of this.graphTiles.values()) tile?.close()
     this.graphTiles.clear()
     this.graphTileTransform = ''
   }
@@ -2129,7 +2198,7 @@ export class CanvasRenderer {
       const width = (size + bleed * 2) / (densityX * scale)
       const height = (size + bleed * 2) / (densityY * scale)
       if (bounds.maxX < x || bounds.minX > x + width || bounds.maxY < y || bounds.minY > y + height) continue
-      tile.close()
+      tile?.close()
       this.graphTiles.delete(key)
     }
   }
@@ -2223,6 +2292,8 @@ export class CanvasRenderer {
 
   dispose(): void {
     this.cancelViewportAnimation()
+    clearTimeout(this.detailSettleTimer)
+    this.detailScaleListeners.clear()
     this.disposed = true
     if (this.rafId !== undefined) cancelAnimationFrame(this.rafId)
     this.rafId = undefined
@@ -2474,11 +2545,19 @@ export class CanvasRenderer {
     densityX: number,
     densityY: number,
   ): void {
-    const { tilePixels: size, bleedPixels: bleed } = canvasPaintTokens.graphCache
+    const cache = canvasPaintTokens.graphCache
+    const { tilePixels: size, bleedPixels: bleed } = cache
     const { x, y, scale } = this.viewport
+    const overlay = this.overlay
+    // Node/link bins prove transparency only when nothing else can paint
+    // between them. Overlay transitions also invalidate cached empty tiles.
+    const skipEmpty = scale <= cache.detailMaxScale && this.getDetailLevel() !== 'overview' &&
+      this.scene.groups.length === 0 && this.scene.reroutes.length === 0 && this.scene.netStubs.length === 0 && this.scene.boundaryNodes.length === 0 &&
+      !overlay.selection?.size && !overlay.ghostLink && !overlay.ghostLinks && !overlay.hoveredLine &&
+      !overlay.marquee && !overlay.groupResizeGhost && !overlay.placementGhost
     const pixelX = Math.round(x * densityX)
     const pixelY = Math.round(y * densityY)
-    const transform = `${scale}/${densityX}/${densityY}`
+    const transform = `${scale}/${densityX}/${densityY}/${skipEmpty}`
     if (transform !== this.graphTileTransform) {
       this.clearGraphTiles()
       this.graphTileTransform = transform
@@ -2533,6 +2612,11 @@ export class CanvasRenderer {
               assign(this.linkPaintBounds(link), (scene) => scene.links.push(link))
             }
           }
+          const tileScene = scenes.get(key)!
+          if (skipEmpty && tileScene.nodes.length === 0 && tileScene.links.length === 0) {
+            this.graphTiles.set(key, null)
+            continue
+          }
           const surface = this.graphTileSurface ??= new OffscreenCanvas(size + bleed * 2, size + bleed * 2)
           // Reset paint state as well as pixels before rendering another tile.
           surface.width = surface.height = size + bleed * 2
@@ -2545,17 +2629,17 @@ export class CanvasRenderer {
             y: -originY / (densityY * scale),
             w: (size + bleed * 2) / (densityX * scale),
             h: (size + bleed * 2) / (densityY * scale),
-          }, scale, { ...this.scene, ...scenes.get(key)! })
+          }, scale, { ...this.scene, ...tileScene })
           tile = surface.transferToImageBitmap()
           this.graphTiles.set(key, tile)
         }
-        ctx.drawImage(tile, bleed, bleed, size, size, column * size + pixelX, row * size + pixelY, size, size)
+        if (tile !== null) ctx.drawImage(tile, bleed, bleed, size, size, column * size + pixelX, row * size + pixelY, size, size)
       }
     }
     // Retain only the visible working set, independent of total graph size or pan distance.
     for (const [key, tile] of this.graphTiles) {
       if (used.has(key)) continue
-      tile.close()
+      tile?.close()
       this.graphTiles.delete(key)
     }
   }
@@ -2948,7 +3032,7 @@ export class CanvasRenderer {
       ) {
         continue
       }
-      this.drawNode(ctx, node, detailLevel, o.dx, o.dy)
+      this.drawNode(ctx, node, detailLevel, view, o.dx, o.dy)
     }
 
     // Boundary pseudo-nodes: drawn after regular nodes (they sit at the
@@ -3538,8 +3622,8 @@ export class CanvasRenderer {
     }
   }
 
-  /** Paint-only projection for an in-flight resize; scene and hit geometry stay committed. */
-  private nodeForPaint(node: SceneNode): SceneNode {
+  /** Live geometry shared by canvas paint and host overlays; scene and hit geometry stay committed. */
+  nodeForPaint(node: SceneNode): SceneNode {
     const lines = this.overlay.textBoxLines
     if (lines?.nodeId === node.id) {
       return { ...node, layout: projectTextBoxLines(node.layout, lines.valueKey, lines.lines, this.tokens) }
@@ -3553,16 +3637,7 @@ export class CanvasRenderer {
       ...node,
       x: preview.x,
       y: preview.y,
-      layout: {
-        ...layout,
-        width: preview.width,
-        ...(layout.preview === undefined ? {} : {
-          preview: { ...layout.preview, width: Math.max(0, preview.width - this.tokens.padX * 2) },
-        }),
-        ...(layout.textOutput === undefined ? {} : {
-          textOutput: { ...layout.textOutput, width: Math.max(0, preview.width - this.tokens.padX * 2) },
-        }),
-      },
+      layout: projectNodeLayoutWidth(layout, preview.width),
     }
   }
 
@@ -3700,6 +3775,7 @@ export class CanvasRenderer {
     ctx: CanvasRenderingContext2D,
     sceneNode: SceneNode,
     detailLevel: CanvasDetailLevel,
+    view: Readonly<{ y: number; h: number }>,
     dx = 0,
     dy = 0,
   ): void {
@@ -4102,8 +4178,15 @@ export class CanvasRenderer {
       // A skipped node's fields are quiet; its problem marks keep contrast.
       const skippedRows = progress?.state === 'skipped'
       this.problemMarkAlpha = rowsAlpha
+      const cache = canvasPaintTokens.graphCache
+      const cullFields = scale <= cache.detailMaxScale
+      const rowPad = structureCullPad(scale, t.pinRadius, detailLevel)
       for (const row of l.rows) {
         const rowY = node.y + row.y
+        // A field outside this tile cannot contribute pixels; its pins and
+        // enclosing boxes still paint through their independent paths.
+        if (cullFields && row.kind === 'widget' &&
+            (rowY + row.height + rowPad < view.y || rowY - rowPad > view.y + view.h)) continue
         // A member box's header starts where its outline does.
         const rowTop = row.kind === 'member' ? row.top : row.y
         ctx.globalAlpha = dragged !== undefined && rowTop >= dragged.top && rowTop < dragged.bottom
@@ -4458,7 +4541,7 @@ export class CanvasRenderer {
         y: node.y + l.preview.y,
         width: l.preview.width,
         height: l.preview.height,
-      }, { label: 'Preview', detail: 'no picture yet', detailColor: t.colors.valueMark, detailFont: smallFont, hovered: false })
+      }, { label: 'Preview', detail: node.audioPreview === true ? 'no sound yet' : 'no picture yet', detailColor: t.colors.valueMark, detailFont: smallFont, hovered: false })
     }
     if (previewEdgeShown(node) && contentDetail) {
       // The text box's bar, inside the node just above its bottom edge: it
@@ -4571,6 +4654,7 @@ export class CanvasRenderer {
     }
     for (const pin of l.pins) {
       if (pin.stacked === true || pin.lineHidden === true) continue
+      if (!contentDetail && l.rows.some((row) => row.kind === 'editorSpace' && pin.y >= row.y && pin.y < row.y + row.height)) continue
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? node.x : node.x + l.width, node.y + pin.y)
       const targetKey = dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true)
       const isLegalTarget = this.overlay.dropTargets?.has(targetKey) ?? false
@@ -4885,7 +4969,7 @@ export class CanvasRenderer {
       ctx.strokeStyle = t.colors.selection
       ctx.strokeRect(x, y, chip.width, chip.height)
       const icon = chip.width * canvasPaintTokens.controller.chipIconRatio
-      paintSeedControllerIcon(ctx, row.controllerMode, x + (chip.width - icon) / 2, y + (chip.height - icon) / 2, icon, t.colors.label)
+      paintSeedControllerIcon(ctx, row.controllerMode, x + (chip.width - icon) / 2, y + (chip.height - icon) / 2, icon, t.colors.label, row.spec.controller)
       ctx.globalAlpha = chipAlpha
     }
     const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
@@ -5356,6 +5440,7 @@ export class CanvasRenderer {
     // Pins. Ghost pins draw hollow; a legal boundary drop target gets the
     // same highlight ring as regular pins.
     for (const pin of l.pins) {
+      if (!contentDetail && l.rows.some((row) => row.kind === 'editorSpace' && pin.y >= row.y && pin.y < row.y + row.height)) continue
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? x : x + l.width, y + pin.y)
       if (this.overlay.dropTargets?.has(boundaryTargetKey(bnode.side, pin.portId))) {
         ctx.beginPath()

@@ -74,6 +74,7 @@ export interface PreviewRing {
 export interface ExecutionLogEntry {
   readonly level: 'info' | 'warning'
   readonly message: string
+  readonly code?: string
   /** Backend emit time when stamped, else client arrival time (epoch ms). */
   readonly timestamp: number
   /** Absent on run-level records not attributed to one node. */
@@ -128,6 +129,8 @@ export interface ExecutionState {
   readonly valueDiagnostics?: readonly ValueDiagnostic[]
   /** Execution log records, bounded FIFO within this execution only. */
   readonly logs: readonly ExecutionLogEntry[]
+  /** Explicit coded node warnings survive eviction of unrelated log lines. */
+  readonly warnings?: readonly ExecutionLogEntry[]
   /** Records discarded from the front of `logs` by the buffer cap. */
   readonly logsDropped: number
   /** Latest frame WITHOUT node attribution (legacy binary protocol). */
@@ -448,6 +451,7 @@ export class ExecutionStore {
   }): void {
     const key = executionKey(state.ref)
     if (!this.canRestoreCompleted(state.ref)) return
+    const previous = this.get(state.ref)
     this.recentlyEvicted.delete(key)
     this.unconfirmed.delete(key)
     this.provisionallyLost.delete(key)
@@ -465,8 +469,9 @@ export class ExecutionStore {
       artifactsHydrated: true,
       previews: {},
       activities: [],
-      logs: [],
-      logsDropped: 0,
+      logs: previous?.logs ?? [],
+      logsDropped: previous?.logsDropped ?? 0,
+      ...(previous?.warnings === undefined ? {} : { warnings: previous.warnings }),
       errors: [],
       ...(state.submittedBy === undefined ? {} : { submittedBy: state.submittedBy }),
       ...(state.automaticValues === undefined || state.automaticValues.length === 0 ? {} : { automaticValues: state.automaticValues }),
@@ -722,10 +727,10 @@ export class ExecutionStore {
         // were already tallied in logsDropped when they were evicted.
         const index = logInsertionIndex(state.logs, event.seq)
         if (index < 0) return
-        if (index === 0 && state.logs.length >= EXECUTION_LOG_CAP) return
         const entry: ExecutionLogEntry = {
           level: event.level,
           message: event.message,
+          ...(event.code === undefined ? {} : { code: event.code }),
           timestamp: event.emittedAt ?? event.timestamp,
           seq: event.seq,
           ...(event.runtimeNodeId !== undefined ? { runtimeNodeId: event.runtimeNodeId } : {}),
@@ -733,12 +738,22 @@ export class ExecutionStore {
           ...(event.logger !== undefined ? { logger: event.logger } : {}),
           ...(event.pythonLevel !== undefined ? { pythonLevel: event.pythonLevel } : {}),
         }
+        const previousWarning = state.warnings?.find((warning) => warning.runtimeNodeId === entry.runtimeNodeId && warning.code === entry.code)
+        const warnings = event.level === 'warning' && event.code !== undefined && event.origin === undefined && event.runtimeNodeId !== undefined &&
+          (previousWarning === undefined || previousWarning.seq < entry.seq)
+          ? [...(state.warnings ?? []).filter((warning) => warning !== previousWarning), entry].slice(-EXECUTION_LOG_CAP)
+          : state.warnings
+        if (index === 0 && state.logs.length >= EXECUTION_LOG_CAP) {
+          if (warnings !== undefined && warnings !== state.warnings) this.put({ ...state, warnings })
+          return
+        }
         const inserted = [...state.logs.slice(0, index), entry, ...state.logs.slice(index)]
         const dropped = Math.max(0, inserted.length - EXECUTION_LOG_CAP)
         this.put({
           ...state,
           logs: dropped > 0 ? inserted.slice(dropped) : inserted,
           logsDropped: state.logsDropped + dropped,
+          ...(warnings === undefined ? {} : { warnings }),
         })
         return
       }

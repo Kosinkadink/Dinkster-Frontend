@@ -49,7 +49,6 @@ import {
   containingGroup,
   initialGroupMembership,
   groupBoxKey,
-  hasKnownLinkDropAnchorType,
   dragNumericValue,
   isIntegerWidgetValue,
   isNumberWidget,
@@ -490,6 +489,8 @@ export interface InteractionHost {
    * ends (commit or cancel). Fires only on change; presence egress rides it.
    */
   onDragOffsets?(offsets: ReadonlyMap<string, { readonly dx: number; readonly dy: number }> | undefined): void
+  /** Live node geometry for DOM editors and media, cleared on resize commit or cancel. */
+  onNodeResize?(node: SceneNode | undefined): void
   /** Semantic fixed endpoint of an active link drag, or undefined on end. */
   onLinkDragPresence?(origin: LinkDragPresenceOrigin | undefined): void
   /**
@@ -901,6 +902,7 @@ export class InteractionController {
   private lastDragOffsets:
     | ReadonlyMap<string, { readonly dx: number; readonly dy: number }>
     | undefined
+  private lastResizePreview: OverlayState['resizePreview']
   private lastLinkDragPresence: LinkDragPresenceOrigin | undefined
   private readonly pointerTrace = new PointerTrace()
   private readonly detach: () => void
@@ -920,6 +922,7 @@ export class InteractionController {
       this.recoverRepressedGesture(e)
       const wasIdle = this.gesture.kind === 'idle'
       this.onPointerDown(e)
+      this.renderer.setViewportGesture(this.gesture.kind === 'pan' || this.touchNav !== undefined)
       if (wasIdle && this.gesture.kind !== 'idle')
         this.pointerTrace.recordGesture(this.gesture.kind, 'start', 'pointerdown')
       // A press that captured the pointer but started no gesture (badge
@@ -1320,6 +1323,7 @@ export class InteractionController {
     if (kind === 'number-drag') this.renderer.setRowDrag(undefined)
     this.pointerTrace.recordGesture(kind, 'cancel', reason)
     this.gesture = { kind: 'idle' }
+    this.renderer.setViewportGesture(false)
     this.pushOverlay()
   }
 
@@ -1486,6 +1490,7 @@ export class InteractionController {
     const nav = this.touchNav
     if (nav === undefined) return
     this.touchNav = undefined
+    this.renderer.setViewportGesture(false)
     this.releasePointer(nav.a)
     this.releasePointer(nav.b)
     this.pointerTrace.recordGesture('touch-nav', event, reason)
@@ -3535,6 +3540,7 @@ export class InteractionController {
     const g = this.gesture
     const gestureGraphId = this.gestureGraphId
     this.gesture = { kind: 'idle' }
+    this.renderer.setViewportGesture(false)
     this.activePointerId = undefined
     this.activeButtonMask = undefined
     this.activePointerType = undefined
@@ -4477,7 +4483,6 @@ export class InteractionController {
         g.moved &&
         hit.kind === 'empty' &&
         !g.preserveInputDriver &&
-        hasKnownLinkDropAnchorType(g.anchorType) &&
         (g.seeking === 'in' ? fixedFrom : fixedInto) !== undefined
       ) {
         this.host.onLinkDropOnEmpty?.(
@@ -4902,6 +4907,11 @@ export class InteractionController {
     if (extra.dragOffsets !== this.lastDragOffsets) {
       this.lastDragOffsets = extra.dragOffsets
       this.host.onDragOffsets?.(extra.dragOffsets)
+    }
+    if (extra.resizePreview !== this.lastResizePreview) {
+      this.lastResizePreview = extra.resizePreview
+      const node = this.renderer.getScene().nodes.find((node) => node.id === extra.resizePreview?.nodeId)
+      this.host.onNodeResize?.(node === undefined ? undefined : this.renderer.nodeForPaint(node))
     }
     const linkPresence = this.gesture.kind === 'link' ? this.gesture.presenceOrigin : undefined
     const sameLinkPresence =

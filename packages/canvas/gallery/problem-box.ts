@@ -14,6 +14,8 @@ import {
   canvasPaintTokens,
   executionErrorBadge,
   LAST_RUN_BADGE,
+  LOG_INFO_BADGE,
+  logWarningBadge,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
   problemBadge,
@@ -34,8 +36,8 @@ export interface ProblemBoxGalleryLine {
   readonly row?: string
   readonly rowName?: string
   readonly message: string
-  /** Action labels, each a button under the message. */
-  readonly actions: readonly string[]
+  /** Action labels at the right end of the line, wrapping when needed. */
+  readonly actions: readonly { readonly label: string; readonly labels?: readonly string[]; readonly disabled?: boolean }[]
 }
 
 export interface ProblemBoxGalleryBox {
@@ -58,6 +60,7 @@ export interface ProblemBoxGalleryCard {
   readonly boxes: readonly ProblemBoxGalleryBox[]
   /** Real solver problems, shown in both the panel and the node's box. */
   readonly diagnostics?: readonly Diagnostic[]
+  readonly run?: { readonly level: 'error' | 'warning' | 'info'; readonly diagnostics: readonly Diagnostic[] }
   /** The row drawn highlighted with its line. */
   readonly highlight?: { readonly nodeId: string; readonly row: string }
   readonly width: number
@@ -241,7 +244,7 @@ const line = (
   kind,
   ...(row === undefined ? {} : { row, rowName: row }),
   message,
-  actions,
+  actions: actions.map((label) => ({ label })),
 })
 
 const EDIT = 'Edit field'
@@ -289,7 +292,42 @@ export function problemBoxGallery(
     { id: 'latent', schema: schema('GalleryLoadLatent', 'Load latent', [out('samples', 'LATENT', 'samples')]), x: column(1) },
   ]
   const switchWires: readonly Wire[] = [[['load', 'image'], ['switch', 'branch.branch0']], [['latent', 'samples'], ['switch', 'branch.branch1']]]
+  const getItem = schema('GalleryGetItem', 'Get item', [
+    pin('list', 'IMAGE', 'list'), field('item', 'item', 'INT', 7), out('image', 'IMAGE', 'image'),
+  ])
+  const fixCards = [
+    { id: 'ask-me-fix', value: 7, message: 'Only 4 items are known.', action: 'Use the last item',
+      caption: 'Ask me keeps item 7. The fix sits at the right end of the warning, wrapping below only when needed. Pressing it stores item 4 in one undo step.' },
+    { id: 'ask-me-wrap', value: 7, message: 'Only 4 items are known.', action: 'Use the last item', narrow: true,
+      caption: 'In a narrow canvas, the same action wraps below the message and stays at the right end.' },
+    { id: 'storing-fix', value: 7, message: 'Only 4 items are known.', action: 'Storing...', disabled: true,
+      caption: 'While the fix is storing, its action is disabled so a second press cannot start another write. Everything or nothing is stored.' },
+    { id: 'stale-fix', value: 6, message: 'Could not apply this fix. The workflow changed.', action: 'Check again',
+      caption: 'The offered fix no longer matches. The newer item 6 stays. Check again refreshes the problem without running the old fix.' },
+  ] as const
   return [
+    ...fixCards.map((card): ProblemBoxGalleryCard => ({
+      id: card.id, caption: card.caption,
+      scene: scene([{ id: 'pick', schema: getItem, x: LEFT, values: { item: card.value },
+        ...('narrow' in card ? { width: 200 } : {}) }]),
+      badges: { pick: [warnings(1)] }, rowMarks: { pick: { item: 'warning' } },
+      boxes: [{ nodeId: 'pick', nodeTitle: 'Get item', lines: [{
+        ...line('warning', 'item', card.message),
+        actions: [{ label: card.action, labels: ['Use the last item', 'Storing...', 'Check again'], disabled: 'disabled' in card && card.disabled }],
+      }] }],
+      width: 'narrow' in card ? LEFT * 2 + 200 : BOXED,
+    })),
+    {
+      id: 'declared-fix',
+      caption: 'A node-declared fix always asks, even when every Automatic fixes setting is Apply. Its declared label is shown unchanged; it has no settings row. Use 512 stores width 512 in one undo step.',
+      scene: scene([{ id: 'resize', schema: resizeImage, x: LEFT, values: { width: 0 } }]),
+      badges: { resize: [warnings(1)] }, rowMarks: { resize: { width: 'warning' } },
+      boxes: [{ nodeId: 'resize', nodeTitle: 'Resize image', lines: [{
+        ...line('warning', 'width', 'Width must be positive.'),
+        actions: [{ label: 'Use 512', labels: ['Use 512', 'Storing...', 'Check again'] }],
+      }] }],
+      width: BOXED,
+    },
     solverCard('type-warning', 'An image sent to samples that needs latent data. The same warning names the node in Problems and the row once in its own box. The wire and its handle are warning yellow.', [
       { id: 'load', schema: loadImage, x: column(0) },
       { id: 'decode', schema: latentSink, x: column(1) },
@@ -405,7 +443,7 @@ export function problemBoxGallery(
     },
     {
       id: 'stops-a-run',
-      caption: 'What stops a run. A missing model offers Locate or replace; Review download replaces it when the download review can open without a run. A required input never connected reads "Image is required."; mask is optional with nothing plugged in, so it has no outline and no line. A value failing a check with no fix offers Edit field.',
+      caption: 'What stops a run. A missing model offers Download models and Locate or replace. Download models opens the review without a run. A required input never connected reads "Image is required."; mask is optional with nothing plugged in, so it has no outline and no line. A value failing a check with no fix offers Edit field.',
       scene: scene([
         { id: 'load', schema: loadModel, x: column(0) },
         { id: 'caption', schema: captionImage, x: column(1) },
@@ -414,7 +452,7 @@ export function problemBoxGallery(
       badges: { load: [errors(1)], caption: [errors(1)], resize: [errors(1)] },
       rowMarks: { load: { model: 'error' }, caption: { image: 'error' }, resize: { width: 'error' } },
       boxes: [
-        { nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', 'Model file is missing.', ['Locate or replace'])] },
+        { nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', 'Model file is missing.', ['Download models', 'Locate or replace'])] },
         { nodeId: 'caption', nodeTitle: 'Caption image', lines: [line('error', 'image', 'Image is required.')] },
         { nodeId: 'resize', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] },
       ],
@@ -476,15 +514,15 @@ export function problemBoxGallery(
     ...[
       {
         id: 'model-missing-review',
-        caption: 'A missing model with a download source to review. Review download opens consent for this model only; it does not queue the workflow. Locate or replace opens the field.',
+        caption: 'A missing model with a download source to review. Download models opens the review for this model only; it does not queue the workflow. Locate or replace opens the field.',
         message: 'sdxl_base.safetensors is not in a model folder this project uses on Local engine.',
-        actions: ['Review download', 'Locate or replace'],
+        actions: ['Download models', 'Locate or replace'],
       },
       {
         id: 'model-missing-no-source',
-        caption: 'A missing model with no download source. Only Locate or replace is offered.',
+        caption: 'A missing model with no download source. Download models opens the review to choose a source. Locate or replace opens the field.',
         message: 'sdxl_base.safetensors is not in a model folder this project uses on Local engine.',
-        actions: ['Locate or replace'],
+        actions: ['Download models', 'Locate or replace'],
       },
       {
         id: 'model-hidden',
@@ -538,5 +576,31 @@ export function problemBoxGallery(
       scale: 0.55,
       width: BOXED,
     },
+    ...[
+      { id: 'run-error', caption: 'One run error: its Error tab is the title; Log holds the details.', level: 'error', messages: ['The image could not be read.'] },
+      { id: 'run-input-error', caption: 'An error naming an input outlines that row. The input prefix leaves the message.', level: 'error', messages: ["input 'file': The image could not be read."] },
+      { id: 'run-python-error', caption: 'A Python error shows only its message here. Its traceback and input values stay in Log.', level: 'error', messages: ['The decoder could not read this image because its file is incomplete. Select another image or replace the incomplete file before running this node again.'] },
+      { id: 'run-two-errors', caption: 'Two errors on one node, one entry for each, with the shared text actions.', level: 'error', messages: ['The image could not be read.', 'The selected image format is not supported.'] },
+      { id: 'run-warning', caption: 'A run warning opens the same box under its Warning tab.', level: 'warning', messages: ['The image has no color profile.'] },
+      { id: 'run-message', caption: 'A run message opens the same box under its Message tab.', level: 'info', messages: ['The image was loaded.'] },
+    ].map(({ id, caption, level, messages }): ProblemBoxGalleryCard => ({
+      id, caption,
+      scene: scene([{ id: 'read', schema: loadImage, x: LEFT }]),
+      badges: { read: [level === 'error' ? executionErrorBadge(messages.length) : level === 'warning' ? logWarningBadge(messages.length) : LOG_INFO_BADGE] },
+      rowMarks: id === 'run-input-error' ? { read: { file: 'error' } } : {},
+      boxes: [{ nodeId: 'read', nodeTitle: 'Load image', lines: [] }],
+      run: {
+        level: level as 'error' | 'warning' | 'info',
+        diagnostics: messages.map((message) => ({
+          severity: level as 'error' | 'warning' | 'info', origin: 'runtime', code: 'runtime.ImageReadError', message,
+          ...(id === 'run-python-error' ? { runtime: {
+            exceptionType: 'ImageReadError', exceptionMessage: message,
+            traceback: ['Traceback (most recent call last):', 'ImageReadError: incomplete file'],
+            currentInputs: { file: 'incomplete.png' },
+          } } : {}),
+        })),
+      },
+      width: BOXED,
+    })),
   ]
 }

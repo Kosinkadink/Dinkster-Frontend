@@ -28,6 +28,7 @@ import {
 } from '@dinkster/core'
 import { buildDinksterRegistry, DinksterConnection, ExecutionStore, IMAGE_DOCUMENT_MEDIA_TYPE, hydrateDinksterCompletedExecution, PackInstallError, promptToDinksterGraph, reconcileDinksterExecutions, targetsForArtifact, type FetchLike, type WebSocketLike } from '../src/index.js'
 import { uuidv4 } from '../src/dinkster-connection.js'
+import { requestFailureReason, subscribeRequestFailures } from '../src/request-failure.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
@@ -76,6 +77,66 @@ const ref = (jobId: string): ExecutionRef => ({ connection: C0, prompt: asPrompt
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
+it('retires account caches and the event stream on verified identity changes, never on stale status', async () => {
+  const signedOut = { available: true, canStartSignIn: true, signInUnavailableReason: null,
+    signedIn: false, profile: null, signIn: { state: 'idle' }, principalRevision: 'local' }
+  let status = signedOut
+  let delayed: Promise<Response> | undefined
+  const sockets: WebSocketLike[] = []
+  const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'browser',
+    fetchFn: async (url) => url.includes('/docs/pages/')
+      ? new Response(status.principalRevision, { headers: { 'Content-Type': 'text/markdown' } })
+      : delayed ?? jsonResponse(200, status),
+    webSocketFactory: () => {
+      const socket: WebSocketLike = { binaryType: '', onopen: null, onmessage: null, onclose: null, onerror: null,
+        send() {}, close() {} }
+      sockets.push(socket)
+      return socket
+    },
+  })
+  connection.connect()
+  sockets.at(-1)!.onopen?.({})
+  await connection.accountStatus()
+  sockets.at(-1)!.onopen?.({})
+  const localGeneration = connection.principalGeneration.get()
+  await connection.accountStatus()
+  expect(connection.principalGeneration.get()).toBe(localGeneration)
+  expect(await connection.fetchDocsPage('test', 'digest')).toBe('local')
+  const events: NormalizedEvent[] = []
+  connection.onEvent((event) => events.push(event))
+  const oldMessage = sockets.at(-1)!.onmessage!
+  const oldValues = connection.values()
+  status = { ...signedOut, signedIn: true, principalRevision: 'verified-a' }
+  await connection.accountStatus()
+  expect(connection.principalGeneration.get()).toBe(localGeneration + 1)
+  expect(await connection.fetchDocsPage('test', 'digest')).toBe('verified-a')
+  const query = { jobId: 'job-local', nodeId: 'n1', outputId: 'out' }
+  expect(await oldValues.peek(query)).toMatchObject({ available: false, reason: 'aborted' })
+  expect(await oldValues.rendition(query, 'default')).toMatchObject({ available: false, reason: 'aborted' })
+  sockets.at(-1)!.onopen?.({})
+  const message = { data: JSON.stringify({ type: 'queue_state', queued: 3, running: [], maxRunningJobs: 1, paused: false }) }
+  oldMessage(message)
+  expect(events).toEqual([])
+  sockets.at(-1)!.onmessage?.(message)
+  expect(events).toHaveLength(1)
+
+  let release!: (value: Response) => void
+  delayed = new Promise((resolve) => { release = resolve })
+  const old = connection.accountStatus()
+  const refused = expect(old).rejects.toThrow('Account changed')
+  delayed = undefined
+  status = signedOut
+  await connection.signOutAccount()
+  sockets.at(-1)!.onopen?.({})
+  release(jsonResponse(200, { ...signedOut, signedIn: true, principalRevision: 'verified-a' }))
+  await refused
+  expect(connection.principalGeneration.get()).toBe(localGeneration + 2)
+  status = { ...signedOut, signedIn: true, principalRevision: 'verified-b' }
+  await connection.accountStatus()
+  expect(connection.principalGeneration.get()).toBe(localGeneration + 3)
+  connection.disconnect()
+})
 
 it('decodes and revalidates static registry import metadata without backend credentials or installed schemas', async () => {
   const row = { pack: 'dinkster-text', version: '0.0.1',
@@ -411,22 +472,29 @@ describe('model provider credentials', () => {
     await connection.cancelModelProviderSignIn('owned / flow')
     expect(calls.at(-1)?.method).toBe('DELETE')
     status = 409; payload = { error: 'private-canary' }
-    await expect(connection.saveModelProviderToken('private-canary')).rejects.toThrow('Hugging Face request failed: 409')
+    await expect(connection.saveModelProviderToken('private-canary')).rejects.toMatchObject({ status: 409, serverMessage: undefined })
+    await expect(connection.saveModelProviderToken('private-canary')).rejects.not.toThrow('private-canary')
     status = 200; payload = { method: 'pkce', flowId: 'bad', authorizationUrl: 'https://example.com/oauth/authorize' }
     await expect(connection.startModelProviderSignIn('pkce')).rejects.toThrow('Invalid provider URL')
   })
 
   it('returns credential and provider-grant refusals without treating either as download consent', async () => {
     let error = 'credential-required'
+    let provider = 'huggingface'
+    let source = 'https://huggingface.co/example/gated/resolve/main/gated.safetensors'
     const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test',
-      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider: 'huggingface', requirementId: 'opaque' }) })
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required' })
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider, source, requirementId: 'opaque', token: 'private-canary' }) })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required', provider, source })
     error = 'provider-grant-required'
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required' })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required', provider, source })
     error = 'civitai-access-required'
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'civitai-access-required' })
+    provider = 'civitai'
+    source = 'https://civitai.com/models/123'
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'civitai-access-required', provider, source })
+    provider = 'untrusted-host'
+    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Malformed model download provider')
     error = 'unrecognized-private-message'
-    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Model download POST failed: 409')
+    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toMatchObject({ status: 409, serverMessage: undefined })
   })
 })
 
@@ -506,6 +574,26 @@ describe('model download planning and owned jobs', () => {
     await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source)
     expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
       project: selected.project, scope: 'local', source: selected.source })
+    await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source, 'archive')
+    expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
+      project: selected.project, scope: 'local', source: selected.source, location: 'archive' })
+    for (const destinationSpace of [
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 0 },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 310 },
+      { status: 'available', filesystem: 'other-volume', freeBytes: 1000 },
+      { status: 'unavailable' },
+    ]) {
+      payload = { ...selected, status: 'consent-required', planId: 'opaque-plan', destinationSpace }
+      expect(await connection.planModelDownload(selected)).toEqual(payload)
+    }
+    for (const destinationSpace of [null, { status: 'unknown' },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: -1 },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 0.5 },
+      { status: 'available', freeBytes: 10 },
+    ]) {
+      payload = { ...selected, status: 'consent-required', planId: 'opaque-plan', destinationSpace }
+      await expect(connection.planModelDownload(selected)).rejects.toThrow()
+    }
     const civitai = { ...selected, provider: 'civitai', repo: '19', revision: '72',
       source: 'https://civitai.com/api/download/models/72?fileId=84', status: 'consent-required', planId: 'civitai-plan' }
     payload = civitai
@@ -535,11 +623,16 @@ describe('model download planning and owned jobs', () => {
   it('retains verified actual paths and reuse independently of collision renaming', async () => {
     const asset = { digest: `blake3:${'d'.repeat(64)}`, name: 'existing.safetensors', size: selected.size,
       mediaType: 'application/octet-stream', virtualPath: 'model-files/studio-vae/unconventional/existing.safetensors' }
-    const payload = { ...active, received: selected.size, status: 'completed', asset,
+    let payload = { ...active, received: selected.size, status: 'completed', asset,
       path: '/models/unconventional/existing.safetensors', reused: true, renamed: false, indexingPending: true }
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
       webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
     expect(await connection.fetchModelDownload('job')).toEqual(payload)
+    const exact = { ...payload, digest: asset.digest }
+    payload = exact
+    expect(await connection.fetchModelDownload('job')).toEqual(exact)
+    payload = { ...exact, asset: { ...asset, digest: `blake3:${'e'.repeat(64)}` } }
+    await expect(connection.fetchModelDownload('job')).rejects.toThrow('Malformed verified model result')
   })
 
   it.each([
@@ -602,6 +695,9 @@ describe('shared model management', () => {
     expect(calls.at(-1)).toEqual({ url: '/engine/api/models/locations/studio%20%2F%20second/projects/work%20%2F%20client', body: { enabled: true } })
     status = 409
     await expect(connection.updateModelSettings(state.settings, state.revision)).rejects.toThrow('Refresh before saving')
+    status = 400
+    payload = { error: 'not a directory: /archive/models' }
+    await expect(connection.updateModelSettings(state.settings, state.revision)).rejects.toMatchObject({ status: 400, serverMessage: 'not a directory: /archive/models' })
     status = 403
     await expect(connection.fetchModelSettings()).rejects.toThrow('403')
   })
@@ -659,8 +755,34 @@ describe('shared model management', () => {
 })
 
 describe('mount listing decode', () => {
+  it.each([
+    [{ error: 'not a directory: /archive/plates' }, 'not a directory: /archive/plates'],
+    [{ error: { message: 'not a supported refusal' } }, undefined],
+  ])('retains a mount grant refusal with a status fallback', async (body, expected) => {
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => jsonResponse(400, body) })
+    await expect(connection.addMount('plates', '/archive/plates', 'readwrite')).rejects.toMatchObject({ status: 400, serverMessage: expected })
+  })
+
   const connectionWith = (mounts: unknown, outputMount?: unknown, mountChangesAllowed: unknown = true): DinksterConnection =>
     new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, mountChangesAllowed, ...(outputMount === undefined ? {} : { outputMount }) }) })
+
+  it('changes save access with the displayed revision and project, retaining a stale refusal', async () => {
+    const requests: { url: string; body: unknown }[] = []
+    const mount = { id: 'plates', path: '/plates', mode: 'readwrite', state: 'ready', saveError: 'Cannot save here: Permission denied' }
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/native', clientId: 'test', project: 'my project', fetchFn: async (url, init) => {
+      if (init?.method === 'PUT') {
+        requests.push({ url: String(url), body: JSON.parse(String(init.body)) })
+        return jsonResponse(409, { error: 'Mount settings changed. Refresh and try again.' })
+      }
+      return String(url).includes('/locations') ? jsonResponse(200, { mounts: [mount], activeMounts: [mount] })
+        : jsonResponse(200, { mounts: [mount], revision: 'displayed-revision', mountChangesAllowed: true })
+    } })
+    const settings = await connection.fetchMountSettings()
+    expect(settings.mounts[0]?.saveError).toBe('Cannot save here: Permission denied')
+    expect((await connection.fetchMountLocations()).activeMounts?.[0]?.saveError).toBe(mount.saveError)
+    await expect(connection.updateMountAccess('plates', 'read', settings.revision!)).rejects.toMatchObject({ status: 409, serverMessage: 'Mount settings changed. Refresh and try again.' })
+    expect(requests).toEqual([{ url: '/native/api/mounts/plates/access?project=my+project', body: { mode: 'read', revision: 'displayed-revision' } }])
+  })
 
   it.each([200, 503])('answers an older mount read with the newer snapshot after a late HTTP %s response', async (status) => {
     let finish!: (response: Response) => void
@@ -686,27 +808,30 @@ describe('mount listing decode', () => {
     await expect(connection.fetchMountSettings()).rejects.toThrow('GET /api/mounts failed: 503')
     finish(jsonResponse(200, { mounts: [], outputMount: 'removed' }))
     await expect(older).rejects.toThrow('GET /api/mounts failed: 503')
-    expect(connection.mountError.get()).toBe('GET /api/mounts failed: 503')
+    expect(connection.mountError.get()).toBe('The engine reported an error.')
   })
 
   it('times out a stalled mount read, ignores its late completion, and clears health on retry', async () => {
     vi.useFakeTimers()
+    const details: string[] = []
+    const unsubscribe = subscribeRequestFailures((failure) => details.push(failure.message))
     try {
       let finish!: (response: Response) => void
       const fetchFn = vi.fn<FetchLike>()
         .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
         .mockResolvedValue(jsonResponse(200, { mounts: [], outputMount: 'renders' }))
       const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn })
-      const first = expect(connection.fetchMountSettings()).rejects.toThrow('timed out after 30 seconds')
+      const first = connection.fetchMountSettings().catch((error: unknown) => error)
       await vi.advanceTimersByTimeAsync(30_000)
-      await first
-      expect(connection.mountError.get()).toContain('timed out')
+      expect(requestFailureReason(await first)).toBe('The engine did not answer.')
+      expect(details).toEqual(['GET /api/mounts failed: no answer'])
+      expect(connection.mountError.get()).toBe('The engine did not answer.')
       finish(jsonResponse(200, { mounts: [], outputMount: 'stale' }))
       await Promise.resolve()
-      expect(connection.mountError.get()).toContain('timed out')
+      expect(connection.mountError.get()).toBe('The engine did not answer.')
       await expect(connection.fetchMountSettings()).resolves.toMatchObject({ outputMount: 'renders' })
       expect(connection.mountError.get()).toBeUndefined()
-    } finally { vi.useRealTimers() }
+    } finally { unsubscribe(); vi.useRealTimers() }
   })
 
   it('does not commit a schema catalog that arrives after its deadline', async () => {
@@ -809,8 +934,10 @@ describe('mount listing decode', () => {
 
   it.each([undefined, 'default', 'film'])('persists the output for project %s without changing another project', async (project) => {
     const requests: { url: string; init?: RequestInit }[] = []
+    let refused = false
     const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', ...(project === undefined ? {} : { project }), webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
       requests.push({ url: String(url), ...(init ? { init } : {}) })
+      if (refused && init?.method === 'PUT') return jsonResponse(409, { error: 'Cannot save here: Permission denied' })
       return jsonResponse(200, { mounts: [{ id: 'renders', mode: 'readwrite', state: 'ready' }], outputMount: null, activeOutputMount: null, restartRequired: true, pendingRemovals: ['old'] })
     } })
     await connection.selectOutputMount('renders')
@@ -825,10 +952,12 @@ describe('mount listing decode', () => {
         init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mounts: ['renders'], outputMount: 'renders' }) },
       },
     ])
+    refused = true
+    await expect(connection.selectOutputMount('renders')).rejects.toMatchObject({ status: 409, serverMessage: 'Cannot save here: Permission denied' })
   })
 
   it('keeps operator configured and active locations distinct across pending changes', async () => {
-    const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'ready' }
+    const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'failed', error: 'Permission denied: /live/plates' }
     const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates', mode: 'read', state: 'restart-required', source: 'config', kind: 'image', entryCount: 17 }], activeMounts: [active], importMount: 'plates' }
     const { conn } = submitHarness(() => jsonResponse(200, payload))
     expect(await conn.fetchMountLocations()).toEqual(payload)
@@ -939,8 +1068,8 @@ describe('pack settings transport', () => {
   it('surfaces read status and backend mutation errors', async () => {
     const replies = [jsonResponse(503, {}), jsonResponse(400, { error: 'quality must be at most 5' })]
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => replies.shift()! })
-    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings request failed: 503')
-    await expect(connection.updatePackSettings('pack', { enabled: true, quality: 9 })).rejects.toThrow('quality must be at most 5')
+    await expect(connection.fetchPackSettings('pack')).rejects.toMatchObject({ status: 503 })
+    expect(await connection.updatePackSettings('pack', { enabled: true, quality: 9 }).catch(requestFailureReason)).toBe('quality must be at most 5')
   })
 })
 
@@ -993,6 +1122,26 @@ describe('local asset catalog and availability', () => {
     }
     reply({}, 403)
     await expect(conn.listLocalAssets({ scope: 'local' })).rejects.toThrow('403')
+  })
+
+  it('lists any project\'s outputs by its id, newest page first, ending on a null cursor', async () => {
+    const { conn, requests, reply } = harness()
+    const produced = { ...observation, id: 'run-1', origin: { kind: 'produced' }, project: 'music' }
+    const row = { asset, aliases: ['final.png'], observations: [produced] }
+    reply({ assets: [row], cursor: 'page/2' })
+    const first = await conn.listProjectOutputs('music', { limit: 6 })
+    expect(requests.at(-1)?.url).toBe('http://native/api/projects/music/outputs?limit=6')
+    expect(first).toEqual({ assets: [{ asset, aliases: ['final.png'], observations: [produced] }], cursor: 'page/2' })
+    reply({ assets: [], cursor: null })
+    expect(await conn.listProjectOutputs('music', { cursor: 'page/2' })).toEqual({ assets: [] })
+    expect(requests.at(-1)?.url).toBe('http://native/api/projects/music/outputs?cursor=page%2F2')
+    // A row observed in another project, or a missing cursor, is not this project's answer.
+    for (const payload of [{ assets: [row] }, { assets: [{ ...row, observations: [{ ...produced, project: 'film' }] }], cursor: null }]) {
+      reply(payload)
+      await expect(conn.listProjectOutputs('music')).rejects.toThrow('malformed')
+    }
+    reply({ error: 'missing' }, 404)
+    await expect(conn.listProjectOutputs('absent')).rejects.toThrow('404')
   })
 
   it('checks each exact digest once without project, names, acquisition or writes', async () => {
@@ -1260,7 +1409,7 @@ describe('promptToDinksterGraph', () => {
     expect(compiled.artifact.prompt.source).toEqual({
       class_type: 'Splitter', inputs: count === undefined ? {} : { count },
       outputIds: ['before', ...members.map((member) => `parts.${member}`), 'after'],
-      ...(count === undefined && members.length > 0 ? { outputMembers: { parts: members } } : {}),
+      ...(count !== undefined || members.length > 0 ? { outputMembers: { parts: members } } : {}),
     })
     expect(compiled.artifact.prompt.sink?.inputs.a).toEqual(['source', members.length + 1])
     const native = promptToDinksterGraph(compiled.artifact.prompt, resolve)
@@ -2752,6 +2901,7 @@ describe('execution log backfill', () => {
     seq: number,
     level: 'info' | 'warning',
     message: string,
+    code?: string,
   ): Readonly<Record<string, unknown>> & { type: string } => ({
     type: 'node_event',
     event: 'log',
@@ -2760,7 +2910,7 @@ describe('execution log backfill', () => {
     nodeId: 'n1',
     seq,
     clientId: 'cid',
-    data: { level, message, ts: 1000 + seq },
+    data: { level, message, ts: 1000 + seq, ...(code === undefined ? {} : { code }) },
   })
   const journalRecord = (seq: number, name: string, payload: unknown): Record<string, unknown> =>
     ({ seq, name, payload, durable: true, timestamp: 50 + seq })
@@ -2789,7 +2939,7 @@ describe('execution log backfill', () => {
           journalRecord(1, 'run_started', { type: 'run_started', jobId: 'j1', runId: 'r1', seq: 1 }),
           journalRecord(2, 'log', logWire('j1', 'r1', 2, 'info', 'loading model')),
           journalRecord(3, 'progress', { type: 'node_event', event: 'progress', jobId: 'j1', nodeId: 'n1', seq: 3, data: { step: 1, total: 4 } }),
-          journalRecord(4, 'log', logWire('j1', 'r1', 4, 'warning', 'fallback vae')),
+          journalRecord(4, 'log', logWire('j1', 'r1', 4, 'warning', 'Expected 3 items; received 1', 'unpack_count_mismatch')),
         ],
         latestSeq: 4,
         coalescedBelow: 0,
@@ -2799,8 +2949,11 @@ describe('execution log backfill', () => {
     const logs = store.get(ref('j1'))!.logs
     expect(logs.map((l) => [l.seq, l.level, l.message])).toEqual([
       [2, 'info', 'loading model'],
-      [4, 'warning', 'fallback vae'],
+      [4, 'warning', 'Expected 3 items; received 1'],
     ])
+    expect(store.get(ref('j1'))!.warnings).toEqual([expect.objectContaining({
+      runtimeNodeId: 'n1', code: 'unpack_count_mismatch', message: 'Expected 3 items; received 1',
+    })])
     // Replayed lifecycle/progress records are NOT re-applied here: only the
     // journal's log records flow, job state reconciles through replayJob.
     expect(store.get(ref('j1'))!.status).toBe('queued')
@@ -3466,7 +3619,9 @@ describe('workflow library wire', () => {
     { id: 'fork-environment', lastSnapshot: null, lastRunAt: null },
   ])('reads paginated engine projects and preserves library authority during registration and rename (%j)', async (environment) => {
     const project = { id: 'p-film', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false,
-      ...(environment === undefined ? {} : { environment }) }
+      lastOpenedAt: environment === null ? null : '2026-11-20T15:00:00Z',
+      ...(environment === null ? {} : { filesFolder: '/home/u/Dinkster/projects/film' }),
+      folder: environment === null ? null : '/home/u/Dinkster/library/output', ...(environment === undefined ? {} : { environment }) }
     const { conn, requests } = submitHarness((url, init) => {
       if (init?.method === 'POST') return jsonResponse(200, { project })
       if (init?.method === 'PATCH') return jsonResponse(200, { project: { ...project, name: 'Renamed', revision: 8 } })
@@ -3483,6 +3638,20 @@ describe('workflow library wire', () => {
     expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 7, patch: { name: 'Renamed' } })
     const { conn: stale } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
     await expect(stale.renameProject('p-film', 'Other', 6)).rejects.toThrow('changed elsewhere')
+  })
+
+  it.each([
+    { kind: 'empty' },
+    { kind: 'workflow', name: 'Film', content: '{ "nodes": [], "title": "Original bytes" }\n' },
+    { kind: 'project', project: 'p-source' },
+  ] as const)('registers a project with its Files destination and starting contents (%j)', async (startWith) => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
+      filesFolder: '/work/film', folder: '/work/film/output' }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { project }))
+    const controller = new AbortController()
+    expect(await conn.registerProject('p-film', 'Film', { filesFolder: '/work/film', startWith }, controller.signal)).toEqual(project)
+    expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ id: 'p-film', name: 'Film', filesFolder: '/work/film', startWith })
+    expect(requests[0]?.init?.signal).toBe(controller.signal)
   })
 
   it('reads sanitized account choices and links or unlinks only the revision-selected local project', async () => {
@@ -3506,7 +3675,7 @@ describe('workflow library wire', () => {
     expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 8, accountProject: null })
     for (const [status, error] of [[409, 'project-changed'], [403, 'operator-required'], [503, 'account-projects-unavailable']] as const) {
       const { conn: refused, requests: attempts } = submitHarness(() => jsonResponse(status, { error }))
-      await expect(refused.setProjectAccountLink('p-film', accountId, 7)).rejects.toThrow(error)
+      await expect(refused.setProjectAccountLink('p-film', accountId, 7)).rejects.toMatchObject({ status })
       expect(attempts).toHaveLength(1)
     }
     const { conn: wrongProject } = submitHarness(() => jsonResponse(200, { project: { ...project, id: 'other', accountProject: null } }))
@@ -3539,9 +3708,9 @@ describe('workflow library wire', () => {
     await expect(conn.getProject('p-film')).rejects.toThrow('Malformed library project account link')
   })
 
-  it('reads project needs without dropping unknown workflows and enables only the revision-reviewed project', async () => {
+  it.each([true, false])('reads project needs without dropping unknown workflows and enables only the revision-reviewed project (engine %s)', async (engine) => {
     const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
-    const needs = { packs: [{ pack: 'tools-a', version: '1.2.3' }, { pack: 'tools-b', version: null }], installed: [{ pack: 'tools-a', version: '1.0.0' }, { pack: 'tools-c', version: null }], extra: ['extra-c'], unknown: [{ scope: 'local', id: 'unreadable' }] }
+    const needs = { packs: [{ pack: 'tools-a', version: '1.2.3' }, { pack: 'tools-b', version: null }], ...(engine ? { installed: [{ pack: 'tools-a', version: '1.0.0' }, { pack: 'tools-c', version: null }] } : {}), extra: ['extra-c'], unknown: [{ scope: 'local', id: 'unreadable' }] }
     const { conn, requests } = submitHarness((url, init) => {
       if (url.endsWith('/needs')) return jsonResponse(200, needs)
       return jsonResponse(200, { project: { ...project, revision: init?.method === 'PATCH' ? 8 : 7 } })
@@ -3565,7 +3734,7 @@ describe('workflow library wire', () => {
     { packs: [], installed: [], extra: [null], unknown: [] },
     { packs: [], installed: [], extra: [], unknown: [{ scope: 'local' }] },
     { packs: [], installed: [], extra: [] },
-    { packs: [], extra: [], unknown: [] },
+    { packs: [], installed: null, extra: [], unknown: [] },
     { packs: [], installed: [{ pack: 'tools-a', version: 2 }], extra: [], unknown: [] },
     { packs: [], installed: [{ pack: 'tools-a', version: null }, { pack: 'tools-a', version: '1.0' }], extra: [], unknown: [] },
   ])('rejects malformed needs rather than assuming the project needs nothing', async (needs) => {
@@ -3591,6 +3760,7 @@ describe('workflow library wire', () => {
       { id: 'another-environment', lastSnapshot: '', lastRunAt: '2026-11-19T15:00:00Z' },
     ].map((environment) => ({ items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
       environment }], cursor: null })),
+    { items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false, folder: '' }], cursor: null },
     { items: [], cursor: 2 },
   ])('rejects malformed project pages instead of silently dropping projects', async (page) => {
     const { conn } = submitHarness(() => jsonResponse(200, page))
@@ -3602,6 +3772,49 @@ describe('workflow library wire', () => {
       id: 'p-other', name: 'Other', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
     } }))
     await expect(conn.registerProject('p-film', 'Film')).rejects.toThrow('another project')
+  })
+
+  it('listLibrary asks for the named project, not the connection\'s own', async () => {
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { records: [] }), 'p-open')
+    await conn.listLibrary({ scope: 'local', label: 'workflow', project: 'p-film' })
+    await conn.listLibrary({ scope: 'local' })
+    const queries = requests.map((request) => new URL(request.url).searchParams)
+    expect(queries[0]!.get('project')).toBe('p-film')
+    expect(queries[1]!.has('project')).toBe(false)
+  })
+
+  it('deleteProject sends the revision it read and refuses an answer that is not deleted', async () => {
+    const deleted = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 4, deleted: true }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { project: deleted }))
+    expect((await conn.deleteProject('p-film', 3)).deleted).toBe(true)
+    expect(requests[0]!.init?.method).toBe('DELETE')
+    expect(requests[0]!.url).toBe('http://test/api/projects/p-film')
+    expect(JSON.parse(String(requests[0]!.init?.body))).toEqual({ revision: 3 })
+    const { conn: kept } = submitHarness(() => jsonResponse(200, { project: { ...deleted, deleted: false } }))
+    await expect(kept.deleteProject('p-film', 3)).rejects.toThrow('did not delete')
+    const { conn: stale } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
+    await expect(stale.deleteProject('p-film', 2)).rejects.toThrow('changed elsewhere')
+  })
+
+  it('restoreProject posts the revision it read and refuses an answer that is still deleted', async () => {
+    const restored = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', modified: '2026-11-25T13:00:00Z', revision: 5, deleted: false }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { project: restored }))
+    expect(await conn.restoreProject('p-film', 4)).toMatchObject({ deleted: false, revision: 5, modified: '2026-11-25T13:00:00Z' })
+    expect(requests[0]!.init?.method).toBe('POST')
+    expect(requests[0]!.url).toBe('http://test/api/projects/p-film/restore')
+    expect(JSON.parse(String(requests[0]!.init?.body))).toEqual({ revision: 4 })
+    const { conn: kept } = submitHarness(() => jsonResponse(200, { project: { ...restored, deleted: true } }))
+    await expect(kept.restoreProject('p-film', 4)).rejects.toThrow('did not restore')
+    const { conn: stale } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
+    await expect(stale.restoreProject('p-film', 3)).rejects.toThrow('changed elsewhere')
+  })
+
+  it('listProjects asks for deleted projects only when told to', async () => {
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { items: [], cursor: null }))
+    await conn.listProjects()
+    await conn.listProjects(undefined, undefined, true)
+    expect(new URL(requests[0]!.url).searchParams.has('includeDeleted')).toBe(false)
+    expect(new URL(requests[1]!.url).searchParams.get('includeDeleted')).toBe('true')
   })
 
   it('listLibrary throws on a rejected cursor (restart from page one)', async () => {
@@ -3621,6 +3834,38 @@ describe('workflow library wire', () => {
   it('CL1 fetchTemplateBody treats a 200 body that fails to load as a protocol error, not absence', async () => {
     const { conn } = submitHarness(() => jsonResponse(200, {}))
     await expect(conn.fetchTemplateBody('p', 't')).rejects.toThrow('malformed response')
+  })
+
+  it('keeps request details in the Log while presenting a plain reason', async () => {
+    const details: string[] = []
+    const unsubscribe = subscribeRequestFailures((failure) => details.push(failure.message))
+    try {
+      for (const [status, body, expected] of [
+        [503, {}, 'The engine reported an error.'],
+        [500, { message: 'The library is being repaired.' }, 'The library is being repaired.'],
+        [401, {}, 'You do not have access.'],
+        [403, {}, 'You do not have access.'],
+        [404, {}, undefined],
+        [499, {}, undefined],
+        [599, {}, 'The engine reported an error.'],
+      ] as const) {
+        const { conn } = submitHarness(() => jsonResponse(status, body))
+        for (const read of [() => conn.listTemplates({}), () => conn.listDocs({}), () => conn.listHistory({ scope: 'local' })]) {
+          const error = await read().catch((failure: unknown) => failure)
+          expect(requestFailureReason(error)).toBe(expected)
+        }
+      }
+      for (const cause of [new TypeError('Failed to fetch'), new DOMException('Timed out', 'TimeoutError')]) {
+        const { conn } = submitHarness(() => { throw cause })
+        const error = await conn.listDocs({}).catch((failure: unknown) => failure)
+        expect(requestFailureReason(error)).toBe('The engine did not answer.')
+      }
+      expect(details).toContain('GET /api/templates failed: 503')
+      expect(details).toContain('GET /api/docs failed: 503')
+      expect(details).toContain('GET /api/history failed: 503')
+      expect(details).toContain('GET /api/docs failed: no answer')
+      expect(requestFailureReason(new Error('GET /private failed: 503'))).toBeUndefined()
+    } finally { unsubscribe() }
   })
 
   it('listDocs decodes the frozen grouped-locale fixture and sends every paging filter', async () => {

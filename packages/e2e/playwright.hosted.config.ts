@@ -38,27 +38,16 @@ const generation = requiredDirectory('DINKSTER_E2E_GENERATION')
 const generationPython = resolve(generation, 'python/bin/python')
 accessSync(generationPython)
 const nativeLibrary = resolve(frontendRoot, '.ci/native-library')
+const nativeEngineState = resolve(frontendRoot, '.ci/native-engine-state')
+const peerEngineState = resolve(frontendRoot, '.ci/peer-engine-state')
 const nativeOutput = resolve(nativeLibrary, 'output')
 const nativeImports = resolve(nativeLibrary, 'imports')
 const nativeCheckpoints = resolve(nativeLibrary, 'checkpoints')
 if (argumentProject) {
-  // Reset mutable test state without changing the captured generation.
-  rmSync(nativeOutput, { recursive: true, force: true })
-  rmSync(nativeImports, { recursive: true, force: true })
-  rmSync(resolve(nativeLibrary, 'vault'), { recursive: true, force: true })
-  // Published workflow records must not outlive their vault bytes.
-  for (const suffix of ['', '-journal', '-wal', '-shm']) {
-    rmSync(resolve(nativeLibrary, `records.sqlite${suffix}`), { force: true })
+  // Migration metadata and engine bindings must reset with their record database.
+  for (const directory of [nativeLibrary, nativeEngineState, peerEngineState]) {
+    rmSync(directory, { recursive: true, force: true })
   }
-  rmSync(resolve(nativeLibrary, 'project-folders.json'), { force: true })
-  rmSync(resolve(nativeLibrary, 'value-store'), {
-    recursive: true,
-    force: true,
-  })
-  rmSync(resolve(nativeLibrary, 'worker-state'), {
-    recursive: true,
-    force: true,
-  })
   mkdirSync(nativeOutput, { recursive: true })
   mkdirSync(nativeImports, { recursive: true })
   mkdirSync(resolve(nativeLibrary, 'vault'), { recursive: true })
@@ -127,6 +116,7 @@ export default defineConfig({
         `--allow-origin http://127.0.0.1:${frontendPort}`,
         `--allow-origin http://127.0.0.1:${nativeFrontendPort}`,
         `--library-root ${JSON.stringify(nativeLibrary)}`,
+        `--engine-state-root ${JSON.stringify(nativeEngineState)}`,
         '--execution-cache-mode memory',
         '--allow-mount-changes',
         `--execution-python ${JSON.stringify(generationPython)}`,
@@ -148,7 +138,7 @@ export default defineConfig({
               `--port ${peerPort}`,
               `--generation ${JSON.stringify(generation)}`,
               `--library-root ${JSON.stringify(nativeLibrary)}`,
-              `--engine-state-root ${JSON.stringify(resolve(frontendRoot, '.ci/peer-engine-state'))}`,
+              `--engine-state-root ${JSON.stringify(peerEngineState)}`,
               '--execution-cache-mode memory',
               `--execution-python ${JSON.stringify(generationPython)}`,
             ].join(' '),

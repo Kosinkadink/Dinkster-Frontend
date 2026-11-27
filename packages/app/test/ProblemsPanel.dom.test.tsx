@@ -18,6 +18,7 @@ import {
 } from '@dinkster/core'
 import { AppState, type DiagnosticFocusRequest, type Tab } from '../src/app-state.js'
 import { ProblemsPanel } from '../src/ProblemsPanel.js'
+import { AssetConsentDialog } from '../src/AssetConsentDialog.js'
 import { shortcutSuppressed } from '../src/settings.js'
 import { useSignal } from '../src/solid-adapter.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
@@ -66,6 +67,7 @@ function mountPanel(
   selection?: import('../src/ProblemsPanel.js').ProblemsPanelProps['selection'],
   panelDiagnostics: () => readonly Diagnostic[] = () => diagnostics,
   compatSkips: () => readonly { readonly packId: string; readonly nodeId: string; readonly reason: string }[] = () => [],
+  fixes?: import('../src/ProblemsPanel.js').ProblemFixActions,
 ) {
   const tab = {
     id: 'tab-dom', store: { doc: workflow },
@@ -77,12 +79,14 @@ function mountPanel(
     activeTabId: createSignal(tab.id),
     diagnosticFocus,
     activeTab: () => tab,
+    missingWorkflowModels: () => undefined,
     registryForTab: () => ({ resolve: (type: string) => type === 'Sampler' ? schema : undefined }),
   } as unknown as AppState
   const root = document.createElement('div')
   document.body.append(root)
   const unmount = render(() => (
     <ProblemsPanel app={app} diagnostics={panelDiagnostics} compatSkips={compatSkips}
+      {...(fixes === undefined ? {} : { fixes })}
       {...(selection === undefined ? {} : { selection })} />
   ), root)
   return { app, diagnosticFocus, root, unmount }
@@ -97,6 +101,125 @@ afterEach(() => {
 })
 
 describe('ProblemsPanel browser interactions', () => {
+  it('keeps numeric details focused through stale messages and moves focus only when a fix removes it', async () => {
+    const offered = diag('warning', 'environment', 'automatic.numberOutsideLimits', 'Numbers: amount: Stored value 14 is outside the allowed values.', {
+      data: { problemFixKey: 'number-fix' },
+    })
+    const [list, setList] = createSolidSignal<readonly Diagnostic[]>([offered])
+    let remove = false
+    const { root, unmount } = mountPanel(undefined, list, () => [], {
+      all: () => ({ label: 'Fix all', run: () => { setList([]) } }),
+      forProblem: () => ({ label: 'Use 12', run: () => {
+        setList(remove ? [] : [{ ...offered, message: 'Numbers: amount: Could not apply this fix. The workflow changed.' }])
+      } }),
+    })
+    const details = root.querySelector<HTMLDetailsElement>('details.problem')!
+    const summary = details.querySelector('summary')!
+    details.open = true
+    const button = details.querySelector<HTMLButtonElement>('.problem-detail button')!
+    button.focus()
+    button.click()
+    await Promise.resolve()
+    expect(root.querySelector('[data-section="workflow"]')).not.toBeNull()
+    expect(root.querySelector('details.problem')).toBe(details)
+    expect(details.open).toBe(true)
+    expect(details.textContent).toContain('Could not apply this fix. The workflow changed.')
+    expect(document.activeElement).toBe(summary)
+    setList([{ ...offered, message: 'Numbers: amount: Stored value 14 is outside the allowed values.' }])
+    expect(details.open).toBe(true)
+    expect(document.activeElement).toBe(summary)
+    remove = true
+    button.click()
+    await Promise.resolve()
+    const panel = root.querySelector('[data-testid="problems-panel"]')!
+    expect(root.querySelector('details.problem')).toBeNull()
+    expect(document.activeElement).toBe(panel)
+
+    setList([offered])
+    root.querySelector<HTMLElement>('summary')!.focus()
+    Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((candidate) => candidate.textContent === 'Fix all')!.click()
+    await Promise.resolve()
+    expect(document.activeElement).toBe(panel)
+
+    setList([offered])
+    const editor = document.createElement('input')
+    document.body.append(editor)
+    editor.focus()
+    root.querySelector<HTMLButtonElement>('.problem-detail button')!.click()
+    await Promise.resolve()
+    expect(document.activeElement).toBe(editor)
+    unmount()
+  })
+
+  it('folds repeated and exact missing models into one workflow download action without folding media', async () => {
+    const app = prepareWorkflowApp(new AppState())
+    const backend = app.addBackend('http://model-problems:8000', 'Models', false, 'dinkster')!
+    if (backend.protocol !== 'dinkster') throw new Error('native backend required')
+    const asset = { digest: 'blake3:' + 'a'.repeat(64), name: 'same.safetensors', size: 10,
+      mediaType: 'application/octet-stream', virtualPath: 'models/same.safetensors' }
+    const media = { ...asset, name: 'portrait.png', mediaType: 'image/png' }
+    const loader: NodeSchema = { ...schema, type: 'Loader', body: ['first', 'repeated', 'exact', 'vae', 'image'].map((id) => ({
+      kind: 'input', id, optional: false, type: { kind: 'concrete', name: 'ASSET' },
+      widget: { widgetType: 'ASSET', kind: id === 'image' ? 'image' : id === 'vae' ? 'model/vae' : 'model/checkpoint', options: {} },
+    })) }
+    backend.registry.set({ connection: backend.id, schemas: new Map([[loader.type, loader]]), diagnostics: [],
+      hash: 'models', resolve: (type) => type === loader.type ? loader : undefined })
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'guessAssets').mockResolvedValue([])
+    vi.spyOn(backend.connection, 'checkModelPresence').mockImplementation(async (wanted) =>
+      wanted.map((model) => ({ ...model, status: 'missing', plannable: true })))
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: asset.digest, status: 'missing' }, { digest: media.digest, status: 'missing' },
+    ])
+    vi.spyOn(backend.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'test', jobs: [] })
+    vi.spyOn(backend.connection, 'planModelDownload').mockResolvedValue({ status: 'destination-required' })
+    vi.spyOn(backend.connection, 'fetchModelSettings').mockResolvedValue({ locations: [] } as never)
+    await app.openDocument({ ...workflow, lineage: 'grouped-models', graphs: { g0: { ...workflow.graphs.g0!, nodes: {
+      n1: { id: asNodeId('n1'), type: 'Loader', values: { first: 'same.safetensors', repeated: 'same.safetensors', exact: asset, vae: 'same.safetensors', image: media } },
+    } } } }, 'Image starter')
+    const tab = app.activeTab()!
+    app.setTabTarget(tab.id, backend.id)
+    await vi.waitFor(() => expect(app.missingWorkflowModels(tab)?.models).toHaveLength(3))
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => {
+      const entries = useSignal(app.problems)
+      return <><ProblemsPanel app={app} diagnostics={entries} compatSkips={() => []} /><AssetConsentDialog app={app} /></>
+    }, root)
+    try {
+      const grouped = root.querySelector('[data-testid="workflow-model-problems"]')!
+      const toggle = grouped.querySelector<HTMLButtonElement>('[aria-expanded]')!
+      expect(toggle.textContent).toContain('3 models are not on this computer')
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      expect(document.getElementById(toggle.getAttribute('aria-controls')!)!.hidden).toBe(true)
+      const actions = [...root.querySelectorAll<HTMLButtonElement>('button')].filter((button) => button.textContent === 'Download models')
+      expect(actions).toHaveLength(1)
+      expect(root.querySelector('.problem-message')!.textContent).toContain('portrait.png')
+      toggle.click()
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      const list = document.getElementById(toggle.getAttribute('aria-controls')!)!
+      expect(list.hidden).toBe(false)
+      expect(list.textContent).toContain('same.safetensors')
+      expect(list.textContent).toContain('Checkpoints')
+      expect(list.textContent).toContain('VAEs')
+      expect(list.textContent).not.toContain('is not in a model folder')
+      list.querySelector<HTMLButtonElement>('button')!.click()
+      expect(app.diagnosticFocus.get()?.anchor?.occurrence?.node).toBe('n1')
+      actions[0]!.click()
+      await vi.waitFor(() => expect(root.querySelector('dialog')?.textContent).toContain('Image starter needs 3 models'))
+      expect(app.assetConsent.get()?.models?.map((row) => [row.requirement.kind, row.requirement.asset?.digest])).toEqual([
+        ['model/checkpoint', undefined], ['model/vae', undefined], ['model/checkpoint', asset.digest],
+      ])
+      expect(app.assetConsent.get()?.retry).toBeUndefined()
+      expect(app.store.executions.get().size).toBe(0)
+      app.assetConsent.set(undefined)
+      const exact = app.problems.get().find((entry) => entry.code === 'asset.availability.missing' && entry.data?.['input'] === 'exact')!
+      expect(exact.data?.['kind']).toBe('model/checkpoint')
+      app.reviewModelDownload(tab, exact)
+      expect(app.assetConsent.get()?.focusedModel).toEqual({ name: asset.name, kind: 'model/checkpoint', asset })
+    } finally { unmount(); app.dispose() }
+  })
+
   it('updates mounted static chrome while preserving disclosure nodes and raw diagnostics', () => {
     registerCatalog('de-DE', {
       'shell.panel.problems.title': '[Probleme]',

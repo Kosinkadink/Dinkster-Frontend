@@ -1,8 +1,16 @@
-import type { Json } from '@dinkster/core'
+import type { AssetRef, Json } from '@dinkster/core'
 
 export interface ModelRequirement {
   readonly name: string
   readonly kind: string
+}
+
+export interface ModelDownloadRequirement extends ModelRequirement {
+  readonly asset?: AssetRef
+}
+
+export class ModelDownloadBusyError extends Error {
+  constructor() { super('The engine is busy downloading another model.') }
 }
 
 export type ModelPresence = ModelRequirement & (
@@ -12,6 +20,7 @@ export type ModelPresence = ModelRequirement & (
 )
 
 export interface ModelDownloadSelection extends ModelRequirement {
+  readonly digest?: string
   readonly project: string
   readonly provider: 'huggingface' | 'civitai'
   readonly source: string
@@ -25,13 +34,22 @@ export interface ModelDownloadSelection extends ModelRequirement {
   readonly mount: string
 }
 
+export type ModelDownloadSpace =
+  | { readonly status: 'available'; readonly filesystem: string; readonly freeBytes: number }
+  | { readonly status: 'unavailable' }
+
 export type ModelDownloadPlan =
-  | (ModelDownloadSelection & { readonly status: 'consent-required'; readonly planId: string })
+  | (ModelDownloadSelection & { readonly status: 'consent-required'; readonly planId: string
+      readonly destinationSpace?: ModelDownloadSpace })
   | (ModelRequirement & { readonly status: 'local' })
   | { readonly status: 'folder-disabled'; readonly disabledLocations: readonly string[]; readonly detail: string }
   | { readonly status: 'picker-required'; readonly sources: readonly string[] }
   | { readonly status: 'destination-required' }
-  | { readonly status: 'credential-required' | 'provider-grant-required' | 'civitai-access-required' | 'model-hidden' | 'duplicate' }
+  | { readonly status: 'credential-required' | 'provider-grant-required' | 'civitai-access-required'
+      readonly provider?: 'huggingface' | 'civitai'
+      readonly source?: string }
+  | { readonly status: 'model-hidden'; readonly hiddenIdentities: readonly string[] }
+  | { readonly status: 'duplicate' }
 
 export type ModelDownloadPhase = 'starting' | 'checking-existing' | 'downloading' | 'verifying' |
   'publishing' | 'indexing' | 'cancelling' | 'cancelled' | 'completed' | 'failed'
@@ -94,8 +112,11 @@ function selection(row: Record<string, unknown>): ModelDownloadSelection {
   const provider = row['provider']
   if ((provider !== 'huggingface' && provider !== 'civitai') || !/^[a-f0-9]{64}$/.test(text(row, 'sha256')) ||
     !(provider === 'civitai' ? /^[1-9][0-9]*$/ : /^[a-f0-9]{40}$/).test(text(row, 'revision'))) throw new Error('Malformed immutable model selection')
+  if (row['digest'] !== undefined && !/^blake3:[a-f0-9]{64}$/.test(text(row, 'digest')))
+    throw new Error('Malformed exact model identity')
   return {
     name: text(row, 'name'), kind: text(row, 'kind'), project: text(row, 'project'),
+    ...(row['digest'] === undefined ? {} : { digest: text(row, 'digest') }),
     provider, source: text(row, 'source'), repo: text(row, 'repo'),
     revision: text(row, 'revision'), file: text(row, 'file'), sha256: text(row, 'sha256'),
     size: count(row, 'size'), license: text(row, 'license'),
@@ -106,15 +127,37 @@ function selection(row: Record<string, unknown>): ModelDownloadSelection {
 export function decodeModelDownloadPlan(raw: unknown): ModelDownloadPlan {
   const row = record(raw)
   switch (row['status']) {
-    case 'consent-required': return { ...selection(row), status: 'consent-required', planId: text(row, 'planId') }
+    case 'consent-required': {
+      let destinationSpace: ModelDownloadSpace | undefined
+      if (row['destinationSpace'] !== undefined) {
+        const space = record(row['destinationSpace'])
+        switch (space['status']) {
+          case 'available': destinationSpace = { status: 'available',
+            filesystem: text(space, 'filesystem'), freeBytes: count(space, 'freeBytes') }; break
+          case 'unavailable': destinationSpace = { status: 'unavailable' }; break
+          default: throw new Error('Malformed model download destination space')
+        }
+      }
+      return { ...selection(row), status: 'consent-required', planId: text(row, 'planId'),
+        ...(destinationSpace === undefined ? {} : { destinationSpace }),
+      }
+    }
     case 'local': return { status: 'local', name: text(row, 'name'), kind: text(row, 'kind') }
     case 'folder-disabled': return { status: 'folder-disabled', disabledLocations: strings(row, 'disabledLocations'), detail: text(row, 'detail') }
     case 'picker-required': return { status: 'picker-required', sources: strings(row, 'sources') }
     case 'destination-required': return { status: 'destination-required' }
     case 'credential-required':
     case 'provider-grant-required':
-    case 'civitai-access-required':
-    case 'model-hidden':
+    case 'civitai-access-required': {
+      const provider = row['provider']
+      if (provider !== undefined && provider !== 'huggingface' && provider !== 'civitai')
+        throw new Error('Malformed model download provider')
+      return { status: row['status'],
+        ...(provider === undefined ? {} : { provider }),
+        ...(row['source'] === undefined ? {} : { source: text(row, 'source') }),
+      }
+    }
+    case 'model-hidden': return { status: 'model-hidden', hiddenIdentities: strings(row, 'hiddenIdentities') }
     case 'duplicate': return { status: row['status'] }
     default: throw new Error('Unknown model download plan state')
   }
@@ -141,6 +184,7 @@ export function decodeModelDownloadJob(raw: unknown): ModelDownloadJob {
   if (status === 'completed') {
     const asset = record(row['asset'])
     if (!/^blake3:[a-f0-9]{64}$/.test(text(asset, 'digest')) ||
+      (selected.digest !== undefined && asset['digest'] !== selected.digest) ||
       count(asset, 'size') !== selected.size || typeof row['reused'] !== 'boolean' ||
       typeof row['renamed'] !== 'boolean') throw new Error('Malformed verified model result')
     return { ...job, path: text(row, 'path'), reused: row['reused'], renamed: row['renamed'],

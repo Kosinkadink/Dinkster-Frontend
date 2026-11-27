@@ -62,6 +62,7 @@ function interactionHarness(
     getDetailLevel: () => viewportScale < 0.5 ? 'overview' : viewportScale < 0.75 ? 'content' : 'controls',
     setViewport: vi.fn(),
     cancelViewportAnimation: () => undefined,
+    setViewportGesture: () => undefined,
     setScene: (next: Scene) => {
       currentScene = next
       for (const listener of sceneReplacedListeners) listener(next)
@@ -2713,18 +2714,6 @@ describe('gesture ownership and cancellation', () => {
     harness.fire('pointercancel', 0, 0, { pointerType: 'mouse' })
     expect(onLinkDropOnEmpty).toHaveBeenCalledTimes(1)
     expect(onLinkDropOnEmpty).toHaveBeenCalledWith(expect.any(Object), 700, 300)
-  })
-
-  it('does not open an accept-all palette from an untyped dangling end', () => {
-    const scene = linkDropScene() as any
-    scene.nodes[0].layout.pins[0].type = { kind: 'wildcard' }
-    const onLinkDropOnEmpty = vi.fn()
-    const harness = interactionHarness(scene, { onLinkDropOnEmpty })
-    harness.fire('pointerdown', 110, 32)
-    harness.fire('pointermove', 700, 300)
-    harness.fire('pointerup', 700, 300)
-    expect(onLinkDropOnEmpty).not.toHaveBeenCalled()
-    expect(harness.dispatched).toEqual([])
   })
 
   it('mouse pointercancel on a moved rewire over empty disconnects', () => {

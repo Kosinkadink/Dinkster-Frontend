@@ -283,6 +283,8 @@ export interface SceneNode {
   readonly fieldRows?: readonly LayoutRow[]
   /** Schema declares live previews or an output intended for preview. */
   readonly previewCapable?: true
+  /** Declared final preview is sound rather than a picture. */
+  readonly audioPreview?: true
   /** The open node's preview is folded to its caption row. */
   readonly previewFolded?: true
   /** A minimized node's preview was opened by its caption; minimized previews start folded. */
@@ -1407,6 +1409,10 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(fieldRows !== undefined ? { fieldRows } : {}),
       ...(schema !== undefined && hasPreviewSurface(schema)
         ? { previewCapable: true as const }
+        : {}),
+      ...(schema !== undefined && outputsOf(schema).some((output) => output.preview === true) &&
+        outputsOf(schema).filter((output) => output.preview === true).every((output) => canonicalTypeIdOf(output.type) === 'AUDIO')
+        ? { audioPreview: true as const }
         : {}),
       ...(view?.previewFolded === true ? { previewFolded: true as const } : {}),
       ...(view?.collapsed === true && view.minimizedPreviewOpen === true ? { minimizedPreviewOpen: true as const } : {}),

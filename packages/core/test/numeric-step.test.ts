@@ -6,7 +6,7 @@
  * the randomize grids.
  */
 import { describe, expect, it } from 'vitest'
-import { dragNumericValue, formatWidgetValue, numericStepConstraints, randomNumericValue, stepNumericValue } from '../src/index.js'
+import { correctNumericValue, dragNumericValue, formatWidgetValue, numericStepConstraints, randomNumericValue, stepNumericValue } from '../src/index.js'
 
 describe('numericStepConstraints', () => {
 
@@ -16,6 +16,26 @@ describe('numericStepConstraints', () => {
     expect(numericStepConstraints({ widgetType: 'FLOAT', options: { step: Number.NaN } }).step).toBe(0.1)
   })
 
+})
+
+describe('correctNumericValue', () => {
+  it('corrects stored numbers on the allowed grid, with lower ties and unchanged specials and decimals', () => {
+    const int = (options: Record<string, unknown>) => numericStepConstraints({ widgetType: 'INT', options })
+    const float = (options: Record<string, unknown>) => numericStepConstraints({ widgetType: 'FLOAT', options })
+    expect(correctNumericValue(14, int({ min: 0, max: 20, step: 4 }))).toBe(12)
+    expect(correctNumericValue(14.01, int({ min: 0, max: 20, step: 4 }))).toBe(16)
+    expect(correctNumericValue(-6, int({ offset: 1, step: 4 }))).toBe(-7)
+    expect(correctNumericValue(99, int({ min: 10, max: 20, offset: 1, step: 4 }))).toBe(17)
+    expect(correctNumericValue(-99, int({ min: 10, max: 20, offset: 1, step: 4 }))).toBe(13)
+    expect(correctNumericValue(2, int({ min: 2, max: 3, offset: 0, step: 4 }))).toBeUndefined()
+    expect(correctNumericValue(0, int({ min: 2, max: 3, offset: 0, step: 4, special: [{ value: 0, label: 'off' }] }))).toBe(0)
+    expect(correctNumericValue('9007199254740998', int({ min: '9007199254740993', max: '9007199254741003', step: 4 }))).toBe('9007199254740997')
+    expect(correctNumericValue(6, int({ min: 0, max: 20, step: 4, offsetUnknown: true }))).toBe(6)
+    expect(correctNumericValue(21, int({ min: 0, max: 20, step: 4, offsetUnknown: true }))).toBe(20)
+    expect(correctNumericValue(7.53, float({ min: 0, max: 10, step: 0.1 }))).toBe(7.53)
+    expect(correctNumericValue(12.5, float({ min: 0, max: 10, step: 0.1 }))).toBe(10)
+    expect(correctNumericValue(-1, float({ min: 0, max: 10, special: [{ value: -1, label: 'off' }] }))).toBe(-1)
+  })
 })
 
 describe('stepNumericValue', () => {

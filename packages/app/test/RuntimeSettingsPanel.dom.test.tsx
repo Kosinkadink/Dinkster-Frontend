@@ -268,11 +268,11 @@ describe('RuntimeSettingsPanel', () => {
     const input = root.querySelector<HTMLInputElement>('[aria-label="Maximum running jobs"]')!
     input.value = '3'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     form.requestSubmit(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('must be at least 1')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. must be at least 1')
     input.value = '4'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     expect(root.querySelector('[role="alert"]')).toBeNull()
     form.requestSubmit(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Changes to jobs are not granted (granted: logging)')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. You do not have access.')
   })
 
   it('renders worker deny-list details only when complete and clears them on edit or success', async () => {
@@ -288,17 +288,17 @@ describe('RuntimeSettingsPanel', () => {
 
     input.value = '--preview-size'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     form.requestSubmit(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('flag only')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. flag only')
     input.value = '--owner-check'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     expect(root.querySelector('[role="alert"]')).toBeNull()
 
     form.requestSubmit(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('owner only')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. owner only')
     input.value = '--deny-check'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     expect(root.querySelector('[role="alert"]')).toBeNull()
 
     form.requestSubmit(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Dinkster owns --portRejected flag: --port (owned by Dinkster server).')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. Dinkster owns --portRejected flag: --port (owned by Dinkster server).')
     input.value = '--server-value'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     form.requestSubmit(); await flush()
     expect(root.querySelector('[role="alert"]')).toBeNull()
