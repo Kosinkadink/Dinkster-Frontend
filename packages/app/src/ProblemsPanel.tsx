@@ -1,10 +1,11 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
+import { ChevronRight } from 'lucide-solid'
 import { canonicalJson, diag, type Diagnostic, type ImportedNodePackResolution } from '@dinkster/core'
 import type { CompatSkip, PackInferenceUnavailable, PackInstallPlan, PackPreparationProgress } from '@dinkster/client'
 import { diagnosticFocusTarget, type AppState } from './app-state.js'
 import { groupProblemDiagnostics } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
-import { useAppMessage } from './locale.js'
+import { useAppMessage, useModelKindLabel } from './locale.js'
 import { ProductButton, ProductCheckbox } from './ProductControls.js'
 import type { useSelectionContext } from './selection-context.js'
 import { contextProblems } from './problem-context.js'
@@ -14,6 +15,7 @@ import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 import { isNativeProjectBackend } from './desktop-bridge.js'
 import { activeProjectId } from './projects.js'
+import { ProductIcon } from '@dinkster/ui'
 
 export interface ProblemsDisclosure {
   readonly expanded: (key: string) => boolean
@@ -74,6 +76,9 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
   const activeTabId = useSignal(props.app.activeTabId)
   const disclosure = props.disclosure ?? createProblemsDisclosure()
   const [selectionOnly, setSelectionOnly] = createSignal(false)
+  const [modelsExpanded, setModelsExpanded] = createSignal(false)
+  const modelListId = createUniqueId()
+  const modelKindLabel = useModelKindLabel()
   const selectedContext = () => {
     const view = props.selection?.()
     return view !== undefined && view.context.kind !== 'document' && view.context.kind !== 'subgraph' ? view : undefined
@@ -193,8 +198,19 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
       { data: { providers: pack.providers } },
     )),
   ])
+  const missingModels = createMemo(() => {
+    const diagnostics = filterDiagnostics(props.diagnostics())
+    if (!diagnostics.some((entry) => entry.code === 'model.availability.missing' || entry.code === 'asset.availability.missing')) return undefined
+    const tab = tabs().find((candidate) => candidate.id === activeTabId())
+    if (!tab) return undefined
+    const missing = props.app.missingWorkflowModels(tab)
+    if (!missing?.models.length) return undefined
+    const entries = missing.diagnostics.filter((entry) => diagnostics.includes(entry))
+    return entries.length ? { tab, models: missing.models, diagnostics: entries } : undefined
+  })
   const groups = createMemo(() => {
-    return groupProblemDiagnostics(filterDiagnostics([...props.diagnostics(), ...packDiagnostics()]), props.app.activeTab()?.store.doc)
+    const folded = new Set(missingModels()?.diagnostics)
+    return groupProblemDiagnostics(filterDiagnostics([...props.diagnostics(), ...packDiagnostics()]).filter((entry) => !folded.has(entry)), props.app.activeTab()?.store.doc)
   })
 
   return (
@@ -278,8 +294,30 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
           </ProductActionFooter>
         </section>
       </Show>
+      <Show when={missingModels()}>{(missing) => (
+        <section class="problems-models" data-testid="workflow-model-problems">
+          <div class="problems-models-header">
+            <ProductButton variant="ghost" size="compact" class="problems-models-toggle"
+              aria-expanded={modelsExpanded()} aria-controls={modelListId} onClick={() => setModelsExpanded((open) => !open)}>
+              <ProductIcon icon={ChevronRight} />
+              <span>{message(missing().models.length === 1 ? 'problems.modelsMissingOne' : 'problems.modelsMissing', { count: missing().models.length })}</span>
+            </ProductButton>
+            <ProductButton variant="secondary" size="compact" onClick={() => props.app.reviewModelDownload(missing().tab)}>
+              {message('problems.action.reviewModel')}
+            </ProductButton>
+          </div>
+          <div id={modelListId} class="problems-models-list" hidden={!modelsExpanded()}>
+            <For each={missing().diagnostics}>{(diagnostic) => (
+              <ProductButton variant="ghost" size="compact" class="problems-models-item" onClick={() => activateProblem(props.app, diagnostic)}>
+                <span>{diagnostic.data!['name'] as string}</span>
+                <span class="dinkster-model-download-meta">{modelKindLabel(diagnostic.data!['kind'] as string)}</span>
+              </ProductButton>
+            )}</For>
+          </div>
+        </section>
+      )}</Show>
       <Show
-        when={groups().length > 0}
+        when={missingModels() !== undefined || groups().length > 0}
         fallback={<Show when={missingPacks().length === 0 && (!selectionOnly() || selectedContext() !== undefined)}><ProductEmptyState title={message('problems.empty')} /></Show>}
       >
         <For each={groups().map((group) => group.key)}>
@@ -318,12 +356,6 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                           <code>{diagnostic.code}</code>
                           <Show when={diagnostic.data}><pre>{JSON.stringify(diagnostic.data, null, 2)}</pre></Show>
                           <Show when={diagnostic.anchor !== undefined}>
-                            <Show when={diagnostic.code === 'model.availability.missing' && diagnostic.data?.['plannable'] === true}>
-                              <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
-                                const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic)?.tab
-                                if (tab !== undefined) props.app.reviewModelDownload(tab, diagnostic)
-                              }}>{message('problems.action.reviewModel')}</ProductButton>
-                            </Show>
                             <Show when={diagnostic.code === 'model.availability.model-hidden' || diagnostic.code === 'model.availability.folder-disabled'}>
                               <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
                                 const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic)?.tab

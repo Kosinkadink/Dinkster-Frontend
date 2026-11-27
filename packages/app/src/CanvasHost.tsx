@@ -1548,11 +1548,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     })
   }
   let editorPictureHeights: Pick<InteractionController, 'previewPictureHeight' | 'commitPictureHeight'> | undefined
-  const editorSpaceByKey = createMemo(() => new Map(editorSpaces().map((item) => [item.key, item])))
+  const [resizingNode, setResizingNode] = createSolidSignal<SceneNode>()
+  const liveEditorSpaces = createMemo(() => editorSpaces().map((item) => {
+    const node = resizingNode()
+    if (node?.id !== item.nodeId) return item
+    const row = node.layout.rows.find((row) => row.kind === 'editorSpace' && row.valueKey === item.row.valueKey)
+    if (row?.kind !== 'editorSpace') return item
+    return {
+      ...item, row,
+      node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
+      space: { x: row.inset, y: row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height - defaultTokens.rowGeometry.fieldInsetY },
+    }
+  }))
+  const editorSpaceByKey = createMemo(() => new Map(liveEditorSpaces().map((item) => [item.key, item])))
   /** Every node's box in the order the canvas draws them, so a later one is drawn in front. */
   const [nodeBoxes, setNodeBoxes] = createSolidSignal<readonly { readonly id: string; readonly box: EditorWorldRect }[]>([])
   const [nodeDrag, setNodeDrag] = createSolidSignal<ReadonlyMap<string, { readonly dx: number; readonly dy: number }>>()
   const dragged = (box: EditorWorldRect, nodeId: string): EditorWorldRect => {
+    const resized = resizingNode()
+    if (resized?.id === nodeId) box = { x: resized.x, y: resized.y, width: resized.layout.width, height: resized.layout.height }
     const offset = nodeDrag()?.get(nodeId)
     return offset === undefined ? box : { ...box, x: box.x + offset.dx, y: box.y + offset.dy }
   }
@@ -1576,7 +1590,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     if (!editorSpaceInteractive(viewport.scale)) return []
     const canvas = canvasClientRect()
     return boundedVisibleOverlayKeys(
-      editorSpaces(),
+      liveEditorSpaces(),
       (item) => item.key,
       (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
       (item) => selectedNodeIds().has(item.nodeId),
@@ -1617,7 +1631,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     activeTabId()
     setActiveCanvasMedia(new Set<string>())
   })
-  const mediaPreviewById = createMemo(() => new Map(mediaPreviews().map((item) => [item.id, item])))
+  const livePreview = <T extends { readonly id: string; readonly node: EditorWorldRect; readonly preview: EditorWorldRect }>(item: T): T => {
+    const node = resizingNode()
+    const preview = node?.layout.preview
+    return node?.id !== item.id || preview === undefined ? item : {
+      ...item,
+      node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
+      preview: splitPreviewRect(preview, defaultTokens.previewCaptionHeight).media,
+    }
+  }
+  const mediaPreviewById = createMemo(() => new Map(mediaPreviews().map((item) => [item.id, livePreview(item)])))
   const [outputPages, setOutputPages] = createSolidSignal<ReadonlyMap<string, number>>(new Map())
   const [outputImagePreviews, setOutputImagePreviews] = createSolidSignal<readonly {
     readonly id: string
@@ -1636,7 +1659,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     ])
     setActiveCanvasMedia((current) => retainActiveOverlayKeys(current, live))
   })
-  const outputImagePreviewByKey = createMemo(() => new Map(outputImagePreviews().map((item) => [item.output.key, item])))
+  const outputImagePreviewByKey = createMemo(() => new Map(outputImagePreviews().map((item) => [item.output.key, livePreview(item)])))
   const outputImagePreviewFor = (key: string) => outputImagePreviewByKey().get(key)
   const [outputViewerKey, setOutputViewerKey] = createSolidSignal<string>()
   const visibleMediaPreviewIds = (): readonly string[] => {
@@ -3390,6 +3413,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setNodeDrag(offsets)
         publishPresence()
       },
+      onNodeResize: setResizingNode,
       onLinkDragPresence: (origin) => {
         linkOrigin = origin
         publishPresence()

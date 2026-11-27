@@ -25,7 +25,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutLine, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectNodeLayoutWidth, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutLine, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -3538,8 +3538,8 @@ export class CanvasRenderer {
     }
   }
 
-  /** Paint-only projection for an in-flight resize; scene and hit geometry stay committed. */
-  private nodeForPaint(node: SceneNode): SceneNode {
+  /** Live geometry shared by canvas paint and host overlays; scene and hit geometry stay committed. */
+  nodeForPaint(node: SceneNode): SceneNode {
     const lines = this.overlay.textBoxLines
     if (lines?.nodeId === node.id) {
       return { ...node, layout: projectTextBoxLines(node.layout, lines.valueKey, lines.lines, this.tokens) }
@@ -3553,16 +3553,7 @@ export class CanvasRenderer {
       ...node,
       x: preview.x,
       y: preview.y,
-      layout: {
-        ...layout,
-        width: preview.width,
-        ...(layout.preview === undefined ? {} : {
-          preview: { ...layout.preview, width: Math.max(0, preview.width - this.tokens.padX * 2) },
-        }),
-        ...(layout.textOutput === undefined ? {} : {
-          textOutput: { ...layout.textOutput, width: Math.max(0, preview.width - this.tokens.padX * 2) },
-        }),
-      },
+      layout: projectNodeLayoutWidth(layout, preview.width),
     }
   }
 
