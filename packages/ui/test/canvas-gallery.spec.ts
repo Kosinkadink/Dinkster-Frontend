@@ -37,16 +37,21 @@ test('choosing a fixes Review entry selects its named example on the canvas', as
   await expect(card.locator('canvas')).toHaveAttribute('data-ready', /-dark$/)
   await expect(
     card.getByRole('button', {
-      name: 'Open the Review upgrades setting', exact: true,
+      name: 'Open Automatic fixes settings',
+      exact: true,
     }),
   ).toBeVisible()
   const removedChoices = page.getByTestId('fixes-notice-removed-choices')
   await expect(removedChoices.locator('canvas')).toHaveAttribute(
-    'data-ready', /-dark$/,
+    'data-ready',
+    /-dark$/,
   )
-  await expect(removedChoices.getByRole('button', {
-    name: 'Open the Review upgrades setting', exact: true,
-  })).toHaveCount(0)
+  await expect(
+    removedChoices.getByRole('button', {
+      name: 'Open Automatic fixes settings',
+      exact: true,
+    }),
+  ).toHaveCount(0)
   await removedChoices.screenshot({
     path: testInfo.outputPath('review-without-settings-dark.png'),
   })
@@ -82,7 +87,7 @@ test('Editor problem details open by keyboard, return focus and resolve through 
     .locator('..')
   const details = warning.getByRole('button', { name: 'Details', exact: true })
   await expect(warning.locator('.dinkster-canvas-editor-note')).toContainText(
-    'usb1 not found.',
+    '"usb1" not found.',
   )
   await expect(
     warning.getByRole('button', { name: 'Use project default' }),
@@ -90,7 +95,7 @@ test('Editor problem details open by keyboard, return focus and resolve through 
   await details.focus()
   await details.press('Enter')
   const note = page.getByRole('dialog', {
-    name: 'usb1 is not on this machine.',
+    name: '"usb1" is not on this machine.',
     exact: true,
   })
   await expect(
@@ -119,7 +124,7 @@ test('Editor problem details open by keyboard, return focus and resolve through 
   )
   await error.getByRole('button', { name: 'Details', exact: true }).click()
   const errorNote = page.getByRole('dialog', {
-    name: 'usb1 is missing and this project has no default output mount.',
+    name: '"usb1" is missing and this project has no output mount.',
     exact: true,
   })
   await expect(errorNote).toBeVisible()
@@ -359,7 +364,7 @@ test('Save target shared fold-out distinguishes rest, typing and a reopened wire
       )
       const missing = stage('missing')
       await expect(missing.locator('.dinkster-canvas-editor-note')).toHaveText(
-        'usb1 not found.Details',
+        '"usb1" not found.Details',
       )
       await missing
         .getByRole('button', { name: 'Details', exact: true })
@@ -817,7 +822,10 @@ test('Every Canvas page opens by a click in the side list', async ({
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/#canvas')
-  await expect(pageLink(page, 'anatomy')).toHaveAttribute('aria-current', 'page')
+  await expect(pageLink(page, 'anatomy')).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
   await expect(
     sideList(page).getByRole('link', { name: 'Canvas', exact: true }),
   ).toHaveAttribute('aria-current', 'true')
@@ -1084,15 +1092,24 @@ test('Open rows use a quiet outline and preserve keyboard focus and side-part co
     await openPage(page, 'row-states', theme)
     await cardsReady(page, 'row-states', theme)
     const form = page.getByTestId('button-ask-form')
-    const formOutline = form.locator('..').locator('..').locator('.dinkster-canvas-field-outline path')
+    const formOutline = form
+      .locator('..')
+      .locator('..')
+      .locator('.dinkster-canvas-field-outline path')
     const start = form.getByTestId('button-ask-start')
     await start.focus()
     await page.keyboard.press('Tab')
     const end = form.getByTestId('button-ask-end')
     await expect(end).toBeFocused()
-    await expect(end.locator('..')).toHaveCSS('border-color', await palette('--dinkster-border-keyboard-focus'))
+    await expect(end.locator('..')).toHaveCSS(
+      'border-color',
+      await palette('--dinkster-border-keyboard-focus'),
+    )
     await expect(end.locator('..')).toHaveCSS('border-width', '1px')
-    await expect(formOutline).toHaveCSS('stroke', await palette('--dinkster-accent-rest-border'))
+    await expect(formOutline).toHaveCSS(
+      'stroke',
+      await palette('--dinkster-accent-rest-border'),
+    )
     await expect(formOutline).toHaveCSS('stroke-width', '2px')
   }
 })
@@ -1268,7 +1285,10 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(dialog).toHaveScreenshot(`tabs-overflow-${theme}.png`)
     await page.mouse.click(0, 0)
     await expect(dialog).toBeVisible()
-    await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
+    await dialog
+      .getByRole('button', { name: 'Close', exact: true })
+      .last()
+      .click()
     await expect(dialog).toHaveCount(0)
     await canvas.click({ position: { x: 101, y: 152 } })
     await expect(dialog).toBeVisible()
@@ -1299,8 +1319,8 @@ for (const theme of ['dark', 'light'] as const) {
             page.locator('figure.dinkster-canvas-example canvas').first(),
           ).toHaveAttribute('data-ready', `${id}-${theme}`)
         }
-        // Only the widget kind, open list filters and Representation examples
-        // are choices; comparisons are all visible without selecting one.
+        // Canvas comparisons are visible without selecting one. Standalone
+        // settings and Representation examples have their own choices.
         const filters = page.locator(
           'input.dinkster-canvas-field-input[role="combobox"]:not(.dinkster-canvas-side-representation-list *)',
         )
@@ -1318,7 +1338,7 @@ for (const theme of ['dark', 'light'] as const) {
             .getByRole('combobox')
             .and(
               page.locator(
-                ':not(.dinkster-canvas-side-representation *, .dinkster-canvas-side-representation-list *)',
+                ':not(.dinkster-canvas-side-representation *, .dinkster-canvas-side-representation-list *, .dinkster-automatic-fixes-example *)',
               ),
             ),
         ).toHaveCount(
@@ -1356,12 +1376,27 @@ for (const theme of ['dark', 'light'] as const) {
           const messageBox = section.locator('figure').filter({
             has: page.getByTestId('problem-box-run-message'),
           })
-          const text = await messageBox.locator('.problem-box-text').boundingBox()
-          const actions = await messageBox.locator('.problem-box-actions').boundingBox()
+          const text = await messageBox
+            .locator('.problem-box-text')
+            .boundingBox()
+          const actions = await messageBox
+            .locator('.problem-box-actions')
+            .boundingBox()
           expect(actions!.y).toBe(text!.y)
         }
+        // The settings examples focus a row below the fold; sticky chrome
+        // must not cover the canvas in the full-section capture.
+        const chrome =
+          id === 'problem-box'
+            ? await page.addStyleTag({
+                content: '.dinkster-topbar { visibility: hidden; }',
+              })
+            : undefined
         await expect(section).toHaveScreenshot(
           `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}-${theme}.png`,
+        )
+        await chrome?.evaluate((element) =>
+          element.parentNode?.removeChild(element),
         )
         if (id === 'run-editable' || id === 'run-frozen') {
           const running = page.getByTestId(`canvas-${id}-1`)

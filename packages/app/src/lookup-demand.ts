@@ -11,7 +11,7 @@ import type { RowListLookup, RowListLookupFailure, RowListLookupState } from './
 import type { RowLookups } from './WidgetEditorController.js'
 
 /** What elaboration reads for a lookup call: the answer the client holds, if any. */
-export const lookupAnswersOf = (lookups: LookupClient): NonNullable<ElaborateOptions['lookupAnswers']> =>
+export const lookupAnswersOf = (lookups: Pick<LookupClient, 'entry'>): NonNullable<ElaborateOptions['lookupAnswers']> =>
   (lookup, args) => lookups.entry({ function: lookup, args }) as LookupAnswerState | undefined
 
 /**

@@ -49,11 +49,20 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
   onCleanup(() => { live = false })
   const backend = host.app.backendForTab(ed.tab)
   if (backend.protocol === 'dinkster') {
-    void backend.connection.fetchMountSettings().then((value) => {
-      if (live) setSettings(value)
-    }).catch((reason: unknown) => {
-      if (live) setError(failureMessage(reason, message('request.storageLoadFailed')))
-    })
+    let generation = 0
+    const read = (): void => {
+      const request = ++generation
+      void backend.connection.fetchMountSettings().then((value) => {
+        if (live && request === generation) { setSettings(value); setError(undefined) }
+      }).catch((reason: unknown) => {
+        if (live && request === generation) {
+          setSettings(undefined)
+          setError(failureMessage(reason, message('request.storageLoadFailed')))
+        }
+      })
+    }
+    read()
+    onCleanup(backend.connection.onMountsChanged(read))
   } else setError(message('mountWidget.error'))
 
   const writable = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready' && !entry.saveError) ?? []
@@ -62,8 +71,8 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
     if (settings() === undefined) return 'loading'
     return writable().length === 0 ? 'none' : 'ready'
   }
-  /** The mounts are read and the project has no default output mount, so a run on Project default cannot save. */
-  const noDefault = (): boolean => settings() !== undefined && settings()!.activeOutputMount === undefined
+  /** Project default can save only to a ready, writable output mount. */
+  const noDefault = (): boolean => settings() !== undefined && !writable().some((entry) => entry.id === settings()!.activeOutputMount)
   /** The mount Project default means here, or its name while that is not known. */
   const projectMount = (): string =>
     settings()?.activeOutputMount ?? message(noDefault() ? 'saveTargetWidget.noOutputMount' : 'saveTargetWidget.projectDefault')
@@ -88,7 +97,7 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
     stored: opened,
     mount: mount(),
     prefix: prefix(),
-    ready: mounts() === 'ready' ? writable().map((entry) => entry.id) : undefined,
+    ready: settings() === undefined ? undefined : writable().map((entry) => entry.id),
     projectMount: projectMount(),
   }))
 
@@ -196,8 +205,11 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
         enter={value === undefined
           ? { verb: message('saveTargetWidget.enterKeeps'), target: textOf(opened) }
           : { verb: message('saveTargetWidget.enterStores'), target: textOf(value) }}
-        {...(gone === null || noDefault() ? {} : {
-          action: {
+        {...(gone === null ? {} : {
+          action: noDefault() ? {
+            label: message('problems.action.modelStorage'),
+            onClick: () => host.app.storageOpenRequest.set({ id: backend.id, hiddenModels: false }),
+          } : {
             label: message('saveTargetWidget.useProjectDefault'),
             onClick: () => { setMount(null); prefixInput?.focus() },
           },

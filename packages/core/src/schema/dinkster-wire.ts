@@ -1592,11 +1592,15 @@ function wireSteps(value: unknown, where: string): readonly StepSpec[] {
 
 function wireRule(value: unknown, where: string): RuleSpec {
   const data = wireObject(value, where)
-  rejectUnknownFields(data, ['check', 'message', 'fix'], where)
+  rejectUnknownFields(data, ['check', 'message', 'fix', 'fixLabel'], where)
+  const fix = wireSteps(data['fix'] ?? [], `${where}.fix`)
+  const fixLabel = fix.length > 0 ? wireString(data['fixLabel'], `${where}.fixLabel`) : undefined
+  if (fixLabel !== undefined && fixLabel.trim() === '') throw new Error(`${where}.fixLabel must label the fix`)
   return {
     check: wireFormula(data['check'], `${where}.check`),
     message: wireString(data['message'], `${where}.message`),
-    fix: wireSteps(data['fix'] ?? [], `${where}.fix`),
+    fix,
+    ...(fixLabel === undefined ? {} : { fixLabel }),
   }
 }
 
