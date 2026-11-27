@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { applyStoredSaveTargetFixes, storedSaveTargetFixes, applyStoredProblemFixes, buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, storedNumberFixes, storedRuleFixes, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
+import { storedSaveTargetFixes, applyStoredProblemFixes, buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, storedNumberFixes, storedRuleFixes, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
 import { decodeSteps } from '../src/actions/steps.js'
 import type { CommandDefinition } from '../src/commands/contract.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
@@ -123,33 +123,45 @@ describe('one press is one undo step, or nothing', () => {
       widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'absent', prefix: 'default-name' } } })
     SCHEMAS.set(type, { type, displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true, body: [
       ...['first', 'second', 'available', 'project', 'empty', 'wired', 'unstored'].map(target),
+      { kind: 'input', id: 'amount', optional: true, type: { kind: 'concrete', name: 'INT' },
+        widget: { widgetType: 'INT', options: { min: 0, max: 20, step: 4 }, default: 0 } },
       { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'dinkster.save_target' } },
     ] })
     const session = sessionOf(documentOf({ n1: { type, values: {
       first: { mount: 'absent', prefix: 'renders/portrait' }, second: { mount: 'other', prefix: 'movie' },
       available: { mount: 'ready', prefix: 'keep' }, project: { prefix: 'project-name' }, empty: null,
-      wired: { mount: 'absent', prefix: 'dormant' },
+      wired: { mount: 'absent', prefix: 'dormant' }, amount: 14,
     } } }, link('feed', ['n1', 'out'], ['n1', 'wired'])))
     const host = hostOf()
     let mounts = new Set(['ready'])
     const fixes = storedSaveTargetFixes(session.doc, at('unused'), host, mounts)
     const original = session.doc
-    expect(await applyStoredSaveTargetFixes(session, fixes, host, () => mounts)).toEqual({ kind: 'done', skipped: [], notes: [] })
+    const numeric = storedNumberFixes(session.doc, at('unused'), host)
+    expect(await applyStoredProblemFixes(session, numeric, host, { saveTargets: { fixes, readyMounts: () => mounts } })).toEqual({ kind: 'done', skipped: [], notes: [] })
     expect(valuesOf(session)).toEqual({
       first: { prefix: 'renders/portrait' }, second: { prefix: 'movie' },
       available: { mount: 'ready', prefix: 'keep' }, project: { prefix: 'project-name' }, empty: null,
-      wired: { mount: 'absent', prefix: 'dormant' },
+      wired: { mount: 'absent', prefix: 'dormant' }, amount: 12,
     })
     expect(session.undo()).toBe(true)
     expect(session.doc).toEqual(original)
     expect(session.canUndo).toBe(false)
+    expect(await applyStoredProblemFixes(session, numeric, host, { saveTargets: { fixes, readyMounts: () => undefined } }))
+      .toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(original)
+    expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 16 } }).ok).toBe(true)
+    const changedNumber = session.doc
+    expect(await applyStoredProblemFixes(session, numeric, host, { saveTargets: { fixes, readyMounts: () => mounts } }))
+      .toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(changedNumber)
+    expect(session.undo()).toBe(true)
     mounts = new Set(['ready', 'absent'])
-    expect(await applyStoredSaveTargetFixes(session, fixes, host, () => mounts)).toMatchObject({ kind: 'failed' })
+    expect(await applyStoredProblemFixes(session, numeric, host, { saveTargets: { fixes, readyMounts: () => mounts } })).toMatchObject({ kind: 'failed' })
     expect(session.doc).toEqual(original)
     mounts = new Set(['ready'])
     expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'second', value: { mount: 'other', prefix: 'personal' } } }).ok).toBe(true)
     const personal = session.doc
-    expect(await applyStoredSaveTargetFixes(session, fixes, host, () => mounts)).toMatchObject({ kind: 'failed' })
+    expect(await applyStoredProblemFixes(session, numeric, host, { saveTargets: { fixes, readyMounts: () => mounts } })).toMatchObject({ kind: 'failed' })
     expect(session.doc).toEqual(personal)
 
     const outer = documentOf({
@@ -164,7 +176,7 @@ describe('one press is one undo step, or nothing', () => {
     const nestedHost = hostOf({ schemaResolverFor: (doc) => documentResolver(doc, resolve) })
     const nestedSession = createLocalSession(nested, nestedHost.commands, { schemaResolverFor: nestedHost.schemaResolverFor! })
     const nestedFixes = storedSaveTargetFixes(nestedSession.doc, { graphId: 'g1', nodeId: 'n1', instancePath: ['left'] }, nestedHost, mounts)
-    expect(await applyStoredSaveTargetFixes(nestedSession, nestedFixes, nestedHost, () => mounts)).toMatchObject({ kind: 'done' })
+    expect(await applyStoredProblemFixes(nestedSession, [], nestedHost, { saveTargets: { fixes: nestedFixes, readyMounts: () => mounts } })).toMatchObject({ kind: 'done' })
     expect(valuesOf(nestedSession, 'left')).toEqual({ shown: { prefix: 'left' } })
     expect(valuesOf(nestedSession, 'right')).toEqual({ shown: { mount: 'ready', prefix: 'right' } })
     expect(nestedSession.doc.graphs.g1!.nodes.n1!.values).toEqual({ first: { mount: 'ready', prefix: 'inner' } })

@@ -609,25 +609,6 @@ export function storedSaveTargetFixes(
   })
 }
 
-/** Recheck mount availability and every offered value before one atomic, undoable step run. */
-export function applyStoredSaveTargetFixes(
-  session: DocumentSession,
-  fixes: readonly StoredSaveTargetFix[],
-  host: ActionHost,
-  readyMounts: () => ReadonlySet<string> | undefined,
-  options: PressOptions = {},
-): Promise<PressOutcome> {
-  return runSteps(session, fixes.map((fix) => fix.part), host, {
-    ...options, strict: true, noWait: true,
-    unchanged: (doc) => {
-      if (options.unchanged?.(doc) === false) return false
-      const mounts = readyMounts()
-      return mounts !== undefined && fixes.every((fix) =>
-        storedSaveTargetFixes(doc, fix.part, host, mounts).some((now) => now.valueKey === fix.valueKey && now.stamp === fix.stamp))
-    },
-  })
-}
-
 /** A failed declared rule, with its offered workflow and effective declaration. */
 export interface StoredRuleFix {
   readonly kind: 'rule'
@@ -670,9 +651,15 @@ export function applyStoredProblemFixes(
   session: DocumentSession,
   fixes: readonly StoredProblemFix[],
   host: ActionHost,
-  options: PressOptions = {},
+  options: PressOptions & {
+    readonly saveTargets?: {
+      readonly fixes: readonly StoredSaveTargetFix[]
+      readonly readyMounts: () => ReadonlySet<string> | undefined
+    }
+  } = {},
 ): Promise<PressOutcome> {
-  return runSteps(session, fixes.map((fix) => fix.part), host, {
+  const targets = options.saveTargets
+  return runSteps(session, [...fixes, ...(targets?.fixes ?? [])].map((fix) => fix.part), host, {
     ...options,
     strict: true,
     noWait: options.noWait ?? true,
@@ -684,6 +671,11 @@ export function applyStoredProblemFixes(
         const outcome = staged.dispatch({ ...batch(options.lead), ...(session.allocationActor === undefined ? {} : { actor: session.allocationActor }) })
         if (!outcome.ok) return false
         candidate = outcome.doc
+      }
+      if (targets !== undefined) {
+        const mounts = targets.readyMounts()
+        if (mounts === undefined || !targets.fixes.every((fix) =>
+          storedSaveTargetFixes(candidate, fix.part, host, mounts).some((now) => now.valueKey === fix.valueKey && now.stamp === fix.stamp))) return false
       }
       return fixes.every((fix) => fix.kind === 'rule'
         ? storedRuleFixes(candidate, fix.part, host).some((now) => now.rule === fix.rule && now.stamp === fix.stamp)
