@@ -47,6 +47,9 @@ export const pasteClipboardIntoTab = async (p: {
   readonly readText: () => Promise<string | undefined>
   /** Graph the gesture happened in, captured BEFORE the read. */
   readonly graphId: string
+  /** Concrete destination, captured before reading; absent for a definition-only view. */
+  readonly instancePath?: readonly string[]
+  readonly currentInstancePath?: () => readonly string[] | undefined
   /** Paste anchor in that graph's world coordinates. */
   readonly anchor: { readonly x: number; readonly y: number } | undefined
   /** Recreate valid v2 links feeding the copied targets. Ordinary paste is false. */
@@ -81,7 +84,8 @@ export const pasteClipboardIntoTab = async (p: {
   const text = await p.readText()
   // Ownership BEFORE payload checks (the AP6 discipline).
   if (!p.tabStillOpen()) return 'stale-tab'
-  if (!p.graphStillOwned() || p.currentGraphId() !== p.graphId) return 'stale-graph'
+  if (!p.graphStillOwned() || p.currentGraphId() !== p.graphId ||
+      (p.instancePath !== undefined && JSON.stringify(p.currentInstancePath?.()) !== JSON.stringify(p.instancePath))) return 'stale-graph'
   if (p.frozen()) return 'frozen'
   if (text === undefined) return 'no-text'
   let parsed: unknown
@@ -96,6 +100,7 @@ export const pasteClipboardIntoTab = async (p: {
   const plan = planClipboardPaste(
     p.doc(), p.graphId, parsed, p.anchor, p.actor, p.connectInputs === true,
     p.acceptExternal === undefined ? undefined : (stub) => p.acceptExternal!(parsed as DinksterClipboardEnvelope, stub),
+    p.instancePath,
   )
   if (!plan) return 'no-plan'
   if (!await p.dispatch(plan.invocation)) return 'rejected'

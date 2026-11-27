@@ -24,6 +24,8 @@ const envelopeText = (): string =>
 
 interface Overrides {
   readonly readText?: () => Promise<string | undefined>
+  readonly instancePath?: readonly string[]
+  readonly currentInstancePath?: () => readonly string[] | undefined
   readonly tabStillOpen?: () => boolean
   readonly frozen?: () => boolean
   readonly currentGraphId?: () => string
@@ -48,6 +50,8 @@ const run = async (overrides: Overrides = {}): Promise<{
     anchor: { x: 20, y: 30 },
     ...(overrides.connectInputs !== undefined ? { connectInputs: overrides.connectInputs } : {}),
     ...(overrides.actor !== undefined ? { actor: overrides.actor } : {}),
+    ...(overrides.instancePath !== undefined ? { instancePath: overrides.instancePath } : {}),
+    ...(overrides.currentInstancePath !== undefined ? { currentInstancePath: overrides.currentInstancePath } : {}),
     tabStillOpen: overrides.tabStillOpen ?? (() => true),
     frozen: overrides.frozen ?? (() => false),
     currentGraphId: overrides.currentGraphId ?? (() => 'g0'),
@@ -82,6 +86,10 @@ describe('pasteClipboardIntoTab (review AP8)', () => {
     expect(outcome).toBe('stale-graph')
     expect(doc).not.toHaveBeenCalled()
     expect(dispatch).not.toHaveBeenCalled()
+    const sibling = await run({ instancePath: ['left'], currentInstancePath: () => ['right'] })
+    expect(sibling.outcome).toBe('stale-graph')
+    expect(sibling.dispatch).not.toHaveBeenCalled()
+    expect(sibling.doc).not.toHaveBeenCalled()
   })
 
   it('a tab frozen during the read refuses', async () => {

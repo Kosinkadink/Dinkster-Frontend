@@ -69,9 +69,9 @@ export function subgraphDefIdOf(nodeType: string): string | undefined {
 export function graphAtInstancePath(doc: WorkflowDocument, path: readonly string[]): GraphDef | undefined {
   let graph = doc.graphs[doc.root]
   for (const hop of path) {
-    const node = graph?.nodes[hop]
+    const node = graph !== undefined && Object.hasOwn(graph.nodes, hop) ? graph.nodes[hop] : undefined
     const childId = node && subgraphDefIdOf(node.type)
-    graph = childId === undefined ? undefined : doc.graphs[childId]
+    graph = childId !== undefined && Object.hasOwn(doc.graphs, childId) ? doc.graphs[childId] : undefined
   }
   return graph
 }

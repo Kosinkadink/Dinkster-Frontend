@@ -102,6 +102,7 @@ import {
   asPortId,
   asNodeId,
   subgraphDefIdOf,
+  graphAtInstancePath,
   diag,
   occurrenceDynamicView,
   definitionPick,
@@ -352,6 +353,7 @@ let clipboardScopeSeq = 0
 const clipboardScopes = new Map<string, {
   readonly tab: Tab
   readonly graphId: string
+  readonly instancePath: readonly string[]
   readonly sources: ReadonlyMap<string, GraphDef['nodes'][string]>
   readonly endpointTypes: ReadonlyMap<string, string>
 }>()
@@ -6702,13 +6704,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       if (!tab) return
       const graphId = currentGraphId(tab)
+      const instancePath = viewInstancePath(tab)
+      if (instancePath === undefined) return
       const scopeToken = `clipboard-${++clipboardScopeSeq}`
       const membership = scene.groupMembership ?? initialGroupMembership(groupItemGeometry(scene))
       const envelope = serializeSelection(tab.store.doc, graphId, {
         nodes: controller.getSelection(),
         reroutes: controller.getRerouteSelection(),
         groups: controller.getGroupSelection(),
-      }, scopeToken, membership)
+      }, scopeToken, membership, instancePath)
       if (!envelope) return
       const graph = tab.store.doc.graphs[graphId]!
       const endpointTypes = clipboardSceneEndpointTypes(scene)
@@ -6716,6 +6720,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       clipboardScopes.set(scopeToken, {
         tab,
         graphId,
+        instancePath,
         sources: new Map((envelope.externalIncoming ?? []).flatMap((stub) => {
           const node = graph.nodes[stub.source.node]
           return node === undefined ? [] : [[stub.source.node, node] as const]
@@ -6739,6 +6744,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       if (!tab || refuseFrozenEdit()) return
       const graphId = currentGraphId(tab)
+      const instancePath = viewInstancePath(tab)
+      if (instancePath === undefined) return
       // Graph INCARNATION latch (the AP7 blueprint contract): graph ids are
       // reusable after an undo-of-import, so the id matching again after
       // the read does not prove the gesture's graph survived. Watch the
@@ -6746,7 +6753,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // graph is absent, the incarnation is dead for good.
       let graphRetired = false
       const unsubscribe = tab.store.document.subscribe((document) => {
-        if (document.graphs[graphId] === undefined) graphRetired = true
+        if (graphAtInstancePath(document, instancePath)?.id !== graphId) graphRetired = true
       })
       try {
         await pasteClipboardIntoTab({
@@ -6755,6 +6762,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             try { return await navigator.clipboard.readText() } catch { return clipboardFallback }
           },
           graphId,
+          instancePath,
+          currentInstancePath: () => viewInstancePath(tab),
           anchor,
           connectInputs,
           // The session's own allocation scope, not the collab UI map: a
@@ -6771,6 +6780,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             const targetKey = clipboardEndpointKey('input', stub.target.node, stub.target.port)
             const currentTypes = clipboardSceneEndpointTypes(scene)
             return scope?.tab === tab && scope.graphId === graphId &&
+              JSON.stringify(scope.instancePath) === JSON.stringify(instancePath) &&
               scope.sources.get(stub.source.node) === tab.store.doc.graphs[graphId]?.nodes[stub.source.node] &&
               scope.endpointTypes.has(targetKey) && scope.endpointTypes.get(sourceKey) !== undefined &&
               scope.endpointTypes.get(sourceKey) === currentTypes.get(sourceKey)
@@ -6801,23 +6811,36 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       if (!tab || refuseFrozenEdit()) return
       const graphId = currentGraphId(tab)
+      const instancePath = viewInstancePath(tab)
+      if (instancePath === undefined) return
       const internalText = pendingClipboardText()
       if (internalText !== undefined) {
         await pasteSelection(anchor, connectInputs, internalText)
         return
       }
-      const image = await readClipboardImage(() => navigator.clipboard.read())
-      if (activeTab() !== tab || currentGraphId(tab) !== graphId || tab.execution !== undefined) return
-      if (image === undefined) {
-        await pasteSelection(anchor, connectInputs)
-        return
+      // Undo may restore the same path while the OS read waits; restoration
+      // must not revive a paste aimed at an occurrence that disappeared.
+      let occurrenceRetired = false
+      const unsubscribe = tab.store.document.subscribe((document) => {
+        if (graphAtInstancePath(document, instancePath)?.id !== graphId) occurrenceRetired = true
+      })
+      try {
+        const image = await readClipboardImage(() => navigator.clipboard.read())
+        if (occurrenceRetired || activeTab() !== tab || currentGraphId(tab) !== graphId || tab.execution !== undefined ||
+            JSON.stringify(viewInstancePath(tab)) !== JSON.stringify(instancePath)) return
+        if (image === undefined) {
+          await pasteSelection(anchor, connectInputs)
+          return
+        }
+        const file = new File([image.blob], pastedImageName(image.mediaType), { type: image.mediaType })
+        const position = anchor ?? ((): { x: number; y: number } => {
+          const rect = canvasEl.getBoundingClientRect()
+          return renderer.toWorld(rect.width / 2, rect.height / 2)
+        })()
+        ingestCanvasFile(file, { x: Math.round(position.x), y: Math.round(position.y) }, 'paste')
+      } finally {
+        unsubscribe()
       }
-      const file = new File([image.blob], pastedImageName(image.mediaType), { type: image.mediaType })
-      const position = anchor ?? ((): { x: number; y: number } => {
-        const rect = canvasEl.getBoundingClientRect()
-        return renderer.toWorld(rect.width / 2, rect.height / 2)
-      })()
-      ingestCanvasFile(file, { x: Math.round(position.x), y: Math.round(position.y) }, 'paste')
     }
 
     const onKeyDown = (e: KeyboardEvent): void => {

@@ -6,7 +6,7 @@ import { graphAllocator } from './commands/alloc.js'
 import type { CommandDefinition, CommandInvocation, TransactionBuilder } from './commands/contract.js'
 import { diag, type Diagnostic } from './diagnostics.js'
 import { NET_VIEWS_EXT_KEY, netViewKey, netViewPositions, netViewToJson, parseNetViewPosition, updateNetViewPositions, type NetViewPosition } from './format/net-views.js'
-import { routeMatchesOwnerChain, subgraphDefIdOf } from './invariants.js'
+import { graphAtInstancePath, routeMatchesOwnerChain, subgraphDefIdOf } from './invariants.js'
 import { canonicalJson } from './compile/hash.js'
 import { remapGroupMembership } from './group-membership.js'
 import type { GroupMembership } from './format/document.js'
@@ -175,11 +175,12 @@ function definitionOrder(
 function normalizeDefinitionClosure(
   value: unknown,
   nodes: readonly { readonly data: Json }[],
+  allowEmpty = false,
 ): ClipboardDefinitionClosure | undefined {
   if (!object(value) || !object(value.graphs) || !object(value.view)) return undefined
   const graphEntries = Object.entries(value.graphs)
   const viewEntries = Object.entries(value.view)
-  if (graphEntries.length === 0 || graphEntries.length !== viewEntries.length) return undefined
+  if ((!allowEmpty && graphEntries.length === 0) || graphEntries.length !== viewEntries.length) return undefined
 
   const graphs: Record<string, Json> = {}
   const view: Record<string, Json> = {}
@@ -330,6 +331,7 @@ function listCountOwnerClosed(
   graphs: Readonly<Record<string, GraphDef>>,
   nodes: readonly { readonly data: Json }[],
   state: OccurrenceListCounts,
+  sourceGraphId: string,
 ): boolean {
   let currentNodes = Object.fromEntries(nodes.map(({ data }) => [(data as unknown as NodeData).id, data as unknown as NodeData]))
   let graph: GraphDef | undefined
@@ -340,7 +342,7 @@ function listCountOwnerClosed(
     if (graph === undefined) return false
     currentNodes = graph.nodes
   }
-  return graph?.id === state.graphId && Object.hasOwn(currentNodes, state.owner.node)
+  return (graph?.id ?? sourceGraphId) === state.graphId && Object.hasOwn(currentNodes, state.owner.node)
 }
 
 function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefined {
@@ -415,7 +417,7 @@ function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefine
     nets.push(...(value.nets as unknown as Json[]))
   }
   const definitions = value.version >= 5
-    ? normalizeDefinitionClosure(value.definitions, nodes)
+    ? normalizeDefinitionClosure(value.definitions, nodes, value.version === 6)
     : undefined
   if (value.version >= 5 && definitions === undefined) return undefined
   const occurrenceListCounts = value.version === 6 ? value.occurrenceListCounts : undefined
@@ -423,7 +425,7 @@ function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefine
     if (!Array.isArray(occurrenceListCounts) || !occurrenceListCounts.every((raw) =>
       ownJson(raw, { undefinedProps: 'reject' }).ok &&
       validateOccurrenceListCountsShape(raw).length === 0 &&
-      listCountOwnerClosed(definitions!.graphs as unknown as Readonly<Record<string, GraphDef>>, nodes, raw as unknown as OccurrenceListCounts),
+      listCountOwnerClosed(definitions!.graphs as unknown as Readonly<Record<string, GraphDef>>, nodes, raw as unknown as OccurrenceListCounts, value.scope!.graph),
     )) return undefined
     const owners = occurrenceListCounts.map((raw) => occurrenceKey((raw as unknown as OccurrenceListCounts).owner))
     if (new Set(owners).size !== owners.length) return undefined
@@ -507,10 +509,12 @@ export function serializeSelection(
   selection: { readonly nodes: Iterable<string>; readonly reroutes: Iterable<string>; readonly groups?: Iterable<string> },
   scopeToken = '',
   membership = doc.view.graphs[graphId]?.groupMembership,
+  instancePath: readonly string[] | undefined = graphId === doc.root ? [] : undefined,
 ): DinksterClipboardEnvelope | undefined {
   const graph = doc.graphs[graphId]
   const view = doc.view.graphs[graphId]
   if (!graph || !view) return undefined
+  if (instancePath !== undefined && graphAtInstancePath(doc, instancePath)?.id !== graphId) return undefined
   const nodes = new Set([...selection.nodes].filter((id) => graph.nodes[id] !== undefined))
   const reroutes = new Set([...selection.reroutes].filter((id) => graph.reroutes[id] !== undefined))
   const groups = new Set(selection.groups ?? [])
@@ -523,9 +527,12 @@ export function serializeSelection(
       ? nodes.has(topology.owner.node)
       : nodes.has(topology.owner.instancePath[0]!),
   ) : []
-  const occurrenceListCounts = graphId === doc.root ? Object.values(doc.occurrenceListCounts ?? {}).filter((state) =>
-    nodes.has(state.owner.instancePath[0]!),
-  ) : []
+  const occurrenceListCounts = instancePath === undefined ? [] : Object.values(doc.occurrenceListCounts ?? {}).flatMap((state) => {
+    if (state.owner.instancePath.length < instancePath.length ||
+        !instancePath.every((hop, index) => state.owner.instancePath[index] === hop)) return []
+    const owner = { ...state.owner, instancePath: state.owner.instancePath.slice(instancePath.length) }
+    return nodes.has(owner.instancePath[0] ?? owner.node) ? [{ ...state, owner }] : []
+  })
   // Net membership rides along with the copied NODES: a record is included
   // when the copied selection contains the net's source node or at least
   // one sink node, with sinks restricted to copied nodes. Paste resolves
@@ -601,8 +608,8 @@ export function serializeSelection(
     }),
     ...(occurrenceTopologies.length > 0 ? { occurrenceTopologies: occurrenceTopologies as unknown as readonly Json[] } : {}),
     ...(occurrenceListCounts.length > 0 ? { occurrenceListCounts: occurrenceListCounts as unknown as readonly Json[] } : {}),
-    ...(nets.length > 0 || hasDefinitions ? { nets } : {}),
-    ...(hasDefinitions ? { definitions } : {}),
+    ...(nets.length > 0 || hasDefinitions || occurrenceListCounts.length > 0 ? { nets } : {}),
+    ...(hasDefinitions || occurrenceListCounts.length > 0 ? { definitions } : {}),
   }
 }
 
@@ -667,7 +674,7 @@ function planDefinitionPaste(
       retainedOccurrenceOwners,
       retainedListCountOwners: new Set((envelope.occurrenceListCounts ?? []).flatMap((raw) => {
         const state = raw as unknown as OccurrenceListCounts
-        return listCountOwnerClosed(doc.graphs, envelope.nodes, state) ? [occurrenceKey(state.owner)] : []
+        return listCountOwnerClosed(doc.graphs, envelope.nodes, state, sourceGraphId) ? [occurrenceKey(state.owner)] : []
       })),
       imports: [],
     }
@@ -862,10 +869,12 @@ export function planClipboardPaste(
   actor?: string,
   connectInputs = false,
   acceptExternal?: (stub: ExternalIncomingStub) => boolean,
+  instancePath: readonly string[] | undefined = graphId === doc.root ? [] : undefined,
 ): ClipboardPastePlan | undefined {
   const graph = doc.graphs[graphId]
   const normalized = normalizeEnvelope(envelope)
   if (!graph || !normalized || (normalized.nodes.length === 0 && normalized.reroutes.length === 0 && normalized.groups.length === 0)) return undefined
+  if (instancePath !== undefined && graphAtInstancePath(doc, instancePath)?.id !== graphId) return undefined
   const definitionPlan = planDefinitionPaste(doc, normalized)
   if (definitionPlan === undefined) return undefined
   // A returned plan must be dispatchable: an invalid actor id would be an
@@ -913,7 +922,7 @@ export function planClipboardPaste(
     return survives(link.from) && survives(link.to)
   })
   const occurrenceTopologies = occurrenceTopologiesForPaste(normalized, definitionPlan)
-  if (listCountsForPaste(normalized, definitionPlan).length > 0 && graphId !== doc.root) return undefined
+  if (listCountsForPaste(normalized, definitionPlan).length > 0 && instancePath === undefined) return undefined
   if (occurrenceTopologies.length > 0) {
     if (graphId !== doc.root) return undefined
     const retainedLinkIds = new Set(retainedLinks.map((raw) => (raw as unknown as LinkData).id))
@@ -960,6 +969,7 @@ export function planClipboardPaste(
       command: 'clipboard.paste',
       params: {
         graphId, envelope: pasteEnvelope, offset: { x: dx, y: dy },
+        ...(instancePath !== undefined ? { instancePath } : {}),
         ...(connectInputs ? { connectInputs: true } : {}),
       } as unknown as Json,
     } as CommandInvocation
@@ -993,9 +1003,15 @@ const clipboardPaste: CommandDefinition = {
       return [diag('error', 'command', 'params.invalid', 'clipboard.paste: invalid clipboard envelope')]
     const graph = doc.graphs[params.graphId]
     if (!graph) return [diag('error', 'command', 'graph.missing', `clipboard.paste: unknown graph '${params.graphId}'`)]
+    const instancePath = params.instancePath ?? (params.graphId === doc.root ? [] : undefined)
+    if (instancePath !== undefined && (!Array.isArray(instancePath) || !instancePath.every((hop) => typeof hop === 'string') ||
+        graphAtInstancePath(doc, instancePath as string[])?.id !== params.graphId)) {
+      return [diag('error', 'command', 'occurrence.missing', 'clipboard.paste: destination occurrence is gone')]
+    }
     const failures = materialize(
       tx, params.graphId, graph, envelope, params.offset.x, params.offset.y,
       params.connectInputs === true ? validExternalIncoming(doc, params.graphId, envelope) : [],
+      instancePath as readonly string[] | undefined,
     )
     if (failures.length > 0) return failures
     // Backstop (defense in depth behind normalizeEnvelope's per-record
@@ -1014,6 +1030,7 @@ function materialize(
   dx: number,
   dy: number,
   externalIncoming: readonly ExternalIncomingStub[],
+  instancePath: readonly string[] | undefined,
 ): Diagnostic[] {
   const definitions = planDefinitionPaste(tx.current, envelope)
   if (definitions === undefined) {
@@ -1183,15 +1200,23 @@ function materialize(
   }
   const copiedCounts: Record<string, OccurrenceListCounts> = { ...tx.current.occurrenceListCounts }
   const listCounts = listCountsForPaste(envelope, definitions)
-  if (listCounts.length > 0 && graphId !== tx.current.root) {
-    return [diag('error', 'command', 'clipboard.listCounts.contextUnsupported', 'clipboard.paste: instance list counts require the root graph')]
+  if (listCounts.length > 0 && instancePath === undefined) {
+    return [diag('error', 'command', 'clipboard.listCounts.contextUnsupported', 'clipboard.paste: instance list counts require a concrete destination')]
   }
   for (const state of listCounts) {
-    const first = nodeMap.get(state.owner.instancePath[0]!)!
-    const owner = { ...state.owner, instancePath: [asNodeId(first), ...state.owner.instancePath.slice(1)] }
-    copiedCounts[occurrenceKey(owner)] = { ...state, owner, graphId: (definitions.ids.get(state.graphId) ?? state.graphId) as never }
+    const direct = state.owner.instancePath.length === 0
+    const first = nodeMap.get(state.owner.instancePath[0] ?? state.owner.node)!
+    const owner = { node: direct ? asNodeId(first) : state.owner.node,
+      instancePath: [...instancePath!, ...(direct ? [] : [first, ...state.owner.instancePath.slice(1)])].map(asNodeId) }
+    if (owner.instancePath.length === 0) {
+      const node = tx.current.graphs[graphId]!.nodes[owner.node]!
+      tx.set(['graphs', graphId, 'nodes', owner.node, 'values'], { ...node.values, ...state.counts })
+    } else {
+      copiedCounts[occurrenceKey(owner)] = { ...state, owner,
+        graphId: (direct ? graphId : definitions.ids.get(state.graphId) ?? state.graphId) as never }
+    }
   }
-  if (listCounts.length > 0) tx.set(['occurrenceListCounts'], copiedCounts as unknown as Json)
+  if (listCounts.length > 0 && Object.keys(copiedCounts).length > 0) tx.set(['occurrenceListCounts'], copiedCounts as unknown as Json)
   const occurrenceTopologies = occurrenceTopologiesForPaste(envelope, definitions)
   if (occurrenceTopologies.length > 0) {
     if (graphId !== tx.current.root) {
