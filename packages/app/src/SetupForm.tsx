@@ -47,7 +47,7 @@ export function SetupForm(props: {
     const assigned = choice()?.gpus ?? (variant() === plan?.variant ? plan?.gpus : undefined)
     const counts = new Map<string, number>()
     for (const card of plan?.detectedCards ?? []) {
-      if ((assigned && !assigned.includes(card.id)) || (graphicsVendor() && (card.vendor ?? 'nvidia') !== graphicsVendor())) continue
+      if (!assigned?.includes(card.id) || (graphicsVendor() && (card.vendor ?? 'nvidia') !== graphicsVendor())) continue
       counts.set(card.name, (counts.get(card.name) ?? 0) + 1)
     }
     return [...counts].map(([name, count]) => count > 1 ? `${count} x ${name}` : name)
@@ -181,8 +181,8 @@ export function SetupForm(props: {
           <div class="dinkster-actions setup-actions">
             <Show when={setupJobActive(setup.job())} fallback={
               <>
-                <Show when={setup.error() || plan().refusal || graphicsWarning() && repairable()}><ProductButton disabled={busy()} onClick={checkAgain}>{message('setup.retry')}</ProductButton></Show>
-                <Show when={!plan().variant && !plan().refusal && cpuChoice()}>{(cpu) => <ProductButton disabled={busy()} onClick={() => { void setup.refresh({ root: plan().root, channel: plan().channel, variant: cpu().variant }) }}>{message('setup.useCpu')}</ProductButton>}</Show>
+                <Show when={setup.error() || plan().refusal || canChange() && graphicsWarning() && repairable()}><ProductButton disabled={busy()} onClick={checkAgain}>{message('setup.retry')}</ProductButton></Show>
+                <Show when={canChange() && !plan().variant && !plan().refusal && cpuChoice()}>{(cpu) => <ProductButton disabled={busy()} onClick={() => { void setup.refresh({ root: plan().root, channel: plan().channel, variant: cpu().variant }) }}>{message('setup.useCpu')}</ProductButton>}</Show>
                 <Show when={plan().variant && !plan().refusal && setup.job()?.state !== 'completed'}><ProductButton intent="add" fill="solid" disabled={!setup.canStart() || folderBusy()} onClick={() => { void setup.start() }}>{message('setup.start')}</ProductButton></Show>
               </>
             }><ProductButton disabled={setup.changing() || setup.job()?.state === 'cancelling'} onClick={() => void setup.cancel()}>{message('setup.cancel')}</ProductButton></Show>
