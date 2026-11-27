@@ -141,6 +141,32 @@ afterEach(() => {
 
 describe('default backend', () => {
 
+  it('drops lookup, choice and scoped answers when the engine reports another account', async () => {
+    let principal = 'account-a'
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const payload = url.endsWith('/api/account')
+        ? { available: true, canStartSignIn: true, signInUnavailableReason: null, signedIn: true,
+          profile: null, signIn: { state: 'idle' }, principalRevision: principal }
+        : url.includes('/api/choices/') ? [principal]
+        : url.endsWith('/api/lookups') ? { answer: principal } : { owner: principal }
+      return new Response(JSON.stringify(payload), { headers: { 'Content-Type': 'application/json' } })
+    })
+    const backend = app.backends.get()[0]!
+    if (backend.protocol !== 'dinkster') throw new Error('native backend expected')
+    await backend.connection.accountStatus()
+    const call = { nodeType: 'test.node', node: 'test', function: 'pack.list', args: [] }
+    expect(await backend.lookups.request(call)).toEqual({ state: 'ready', answer: 'account-a' })
+    expect(await backend.scopedClient.remoteChoices('/api/choices/test')).toEqual(['account-a'])
+    expect(await backend.scopedClient.query('/api/test', {})).toEqual({ owner: 'account-a' })
+    principal = 'account-b'
+    await backend.connection.accountStatus()
+    expect(backend.lookups.entry(call)).toBeUndefined()
+    expect(await backend.lookups.request(call)).toEqual({ state: 'ready', answer: 'account-b' })
+    expect(await backend.scopedClient.remoteChoices('/api/choices/test')).toEqual(['account-b'])
+    expect(await backend.scopedClient.query('/api/test', {})).toEqual({ owner: 'account-b' })
+  })
+
   it('is not removable', () => {
     const def = app.backends.get()[0]!
     app.removeBackend(def.id)
@@ -244,6 +270,37 @@ describe('addBackend / removeBackend', () => {
       await app.modelDownloadsFor(backend).refresh()
       expect(state.get()?.job?.status).toBe('completed')
       expect(inventory.get()[0]?.status).toBe('completed')
+      jobs = [{ ...selection, jobId: 'another-window', status: 'downloading', received: 6053 }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.received).toBe(6053)
+      jobs = [{ ...jobs[0]!, status: 'completed', received: 8192, asset,
+        path: selection.destination, reused: false, renamed: false }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.jobId).toBe('another-window')
+      expect(state.get()?.job?.status).toBe('completed')
+      app.modelDownloadsFor(backend).invalidate(requirement)
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job).toBeUndefined()
+      jobs = [{ ...selection, jobId: 'after-invalidation', status: 'downloading', received: 7147 }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.received).toBe(7147)
+      jobs = [{ ...jobs[0]!, status: 'completed', received: 8192, asset,
+        path: selection.destination, reused: false, renamed: false }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.status).toBe('completed')
+      app.openModelDownloads(backend, [requirement], { missing: [requirement] })
+      expect(app.assetConsent.get()?.models?.[0]?.job).toBeUndefined()
+      await app.assetConsent.get()!.reviewModel!(0)
+      expect(app.assetConsent.get()?.models?.[0]?.plan?.status).toBe('consent-required')
+      jobs = [{ ...selection, jobId: 'completion-after-missing', status: 'downloading', received: 7181 }]
+      await app.modelDownloadsFor(backend).refresh()
+      app.openModelDownloads(backend, [requirement], { missing: [requirement] })
+      expect(app.assetConsent.get()?.models?.[0]?.job?.received).toBe(7181)
+      jobs = [{ ...jobs[0]!, status: 'completed', received: 8192, asset,
+        path: selection.destination, reused: false, renamed: false }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(app.assetConsent.get()?.models?.[0]?.job).toBeUndefined()
+      await vi.waitFor(() => expect(app.assetConsent.get()?.models?.[0]?.plan?.status).toBe('consent-required'))
       app.removeBackend(backend.id)
       expect(app.assetConsent.get()).toBeUndefined()
       expect(state.get()).toBeUndefined()

@@ -4,15 +4,18 @@ import {
   createComputed,
   createSignal,
   createUniqueId,
+  onCleanup,
+  onMount,
   splitProps,
   type JSX,
 } from 'solid-js'
-import { ChevronDown, CircleAlert, Clock, LoaderCircle, X, type LucideIcon } from 'lucide-solid'
+import { CircleAlert, Clock, LoaderCircle, X, type LucideIcon } from 'lucide-solid'
 import { Dynamic } from 'solid-js/web'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
 import { useFieldFocus } from './field-focus.js'
 import { ProductShortcut, productShortcutKeys } from './shortcut.js'
+import { ProductSelect } from './select.js'
 import githubMark from '../../../branding/providers/github-mark.svg?url'
 import googleMark from '../../../branding/providers/google-mark.svg?url'
 
@@ -233,6 +236,7 @@ export function ProductIconButton(
     labelContent?: JSX.Element
     icon: LucideIcon
     intent?: ProductRole
+    pending?: boolean
     'data-tooltip-label'?: string
   },
 ) {
@@ -241,17 +245,19 @@ export function ProductIconButton(
     'labelContent',
     'icon',
     'intent',
+    'pending',
   ])
   return (
     <Button
       {...button}
       intent={local.intent}
       fill="quiet"
+      pending={local.pending}
       iconOnly={local.labelContent === undefined}
       aria-label={local.label}
       title={button['data-tooltip-label'] ? undefined : local.label}
     >
-      <ProductIcon icon={local.icon} />
+      <Show when={!local.pending}><ProductIcon icon={local.icon} /></Show>
       {local.labelContent}
     </Button>
   )
@@ -312,6 +318,8 @@ export function ProductTextButton(
 export function ProductSegmented(props: {
   label: string
   value: string
+  /** Use the shared dropdown when the one-row choices exceed available width. */
+  overflow?: 'select'
   /**
    * `disabled` is the reason an option cannot be chosen. The option keeps its
    * place, and the reason is its accessible description and its tooltip.
@@ -320,8 +328,21 @@ export function ProductSegmented(props: {
   onChange: (value: string) => void
 }) {
   const name = createUniqueId()
-  return (
-    <div class="dinkster-segmented" role="radiogroup" aria-label={props.label}>
+  const [collapsed, setCollapsed] = createSignal(false)
+  let container: HTMLDivElement | undefined
+  let row: HTMLDivElement | undefined
+  onMount(() => {
+    if (!container || !row) return
+    const measure = () => setCollapsed(row!.getBoundingClientRect().width > container!.clientWidth)
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    observer.observe(row)
+    measure()
+    onCleanup(() => observer.disconnect())
+  })
+  const segments = () => (
+    <div ref={row} class="dinkster-segmented" role="radiogroup" aria-label={props.label}
+      aria-hidden={collapsed() || undefined} inert={collapsed()}>
       <For each={props.options}>
         {(option) => {
           const reasonId = createUniqueId()
@@ -349,6 +370,18 @@ export function ProductSegmented(props: {
         }}
       </For>
     </div>
+  )
+  return (
+    <Show when={props.overflow === 'select'} fallback={segments()}>
+      <div ref={container} class="dinkster-segmented-fit" data-collapsed={collapsed() ? '' : undefined}>
+        {segments()}
+        <Show when={collapsed()}>
+          <ProductSelect aria-label={props.label} value={props.value} onChange={props.onChange}
+            disabled={props.options.every((option) => option.disabled !== undefined)}
+            options={props.options.map((option) => ({ ...option, disabled: option.disabled !== undefined }))} />
+        </Show>
+      </div>
+    </Show>
   )
 }
 
@@ -440,18 +473,6 @@ export function ProductTextArea(
   return <textarea {...props} class="dinkster-input dinkster-textarea" />
 }
 
-export function ProductSelect(
-  props: Omit<JSX.SelectHTMLAttributes<HTMLSelectElement>, 'class' | 'style'>,
-) {
-  useFieldFocus()
-  return (
-    <div class="dinkster-select">
-      <select {...props} class="dinkster-input" />
-      <ProductIcon icon={ChevronDown} />
-    </div>
-  )
-}
-
 export function ProductCheckbox(
   props: Omit<
     JSX.InputHTMLAttributes<HTMLInputElement>,
@@ -461,7 +482,12 @@ export function ProductCheckbox(
   const [local, input] = splitProps(props, ['label', 'children'])
   return (
     <label class="dinkster-choice">
-      <input {...input} type="checkbox" class="dinkster-check" />
+      <input
+        {...input}
+        type="checkbox"
+        class="dinkster-check dinkster-visually-hidden"
+      />
+      <span class="product-checkbox-mark" aria-hidden="true" />
       <span>{local.label}</span>
     </label>
   )
@@ -502,14 +528,17 @@ export function ProductRadio(
   const [local, input] = splitProps(props, ['label', 'children'])
   return (
     <label class="dinkster-choice">
-      <input {...input} type="radio" class="dinkster-check" />
+      <input {...input} type="radio" class="dinkster-check dinkster-visually-hidden" />
+      <span class="product-radio-mark" aria-hidden="true" />
       <span>{local.label}</span>
     </label>
   )
 }
 
-export function ProductField(props: {
-  label: string
+export function ProductField(props: (
+  | { label: string; layout?: 'inline' }
+  | { label?: never; layout: 'self-labeled' }
+) & {
   description?: string
   error?: string
   children: (attributes: {
@@ -520,8 +549,10 @@ export function ProductField(props: {
 }) {
   const id = createUniqueId()
   return (
-    <div class="dinkster-field">
-      <label for={id}>{props.label}</label>
+    <div class="dinkster-field" data-layout={props.layout}>
+      <Show when={props.label}>
+        <label for={id}>{props.label}</label>
+      </Show>
       {props.children({
         id,
         get 'aria-describedby'() {

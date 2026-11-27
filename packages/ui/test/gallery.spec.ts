@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '../../e2e/visual.js'
+import { chooseOption } from '../../e2e/choices.js'
 import axe from 'axe-core'
 
 declare global {
@@ -63,6 +64,116 @@ test('list rows expand independently of their sibling menu and navigation does n
   await expect(version).toHaveAttribute('aria-pressed', 'false')
   await expect(version).not.toHaveAttribute('aria-expanded')
   await expect(version).not.toHaveAttribute('aria-controls')
+})
+
+test('stacked form values start on the same line in app and site densities', async ({ page }) => {
+  for (const route of ['#field-alignment', '#site-field-alignment']) {
+    await page.goto(`/${route}`)
+    await expect(page.getByLabel('Text field', { exact: true })).toBeVisible()
+    await page.evaluate(() => document.fonts.ready)
+    const origins = []
+    for (const label of ['Dropdown', 'Text field', 'Password field', 'Number field']) {
+      origins.push(await page.getByLabel(label, { exact: true }).evaluate((control) => {
+        const input = control as HTMLInputElement
+        const face = control.closest('.product-number') ?? control
+        const faceLeft = face.getBoundingClientRect().left
+        const value = control.querySelector('.dinkster-canvas-list-label')
+        if (value?.firstChild) {
+          const range = document.createRange()
+          range.setStart(value.firstChild, 0)
+          range.setEnd(value.firstChild, 1)
+          return { left: range.getBoundingClientRect().left, faceLeft }
+        }
+        const style = getComputedStyle(input)
+        return {
+          left: input.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft),
+          faceLeft,
+        }
+      }))
+    }
+    for (const origin of origins) {
+      expect(origin.left - origin.faceLeft).toBe(13)
+      expect(origin.left).toBe(origins[0]!.left)
+    }
+  }
+})
+
+test('single-line fields match their density while site dialogs keep app field sizing', async ({ page }) => {
+  await page.goto('/#controls')
+  await page.getByRole('textbox', { name: 'Display name', exact: true }).waitFor()
+  await page.evaluate(() => document.fonts.ready)
+  for (const [density, height] of [['app', 32], ['site', 36]] as const) {
+    await page.evaluate((density) => {
+      document.querySelectorAll('[data-density="site"]').forEach((element) => element.removeAttribute('data-density'))
+      document.querySelector('.dinkster-page')!.setAttribute('data-density', density)
+    }, density)
+    for (const label of ['Display name', 'Email address', 'Access']) {
+      expect((await page.getByLabel(label, { exact: true }).boundingBox())!.height).toBe(height)
+    }
+    expect((await page.locator('.dinkster-page .dinkster-button').first().boundingBox())!.height).toBe(height)
+  }
+  await page.goto('/#projects')
+  await page.getByRole('button', { name: 'Project actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Rename project' })
+  expect((await dialog.getByRole('textbox', { name: 'Name', exact: true }).boundingBox())!.height).toBe(32)
+  expect((await dialog.getByRole('button', { name: 'Save', exact: true }).boundingBox())!.height).toBe(28)
+  await page.goto('/#settings-section')
+  const insets = await page.getByRole('region', { name: 'View', exact: true }).locator('input, [role="combobox"]').evaluateAll((controls) => controls.map((element) => {
+    const style = getComputedStyle(element)
+    return Number.parseFloat(style.borderLeftWidth) + Number.parseFloat(style.paddingLeft)
+  }))
+  expect(insets).toHaveLength(2)
+  expect(insets[1]).toBe(insets[0])
+})
+
+test('product dropdowns keep candidates separate from saved values and work inside dialogs', async ({ page }) => {
+  await page.goto('/#dropdowns')
+  const runtime = page.getByRole('combobox', { name: 'Runtime', exact: true })
+  await expect(runtime).toHaveAccessibleDescription('The check marks the saved value; the highlight is the keyboard candidate.')
+  await expect(page.getByRole('combobox', { name: 'Unavailable runtime', exact: true })).toBeDisabled()
+  const invalid = page.getByRole('combobox', { name: 'Invalid runtime', exact: true })
+  await expect(invalid).toHaveAttribute('aria-invalid', 'true')
+  await expect(invalid).toHaveAccessibleDescription('Choose a runtime.')
+  await runtime.click()
+  const list = page.getByRole('listbox')
+  await expect(list.getByRole('option', { name: 'Automatic', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(list.getByRole('option', { name: 'Unavailable runtime', exact: true })).toBeDisabled()
+  await page.keyboard.press('ArrowDown')
+  await expect(runtime).toHaveText('Automatic')
+  await expect(runtime).toHaveAttribute('aria-activedescendant', (await list.getByRole('option', { name: 'CPU', exact: true }).getAttribute('id'))!)
+  await page.keyboard.press('Enter')
+  await expect(runtime).toHaveText('CPU')
+  await expect(runtime).toBeFocused()
+  await expect(list).toHaveCount(0)
+  await runtime.press('g')
+  await runtime.press('Escape')
+  await expect(runtime).toHaveText('CPU')
+  await runtime.press('g')
+  await runtime.press('Enter')
+  await expect(runtime).toHaveText('GPU')
+  await runtime.click()
+  await page.getByRole('heading', { name: 'Dropdowns' }).first().click()
+  await expect(list).toHaveCount(0)
+  const long = page.getByRole('combobox', { name: 'Long list', exact: true })
+  await long.press('End')
+  const last = page.getByRole('option', { name: 'Environment 24 - shared production runtime', exact: true })
+  await expect(last).toBeInViewport()
+  await long.press('Enter')
+  await expect(long).toHaveText('Environment 24 - shared production runtime')
+  await page.getByRole('button', { name: 'Open dropdown dialog' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Runtime choice', exact: true })
+  const dialogRuntime = dialog.getByRole('combobox', { name: 'Dialog runtime', exact: true })
+  await dialogRuntime.click()
+  await expect(dialog.getByRole('listbox')).toBeVisible()
+  await dialogRuntime.press('Escape')
+  await expect(dialog).toBeVisible()
+  await dialogRuntime.click()
+  await dialog.getByRole('option', { name: 'CPU', exact: true }).click()
+  expect(await dialog.locator('form').evaluate((form: HTMLFormElement) => new FormData(form).get('runtime'))).toBe('cpu')
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog.getByRole('status').filter({ hasText: 'Saved cpu' })).toBeVisible()
+  await expect(page.locator('select')).toHaveCount(0)
 })
 
 test('multiline fields grow, scroll at their height cap, and shrink after deletion', async ({ page }) => {
@@ -185,7 +296,7 @@ for (const width of [1280, 390]) {
       await expect(page.getByRole('main')).toBeVisible()
       if (section === 'confirmations') expect(await page.evaluate(() => window.scrollY)).toBe(0)
       if (section === 'lists') {
-        const heading = page.locator('.storage-folder-heading').first()
+        const heading = page.getByRole('list', { name: 'Storage model folders', exact: true }).locator('.dinkster-row-heading')
         const name = await heading.locator('strong').boundingBox()
         const actions = await heading.getByRole('button', { name: 'Folder actions' }).boundingBox()
         expect(name!.x + name!.width).toBeLessThan(actions!.x)
@@ -239,7 +350,6 @@ test('setup feedback exposes known fractions, unknown progress and non-dismissab
       await expect(page.getByRole('progressbar', { name: 'Complete', exact: true }).locator('svg')).toHaveCSS('opacity', '1')
       const widths = await unknown.evaluate((element) => [element.getBoundingClientRect().width, element.querySelector('svg')!.getBoundingClientRect().width])
       expect(widths[1]! / widths[0]!).toBeCloseTo(motion === 'reduce' ? 1 : 0.36, 2)
-      await expect(page).toHaveScreenshot(`setup-feedback-${theme}-${motion}.png`, { fullPage: true })
     }
     await expectNoAxeViolations(page)
   }
@@ -341,7 +451,6 @@ test('described menu choices keep separate accessible descriptions, checks and o
       const row = await alternative.boundingBox()
       const description = await text.boundingBox()
       expect(description!.y + description!.height).toBeLessThanOrEqual(row!.y + row!.height)
-      await expect(page).toHaveScreenshot(`setup-menu-${theme}-${width}.png`, { fullPage: true })
       await page.keyboard.press('ArrowDown')
       await expect(alternative).toBeFocused()
       await page.keyboard.press('Enter')
@@ -550,10 +659,8 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await page.getByLabel('First choice').focus()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByLabel('Second choice')).toBeChecked()
-  await page
-    .getByLabel('Access', { exact: true })
-    .selectOption({ label: 'Mint only' })
-  await expect(page.getByLabel('Access', { exact: true })).toHaveValue(
+  await chooseOption(page.getByLabel('Access', { exact: true }), 'Mint only')
+  await expect(page.getByLabel('Access', { exact: true })).toHaveText(
     'Mint only',
   )
   await page.getByLabel('Selected unavailable radio').scrollIntoViewIfNeeded()
@@ -820,6 +927,7 @@ test('menus support pointer dismissal, keyboard navigation and immediate sign ou
   await expect(
     page.getByRole('menuitem', { name: 'View package' }),
   ).toBeFocused()
+  await expect(page.getByRole('menuitem', { name: 'View package' }).locator('kbd')).toHaveText(['Ctrl+Shift+1'])
   expect((await page.getByRole('menu').boundingBox())!.x).toBe(
     (await trigger.boundingBox())!.x,
   )
@@ -919,7 +1027,8 @@ test('forms retain edits after refusal and disable save after undo and successfu
   await page.getByRole('button', { name: 'Undo changes' }).click()
   await expect(name).toHaveValue('Alex Morgan')
   await expect(save).toBeDisabled()
-  await page.getByLabel('Reject the next save').check()
+  await page.getByText('Reject the next save', { exact: true }).click()
+  await expect(page.getByLabel('Reject the next save')).toBeChecked()
   await name.fill('Retained name')
   await save.focus()
   await page.keyboard.press('Enter')
@@ -931,8 +1040,10 @@ test('forms retain edits after refusal and disable save after undo and successfu
   await expect(save).toBeEnabled()
   await expect(save).toBeFocused()
   await expect(page).toHaveScreenshot('form-rejected.png', { fullPage: true })
-  await page.getByLabel('Reject the next save').uncheck()
-  await page.getByLabel('Refuse the next name as taken').check()
+  await page.getByText('Reject the next save', { exact: true }).click()
+  await expect(page.getByLabel('Reject the next save')).not.toBeChecked()
+  await page.getByText('Refuse the next name as taken', { exact: true }).click()
+  await expect(page.getByLabel('Refuse the next name as taken')).toBeChecked()
   await save.click()
   await page.clock.runFor(600)
   await expect(page.getByText('That name is taken.')).toBeVisible()
@@ -946,7 +1057,8 @@ test('forms retain edits after refusal and disable save after undo and successfu
   await expect(page).toHaveScreenshot('form-field-refused.png', {
     fullPage: true,
   })
-  await page.getByLabel('Refuse the next name as taken').uncheck()
+  await page.getByText('Refuse the next name as taken', { exact: true }).click()
+  await expect(page.getByLabel('Refuse the next name as taken')).not.toBeChecked()
   await save.focus()
   await page.keyboard.press('Enter')
   await page.clock.runFor(600)
@@ -954,9 +1066,11 @@ test('forms retain edits after refusal and disable save after undo and successfu
   await expect(save).toBeDisabled()
   await expect(save).toBeFocused()
   await expect(page.getByRole('alert')).toHaveCount(0)
-  await page.getByLabel('Show my email on my profile').check()
+  await page.getByText('Show my email on my profile', { exact: true }).click()
+  await expect(page.getByLabel('Show my email on my profile')).toBeChecked()
   await expect(save).toBeEnabled()
-  await page.getByLabel('Show my email on my profile').uncheck()
+  await page.getByText('Show my email on my profile', { exact: true }).click()
+  await expect(page.getByLabel('Show my email on my profile')).not.toBeChecked()
   await expect(save).toBeDisabled()
 })
 
@@ -1155,13 +1269,16 @@ test('a refused save and an open dialog have no accessibility violations', async
   page,
 }) => {
   await page.goto('/#forms')
-  await page.getByLabel('Reject the next save').check()
-  await page.getByLabel('Refuse the next name as taken').check()
+  await page.getByText('Reject the next save', { exact: true }).click()
+  await expect(page.getByLabel('Reject the next save')).toBeChecked()
+  await page.getByText('Refuse the next name as taken', { exact: true }).click()
+  await expect(page.getByLabel('Refuse the next name as taken')).toBeChecked()
   await page.getByLabel('Display name', { exact: true }).fill('Taken name')
   const save = page.getByRole('button', { name: 'Save', exact: true })
   await save.click()
   await expect(page.getByText('Changes could not be saved')).toBeVisible()
-  await page.getByLabel('Reject the next save').uncheck()
+  await page.getByText('Reject the next save', { exact: true }).click()
+  await expect(page.getByLabel('Reject the next save')).not.toBeChecked()
   await save.click()
   await expect(page.getByText('That name is taken.')).toBeVisible()
   await expectNoAxeViolations(page)

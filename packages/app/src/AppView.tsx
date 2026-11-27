@@ -66,6 +66,7 @@ import { isTextTarget } from './settings.js'
 import { parseNumericCommit, parsePrimitiveListCommit, widgetCommitError } from './widget-commit.js'
 import { Icon } from './Icon.js'
 import { ProductButton, ProductCheckbox, ProductTextArea, ProductTextInput } from './ProductControls.js'
+import { ProductButton as SharedProductButton, ProductIcon } from '@dinkster/ui'
 import { CancelExecutionButton } from './CancelExecutionButton.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect, type ProductSelectOption } from './ProductSelect.js'
@@ -87,6 +88,8 @@ import {
 import { parseAppViewText } from './app-view-text.js'
 import { lookupAnswersOf } from './lookup-demand.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
+import { RequestFailure } from '@dinkster/client'
 import ArrowDown from 'lucide-solid/icons/arrow-down'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
@@ -253,7 +256,7 @@ function AppViewColorPicker(props: {
       if (accepted) close()
       else setRefusal(message('widgetEditor.commitRefused'))
     } catch (error) {
-      if (live && current === generation) setRefusal(error instanceof Error ? error.message : String(error))
+      if (live && current === generation) setRefusal(error instanceof RequestFailure ? failureMessage(error) : error instanceof Error ? error.message : String(error))
     } finally {
       if (live && current === generation) setPending(false)
     }
@@ -781,7 +784,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       return outcome.ok
     } catch (error) {
       if (live && stillWanted() && owner === commitOwner && activeTab() === tab && tab.store === store) {
-        setError(row.entry, error instanceof Error ? error.message : String(error))
+        setError(row.entry, error instanceof RequestFailure ? failureMessage(error) : error instanceof Error ? error.message : String(error))
       }
       return false
     }
@@ -1192,7 +1195,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       })
       .catch((error: unknown) => {
         if (!live || remoteTokens.get(key) !== token) return
-        const message = error instanceof Error ? error.message : String(error)
+        const message = failureMessage(error, 'Choices could not be loaded.')
         setRemoteCombo(key, previous?.state === 'ready' || previous?.state === 'stale'
           ? { state: 'stale', source, options: previous.options, message }
           : { state: 'unavailable', source, message })
@@ -1420,7 +1423,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         return outcome?.ok === true
       } catch (error) {
         if (stillWanted() && owner === generation && activeTab()?.store === store) {
-          setRefusal(error instanceof Error ? error.message : String(error))
+          setRefusal(error instanceof RequestFailure ? failureMessage(error) : error instanceof Error ? error.message : String(error))
         }
         return false
       } finally {
@@ -1729,6 +1732,13 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     const row = () => controlProps.flow.row
     const liveRow = (): Extract<ParamRow, { kind: 'live' }> => row() as Extract<ParamRow, { kind: 'live' }>
     const comboControl = (): boolean => liveRow().spec?.widgetType === 'COMBO'
+    const videoControl = (): boolean => liveRow().spec?.widgetType === 'VIDEO_EDIT'
+    const booleanControl = (): boolean => liveRow().spec?.widgetType === 'BOOLEAN'
+    const listControl = (): boolean => liveRow().spec?.widgetType === 'LIST'
+    const productControl = (): boolean => editableKinds.has(liveRow().spec?.widgetType ?? '') && !videoControl()
+    const readOnlyValue = (): string => Array.isArray(liveRow().value) && listControl()
+      ? (liveRow().value as Json[]).map((item) => String(item)).join(', ')
+      : display(liveRow().value)
     const accessibleLabelId = `app-view-control-${createUniqueId()}`
     const label = (): string => {
       const current = row()
@@ -1776,13 +1786,13 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             onDraftActive={inlineDraftActive}
           />}
         >
-          <Match when={spec().widgetType === 'LIST'}>
+          <Match when={listControl()}>
             <AppViewStringInput
-              value={JSON.stringify(liveRow().value ?? [])}
+              value={Array.isArray(liveRow().value) ? (liveRow().value as Json[]).map((item) => String(item)).join('\n') : ''}
               multiline={true}
               ariaLabelledBy={accessibleLabelId}
               onCommit={async (raw, stillWanted) => {
-                const parsed = parsePrimitiveListCommit(raw, spec())
+                const parsed = parsePrimitiveListCommit(raw, spec(), 'lines')
                 if (parsed.ok) return commit(liveRow(), parsed.value, stillWanted)
                 setError(liveRow().entry, parsed.error)
                 return false
@@ -1807,7 +1817,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               onRevert={() => setError(liveRow().entry, undefined)}
             />
           </Match>
-          <Match when={spec().widgetType === 'BOOLEAN'}>
+          <Match when={booleanControl()}>
             <ProductCheckbox
               class="app-view-control"
               testId="app-view-boolean"
@@ -1827,9 +1837,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           </Match>
           <Match when={comboControl()}>
             <ComboControl row={liveRow()} />
-          </Match>
-          <Match when={spec().widgetType === 'VIDEO_EDIT'}>
-            <ProductButton type="button" aria-label={message('appView.control.editVideo', { label: liveRow().label })} onClick={() => openVideoEditor(liveRow())}>{message('appView.control.editTrimCrop')}</ProductButton>
           </Match>
         </Switch>
       )
@@ -1875,6 +1882,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               }}
               onDragEnd={() => setDragged(undefined)}
             ><Icon icon={GripVertical} /></span>
+          </Show>
+          <Show when={row().kind === 'live' && booleanControl()}>
+            <Show when={editable(liveRow())} fallback={<ProductCheckbox class="app-view-control" ariaLabel={label()} checked={liveRow().value === true} disabled onChange={() => {}} />}>
+              <InlineControl />
+            </Show>
           </Show>
           <Show
             when={arrange() && renaming() === rowKey(row().entry)}
@@ -1944,20 +1956,26 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           fallback={<p class="app-view-stale" data-testid="app-view-stale" role="status">{message('appView.state.unavailable', { reason: (row() as Extract<ParamRow, { kind: 'stale' }>).reason })}</p>}
         >
           <>
-            <AppWidgetPreview row={liveRow()} registry={widgetRegistry()} />
+            <Show when={!productControl()}>
+              <Show when={videoControl() && editable(liveRow())} fallback={<AppWidgetPreview row={liveRow()} registry={widgetRegistry()} />}>
+                <ProductButton class="app-view-widget-action" type="button" aria-label={message('appView.control.editVideo', { label: liveRow().label })} onClick={() => openVideoEditor(liveRow())}>
+                  <AppWidgetPreview row={liveRow()} registry={widgetRegistry()} />
+                </ProductButton>
+              </Show>
+            </Show>
             <Show when={comboControl() && errors().get(rowKey(row().entry))}>
               {(text) => <ProductNotice tone="error" testId="app-view-error">{text()}</ProductNotice>}
             </Show>
             <Show
               when={editable(liveRow())}
               fallback={
-                <p class="app-view-readonly" data-testid="app-view-readonly" tabindex="0" aria-label={`${display(liveRow().value)}. ${readOnlyHint(liveRow())}`} data-tooltip-label={readOnlyHint(liveRow())}>
-                  {display(liveRow().value)}
+                <p class="app-view-readonly" data-testid="app-view-readonly" tabindex="0" aria-label={`${productControl() && !booleanControl() ? readOnlyValue() : label()}. ${readOnlyHint(liveRow())}`} data-tooltip-label={readOnlyHint(liveRow())}>
+                  <Show when={productControl() && !booleanControl()}>{readOnlyValue()}</Show>
                   <span class="app-view-hint">{readOnlyHint(liveRow())}</span>
                 </p>
               }
             >
-              <InlineControl />
+              <Show when={!booleanControl() && !videoControl()}><InlineControl /></Show>
             </Show>
             <Show when={!comboControl() && errors().get(rowKey(row().entry))}>
               {(message) => <ProductNotice tone="error" testId="app-view-error">{message()}</ProductNotice>}
@@ -2492,8 +2510,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             {(description) => <p class="app-view-description">{description()}</p>}
           </Show>
         </div>
-        <ProductButton
-          class="app-view-arrange-toggle"
+        <SharedProductButton
           data-testid="app-view-arrange-toggle"
           aria-pressed={arrange()}
           disabled={frozen() || !activeTab()}
@@ -2502,11 +2519,10 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             if (tab) props.app.setTabAppArrange(tab.id, !arrange())
           }}
         >
-          <Icon icon={SlidersHorizontal} /> {message('appView.arrange')}
-        </ProductButton>
+          <ProductIcon icon={SlidersHorizontal} /> {message('appView.arrange')}
+        </SharedProductButton>
         <Show when={!documentLayout()?.desktop.items.some((item) => item.kind === 'queue')}>
-          <ProductButton variant="primary"
-            class="app-view-queue"
+          <SharedProductButton fill="solid"
             data-testid="app-view-queue"
             disabled={frozen() || !activeTab()}
             onClick={() => {
@@ -2514,8 +2530,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               if (tab) void props.app.queue(tab)
             }}
           >
-            <Icon icon={Play} /> {message('appView.queue')}
-          </ProductButton>
+            <ProductIcon icon={Play} /> {message('appView.queue')}
+          </SharedProductButton>
         </Show>
         <CancelExecutionButton app={props.app} execution={(executions(), props.app.currentCancellableExecution())} />
       </header>

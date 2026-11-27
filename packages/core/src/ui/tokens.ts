@@ -325,6 +325,9 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-action-primary-text': semanticDesignTokens.action.primaryText,
     '--dinkster-action-remove-text': semanticDesignTokens.action.removeText,
     '--dinkster-border-width': px(components.layout.borderWidth),
+    '--dinkster-field-value-padding-start': px(
+      components.layout.fieldValuePaddingStart,
+    ),
     '--dinkster-space-4': px(semanticDesignTokens.space[4]),
     '--dinkster-space-8': px(semanticDesignTokens.space[8]),
     '--dinkster-space-12': px(semanticDesignTokens.space[12]),

@@ -51,12 +51,12 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 
-function mount(initial: PanelDragModel) {
+function mount(initial: PanelDragModel, icon: typeof Folder | null = Folder) {
   const root = document.createElement('div')
   document.body.append(root)
   const [drag, setDrag] = createSignal(initial)
   const dispose = render(() => (
-    <PanelDragOverlay drag={drag()} ghostTitle="Outputs" ghostIcon={Folder} />
+    <PanelDragOverlay drag={drag()} ghostTitle="Outputs" ghostIcon={icon ?? undefined} />
   ), root)
   const ghost = () => root.querySelector<HTMLElement>('[data-testid="tab-drag-ghost"]')
   return { root, setDrag, ghost, dispose }
@@ -71,13 +71,16 @@ describe('panel drag overlay cursor ghost', () => {
     view.dispose()
   })
 
-  it('follows the pointer with the dragged panel title and icon once started', () => {
-    const view = mount(pendingDrag())
+  it.each([
+    [Folder, 'lucide-folder'],
+    [null, 'lucide-panel-left'],
+  ] as const)('follows the pointer with the panel icon or kind fallback (%s)', (icon, glyph) => {
+    const view = mount(pendingDrag(), icon)
     view.setDrag((drag) => movePanelDragModel(drag, 7, { x: 720, y: 60 }))
 
     const ghost = view.ghost()!
     expect(ghost.querySelector('.tab-drag-ghost-title')?.textContent).toBe('Outputs')
-    expect(ghost.querySelector('.tab-drag-ghost-icon svg')).not.toBeNull()
+    expect(ghost.querySelector('.tab-drag-ghost-icon svg')?.classList.contains(glyph)).toBe(true)
     expect(ghost.style.left).toBe(`${720 + TAB_DRAG_GHOST_OFFSET_X}px`)
     expect(ghost.style.top).toBe(`${60 + TAB_DRAG_GHOST_OFFSET_Y}px`)
     expect(ghost.dataset['refused']).toBe('false')

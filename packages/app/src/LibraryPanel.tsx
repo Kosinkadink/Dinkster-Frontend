@@ -25,6 +25,7 @@ export interface LibraryPanelProps {
   readonly onSourceChange?: (id: string) => void
   readonly backend: () => LibraryBackendContext
   readonly refreshTick?: () => number
+  readonly catalogRecovery?: JSX.Element
   readonly onActivate?: (sourceId: string, entry: CollectionEntry) => void
   readonly onAction?: (sourceId: string, entry: CollectionEntry, actionId: string) => void
   readonly sourceActions?: readonly { sourceId: string; id: string; label: string }[]
@@ -400,7 +401,9 @@ export function LibraryPanel(props: LibraryPanelProps) {
         modeKey="dinkster.library.view.v1"
         searchLabel={message('library.search', { source: sourceLabel().toLocaleLowerCase() })}
         searchPlaceholder={message('library.search', { source: sourceLabel().toLocaleLowerCase() })}
-        renderState={(state) => directSource()
+        renderState={(state) => sourceId() === 'packs' && props.catalogRecovery !== undefined
+          ? props.catalogRecovery
+          : directSource()
           ? <DirectLibraryState state={state} backend={props.backend()} message={message} />
           : activitySource()
             ? <ActivityState state={state} backend={props.backend()} message={message} />

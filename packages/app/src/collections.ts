@@ -130,13 +130,22 @@ export function packsSource(app: AppState): CollectionSource {
       if (!reg?.packs) return []
       const nodeCounts = new Map<string, number>()
       for (const s of reg.schemas.values()) {
-        if (s.pack !== undefined) nodeCounts.set(s.pack, (nodeCounts.get(s.pack) ?? 0) + 1)
+        const pack = s.pack ?? 'core'
+        nodeCounts.set(pack, (nodeCounts.get(pack) ?? 0) + 1)
       }
       const entries: CollectionEntry[] = []
       for (const [packId, info] of reg.packs) {
         const count = nodeCounts.get(packId) ?? 0
+        if (count === 0) continue
         const sourceKind = info.source?.split(':', 1)[0]
         const assetCount = info.assets?.length ?? 0
+        const typeStorage = Object.entries(info.typeStorage ?? {}).sort(([a], [b]) => a.localeCompare(b))
+          .filter(([type]) => info.typeStorageChoices?.includes(type))
+          .map(([type, provider]) => ({
+            label: `${type.slice(type.lastIndexOf('.') + 1)} values`,
+            text: `Stored ${provider}'s way`,
+            title: type,
+          }))
         entries.push({
           id: packId,
           title: info.displayName,
@@ -171,6 +180,7 @@ export function packsSource(app: AppState): CollectionSource {
             ...(info.source !== undefined ? [{ label: 'source', text: info.source }] : []),
             ...(info.publisher !== undefined ? [{ label: 'publisher', text: info.publisher }] : []),
             ...(info.artifactDigest !== undefined ? [{ label: 'digest', text: info.artifactDigest }] : []),
+            ...typeStorage,
           ],
         })
       }
@@ -180,7 +190,7 @@ export function packsSource(app: AppState): CollectionSource {
 }
 
 /** Resolve template pack-local asset ids for display, preserving dangling ids defensively. */
-export function templateAssetLines(descriptor: TemplateDescriptor, backend: Backend | undefined): string[] {
+export function templateAssetLines(descriptor: TemplateDescriptor, backend: Pick<TemplateCollectionBackend, 'registry'> | undefined): string[] {
   const assets = backend?.registry.get()?.packs?.get(descriptor.pack)?.assets ?? []
   const byId = new Map(assets.map((asset) => [asset.id, asset]))
   return (descriptor.assets ?? []).map((id) => {
@@ -190,12 +200,19 @@ export function templateAssetLines(descriptor: TemplateDescriptor, backend: Back
   })
 }
 
-export type TemplateCollectionRef =
-  | { readonly kind: 'local'; readonly pack: string; readonly id: string }
+export type TemplateCollectionRef = (
+  | { readonly kind: 'local'; readonly pack: string; readonly id: string; readonly template: TemplateDescriptor }
   | { readonly kind: 'remote'; readonly template: RemoteTemplateDescriptor }
+) & {
+  readonly models: readonly { readonly name: string; readonly here: boolean; readonly size?: number }[]
+}
+
+export type TemplateCollectionBackend = Pick<Extract<Backend, { protocol: 'dinkster' }>, 'id' | 'label' | 'connection'> & {
+  readonly registry: Pick<Backend['registry'], 'get'>
+}
 
 const allLocalTemplates = async (
-  backend: Extract<Backend, { protocol: 'dinkster' }>,
+  backend: TemplateCollectionBackend,
 ): Promise<readonly TemplateDescriptor[]> => {
   const templates: TemplateDescriptor[] = []
   let cursor: string | undefined
@@ -207,41 +224,46 @@ const allLocalTemplates = async (
   return templates
 }
 
-const templateModels = (template: TemplateDescriptor, backend: Backend): readonly string[] => [
+const templateModels = (template: TemplateDescriptor, backend: TemplateCollectionBackend): readonly string[] => [...new Set([
   ...(template.models ?? []),
-  ...templateAssetLines(template, backend).map((line) => line.split(' - ', 1)[0]!),
-]
+  ...(template.assets ?? []).map((id) =>
+    backend.registry.get()?.packs?.get(template.pack)?.assets?.find((asset) => asset.id === id)?.name ?? id),
+])]
 
-const normalizeTemplateSearch = (value: string): string => value
+export const normalizeTemplateSearch = (value: string): string => value
   .toLowerCase()
-  .replace(/[^a-z0-9]+/g, '')
+  .replace(/[^\p{L}\p{N}]+/gu, '')
 
-export function templatesSource(app: AppState): CollectionSource {
+export function templatesSource(app: AppState, resolveBackend = () => app.libraryBackend()): CollectionSource {
+  return templateCollectionSource(resolveBackend, () => app.settings.list().some((setting) => setting.id === 'templates.registryUrl')
+    ? app.settings.get<string>('templates.registryUrl') : '')
+}
+
+/** The same collection can be read from Projects without constructing an editor. */
+export function templateCollectionSource(resolveBackend: () => TemplateCollectionBackend | undefined, registryUrl: () => string): CollectionSource {
   return {
     id: 'templates',
     label: 'Templates',
     filters: [{
       id: 'pack',
       label: 'Packs',
-      options: () => [...(app.libraryBackend()?.registry.get()?.packs ?? new Map())]
+      options: () => [...(resolveBackend()?.registry.get()?.packs ?? new Map())]
         .map(([value, info]) => ({ value, label: info.displayName }))
         .sort((a, b) => a.label.localeCompare(b.label)),
     }],
     page: async (req) => {
-      const backend = app.libraryBackend()
+      const backend = resolveBackend()
       if (!backend) return { items: [], total: 0 }
       const rawOffset = decodeOwnedCursor(backend.id, req.cursor)
       const offset = rawOffset === undefined ? 0 : Number(rawOffset)
       if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('invalid template continuation')
       const pack = req.filters?.['pack']
-      const registryUrl = app.settings.list().some((setting) => setting.id === 'templates.registryUrl')
-        ? app.settings.get<string>('templates.registryUrl') : ''
-      const catalog = new RemoteTemplateCatalog(registryUrl)
+      const catalog = new RemoteTemplateCatalog(registryUrl())
       const [local, remote] = await Promise.all([allLocalTemplates(backend), catalog.list()])
       const query = normalizeTemplateSearch(req.query.trim())
       const templates = [
-        ...local.map((template) => ({ template, ref: { kind: 'local', pack: template.pack, id: template.id } as TemplateCollectionRef })),
-        ...remote.map((template) => ({ template, ref: { kind: 'remote', template } as TemplateCollectionRef })),
+        ...local.map((template) => ({ template, ref: { kind: 'local' as const, pack: template.pack, id: template.id, template } })),
+        ...remote.map((template) => ({ template, ref: { kind: 'remote' as const, template } })),
       ].filter(({ template }) =>
         (pack === undefined || pack === '' || template.pack === pack) &&
         (query === '' || [template.id, template.name, template.description ?? '', template.family ?? '', ...(template.tags ?? [])]
@@ -261,6 +283,8 @@ export function templatesSource(app: AppState): CollectionSource {
         items: templates.slice(offset, nextOffset).map(({ template, ref }) => {
           const models = templateModels(template, backend)
           const missing = models.filter((model) => !held.get(model))
+          const assets = backend.registry.get()?.packs?.get(template.pack)?.assets ?? []
+          const declared = assets.filter((asset) => template.assets?.includes(asset.id))
           const remoteTemplate = ref.kind === 'remote' ? ref.template : undefined
           const thumbUrl = remoteTemplate === undefined ? undefined : catalog.thumbnailUrl(remoteTemplate)
           return {
@@ -298,7 +322,13 @@ export function templatesSource(app: AppState): CollectionSource {
               ...models.map((model) => ({ label: held.get(model) ? 'model ready' : 'model missing', text: model })),
             ],
             actions: [{ id: 'open', label: 'Open template' }],
-            ref,
+            ref: {
+              ...ref,
+              models: models.map((name) => {
+                const size = declared.find((asset) => asset.name === name)?.size
+                return { name, here: held.get(name) === true, ...(size === undefined ? {} : { size }) }
+              }),
+            } satisfies TemplateCollectionRef,
           }
         }),
       }

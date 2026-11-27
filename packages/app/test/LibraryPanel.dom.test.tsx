@@ -4,7 +4,7 @@ import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, createSignal as createCoreSignal, registerCatalog, setLocale, type CollectionEntry, type CollectionSource } from '@dinkster/core'
-import { DinksterConnection, type ModelDownloadJob } from '@dinkster/client'
+import { DinksterConnection, RequestFailure, type ModelDownloadJob } from '@dinkster/client'
 import { LibraryPanel } from '../src/LibraryPanel.js'
 import { LibraryModels } from '../src/LibraryModels.js'
 import '../src/locale.js'
@@ -71,12 +71,11 @@ describe('LibraryPanel', () => {
       root.querySelector<HTMLButtonElement>('[aria-label="Download: alpha.safetensors"]')!.click()
       expect(opened.at(-1)?.digest).toBe(downloading.digest)
       jobs.set([{ ...downloading, status: 'completed', indexingPending: true }, checking])
-      expect(root.textContent).toContain('1 model in 1 folder')
-      expect(root.querySelector('[data-state="checking"]')).not.toBeNull()
+      expect(root.textContent).toContain('No matching models')
       expect(root.textContent).not.toContain('beta.safetensors')
       expect(root.textContent).not.toContain('Not downloaded')
       await vi.advanceTimersByTimeAsync(0)
-      expect(root.textContent).toContain('1 model in 1 folder')
+      expect(root.textContent).toContain('No matching models')
       published = true
       jobs.set([{ ...downloading, status: 'completed', indexingPending: false }, checking])
       await vi.advanceTimersByTimeAsync(0)
@@ -552,7 +551,7 @@ describe('LibraryPanel', () => {
     await vi.waitFor(() => expect(root.textContent).toContain('No packs available'))
     dispose()
 
-    const failed: CollectionSource = { id: 'templates', label: 'Templates', page: async () => { throw new Error('catalog offline') } }
+    const failed: CollectionSource = { id: 'templates', label: 'Templates', page: async () => { throw new RequestFailure('GET', '/api/templates', 503, 'catalog offline') } }
     const disposeFailed = render(() => <LibraryPanel backend={() => backend} sources={[failed]} />, root)
     await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('catalog offline'))
     disposeFailed()

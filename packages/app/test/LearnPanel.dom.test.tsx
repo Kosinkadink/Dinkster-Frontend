@@ -86,6 +86,45 @@ describe('LearnPanel', () => {
     expect(openTemplate).toHaveBeenCalledWith('dinkster-nodes-foundation', 'map-and-gather', 'Map and Gather zh', 'backend-owner')
   })
 
+  it('retries the current query and resubmits an unchanged failed search', async () => {
+    const requests: { q: string; resolve: (page: { docs: readonly DocsDescriptor[] }) => void; reject: (error: Error) => void }[] = []
+    const backend: LearnBackend = {
+      id: 'owner',
+      connection: {
+        listDocs: (request) => new Promise((resolve, reject) => {
+          requests.push({ q: request?.q ?? '', resolve, reject })
+        }),
+        fetchDocsPage: vi.fn(),
+        fetchDocsAsset: vi.fn(),
+      },
+    }
+    const host = document.createElement('div')
+    document.body.append(host)
+    dispose = render(() => <LearnPanel backend={backend} locale="en" onOpenTemplate={vi.fn()} />, host)
+    await vi.waitFor(() => expect(requests).toHaveLength(1))
+    requests[0]!.resolve({ docs: [] })
+    submitSearch(host, 'map and gather')
+    await vi.waitFor(() => expect(requests).toHaveLength(2))
+    requests[1]!.reject(new Error('unavailable'))
+    const retry = () => Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Retry')
+    await vi.waitFor(() => expect(retry()).toBeDefined())
+    retry()!.click()
+    await vi.waitFor(() => expect(requests).toHaveLength(3))
+    expect(requests[2]!.q).toBe('map and gather')
+    expect(host.textContent).toContain('Loading guides...')
+    expect(host.textContent).not.toContain('Could not load guides.')
+    expect(retry()).toBeUndefined()
+    requests[2]!.reject(new Error('unavailable'))
+    await vi.waitFor(() => expect(retry()).toBeDefined())
+    submitSearch(host, 'map and gather')
+    await vi.waitFor(() => expect(requests).toHaveLength(4))
+    expect(host.textContent).toContain('Loading guides...')
+    expect(retry()).toBeUndefined()
+    requests[3]!.resolve({ docs: [{ ...guide, locales: { en: { ...guide.locales.en, title: `${requests[3]!.q} recovered` } } }] })
+    await vi.waitFor(() => expect(host.textContent).toContain('map and gather recovered'))
+    expect(host.textContent).not.toContain('Could not load guides.')
+  })
+
   it('rejects a stale search completion', async () => {
     let resolveFirst!: (value: { docs: readonly DocsDescriptor[] }) => void
     let resolveSecond!: (value: { docs: readonly DocsDescriptor[] }) => void

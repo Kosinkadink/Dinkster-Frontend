@@ -28,6 +28,7 @@ import {
 } from '@dinkster/core'
 import { buildDinksterRegistry, DinksterConnection, ExecutionStore, IMAGE_DOCUMENT_MEDIA_TYPE, hydrateDinksterCompletedExecution, PackInstallError, promptToDinksterGraph, reconcileDinksterExecutions, targetsForArtifact, type FetchLike, type WebSocketLike } from '../src/index.js'
 import { uuidv4 } from '../src/dinkster-connection.js'
+import { requestFailureReason, subscribeRequestFailures } from '../src/request-failure.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
@@ -76,6 +77,66 @@ const ref = (jobId: string): ExecutionRef => ({ connection: C0, prompt: asPrompt
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
+it('retires account caches and the event stream on verified identity changes, never on stale status', async () => {
+  const signedOut = { available: true, canStartSignIn: true, signInUnavailableReason: null,
+    signedIn: false, profile: null, signIn: { state: 'idle' }, principalRevision: 'local' }
+  let status = signedOut
+  let delayed: Promise<Response> | undefined
+  const sockets: WebSocketLike[] = []
+  const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'browser',
+    fetchFn: async (url) => url.includes('/docs/pages/')
+      ? new Response(status.principalRevision, { headers: { 'Content-Type': 'text/markdown' } })
+      : delayed ?? jsonResponse(200, status),
+    webSocketFactory: () => {
+      const socket: WebSocketLike = { binaryType: '', onopen: null, onmessage: null, onclose: null, onerror: null,
+        send() {}, close() {} }
+      sockets.push(socket)
+      return socket
+    },
+  })
+  connection.connect()
+  sockets.at(-1)!.onopen?.({})
+  await connection.accountStatus()
+  sockets.at(-1)!.onopen?.({})
+  const localGeneration = connection.principalGeneration.get()
+  await connection.accountStatus()
+  expect(connection.principalGeneration.get()).toBe(localGeneration)
+  expect(await connection.fetchDocsPage('test', 'digest')).toBe('local')
+  const events: NormalizedEvent[] = []
+  connection.onEvent((event) => events.push(event))
+  const oldMessage = sockets.at(-1)!.onmessage!
+  const oldValues = connection.values()
+  status = { ...signedOut, signedIn: true, principalRevision: 'verified-a' }
+  await connection.accountStatus()
+  expect(connection.principalGeneration.get()).toBe(localGeneration + 1)
+  expect(await connection.fetchDocsPage('test', 'digest')).toBe('verified-a')
+  const query = { jobId: 'job-local', nodeId: 'n1', outputId: 'out' }
+  expect(await oldValues.peek(query)).toMatchObject({ available: false, reason: 'aborted' })
+  expect(await oldValues.rendition(query, 'default')).toMatchObject({ available: false, reason: 'aborted' })
+  sockets.at(-1)!.onopen?.({})
+  const message = { data: JSON.stringify({ type: 'queue_state', queued: 3, running: [], maxRunningJobs: 1, paused: false }) }
+  oldMessage(message)
+  expect(events).toEqual([])
+  sockets.at(-1)!.onmessage?.(message)
+  expect(events).toHaveLength(1)
+
+  let release!: (value: Response) => void
+  delayed = new Promise((resolve) => { release = resolve })
+  const old = connection.accountStatus()
+  const refused = expect(old).rejects.toThrow('Account changed')
+  delayed = undefined
+  status = signedOut
+  await connection.signOutAccount()
+  sockets.at(-1)!.onopen?.({})
+  release(jsonResponse(200, { ...signedOut, signedIn: true, principalRevision: 'verified-a' }))
+  await refused
+  expect(connection.principalGeneration.get()).toBe(localGeneration + 2)
+  status = { ...signedOut, signedIn: true, principalRevision: 'verified-b' }
+  await connection.accountStatus()
+  expect(connection.principalGeneration.get()).toBe(localGeneration + 3)
+  connection.disconnect()
+})
 
 it('decodes and revalidates static registry import metadata without backend credentials or installed schemas', async () => {
   const row = { pack: 'dinkster-text', version: '0.0.1',
@@ -411,7 +472,8 @@ describe('model provider credentials', () => {
     await connection.cancelModelProviderSignIn('owned / flow')
     expect(calls.at(-1)?.method).toBe('DELETE')
     status = 409; payload = { error: 'private-canary' }
-    await expect(connection.saveModelProviderToken('private-canary')).rejects.toThrow('Hugging Face request failed: 409')
+    await expect(connection.saveModelProviderToken('private-canary')).rejects.toMatchObject({ status: 409, serverMessage: undefined })
+    await expect(connection.saveModelProviderToken('private-canary')).rejects.not.toThrow('private-canary')
     status = 200; payload = { method: 'pkce', flowId: 'bad', authorizationUrl: 'https://example.com/oauth/authorize' }
     await expect(connection.startModelProviderSignIn('pkce')).rejects.toThrow('Invalid provider URL')
   })
@@ -432,7 +494,7 @@ describe('model provider credentials', () => {
     provider = 'untrusted-host'
     await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Malformed model download provider')
     error = 'unrecognized-private-message'
-    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Model download POST failed: 409')
+    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toMatchObject({ status: 409, serverMessage: undefined })
   })
 })
 
@@ -512,6 +574,9 @@ describe('model download planning and owned jobs', () => {
     await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source)
     expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
       project: selected.project, scope: 'local', source: selected.source })
+    await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source, 'archive')
+    expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
+      project: selected.project, scope: 'local', source: selected.source, location: 'archive' })
     for (const destinationSpace of [
       { status: 'available', filesystem: 'shared-volume', freeBytes: 0 },
       { status: 'available', filesystem: 'shared-volume', freeBytes: 310 },
@@ -630,6 +695,9 @@ describe('shared model management', () => {
     expect(calls.at(-1)).toEqual({ url: '/engine/api/models/locations/studio%20%2F%20second/projects/work%20%2F%20client', body: { enabled: true } })
     status = 409
     await expect(connection.updateModelSettings(state.settings, state.revision)).rejects.toThrow('Refresh before saving')
+    status = 400
+    payload = { error: 'not a directory: /archive/models' }
+    await expect(connection.updateModelSettings(state.settings, state.revision)).rejects.toMatchObject({ status: 400, serverMessage: 'not a directory: /archive/models' })
     status = 403
     await expect(connection.fetchModelSettings()).rejects.toThrow('403')
   })
@@ -687,8 +755,34 @@ describe('shared model management', () => {
 })
 
 describe('mount listing decode', () => {
+  it.each([
+    [{ error: 'not a directory: /archive/plates' }, 'not a directory: /archive/plates'],
+    [{ error: { message: 'not a supported refusal' } }, undefined],
+  ])('retains a mount grant refusal with a status fallback', async (body, expected) => {
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => jsonResponse(400, body) })
+    await expect(connection.addMount('plates', '/archive/plates', 'readwrite')).rejects.toMatchObject({ status: 400, serverMessage: expected })
+  })
+
   const connectionWith = (mounts: unknown, outputMount?: unknown, mountChangesAllowed: unknown = true): DinksterConnection =>
     new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, mountChangesAllowed, ...(outputMount === undefined ? {} : { outputMount }) }) })
+
+  it('changes save access with the displayed revision and project, retaining a stale refusal', async () => {
+    const requests: { url: string; body: unknown }[] = []
+    const mount = { id: 'plates', path: '/plates', mode: 'readwrite', state: 'ready', saveError: 'Cannot save here: Permission denied' }
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/native', clientId: 'test', project: 'my project', fetchFn: async (url, init) => {
+      if (init?.method === 'PUT') {
+        requests.push({ url: String(url), body: JSON.parse(String(init.body)) })
+        return jsonResponse(409, { error: 'Mount settings changed. Refresh and try again.' })
+      }
+      return String(url).includes('/locations') ? jsonResponse(200, { mounts: [mount], activeMounts: [mount] })
+        : jsonResponse(200, { mounts: [mount], revision: 'displayed-revision', mountChangesAllowed: true })
+    } })
+    const settings = await connection.fetchMountSettings()
+    expect(settings.mounts[0]?.saveError).toBe('Cannot save here: Permission denied')
+    expect((await connection.fetchMountLocations()).activeMounts?.[0]?.saveError).toBe(mount.saveError)
+    await expect(connection.updateMountAccess('plates', 'read', settings.revision!)).rejects.toMatchObject({ status: 409, serverMessage: 'Mount settings changed. Refresh and try again.' })
+    expect(requests).toEqual([{ url: '/native/api/mounts/plates/access?project=my+project', body: { mode: 'read', revision: 'displayed-revision' } }])
+  })
 
   it.each([200, 503])('answers an older mount read with the newer snapshot after a late HTTP %s response', async (status) => {
     let finish!: (response: Response) => void
@@ -714,27 +808,30 @@ describe('mount listing decode', () => {
     await expect(connection.fetchMountSettings()).rejects.toThrow('GET /api/mounts failed: 503')
     finish(jsonResponse(200, { mounts: [], outputMount: 'removed' }))
     await expect(older).rejects.toThrow('GET /api/mounts failed: 503')
-    expect(connection.mountError.get()).toBe('GET /api/mounts failed: 503')
+    expect(connection.mountError.get()).toBe('The engine reported an error.')
   })
 
   it('times out a stalled mount read, ignores its late completion, and clears health on retry', async () => {
     vi.useFakeTimers()
+    const details: string[] = []
+    const unsubscribe = subscribeRequestFailures((failure) => details.push(failure.message))
     try {
       let finish!: (response: Response) => void
       const fetchFn = vi.fn<FetchLike>()
         .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
         .mockResolvedValue(jsonResponse(200, { mounts: [], outputMount: 'renders' }))
       const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn })
-      const first = expect(connection.fetchMountSettings()).rejects.toThrow('timed out after 30 seconds')
+      const first = connection.fetchMountSettings().catch((error: unknown) => error)
       await vi.advanceTimersByTimeAsync(30_000)
-      await first
-      expect(connection.mountError.get()).toContain('timed out')
+      expect(requestFailureReason(await first)).toBe('The engine did not answer.')
+      expect(details).toEqual(['GET /api/mounts failed: no answer'])
+      expect(connection.mountError.get()).toBe('The engine did not answer.')
       finish(jsonResponse(200, { mounts: [], outputMount: 'stale' }))
       await Promise.resolve()
-      expect(connection.mountError.get()).toContain('timed out')
+      expect(connection.mountError.get()).toBe('The engine did not answer.')
       await expect(connection.fetchMountSettings()).resolves.toMatchObject({ outputMount: 'renders' })
       expect(connection.mountError.get()).toBeUndefined()
-    } finally { vi.useRealTimers() }
+    } finally { unsubscribe(); vi.useRealTimers() }
   })
 
   it('does not commit a schema catalog that arrives after its deadline', async () => {
@@ -837,8 +934,10 @@ describe('mount listing decode', () => {
 
   it.each([undefined, 'default', 'film'])('persists the output for project %s without changing another project', async (project) => {
     const requests: { url: string; init?: RequestInit }[] = []
+    let refused = false
     const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', ...(project === undefined ? {} : { project }), webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
       requests.push({ url: String(url), ...(init ? { init } : {}) })
+      if (refused && init?.method === 'PUT') return jsonResponse(409, { error: 'Cannot save here: Permission denied' })
       return jsonResponse(200, { mounts: [{ id: 'renders', mode: 'readwrite', state: 'ready' }], outputMount: null, activeOutputMount: null, restartRequired: true, pendingRemovals: ['old'] })
     } })
     await connection.selectOutputMount('renders')
@@ -853,10 +952,12 @@ describe('mount listing decode', () => {
         init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mounts: ['renders'], outputMount: 'renders' }) },
       },
     ])
+    refused = true
+    await expect(connection.selectOutputMount('renders')).rejects.toMatchObject({ status: 409, serverMessage: 'Cannot save here: Permission denied' })
   })
 
   it('keeps operator configured and active locations distinct across pending changes', async () => {
-    const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'ready' }
+    const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'failed', error: 'Permission denied: /live/plates' }
     const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates', mode: 'read', state: 'restart-required', source: 'config', kind: 'image', entryCount: 17 }], activeMounts: [active], importMount: 'plates' }
     const { conn } = submitHarness(() => jsonResponse(200, payload))
     expect(await conn.fetchMountLocations()).toEqual(payload)
@@ -967,8 +1068,8 @@ describe('pack settings transport', () => {
   it('surfaces read status and backend mutation errors', async () => {
     const replies = [jsonResponse(503, {}), jsonResponse(400, { error: 'quality must be at most 5' })]
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => replies.shift()! })
-    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings request failed: 503')
-    await expect(connection.updatePackSettings('pack', { enabled: true, quality: 9 })).rejects.toThrow('quality must be at most 5')
+    await expect(connection.fetchPackSettings('pack')).rejects.toMatchObject({ status: 503 })
+    expect(await connection.updatePackSettings('pack', { enabled: true, quality: 9 }).catch(requestFailureReason)).toBe('quality must be at most 5')
   })
 })
 
@@ -3574,7 +3675,7 @@ describe('workflow library wire', () => {
     expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 8, accountProject: null })
     for (const [status, error] of [[409, 'project-changed'], [403, 'operator-required'], [503, 'account-projects-unavailable']] as const) {
       const { conn: refused, requests: attempts } = submitHarness(() => jsonResponse(status, { error }))
-      await expect(refused.setProjectAccountLink('p-film', accountId, 7)).rejects.toThrow(error)
+      await expect(refused.setProjectAccountLink('p-film', accountId, 7)).rejects.toMatchObject({ status })
       expect(attempts).toHaveLength(1)
     }
     const { conn: wrongProject } = submitHarness(() => jsonResponse(200, { project: { ...project, id: 'other', accountProject: null } }))
@@ -3733,6 +3834,38 @@ describe('workflow library wire', () => {
   it('CL1 fetchTemplateBody treats a 200 body that fails to load as a protocol error, not absence', async () => {
     const { conn } = submitHarness(() => jsonResponse(200, {}))
     await expect(conn.fetchTemplateBody('p', 't')).rejects.toThrow('malformed response')
+  })
+
+  it('keeps request details in the Log while presenting a plain reason', async () => {
+    const details: string[] = []
+    const unsubscribe = subscribeRequestFailures((failure) => details.push(failure.message))
+    try {
+      for (const [status, body, expected] of [
+        [503, {}, 'The engine reported an error.'],
+        [500, { message: 'The library is being repaired.' }, 'The library is being repaired.'],
+        [401, {}, 'You do not have access.'],
+        [403, {}, 'You do not have access.'],
+        [404, {}, undefined],
+        [499, {}, undefined],
+        [599, {}, 'The engine reported an error.'],
+      ] as const) {
+        const { conn } = submitHarness(() => jsonResponse(status, body))
+        for (const read of [() => conn.listTemplates({}), () => conn.listDocs({}), () => conn.listHistory({ scope: 'local' })]) {
+          const error = await read().catch((failure: unknown) => failure)
+          expect(requestFailureReason(error)).toBe(expected)
+        }
+      }
+      for (const cause of [new TypeError('Failed to fetch'), new DOMException('Timed out', 'TimeoutError')]) {
+        const { conn } = submitHarness(() => { throw cause })
+        const error = await conn.listDocs({}).catch((failure: unknown) => failure)
+        expect(requestFailureReason(error)).toBe('The engine did not answer.')
+      }
+      expect(details).toContain('GET /api/templates failed: 503')
+      expect(details).toContain('GET /api/docs failed: 503')
+      expect(details).toContain('GET /api/history failed: 503')
+      expect(details).toContain('GET /api/docs failed: no answer')
+      expect(requestFailureReason(new Error('GET /private failed: 503'))).toBeUndefined()
+    } finally { unsubscribe() }
   })
 
   it('listDocs decodes the frozen grouped-locale fixture and sends every paging filter', async () => {

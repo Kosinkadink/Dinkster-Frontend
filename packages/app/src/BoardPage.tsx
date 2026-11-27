@@ -10,6 +10,8 @@ import { ASSET_DRAG_TYPE, readAssetDrag } from './asset-browser/drag.js'
 import { inspectBoardMedia } from './board-media.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductButton, ProductFileInput } from './ProductControls.js'
+import { failureMessage } from './request-failure.js'
+import { RequestFailure } from '@dinkster/client'
 import { ProductActionFooter } from './ProductForm.js'
 import { UploadDestination } from './UploadDestination.js'
 import { activeProjectId } from './projects.js'
@@ -79,7 +81,7 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
       clearError()
       setImporting(undefined)
     } catch (reason) {
-      if (current()) { setError(reason instanceof Error ? reason.message : String(reason)); setImporting(undefined) }
+      if (current()) { setError(reason instanceof RequestFailure ? failureMessage(reason, 'Files could not be imported.') : reason instanceof Error ? reason.message : String(reason)); setImporting(undefined) }
     } finally {
       if (importAbort === abort) { importAbort = undefined; setBusy(false) }
     }
@@ -123,7 +125,7 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
           if (live && props.entry === entry && request === drop) clearError()
         } catch (reason) {
           if (live && props.entry === entry && request === drop)
-            setError(reason instanceof Error ? reason.message : String(reason))
+            setError(reason instanceof RequestFailure ? failureMessage(reason, 'The file could not be placed.') : reason instanceof Error ? reason.message : String(reason))
         }
       })()
     }}
@@ -173,7 +175,9 @@ export function installBoardPages(app: AppState): () => void {
       if (registrations.has(entry.id)) continue
       const [saveError, setSaveError] = createSignal<string>()
       registrations.set(entry.id, app.pages.register({
-        id: pageId(entry.id), title: entry.title, icon: Images, enabled,
+        id: pageId(entry.id),
+        get title() { changed(); return app.boards.entries.get().find((candidate) => candidate.id === entry.id)?.title ?? t('board.title') },
+        icon: Images, enabled,
         dirty: () => { changed(); return app.boards.isDirty(entry.id) },
         save: async () => {
           const owner = app.boards.entries.get().find((candidate) => candidate.id === entry.id)
@@ -183,7 +187,7 @@ export function installBoardPages(app: AppState): () => void {
             if (app.boards.entries.get().includes(owner)) setSaveError(undefined)
           } catch (reason) {
             if (app.boards.entries.get().includes(owner))
-              setSaveError(reason instanceof Error ? reason.message : String(reason))
+              setSaveError(reason instanceof RequestFailure ? failureMessage(reason, 'The board could not be saved.') : reason instanceof Error ? reason.message : String(reason))
           }
         },
         snapshot: () => app.boards.entries.get().find((candidate) => candidate.id === entry.id)?.session.doc,
@@ -213,7 +217,7 @@ export function installBoardPages(app: AppState): () => void {
         run: () => {
           const backend = app.collabBackend()
           if (!enabled() || !backend) return
-          const entry = app.boards.open(emptyBoard(), t('board.title'), backend.baseUrl)
+          const entry = app.boards.open(emptyBoard(), undefined, backend.baseUrl)
           app.pages.open(pageId(entry.id))
         },
       })

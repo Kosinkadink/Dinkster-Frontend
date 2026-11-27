@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, onCleanup, type Component } from 'solid-js'
 import type { MountSettings } from '@dinkster/client'
+import { failureMessage } from '../request-failure.js'
 import { effectiveWidgetDefault, type Json } from '@dinkster/core'
 import { isProjectDefaultTarget, isSaveTarget, saveTargetDraft, saveTargetText } from '@dinkster/widgets'
 import {
@@ -51,11 +52,11 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
     void backend.connection.fetchMountSettings().then((value) => {
       if (live) setSettings(value)
     }).catch((reason: unknown) => {
-      if (live) setError(reason instanceof Error ? reason.message : String(reason))
+      if (live) setError(failureMessage(reason, message('request.storageLoadFailed')))
     })
   } else setError(message('mountWidget.error'))
 
-  const writable = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready') ?? []
+  const writable = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready' && !entry.saveError) ?? []
   const mounts = (): CanvasTargetMounts => {
     if (error() !== undefined) return 'failed'
     if (settings() === undefined) return 'loading'

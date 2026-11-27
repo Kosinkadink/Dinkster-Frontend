@@ -130,7 +130,7 @@ export function LibraryModels(props: {
   })
   const locations = createMemo(() => {
     const configured = settings()?.locations ?? []
-    const destinations = new Map(jobs().filter((job) => job.status !== 'completed' || job.indexingPending).map((job) => [job.mount, job]))
+    const destinations = new Map(jobs().filter((job) => job.status !== 'completed').map((job) => [job.mount, job]))
     return [
       ...configured.filter((location) => location.enabled || location.mounts.some((mount) => destinations.has(mount))),
       ...[...destinations.values()].filter((job) => !configured.some((location) => location.mounts.includes(job.mount)))
@@ -157,7 +157,7 @@ export function LibraryModels(props: {
   }
   const currentJobs = createMemo(() => [...new Map(jobs().map((job) => [
     JSON.stringify([job.kind, job.name, job.digest ?? null, job.mount]), job,
-  ])).values()].filter((job) => job.status !== 'completed' || job.indexingPending))
+  ])).values()].filter((job) => job.status !== 'completed'))
   const inventory = createMemo<readonly LogicalModel[]>(() => {
     const result = models().map((model) => ({ ...model, variants: [...model.variants] }))
     for (const job of currentJobs()) {

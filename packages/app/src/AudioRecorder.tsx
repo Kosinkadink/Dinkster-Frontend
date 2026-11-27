@@ -5,6 +5,7 @@ import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
+import { failureMessage } from './request-failure.js'
 
 export interface AudioRecordingProvider {
   devices(): Promise<readonly { readonly deviceId: string; readonly label: string }[]>
@@ -113,7 +114,7 @@ export function AudioRecorder(props: {
       setState(saved ? 'idle' : 'ready')
       if (saved) { clip = undefined; setMessage('Recording saved to the asset selection. Apply to use this AUDIO input.') }
       else setMessage('Recording upload failed. Clip retained for retry; see the upload diagnostic.')
-    } catch (error) { if (live) { setState('ready'); setMessage(`Recording upload failed: ${error instanceof Error ? error.message : String(error)}`) } }
+    } catch (error) { if (live) { setState('ready'); setMessage(failureMessage(error, 'Recording upload failed.')) } }
   }
   onCleanup(() => { live = false; cancel() })
   const idle = () => state() === 'idle' || state() === 'ready'

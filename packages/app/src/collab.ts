@@ -15,6 +15,9 @@ import {
   createCollabSession,
   getCollabSession,
   listCollabSessions,
+  renameCollabSession,
+  requestFetch,
+  requestFailure,
   type FetchLike,
 } from '@dinkster/client'
 import { isValidActorId, type CollabConnection, type CollabDocumentKind, type CollabSessionDescriptor } from '@dinkster/core'
@@ -76,10 +79,12 @@ export interface CollabTransport {
       readonly documentId: string
       readonly snapshot: unknown
       readonly documentKind?: CollabDocumentKind
+      readonly title?: string
     },
   ): Promise<CollabSessionDescriptor>
   list(baseUrl: string, scope: string): Promise<readonly CollabSessionDescriptor[]>
   get(baseUrl: string, sessionId: string): Promise<CollabSessionDescriptor | undefined>
+  rename?(baseUrl: string, sessionId: string, title: string): Promise<CollabSessionDescriptor>
   /** DELETE the session for every participant. */
   end(baseUrl: string, sessionId: string): Promise<void>
   connect(config: { readonly baseUrl: string; readonly sessionId: string; readonly actorId: string }): CollabConnection
@@ -91,6 +96,7 @@ export function httpCollabTransport(): CollabTransport {
     create: createCollabSession,
     list: listCollabSessions,
     get: getCollabSession,
+    rename: renameCollabSession,
     end: closeCollabSession,
     connect: (config) => new CollabHttpConnection(config),
   }
@@ -99,17 +105,17 @@ export function httpCollabTransport(): CollabTransport {
 /** Bind before allocating document ids; a collision gets one fresh identity. */
 export async function bindBrowserActor(baseUrl: string, sessionId: string, actorId: string, fetchFn: FetchLike = fetch): Promise<string> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetchFn(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/actors`, {
+    const response = await requestFetch(fetchFn)(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/actors`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actorId }),
     })
     if (response.ok) return actorId
-    const body = await response.json().catch(() => null) as { error?: string } | null
+    const body = await response.clone().json().catch(() => null) as { error?: string } | null
     if (attempt === 0 && response.status === 409 && body?.error === 'actor-principal-mismatch') {
       actorId = mintActorId()
       try { safeStorage()?.setItem(COLLAB_ACTOR_ID_KEY, actorId) } catch { /* Session-only identity. */ }
       continue
     }
-    throw new Error(`Actor binding: HTTP ${response.status}: ${body?.error ?? 'refused'}`)
+    throw await requestFailure(response)
   }
   throw new Error('Actor binding refused')
 }

@@ -1,9 +1,23 @@
 import { createEffect, createSignal, onCleanup } from 'solid-js'
 import { createPageLoad } from '@dinkster/ui'
+import { RequestFailure, requestFetch, requestFailure } from '@dinkster/client'
+import { failureMessage } from './request-failure.js'
+
+const fetchRequest = requestFetch((url, init) => fetch(url, init))
 
 export interface SetupProblem {
   readonly code: string
   readonly message: string
+}
+
+export interface UnusableGraphicsCard {
+  readonly id: string
+  readonly name: string | null
+  readonly vendor: 'nvidia' | 'amd' | 'intel' | null
+  readonly reason: 'driver-too-old' | 'card-too-old' | 'detection-tool-missing' | 'detection-tool-failed' | 'no-published-build'
+  readonly minimumDriver?: string
+  readonly driver?: string | null
+  readonly tool?: string
 }
 
 export interface SetupPlan {
@@ -18,11 +32,21 @@ export interface SetupPlan {
   readonly detectedCards: readonly {
     readonly id: string
     readonly name: string
+    readonly vendor?: 'nvidia' | 'amd' | 'intel'
     readonly driver: string | null
     readonly computeCapability: string | null
     readonly memoryMiB: number | null
   }[] | null
-  readonly choices: readonly { readonly variant: string; readonly label: string; readonly reason: string }[] | null
+  readonly unusableCards?: readonly UnusableGraphicsCard[]
+  readonly system?: 'windows' | 'linux' | 'macos' | null
+  readonly graphicsVendor?: 'nvidia' | 'amd' | 'intel' | null
+  readonly choices: readonly {
+    readonly variant: string
+    readonly label: string
+    readonly reason: string
+    readonly vendor?: 'nvidia' | 'amd' | 'intel' | null
+    readonly gpus?: readonly string[]
+  }[] | null
   readonly gpus: readonly string[]
   readonly downloadBytes: number | null
   readonly downloadEstimate?: { readonly kind: 'upper-bound'; readonly bytes: number; readonly reason: string } | null
@@ -53,15 +77,15 @@ export interface SetupQuery {
   readonly variant?: string
 }
 
-class SetupRequestError extends Error {
-  constructor(readonly code: string, message: string) {
-    super(message)
+class SetupRequestError extends RequestFailure {
+  constructor(readonly code: string, failure: RequestFailure) {
+    super(failure.method, failure.path, failure.status, failure.serverMessage)
   }
 }
 
 const problem = (error: unknown): SetupProblem => ({
   code: error instanceof SetupRequestError ? error.code : 'connection-failed',
-  message: error instanceof Error ? error.message : String(error),
+  message: failureMessage(error),
 })
 
 export const setupJobActive = (job: SetupJob | null | undefined): boolean =>
@@ -70,7 +94,7 @@ export const setupJobActive = (job: SetupJob | null | undefined): boolean =>
 /** Registration can precede completion; a listed installation may still be setting up. */
 export async function setupInProgress(): Promise<boolean> {
   try {
-    const response = await fetch('/supervisor/setup/active', { cache: 'no-store' })
+    const response = await fetchRequest('/supervisor/setup/active', { cache: 'no-store' })
     return response.ok && setupJobActive((await response.json()).activeJob)
   } catch {
     return false
@@ -99,9 +123,12 @@ export function createSetupController(options: {
     const abort = new AbortController()
     requests.add(abort)
     try {
-      const response = await fetch(`/supervisor/setup${path}`, { ...init, cache: 'no-store', signal: abort.signal })
+      const response = await fetchRequest(`/supervisor/setup${path}`, { ...init, cache: 'no-store', signal: abort.signal })
+      if (!response.ok) {
+        const body = await response.clone().json().catch(() => undefined)
+        throw new SetupRequestError(body?.error ?? 'connection-failed', await requestFailure(response))
+      }
       const body = await response.json()
-      if (!response.ok) throw new SetupRequestError(body.error, body.message)
       return body as T
     } finally {
       requests.delete(abort)

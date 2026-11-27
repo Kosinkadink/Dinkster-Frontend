@@ -183,6 +183,7 @@ import { FixesNotice } from './FixesNotice.js'
 import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap.js'
 import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
+import { NodeCatalogRecovery } from './NodeCatalogRecovery.js'
 import { ContextMenu } from './ContextMenu.js'
 import { canvasMenuContext, curveHistogramMenuGroup, memberRemovalInvocation, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
 import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
@@ -219,6 +220,7 @@ import { readEditorCurve } from './in-node-editor-source.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
+import { formatByteSize } from './collections.js'
 import { boundaryItems } from '@dinkster/core'
 
 type WidgetLayoutRow = Extract<Hit, { kind: 'widget' }>['row']
@@ -978,8 +980,7 @@ export function NodeMediaOverlay(props: {
           {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
         </Show>
         <Show when={props.media.kind === 'video'} fallback={
-          <AudioTransport media={props.media} interactive onActiveChange={(active) => props.onActiveChange?.(active)}
-            onMediaError={() => props.onMediaError?.()} />
+          <AudioTransport media={props.media} interactive onActiveChange={(active) => props.onActiveChange?.(active)} />
         }>
           <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
             onActiveChange={props.onActiveChange} onMediaError={props.onMediaError} />
@@ -2591,6 +2592,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     if (restoreCanvasFocus) queueMicrotask(() => canvasEl.focus())
   }
 
+  const catalogSetupRequested = useSignal(props.app.nodeCatalogSetupRequested)
+  createEffect(() => { if (catalogSetupRequested()) closePalette() })
+
   // Canvas overlays cannot rely on focus-scoped handlers: focus may move to
   // a rail control (or elsewhere). One capture-phase pair supplies dismissal
   // to every overlay; ordinary widget popovers close without consuming the
@@ -2820,7 +2824,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           // A run saves to the project's output mount and never falls back to the machine's.
           const projectMount = settings.activeOutputMount
           renderer.setWidgetFacts({ SAVE_TARGET: {
-            ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready').map((mount) => mount.id),
+            ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready' && !mount.saveError).map((mount) => mount.id),
             ...(projectMount === undefined ? {} : { projectMount }),
           } })
         }).catch(() => { if (live) renderer.setWidgetFacts({}) })
@@ -7174,6 +7178,27 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     })
   }
 
+  const missingModels = createMemo(() => {
+    backendsTick()
+    tabTargets()
+    const tab = activeTab()
+    if (!tab || tab.execution) return []
+    const backend = props.app.backendForTab(tab)
+    if (backend.protocol !== 'dinkster' || !backend.templatesEnabled.get()) return []
+    problems()
+    return props.app.missingWorkflowModels(tab)?.models ?? []
+  })
+  const missingModelAmount = (): string => {
+    const assets = [...(registry()?.packs?.values() ?? [])].flatMap((pack) => pack.assets ?? [])
+    const sizes = missingModels().map((model) => {
+      if (model.asset) return model.asset.size
+      const matches = assets.filter((asset) => asset.name === model.name && asset.kind === model.kind)
+      return matches.every((asset) => asset.size === matches[0]?.size) ? matches[0]?.size : undefined
+    })
+    return sizes.every((size) => size !== undefined)
+      ? formatByteSize(sizes.reduce<number>((total, size) => total + size!, 0)) : ''
+  }
+
   /** Frozen-tab banner data: execution identity, status, live-sync verdict. */
   const frozenInfo = () => {
     executions()
@@ -7963,6 +7988,27 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         onZoomTo={(scale) => zoomCanvasTo?.(scale)}
       />
 
+      <Show when={missingModels().length > 0}>
+        <div ref={placeFrozenLine} class="frozen-banner" data-testid="missing-models-banner" role="status">
+          <span class="frozen-words">
+            <Icon icon={TriangleAlert} />
+            <span class="frozen-label">{message('modelPresence.missingSummary', { count: missingModels().length })}</span>
+            <Show when={missingModelAmount()}>{(amount) => <span class="frozen-sync">{amount()}</span>}</Show>
+          </span>
+          <span class="canvas-chrome-divider" aria-hidden="true" />
+          <ProductButton variant="ghost" type="button" class="canvas-chrome-button frozen-action"
+            onClick={() => {
+              const tab = activeTab()
+              if (!tab) return
+              const backend = props.app.backendForTab(tab)
+              props.app.openModelDownloads(backend, missingModels(), { tab, workflowTitle: tab.title,
+                missing: missingModels(),
+                stillCurrent: () => backend.protocol === 'dinkster' && backend.templatesEnabled.get(),
+              })
+            }}
+          >{message('modelDownloads.title')}</ProductButton>
+        </div>
+      </Show>
       <Show when={activeTab()?.id} keyed>{(_id) => <FixesNotice app={props.app} tab={activeTab()!} />}</Show>
 
       <Show when={frozenInfo()}>
@@ -8044,6 +8090,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             entries={paletteEntries}
             recentTypes={recentNodeTypes}
             widgetRegistry={widgetRegistry()}
+            catalogRecovery={registry()?.schemas.size === 0 && activeTab() !== undefined
+              ? <Show when={props.app.backendForTab(activeTab()!)} keyed>{(backend) => <NodeCatalogRecovery app={props.app} backend={backend} />}</Show>
+              : undefined}
             bounds={() => canvasClientRect()}
             onCommit={async (entry) => {
               if (entry.install !== undefined) {

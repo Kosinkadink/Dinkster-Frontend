@@ -310,14 +310,11 @@ export function EditorBarGallery() {
             <ProductSelect
               {...attributes}
               value={platform()}
-              onChange={(event) =>
-                setPlatform(event.currentTarget.value as keyof typeof platforms)
+              onChange={(value) =>
+                setPlatform(value as keyof typeof platforms)
               }
-            >
-              <For each={Object.entries(platforms)}>
-                {([value, { label }]) => <option value={value}>{label}</option>}
-              </For>
-            </ProductSelect>
+              options={Object.entries(platforms).map(([value, { label }]) => ({ value, label }))}
+            />
           )}
         </ProductField>
         <ProductField label="Window width">
@@ -325,11 +322,9 @@ export function EditorBarGallery() {
             <ProductSelect
               {...attributes}
               value={width()}
-              onChange={(event) => setWidth(event.currentTarget.value)}
-            >
-              <option value="full">Full width</option>
-              <option value="narrowest">Narrowest window</option>
-            </ProductSelect>
+              onChange={setWidth}
+              options={[{ value: 'full', label: 'Full width' }, { value: 'narrowest', label: 'Narrowest window' }]}
+            />
           )}
         </ProductField>
         <ProductField label="Other projects">
@@ -337,13 +332,9 @@ export function EditorBarGallery() {
             <ProductSelect
               {...attributes}
               value={list()}
-              onChange={(event) => setList(event.currentTarget.value)}
-            >
-              <option value="few">A few projects</option>
-              <option value="many">More than 8 projects</option>
-              <option value="loading">Loading</option>
-              <option value="failed">Could not be loaded</option>
-            </ProductSelect>
+              onChange={setList}
+              options={[{ value: 'few', label: 'A few projects' }, { value: 'many', label: 'More than 8 projects' }, { value: 'loading', label: 'Loading' }, { value: 'failed', label: 'Could not be loaded' }]}
+            />
           )}
         </ProductField>
         <ProductField label="Project name">
@@ -360,12 +351,9 @@ export function EditorBarGallery() {
             <ProductSelect
               {...attributes}
               value={account()}
-              onChange={(event) => setAccount(event.currentTarget.value)}
-            >
-              <option value="signed-out">Signed out</option>
-              <option value="signing-in">Signing in</option>
-              <option value="signed-in">Signed in</option>
-            </ProductSelect>
+              onChange={setAccount}
+              options={[{ value: 'signed-out', label: 'Signed out' }, { value: 'signing-in', label: 'Signing in' }, { value: 'signed-in', label: 'Signed in' }]}
+            />
           )}
         </ProductField>
         <ProductField label="Services">
@@ -373,12 +361,9 @@ export function EditorBarGallery() {
             <ProductSelect
               {...attributes}
               value={service()}
-              onChange={(event) => setService(event.currentTarget.value)}
-            >
-              <option value="production">Production</option>
-              <option value="qa">QA, development build</option>
-              <option value="custom">Custom, development build</option>
-            </ProductSelect>
+              onChange={setService}
+              options={[{ value: 'production', label: 'Production' }, { value: 'qa', label: 'QA, development build' }, { value: 'custom', label: 'Custom, development build' }]}
+            />
           )}
         </ProductField>
         <ProductCheckbox

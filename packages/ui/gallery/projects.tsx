@@ -24,6 +24,7 @@ import {
 } from 'lucide-solid'
 import { registerCatalog } from '@dinkster/core'
 import english from '../../app/src/locales/en.json'
+import { TemplatesGallery } from './templates.js'
 import {
   canvasColorsForTheme,
   canvasPaintTokens,
@@ -396,6 +397,15 @@ export function ProjectsGallery() {
   const [banner, setBanner] = createSignal(true)
   const [name, setName] = createSignal('Night market')
   const [startWith, setStartWith] = createSignal('empty')
+  const [template, setTemplate] = createSignal<{ pack: string; id: string; name: string }>()
+  const [pickingTemplate, setPickingTemplate] = createSignal(false)
+  createEffect(() => {
+    if (!templates()) {
+      if (startWith() === 'template') setStartWith('empty')
+      setPickingTemplate(false)
+      setTemplate(undefined)
+    }
+  })
   const [activity, setActivity] = createSignal('No action yet')
   // Deleted projects can be restored; these two were deleted before the page opened.
   const [deleted, setDeleted] = createSignal<
@@ -749,7 +759,8 @@ export function ProjectsGallery() {
         class="dinkster-project-form"
         onSubmit={(event) => {
           event.preventDefault()
-          setActivity(`Created ${name()}`)
+          const chosen = startWith() === 'template' ? template() : undefined
+          setActivity(chosen ? `Created ${name()} from ${chosen.pack}/${chosen.id}` : `Created ${name()}`)
           setState('ready')
         }}
       >
@@ -777,14 +788,12 @@ export function ProjectsGallery() {
           </span>
         </div>
         <label for="new-project-runs-on">Runs on</label>
-        <ProductSelect id="new-project-runs-on">
-          <option>Stable 0.0.18 - this computer</option>
-          <option>Nightly - this computer</option>
-        </ProductSelect>
+        <ProductSelect id="new-project-runs-on" options={['Stable 0.0.18 - this computer', 'Nightly - this computer'].map((label) => ({ value: label, label }))} />
         <span>Start with</span>
         <span>
           <ProductSegmented
             label="Start with"
+            overflow="select"
             value={startWith()}
             onChange={setStartWith}
             options={[
@@ -797,6 +806,17 @@ export function ProjectsGallery() {
             ]}
           />
         </span>
+        <Show when={templates() && startWith() === 'template'}>
+          <div class="dinkster-project-form-folder" role="group" aria-label="Template">
+            <span>Template</span>
+            <span class="dinkster-project-form-path">
+              <Show when={template()} fallback={<span class="dinkster-description">No template selected</span>}>
+                {(chosen) => <span>{chosen().name}</span>}
+              </Show>
+              <ProductTextButton label={template() ? 'Change' : 'Choose'} onClick={() => setPickingTemplate(true)} />
+            </span>
+          </div>
+        </Show>
         <div class="dinkster-actions">
           <ProductButton onClick={() => { setState('ready'); setNarrowDetail(false) }}>
             Cancel
@@ -805,7 +825,7 @@ export function ProjectsGallery() {
             type="submit"
             intent="add"
             fill="solid"
-            disabled={name().trim() === ''}
+            disabled={name().trim() === '' || (startWith() === 'template' && !template())}
           >
             Create
           </ProductButton>
@@ -948,6 +968,13 @@ export function ProjectsGallery() {
           </Show>
           <div class="dinkster-editor-preview-page">
             <Switch>
+              <Match when={pickingTemplate()}>
+                <TemplatesGallery
+                  initialSelection={template()?.id}
+                  onChoose={(chosen) => { setTemplate(chosen); setPickingTemplate(false) }}
+                  onCancel={() => setPickingTemplate(false)}
+                />
+              </Match>
               <Match when={place() === 'installations'}>
                 {otherPlace('Installations')}
               </Match>
@@ -1055,15 +1082,12 @@ export function ProjectsGallery() {
             <ProductSelect
               {...attributes}
               value={state()}
-              onChange={(event) => {
+              onChange={(value) => {
                 setPlace('projects')
-                setState(event.currentTarget.value as State)
+                setState(value as State)
               }}
-            >
-              <For each={Object.entries(states)}>
-                {([value, label]) => <option value={value}>{label}</option>}
-              </For>
-            </ProductSelect>
+              options={Object.entries(states).map(([value, label]) => ({ value, label }))}
+            />
           )}
         </ProductField>
         <ProductField label="Platform">
@@ -1071,14 +1095,11 @@ export function ProjectsGallery() {
             <ProductSelect
               {...attributes}
               value={platform()}
-              onChange={(event) =>
-                setPlatform(event.currentTarget.value as keyof typeof platforms)
+              onChange={(value) =>
+                setPlatform(value as keyof typeof platforms)
               }
-            >
-              <For each={Object.entries(platforms)}>
-                {([value, label]) => <option value={value}>{label}</option>}
-              </For>
-            </ProductSelect>
+              options={Object.entries(platforms).map(([value, label]) => ({ value, label }))}
+            />
           )}
         </ProductField>
         <ProductCheckbox

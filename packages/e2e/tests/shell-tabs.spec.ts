@@ -96,6 +96,7 @@ test('drag reorders on release, preserves focus and active tab, and persists', a
 
 test('a dragged workflow tab shows a cursor-following ghost until release', async ({ page }) => {
   const draggedSelect = tab(page, 'Subgraph').locator('.tab-select')
+  const sourceIcon = await draggedSelect.locator('svg').innerHTML()
   const from = await center(draggedSelect)
   const to = await center(tab(page, 'Basic').locator('.tab-select'))
   const ghost = page.getByTestId('tab-drag-ghost')
@@ -109,6 +110,8 @@ test('a dragged workflow tab shows a cursor-following ghost until release', asyn
   await page.mouse.move(to.x - 20, to.y, { steps: 3 })
   await expect(ghost).toBeVisible()
   await expect(ghost.locator('.tab-drag-ghost-title')).toHaveText('Subgraph')
+  await expect(ghost.locator('.tab-drag-ghost-icon svg')).toBeVisible()
+  expect(await ghost.locator('.tab-drag-ghost-icon svg').innerHTML()).toBe(sourceIcon)
   const box = (await ghost.boundingBox())!
   expect(box.x).toBeGreaterThan(to.x - 20)
   expect(box.y).toBeGreaterThan(to.y)
@@ -130,6 +133,7 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
   await expect(tab(page, 'Basic').locator('.tab-select')).toBeFocused()
 
   await page.getByTestId('new-tab').click()
+  await page.getByRole('menuitem', { name: 'Blank workflow', exact: true }).click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(2)
   await expect.poll(() => page.evaluate(() => {
     const untitled = window.__dinksterTest!.app.tabs.get().find((entry) => entry.title === 'Untitled')
@@ -274,7 +278,10 @@ test('shell separators expose values and resize from the keyboard', async ({ pag
 })
 
 test('tab strip suppresses vertical scrolling and retains horizontal overflow', async ({ page }) => {
-  for (let index = 0; index < 20; index++) await page.getByTestId('new-tab').click()
+  for (let index = 0; index < 20; index++) {
+    await page.getByTestId('new-tab').click()
+    await page.getByRole('menuitem', { name: 'Blank workflow', exact: true }).click()
+  }
   await page.evaluate(() => document.fonts.ready)
   // Tab publication can replace DOM nodes between a locator query and evaluation.
   const titleWidths = await page.evaluate(() => {
