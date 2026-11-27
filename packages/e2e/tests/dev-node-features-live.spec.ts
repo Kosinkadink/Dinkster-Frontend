@@ -1,6 +1,87 @@
 import { join } from 'node:path'
 import type { Diagnostic } from '@dinkster/core'
-import { expect, nativeTest as test, type Page } from './fixtures.js'
+import { expect, nativeTest as test, type Page, waitForWorkspaceReady } from './fixtures.js'
+
+test('a late numeric lookup makes one shared correction and tells both viewers', async ({ page, browser }) => {
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  const peerContext = await browser.newContext({ baseURL: new URL(page.url()).origin })
+  const peer = await peerContext.newPage()
+  let sharedTab: string | undefined
+  try {
+    await peer.goto('/')
+    await waitForWorkspaceReady(peer)
+    expect(await page.evaluate(async () => {
+      const app = window.__dinksterTest!.app
+      app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+      return app.openDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: crypto.randomUUID(), root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'Late numeric limit', nodes: {
+          picker: { id: 'picker', type: 'dev.lookups.lora_picker', values: {
+            category_filter: 'All', strength: 4.25, frames: 8,
+          } },
+        }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+        view: { graphs: { g0: { nodes: { picker: { position: { x: 80, y: 100 } } } } } },
+      }, 'Late numeric limit')
+    })).toEqual([])
+    const shared = await page.evaluate(async () => {
+      const app = window.__dinksterTest!.app as NonNullable<typeof window.__dinksterTest>['app'] & {
+        collabFor(tab: string): { descriptor: { sessionId: string } } | undefined
+      }
+      const error = await app.shareActiveTab()
+      const tab = app.activeTab()!
+      return { error, tab: tab.id, session: app.collabFor(tab.id)?.descriptor.sessionId }
+    })
+    sharedTab = shared.tab
+    expect(shared.error).toBeUndefined()
+    expect(shared.session).toBeTruthy()
+    expect(await peer.evaluate(async (session) => {
+      const app = window.__dinksterTest!.app as unknown as {
+        settings: { set(key: string, value: string): void }
+        joinCollabSession(id: string): Promise<string | undefined>
+      }
+      app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+      return app.joinCollabSession(session)
+    }, shared.session!)).toBeUndefined()
+    for (const viewer of [page, peer]) {
+      await expect.poll(() => viewer.evaluate(() => {
+        const app = window.__dinksterTest!.app
+        const backend = app.backends.get()[0]! as unknown as { lookups: Pick<import('@dinkster/client').LookupClient, 'entry'> }
+        return backend.lookups.entry({ function: 'dinkster_nodes_dev.lookups.strength_limit', args: ['All'] })?.state
+      })).toBe('ready')
+      expect(await viewer.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.picker!.values.strength)).toBe(4.25)
+    }
+    const beforeRevision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
+    expect(await page.evaluate(async () => {
+      const app = window.__dinksterTest!.app as NonNullable<typeof window.__dinksterTest>['app'] & {
+        dispatchEditTo: NonNullable<typeof window.__dinksterTest>['app']['dispatchTo']
+      }
+      return (await app.dispatchEditTo(app.activeTab()!, {
+        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'picker', inputId: 'category_filter', value: 'sdxl' },
+      })).ok
+    })).toBe(true)
+    for (const viewer of [page, peer]) {
+      await expect.poll(() => viewer.evaluate(() => {
+        const app = window.__dinksterTest!.app
+        const tab = app.activeTab()!
+        return {
+          revision: tab.store.revision,
+          strength: tab.store.doc.graphs.g0!.nodes.picker!.values.strength,
+          corrections: (app.adjustmentNotices.get().get(tab.id) as { adjustments: readonly { kind: string }[] } | undefined)
+            ?.adjustments.filter((item) => item.kind === 'numberOutsideLimits').length ?? 0,
+        }
+      })).toEqual({ revision: beforeRevision + 2, strength: 2, corrections: 1 })
+      await expect(viewer.getByTestId('fixes-notice')).toBeVisible()
+    }
+  } finally {
+    if (sharedTab !== undefined) {
+      const error = await page.evaluate((tab) =>
+        (window.__dinksterTest!.app as unknown as { endCollabSession(id: string): Promise<string | undefined> }).endCollabSession(tab), sharedTab)
+      expect(error).toBeUndefined()
+    }
+    await peerContext.close()
+  }
+})
 
 const proofDir = process.env['DINKSTER_FEATURE_PROOF_DIR']
 
