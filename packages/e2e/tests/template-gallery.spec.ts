@@ -117,6 +117,7 @@ test('reviews template models without opening or submitting a workflow and revok
   await page.mouse.move(0, 0)
   await gallery.getByRole('searchbox', { name: 'Search templates', exact: true }).focus()
   await gallery.getByRole('searchbox', { name: 'Search templates', exact: true }).blur()
+  await gallery.getByRole('listbox', { name: 'Templates', exact: true }).getByRole('option', { selected: true }).click()
   await expect(gallery.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
   await captureProof(page, 'template-download-progress-900.png')
   await page.setViewportSize({ width: 1440, height: 900 })
