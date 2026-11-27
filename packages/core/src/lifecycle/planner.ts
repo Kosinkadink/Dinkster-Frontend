@@ -456,7 +456,8 @@ function planFlattenState(
       ? occurrence.values[item.id]
       : Object.hasOwn(primaryState.values, primaryKey)
         ? primaryState.values[primaryKey]
-        : primarySlot.widget === undefined ? undefined : effectiveWidgetDefault(primarySlot.widget) as Json | undefined
+        : primarySlot.automatic !== undefined || primarySlot.widget === undefined
+          ? undefined : effectiveWidgetDefault(primarySlot.widget) as Json | undefined
     const controller = Object.hasOwn(occurrence.controllers ?? {}, item.id)
       ? occurrence.controllers![item.id]
       : Object.hasOwn(primaryState.controllers ?? {}, primaryKey)

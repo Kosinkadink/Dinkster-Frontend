@@ -750,6 +750,195 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     }
   })
 
+  const calculator = node('Calculator', [floatField('seed', 3), floatField('bias', 7), {
+    ...floatField('total', 5), automatic: { formula: 'seed * 2 + bias' },
+    labelFormula: { formula: '"Total " + fixed(seed * 2 + bias, 0)' }, tooltip: 'Calculated in this receiver',
+  }, { kind: 'output', id: 'result', type: FLOAT }])
+  const formulaResolve = (type: string) => type === 'Calculator' ? calculator
+    : type === 'FormulaSink' ? node(type, [{ kind: 'input', id: 'value', type: FLOAT, optional: true }])
+      : type === 'Text' ? { ...node(type, [{ kind: 'input', id: 'value', type: STRING, optional: true }]), isOutputNode: false } : undefined
+  const formulaFixture = (depth: 1 | 2): WorkflowDocument => {
+    const bind = (id: string, target: string, port: string) => ({
+      kind: 'input', id, promoted: true, binds: { kind: 'port', node: target, port },
+    })
+    return {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'formula-lifecycle', root: 'root',
+      graphs: {
+        root: { id: 'root', name: 'Root', ...empty, nodes: {
+          first: { id: 'first', type: depth === 1 ? '#detail' : '#portrait', values: { [depth === 1 ? 'start' : 'control']: 21 } },
+          second: { id: 'second', type: depth === 1 ? '#detail' : '#portrait', values: { [depth === 1 ? 'start' : 'control']: 13 } },
+          sink: { id: 'sink', type: 'FormulaSink', values: {} },
+        }, links: { wire: { id: 'wire', from: { node: 'first', port: depth === 1 ? 'out' : 'result' }, to: { node: 'sink', port: 'value' } } } },
+        detail: { id: 'detail', name: 'Detail', ...empty, nodes: {
+          sample: { id: 'sample', type: 'Calculator', values: { seed: 3, bias: 7 } },
+          other: { id: 'other', type: 'Calculator', values: { seed: 11, bias: 13 } },
+          text: { id: 'text', type: 'Text', values: {} },
+        }, boundary: { body: [bind('start', 'sample', 'seed'), bind('total', 'sample', 'total'),
+          { kind: 'output', id: 'out', binds: { kind: 'port', node: 'sample', port: 'result' } },
+        ] } },
+        ...(depth === 2 ? { portrait: { id: 'portrait', name: 'Portrait', ...empty,
+          nodes: { detail: { id: 'detail', type: '#detail', values: { start: 7 } } },
+          boundary: { body: [bind('control', 'detail', 'start'), bind('resultValue', 'detail', 'total'),
+            { kind: 'output', id: 'result', binds: { kind: 'port', node: 'detail', port: 'out' } },
+          ] },
+        } } : {}),
+      }, view: { graphs: { root: { nodes: {} }, detail: { nodes: {} }, portrait: { nodes: {} } } },
+    } as unknown as WorkflowDocument
+  }
+  const formulaRun = (doc: WorkflowDocument) => {
+    const result = compile({ document: doc, revision: 1, resolve: formulaResolve, scope: { kind: 'full' },
+      connection: asConnectionId('formula-lifecycle'), schemaHash: 'formula-lifecycle' })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) throw new Error('formula lifecycle document did not compile')
+    const labels: Record<string, string | undefined> = {}
+    const calculated = Object.fromEntries(Object.entries(result.artifact.prompt).filter(([, receiver]) => receiver.class_type === 'Calculator').map(([id, receiver]) => {
+      const row = elabInputsOf(elaborateInterface(calculator, { values: receiver.inputs as never })).find((field) => field.spec.id === 'total')!
+      const stored = Object.hasOwn(receiver.inputs, 'total')
+      expect(row.automatic?.state).toBe(stored ? undefined : 'worked-out')
+      labels[id] = row.spec.displayName
+      return [id, stored ? receiver.inputs.total : row.automatic!.value]
+    }))
+    return { prompt: result.artifact.prompt, calculated, labels }
+  }
+
+  it.each([1, 2] as const)('formula dependency fan-out at depth %s keeps each receiver scope through edits and reload', (depth) => {
+    const doc = formulaFixture(depth)
+    const store = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, formulaResolve),
+    }))
+    const suffix = depth === 1 ? '' : '.detail'
+    const check = (current: WorkflowDocument, seed: number, first: number, other: number) => {
+      const { prompt, calculated, labels } = formulaRun(current)
+      expect(calculated).toEqual({
+        [`first${suffix}.sample`]: first, [`first${suffix}.other`]: other,
+        [`second${suffix}.sample`]: 33, [`second${suffix}.other`]: 39,
+      })
+      expect(labels).toEqual({
+        [`first${suffix}.sample`]: `Total ${first}`, [`first${suffix}.other`]: `Total ${other}`,
+        [`second${suffix}.sample`]: 'Total 33', [`second${suffix}.other`]: 'Total 39',
+      })
+      expect(prompt[`first${suffix}.sample`]!.inputs).toEqual({ seed, bias: 7 })
+      expect(prompt[`first${suffix}.other`]!.inputs).toEqual({ seed, bias: 13 })
+      expect(prompt[`second${suffix}.sample`]!.inputs).toEqual({ seed: 13, bias: 7 })
+      expect(prompt[`second${suffix}.other`]!.inputs).toEqual({ seed: 13, bias: 13 })
+      expect(prompt.sink!.inputs).toEqual({ value: [`first${suffix}.sample`, 0] })
+      expect(current.graphs.detail).toEqual(joined.graphs.detail)
+      expect(current.graphs.portrait).toEqual(doc.graphs.portrait)
+    }
+    expect(store.dispatch({ command: 'boundary.addBinding', params: {
+      graphId: 'detail', itemId: 'start', node: 'other', port: 'seed',
+    } }).ok).toBe(true)
+    const joined = store.doc
+    check(joined, 21, 49, 55)
+    const refused = store.dispatch({ command: 'boundary.addBinding', params: {
+      graphId: 'detail', itemId: 'start', node: 'text', port: 'value',
+    } })
+    expect(refused.ok).toBe(false)
+    expect(refused.diagnostics.some((entry) => entry.code === 'boundary.fanoutTypeMismatch')).toBe(true)
+    expect(store.doc).toBe(joined)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(doc)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(joined)
+    expect(store.dispatch({ command: 'node.setValue', params: {
+      graphId: 'root', nodeId: 'first', inputId: depth === 1 ? 'start' : 'control', value: 31,
+    } }).ok).toBe(true)
+    const edited = store.doc
+    check(edited, 31, 69, 75)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(joined)
+    check(store.doc, 21, 49, 55)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(edited)
+    check(loadDocument(JSON.parse(JSON.stringify(edited))).document!, 31, 69, 75)
+  })
+
+  it.each([1, 2] as const)('formula detach and separate flatten modes at depth %s preserve native scopes and output wires', async (depth) => {
+    const doc = formulaFixture(depth)
+    const suffix = depth === 1 ? '' : '.detail'
+    const initial = formulaRun(doc)
+    expect(initial.calculated).toEqual({
+      [`first${suffix}.sample`]: 49, [`first${suffix}.other`]: 35,
+      [`second${suffix}.sample`]: 33, [`second${suffix}.other`]: 35,
+    })
+    const store = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, formulaResolve),
+    }))
+    expect(store.dispatch({ command: 'occurrence.localize', params: { graphId: 'root', nodeId: 'first' } }).ok).toBe(true)
+    const localized = store.doc
+    expect(formulaRun(localized)).toEqual(initial)
+    const privateGraph = localized.graphs.root!.nodes.first!.type.slice(1)
+    expect(store.dispatch({ command: 'node.setValue', params: {
+      graphId: privateGraph, nodeId: depth === 1 ? 'sample' : 'detail', inputId: depth === 1 ? 'bias' : 'total', value: 19,
+    } }).ok).toBe(true)
+    const privateDoc = store.doc
+    const privateRun = formulaRun(privateDoc)
+    expect(privateRun.calculated).toEqual({ ...initial.calculated, [`first${suffix}.sample`]: depth === 1 ? 61 : 19 })
+    expect(privateRun.labels[`first${suffix}.sample`]).toBe(depth === 1 ? 'Total 61' : 'Total 49')
+    expect(privateRun.prompt[`first${suffix}.sample`]!.inputs).toEqual(depth === 1
+      ? { seed: 21, bias: 19 } : { seed: 21, bias: 7, total: 19 })
+    expect(privateRun.prompt[`second${suffix}.sample`]!.inputs).toEqual({ seed: 13, bias: 7 })
+    expect(privateDoc.graphs.detail).toEqual(doc.graphs.detail)
+    expect(privateDoc.graphs.portrait).toEqual(doc.graphs.portrait)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(localized)
+    expect(formulaRun(store.doc)).toEqual(initial)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(doc)
+    expect(store.redo()).toBe(true)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(privateDoc)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(privateDoc))).document!
+    expect(reopened).toEqual(privateDoc)
+    expect(formulaRun(reopened)).toEqual(privateRun)
+
+    for (const [mode, total] of [['active', undefined], ['active', 19], ['muted', undefined], ['bypassed', undefined], ['loop', undefined]] as const) {
+      const original = doc.graphs.root!.nodes.first!
+      const first = total === undefined ? original : { ...original, values: {
+        ...original.values, [depth === 1 ? 'total' : 'resultValue']: total,
+      } }
+      const before: WorkflowDocument = { ...doc, graphs: { ...doc.graphs, root: { ...doc.graphs.root!, nodes: {
+        ...doc.graphs.root!.nodes, first: mode === 'loop' ? { ...first, region: { kind: 'map', elementPorts: [depth === 1 ? 'start' : 'control'] } }
+          : { ...first, mode },
+      } } } }
+      const result = await flatten(before, 'root', [], 'first', formulaResolve)
+      if (mode === 'bypassed' || mode === 'loop') {
+        expect(result.ok).toBe(false)
+        expect(result.reports.map((entry) => entry.code)).toContain(mode === 'loop' ? 'subgraph.flatten.regionUnsupported' : 'subgraph.flatten.modeUnsupported')
+        expect(result.session.doc).toEqual(before)
+        expect(result.session.canUndo).toBe(false)
+        continue
+      }
+      expect(result.ok, JSON.stringify(result.reports)).toBe(true)
+      const flattened = result.session.doc
+      const replacement = Object.values(flattened.graphs.root!.nodes).find((entry) =>
+        depth === 1 ? entry.type === 'Calculator' && entry.values.seed === 21 : entry.type === '#detail')!
+      expect(replacement.mode ?? 'active').toBe(mode)
+      const receivingId = depth === 1 ? replacement.id : `${replacement.id}.sample`
+      const run = formulaRun(flattened)
+      expect(run.calculated[`second${suffix}.sample`]).toBe(33)
+      expect(run.calculated[`second${suffix}.other`]).toBe(35)
+      if (mode === 'active') {
+        expect(run.calculated[receivingId]).toBe(total ?? 49)
+        expect(run.prompt[receivingId]!.inputs).toEqual({ seed: 21, bias: 7, ...(total === undefined ? {} : { total }) })
+        expect(run.labels[receivingId]).toBe('Total 49')
+        expect(run.prompt.sink!.inputs).toEqual({ value: [receivingId, 0] })
+      } else {
+        expect(Object.keys(run.calculated).sort()).toEqual([`second${suffix}.other`, `second${suffix}.sample`])
+        expect(run.prompt.sink!.inputs).toEqual({})
+      }
+      expect(flattened.graphs.detail).toEqual(doc.graphs.detail)
+      expect(flattened.graphs.portrait).toEqual(doc.graphs.portrait)
+      expect(result.session.undo()).toBe(true)
+      expect(result.session.doc).toEqual({ ...before, graphs: { ...before.graphs,
+        root: { ...before.graphs.root!, nextOrdinal: flattened.graphs.root!.nextOrdinal },
+      } })
+      expect(result.session.redo()).toBe(true)
+      expect(result.session.doc).toEqual(flattened)
+      expect(formulaRun(loadDocument(JSON.parse(JSON.stringify(flattened))).document!)).toEqual(run)
+    }
+  })
+
   it('keeps an enclosing button executable and instance-local after extracting and flattening its target', async () => {
     const buttonSchema = node('Counter', [floatField('amount', 3), floatField('delta', 7), {
       kind: 'button', id: 'increase', label: 'Increase',
