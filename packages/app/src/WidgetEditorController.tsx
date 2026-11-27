@@ -38,10 +38,7 @@ import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { HostUiProviderHost } from './host-ui.js'
 import type { RowRepresentation } from './editors/RowFocusOverlay.js'
 import { useAppMessage } from './locale.js'
-import {
-  dynamicSelectorCommitCommand,
-  withMaterializeFrames,
-} from './widget-editor-command.js'
+import { widgetInputValueCommand } from './widget-editor-command.js'
 import {
   contrastingTextColor,
   editorScreenAnchor,
@@ -371,21 +368,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       setCommitError(message('widgetEditor.writeWired', { row: wiredWrite }))
       return Promise.resolve(false)
     }
-    const selectorCommand = dynamicSelectorCommitCommand(ed, value)
-    if (selectorCommand !== undefined) {
-      return commitCommand(selectorCommand)
-    }
-    return commitCommand(
-      withMaterializeFrames(ed.target.familyOwner?.graphId ?? ed.graphId, ed.target.familyOwner?.nodeId ?? ed.target.nodeId, ed.target.materialize, {
-        command: 'node.setValue',
-        params: {
-          graphId: ed.target.familyOwner?.graphId ?? ed.graphId,
-          nodeId: ed.target.familyOwner?.nodeId ?? ed.target.nodeId,
-          inputId: ed.target.familyOwner?.valueKey ?? ed.target.valueKey,
-          value,
-        },
-      }),
-    )
+    return commitCommand(widgetInputValueCommand(ed.graphId, ed.target, value))
   }
 
   const clickAway = (): void => {

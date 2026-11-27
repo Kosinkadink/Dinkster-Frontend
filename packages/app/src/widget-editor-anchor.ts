@@ -19,6 +19,25 @@ export function tabDocumentUnchanged(owner: Tab, ownerRevision: number | undefin
     : ownerRevision === owner.store.revision && JSON.stringify(owner.store.doc) === JSON.stringify(current.store.doc)
 }
 
+/** Match the writable row contract without requiring its screen position to stay fixed. */
+export function widgetEditorTarget(
+  ed: WidgetEditorState,
+  nodes: readonly WidgetEditorAnchorNode[],
+): { readonly node: WidgetEditorAnchorNode; readonly row: Extract<LayoutRow, { kind: 'widget' }> } | undefined {
+  const target = ed.target
+  if (target.kind !== 'input') return undefined
+  const node = nodes.find((item) => item.id === target.nodeId)
+  const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === target.valueKey)
+  if (node === undefined || row?.kind !== 'widget' || row.readOnly || row.disabled) return undefined
+  const sameContract = JSON.stringify(row.spec) === JSON.stringify(ed.anchorSpec ?? ed.spec) &&
+    JSON.stringify(row.type) === JSON.stringify(ed.declaredType) &&
+    JSON.stringify(row.familyOwner ?? null) === JSON.stringify(target.familyOwner ?? null) &&
+    JSON.stringify(row.materialize ?? null) === JSON.stringify(target.materialize ?? null) &&
+    JSON.stringify(row.selector ?? null) === JSON.stringify(target.selector ?? null) &&
+    JSON.stringify(row.sourceFilename ?? null) === JSON.stringify(ed.sourceFilename ?? null)
+  return sameContract ? { node, row } : undefined
+}
+
 /**
  * Whether an open editor's input row still exists with the same write
  * contract in a rebuilt scene. Rows match on valueKey (the persisted key
@@ -42,18 +61,9 @@ export function widgetEditorAnchorAlive(
   if (ed.tab.id !== tabId || ed.graphId !== graphId) return false
   const target = ed.target
   if (target.kind === 'local') return true
-  const node = nodes.find((item) => item.id === target.nodeId)
-  if (node === undefined) return false
-  const row = node.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === target.valueKey)
-  if (row === undefined || row.kind !== 'widget') return false
-  if (row.readOnly || row.disabled) return false
-  const sameContract = JSON.stringify(row.spec) === JSON.stringify(ed.anchorSpec ?? ed.spec) &&
-    JSON.stringify(row.type) === JSON.stringify(ed.declaredType) &&
-    JSON.stringify(row.familyOwner ?? null) === JSON.stringify(target.familyOwner ?? null) &&
-    JSON.stringify(row.materialize ?? null) === JSON.stringify(target.materialize ?? null) &&
-    JSON.stringify(row.selector ?? null) === JSON.stringify(target.selector ?? null) &&
-    JSON.stringify(row.sourceFilename ?? null) === JSON.stringify(ed.sourceFilename ?? null)
-  if (!sameContract) return false
+  const matched = widgetEditorTarget(ed, nodes)
+  if (matched === undefined) return false
+  const { node, row } = matched
   if (ed.inRow !== undefined) {
     // A selector's choice lives on its row, not in the node's values, so a
     // change from elsewhere shows here.
