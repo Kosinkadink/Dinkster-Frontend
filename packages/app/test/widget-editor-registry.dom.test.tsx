@@ -160,14 +160,14 @@ it('keeps mount recovery and declared-default reset inside the Save target edito
     commit={commit} queue={() => {}} />, root)
   const button = (label: string) => [...root.querySelectorAll('button')].find((entry) => entry.textContent === label)
   try {
-    await vi.waitFor(() => expect(root.querySelector('.dinkster-canvas-editor-note')?.textContent).toContain('usb1 not found.'))
+    await vi.waitFor(() => expect(root.querySelector('.dinkster-canvas-editor-note')?.textContent).toContain('"usb1" not found.'))
     expect(root.querySelector('.dinkster-canvas-target-value-text')?.textContent).toBe('usb1')
     setRequestState(1)
     expect(button('Use project default')).toBeUndefined()
     expect(root.querySelector('.dinkster-canvas-target-name')?.getAttribute('title')).toBe('Relative name only')
     button('Details')!.click()
     const recovery = document.querySelector('[role="dialog"] button') as HTMLButtonElement
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('usb1 is not on this machine.')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('"usb1" is not on this machine.')
     recovery.focus()
     const recoverKey = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
     recovery.dispatchEvent(recoverKey)
@@ -220,7 +220,7 @@ it('opens Storage for a missing target until the project output is writable, the
     expect(opened).toBe(1)
     expect(root.querySelector('input')!.value).toBe('portraits/first')
     setReady(true)
-    await vi.waitFor(() => expect(root.querySelector('.dinkster-canvas-editor-note')?.textContent).toContain('renders not found.'))
+    await vi.waitFor(() => expect(root.querySelector('.dinkster-canvas-editor-note')?.textContent).toContain('"renders" not found.'))
     details().click()
     const fix = document.querySelector<HTMLButtonElement>('[role="dialog"] button')!
     expect(fix.textContent).toBe('Use project default')
