@@ -1023,6 +1023,28 @@ export function withTextOutputRegion(
   }
 }
 
+/** Project every explicit horizontal span to the live width, retaining fixed chrome and gaps. */
+export function projectNodeLayoutWidth(layout: NodeLayout, width: number): NodeLayout {
+  const delta = width - layout.width
+  if (delta === 0) return layout
+  const rows = layout.rows.map((row): LayoutRow => {
+    if (!('width' in row) || row.width === undefined || !('inset' in row)) return row
+    const peers = layout.rows.filter((other) => other.y === row.y && 'inset' in other && 'width' in other && other.width !== undefined)
+    const mixed = peers.some((other) => other.kind === 'widget')
+    const fixed = (other: LayoutRow): boolean => mixed && other.kind === 'button' && other.icon !== undefined
+    const flexible = peers.filter((other) => !fixed(other))
+    const share = delta / flexible.length
+    const preceding = flexible.filter((other) => 'inset' in other && other.inset < row.inset).length
+    return { ...row, inset: row.inset + preceding * share, width: row.width + (fixed(row) ? 0 : share) }
+  })
+  return {
+    ...layout, width, rows,
+    ...(layout.boxes === undefined ? {} : { boxes: layout.boxes.map((box) => ({ ...box, width: box.width + delta })) }),
+    ...(layout.preview === undefined ? {} : { preview: { ...layout.preview, width: layout.preview.width + delta } }),
+    ...(layout.textOutput === undefined ? {} : { textOutput: { ...layout.textOutput, width: layout.textOutput.width + delta } }),
+  }
+}
+
 /**
  * Reflow the row the node's bottom edge sizes for an in-flight resize
  * preview. The scene remains committed; the renderer uses this projected
