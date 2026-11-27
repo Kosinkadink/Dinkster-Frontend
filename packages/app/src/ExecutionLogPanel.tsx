@@ -6,7 +6,7 @@
  * (Dinkster issue #368).
  */
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
-import { activeLocale } from '@dinkster/core'
+import { activeLocale, type RuntimeErrorDetail } from '@dinkster/core'
 import type { ExecutionLogEntry, ExecutionState } from '@dinkster/client'
 import { LogTimestamp } from './ActivityLog.js'
 import { useAppMessage } from './locale.js'
@@ -14,6 +14,7 @@ import { useSignal } from './solid-adapter.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductSelect, type ProductSelectOption } from './ProductSelect.js'
 import { ProductEmptyState, ProductListRow } from './ProductSurfaces.js'
+import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 
 export type ExecutionLogRowLevel = 'info' | 'warning' | 'error'
 
@@ -26,6 +27,7 @@ export interface ExecutionLogRow {
   readonly origin?: ExecutionLogEntry['origin']
   /** 'log' = wire log record; 'diagnostic' = run error report entry. */
   readonly source: 'log' | 'diagnostic'
+  readonly runtime?: RuntimeErrorDetail
 }
 
 /**
@@ -50,6 +52,7 @@ export function executionLogRows(execution: ExecutionState): readonly ExecutionL
       timestamp: execution.endedAt ?? execution.queuedAt,
       ...(typeof runtimeId === 'string' ? { runtimeNodeId: runtimeId } : {}),
       source: 'diagnostic' as const,
+      ...(diagnostic.runtime === undefined ? {} : { runtime: diagnostic.runtime }),
     }
   })
   // Stable sort: rows sharing a timestamp keep log-before-diagnostic order.
@@ -318,7 +321,16 @@ export function ExecutionLogPanel(props: ExecutionLogPanelProps) {
                     <LogTimestamp class="execution-log-time" timestamp={row.timestamp} />
                     <span class="execution-log-level">{locale().tag && message(`executionLog.level.${row.level}`)}</span>
                     {nodeButton(row)}
-                    <span class="execution-log-message"><Show when={row.origin !== undefined}><span class="execution-log-origin">{row.origin}</span></Show>{row.message}</span>
+                    <div class="execution-log-message">
+                      <Show when={row.origin !== undefined}><span class="execution-log-origin">{row.origin}</span></Show>{row.message}
+                      <Show when={row.runtime}>{(runtime) => <>
+                        <Show when={runtime().hints?.length}><RuntimeErrorHints hints={runtime().hints!} /></Show>
+                        <pre class="traceback">{runtime().traceback.join('\n')}</pre>
+                        <Show when={runtime().currentInputs}>
+                          <pre class="traceback">{JSON.stringify(runtime().currentInputs, null, 2)}</pre>
+                        </Show>
+                      </>}</Show>
+                    </div>
                   </>}
                 />
               )}

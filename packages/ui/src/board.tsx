@@ -503,6 +503,7 @@ export function ProductBoard(props: ProductBoardProps) {
     setSelected(undefined)
     setEditingNote(undefined)
     if (tool() !== 'select' && event.button === 0) {
+      event.preventDefault()
       const at = point(event.clientX, event.clientY)
       const result = props.store.dispatch({
         command: 'board.item.add',
@@ -511,7 +512,7 @@ export function ProductBoard(props: ProductBoardProps) {
             tool() === 'note'
               ? {
                   kind: 'note',
-                  text: 'New note',
+                  text: '',
                   rect: { ...at, width: 260, height: 120 },
                 }
               : {
@@ -522,7 +523,10 @@ export function ProductBoard(props: ProductBoardProps) {
           ],
         },
       })
-      if (result.ok) setSelected(result.created[0])
+      if (result.ok) {
+        setSelected(result.created[0])
+        if (tool() === 'note') setEditingNote(result.created[0])
+      }
       setTool('select')
       return
     }
