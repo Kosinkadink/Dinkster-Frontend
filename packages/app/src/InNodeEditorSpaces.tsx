@@ -1,4 +1,4 @@
-import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, effectiveWidgetDefault, elabInputsOf, occurrenceKey, type AssetRef, type ElaboratedInterface, type Json, type JsonObject } from '@dinkster/core'
+import { asNodeId, CURVE_HISTOGRAM_PREVIEW_CHANNEL, curveHistogramStream, effectiveWidgetDefault, elabInputsOf, formatByteSize, occurrenceKey, type AssetRef, type ElaboratedInterface, type Json, type JsonObject } from '@dinkster/core'
 import { canvasPaintTokens, clampPictureHeight, defaultTokens, IN_NODE_EDITORS, type EditorSummary, type EditorSummaryMap, type LayoutRow } from '@dinkster/canvas'
 import { audioRecordKind, curveEditorInterpolations, curveInterpolator, isSaveTarget, isProjectDefaultTarget, saveTargetDraft, webcamKind, type CurvePoint, type CurveValue } from '@dinkster/widgets'
 import {
@@ -286,9 +286,6 @@ export function NodeEditorSpaceOverlay(props: {
     </div>
   )
 }
-
-/** Whether an editor's controls are live at this zoom; below it the canvas draws only its panel. */
-export const editorSpaceInteractive = (scale: number): boolean => scale >= defaultTokens.mediaControlMinScale
 
 /** Save target controls inside the shared fold-out editor space. */
 export function SaveTargetSpace(props: {
@@ -811,8 +808,6 @@ export class AudioRecordController {
 }
 
 const clock = (seconds: number): string => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
-const roundedSize = (bytes: number): string =>
-  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 
 const isClip = (value: Json | undefined): value is AudioClip =>
   value !== null && audioRecordKind.valueSchema.validate(value)
@@ -860,7 +855,7 @@ export function AudioRecordSpace(props: { readonly controller: AudioRecordContro
   }
   const detail = () => {
     if (props.wired) return undefined
-    if (recording()) return `${clock(recorder.seconds())}, ${roundedSize(recorder.bytes())}`
+    if (recording()) return `${clock(recorder.seconds())}, ${formatByteSize(recorder.bytes())}`
     const seconds = recorder.clipSeconds()
     return (shown() === 'ready' || shown() === 'uploadFailed') && seconds !== undefined ? clock(seconds) : undefined
   }

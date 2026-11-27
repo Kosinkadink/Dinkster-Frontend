@@ -23,8 +23,10 @@ export interface WorkflowTabItem {
 
 export type TabRunState = 'idle' | 'queued' | 'running' | 'finished' | 'failed'
 
-const kindIcon = (kind: string | undefined) => {
-  switch (kind) {
+export const workflowTabIcon = (tab: WorkflowTabItem, frozen: boolean) => {
+  if (frozen) return Snowflake
+  if (tab.icon) return tab.icon
+  switch (tab.editorKind) {
     case undefined:
     case 'graph': return Workflow
     case 'app': return PanelsTopLeft
@@ -294,7 +296,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             {props.renderLeading?.(tab)}
             <Show when={renaming() !== tab.id} fallback={<span class="tab-select">
               <ProductRunIcon
-                icon={props.isFrozen(tab) ? Snowflake : tab.icon ?? kindIcon(tab.editorKind)}
+                icon={workflowTabIcon(tab, props.isFrozen(tab))}
                 running={props.runState?.(tab) === 'running'}
                 queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
@@ -333,7 +335,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               onKeyDown={(event) => onTabKeyDown(event, tab)}
             >
               <ProductRunIcon
-                icon={props.isFrozen(tab) ? Snowflake : tab.icon ?? kindIcon(tab.editorKind)}
+                icon={workflowTabIcon(tab, props.isFrozen(tab))}
                 running={props.runState?.(tab) === 'running'}
                 queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}

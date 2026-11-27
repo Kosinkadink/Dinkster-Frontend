@@ -33,21 +33,3 @@ export function formatWhen(at: number, locale: string, now: number = Date.now())
     ...(sameYear ? {} : { year: 'numeric' }),
   }).format(at)
 }
-
-/** A size such as "3.1 GB", in decimal units as file managers show them. */
-export function formatBytes(bytes: number, locale: string): string {
-  if (bytes < 1000) return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(bytes)} B`
-  const units = ['byte', 'kilobyte', 'megabyte', 'gigabyte', 'terabyte'] as const
-  let value = bytes
-  let unit = 0
-  while (value >= 1000 && unit < units.length - 1) {
-    value /= 1000
-    unit += 1
-  }
-  return new Intl.NumberFormat(locale, {
-    style: 'unit',
-    unit: units[unit],
-    unitDisplay: 'short',
-    maximumFractionDigits: value < 10 && unit > 0 ? 1 : 0,
-  }).format(value)
-}

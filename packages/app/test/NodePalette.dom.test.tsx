@@ -149,6 +149,29 @@ describe('NodePalette shared search', () => {
     } finally { view.dispose() }
   })
 
+  it('names compatible grouped pins by their displayed labels in both wire directions', () => {
+    for (const seeking of ['in', 'out'] as const) {
+      const grouped = entry('grouped', 'Grouped node')
+      const candidate: PaletteEntry = { ...grouped, schema: { ...grouped.schema!, body: [{
+        kind: 'group', id: 'internal', grows: 'link', minMembers: 1,
+        keys: { kind: 'numbered', prefix: 'item', start: 0, pad: 0 },
+        memberLabel: 'Visible pin',
+        value: seeking === 'in'
+          ? { kind: 'input', id: 'value', type: { kind: 'wildcard' }, optional: false }
+          : { kind: 'output', id: 'value', type: { kind: 'wildcard' } },
+      }] } }
+      const view = mount(() => [candidate], {
+        anchor: { x: 10, y: 10, worldX: 0, worldY: 0,
+          linkDrop: { seeking, anchorType: { kind: 'wildcard' } } as PaletteAnchor['linkDrop'] & {} },
+      })
+      try {
+        expect(rows(view.root).map((row) => row.textContent)).toEqual([
+          `Grouped node${seeking === 'in' ? 'into' : 'from'} Visible pin`,
+        ])
+      } finally { view.dispose() }
+    }
+  })
+
   it('keeps catalog-only activation distinct from ordinary placement', () => {
     const remote: PaletteEntry = { ...entry('remote', 'Remote node'), install: { kind: 'host', action: 'node.previewInstall', params: { type: 'remote', backendId: 'b', schemaKey: 'k' } } }
     const commit = vi.fn()

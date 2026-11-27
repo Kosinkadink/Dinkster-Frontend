@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import type { AccountProjectChoices, AccountStatus, DinksterConnection, LibraryProject } from '@dinkster/client'
 import { ProductButton, ProductConfirmation, ProductDialog, ProductErrorBanner, ProductField, ProductLoading, ProductNotice, ProductSelect } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
@@ -103,10 +103,8 @@ export function ProjectAccountLink(props: {
           <Show when={status()?.signedIn && status()?.signIn !== 'pending'} fallback={<ProductNotice>{message('projectAccount.signIn')}</ProductNotice>}>
             <Show when={choices()?.projects.length} fallback={<ProductNotice>{message('projectAccount.empty')}</ProductNotice>}>
               <ProductField label={message('projectAccount.choice')}>{(attributes) =>
-                <ProductSelect {...attributes} value={selection()} disabled={saving()} onChange={(event) => setSelection(event.currentTarget.value)}>
-                  <option value="" disabled>{message('projectAccount.choose')}</option>
-                  <For each={choices()?.projects}>{(item) => <option value={item.id}>{item.displayName ?? item.id}</option>}</For>
-                </ProductSelect>
+                <ProductSelect {...attributes} value={selection()} disabled={saving()} onChange={setSelection}
+                  options={[{ value: '', label: message('projectAccount.choose'), disabled: true }, ...(choices()?.projects ?? []).map((item) => ({ value: item.id, label: item.displayName ?? item.id }))]} />
               }</ProductField>
             </Show>
           </Show>

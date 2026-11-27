@@ -26,7 +26,8 @@ import {
 } from '../../canvas/gallery/problem-box.js'
 import { ProblemBox, ProductPanel } from '../src/index.js'
 import { deriveProblemProjection } from '../../app/src/problem-display.js'
-import { problemBoxLines, problemBoxRows } from '../../app/src/problem-box.js'
+import { problemBoxLines, problemBoxRows, runtimeProblemBoxLines } from '../../app/src/problem-box.js'
+import { NodeProblemBox } from '../../app/src/NodeProblemBox.js'
 import { ProblemsPanel } from '../../app/src/ProblemsPanel.js'
 import type { AppState } from '../../app/src/app-state.js'
 
@@ -39,6 +40,7 @@ interface PlacedBox {
   readonly y: number
   readonly maxWidth: number
   readonly minWidth: number
+  readonly runtimeLines?: ReturnType<typeof runtimeProblemBoxLines>
 }
 
 function ProblemBoxCard(props: {
@@ -118,7 +120,11 @@ function ProblemBoxCard(props: {
         const node = card.scene.nodes.find((candidate) => candidate.id === box.nodeId)
         if (node === undefined) return []
         const at = problemBoxPlacement(node, renderer!.getNodeBadgeLayout(node), viewport, card.width)
-        return at === undefined ? [] : [{ box, x: at.x, y: at.y, maxWidth: at.maxWidth, minWidth: at.minWidth }]
+        return at === undefined ? [] : [{ box, x: at.x, y: at.y, maxWidth: at.maxWidth, minWidth: at.minWidth,
+          ...(card.run === undefined ? {} : { runtimeLines: runtimeProblemBoxLines(card.run.diagnostics,
+            card.run.diagnostics.map((diagnostic, seq) => ({ level: card.run!.level === 'warning' ? 'warning' : 'info', message: diagnostic.message, seq, timestamp: 0 })),
+            card.run.level, problemBoxRows(node)) }),
+        }]
       }))
       // The boxes wrap to their nodes' widths, so the frame grows to hold them once drawn.
       requestAnimationFrame(() => {
@@ -153,7 +159,7 @@ function ProblemBoxCard(props: {
         />
         <For each={boxes()}>
           {(placed) => (
-            <ProblemBox
+            <Show when={placed.runtimeLines} fallback={<ProblemBox
               nodeId={placed.box.nodeId}
               label={`Problems of ${placed.box.nodeTitle}`}
               lines={placed.box.lines.map((line) => ({
@@ -166,7 +172,14 @@ function ProblemBoxCard(props: {
               maxWidth={placed.maxWidth}
               minWidth={placed.minWidth}
               onPointLine={(line) => point(placed.box.nodeId, line?.key, line?.row)}
-            />
+            />}>
+              {(lines) => <NodeProblemBox
+                nodeId={placed.box.nodeId} nodeTitle={placed.box.nodeTitle}
+                lines={lines()} x={placed.x} y={placed.y} maxWidth={placed.maxWidth} minWidth={placed.minWidth}
+                onPointLine={(line) => point(placed.box.nodeId, line?.key, line?.row)}
+                onAction={() => {}}
+              />}
+            </Show>
           )}
         </For>
       </div>

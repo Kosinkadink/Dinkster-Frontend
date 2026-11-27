@@ -145,8 +145,42 @@ test('moving a section moves its contents, notes edit, and a new note is undoabl
   const board = (await page.locator('.dinkster-board').boundingBox())!
   await page.mouse.click(board.x + board.width - 60, board.y + 640)
   await expect(page.locator('[data-kind="note"]')).toHaveCount(2)
+  const placed = page.locator('[data-kind="note"]').last()
+  await expect(note).toBeFocused()
+  await expect(note).toHaveValue('')
+  await page.keyboard.type('Checked from X570')
+  await note.press('Tab')
+  await expect(placed.locator('.dinkster-board-note-text')).toHaveText(
+    'Checked from X570',
+  )
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(placed.locator('.dinkster-board-note-text')).toHaveText('')
+  await expect(page.locator('[data-kind="note"]')).toHaveCount(2)
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
   await expect(page.locator('[data-kind="note"]')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Redo', exact: true }).click()
+  await expect(placed.locator('.dinkster-board-note-text')).toHaveText('')
+  await page.getByRole('button', { name: 'Redo', exact: true }).click()
+  await expect(placed.locator('.dinkster-board-note-text')).toHaveText(
+    'Checked from X570',
+  )
+  await page.getByRole('button', { name: 'Add note', exact: true }).click()
+  const emptyBoard = (await page.locator('.dinkster-board').boundingBox())!
+  await page.mouse.click(
+    emptyBoard.x + emptyBoard.width - 60,
+    emptyBoard.y + 400,
+  )
+  await expect(note).toBeFocused()
+  await expect(note).toHaveValue('')
+  await note.press('Tab')
+  const emptyNote = page.locator('[data-kind="note"]').last()
+  await expect(emptyNote).toBeVisible()
+  await expect(emptyNote.locator('.dinkster-board-note-text')).toHaveText('')
+  await emptyNote.dblclick()
+  await expect(note).toHaveValue('')
+  await note.press('Tab')
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(page.locator('[data-kind="note"]')).toHaveCount(2)
 })
 
 test('sound and video play in place, and media can move, resize and undo removal', async ({

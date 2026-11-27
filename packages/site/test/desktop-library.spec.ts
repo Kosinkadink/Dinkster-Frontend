@@ -1,4 +1,5 @@
 import { expect, test } from '../../e2e/visual.js'
+import { chooseOption } from '../../e2e/choices.js'
 
 test('browse projects and separately paged workflows and files without network access', async ({
   page,
@@ -477,7 +478,10 @@ for (const scope of ['every-project', 'only-project']) {
     })
     await expect(review).toBeDisabled()
     await expect(apply).toHaveCount(0)
-    await scopeChoice.selectOption(scope)
+    await chooseOption(
+      scopeChoice,
+      scope === 'every-project' ? 'Every project on it' : 'Only this project',
+    )
     await review.click()
     await expect(review).toHaveAttribute('aria-busy', 'true')
     await expect(scopeChoice).toBeDisabled()
@@ -495,7 +499,10 @@ for (const scope of ['every-project', 'only-project']) {
     await expect(
       dialog.getByRole('list', { name: 'Software substitutions' }),
     ).toHaveText('No software substitutions')
-    await dialog.getByLabel('Software alternative').selectOption('1')
+    await chooseOption(
+      dialog.getByLabel('Software alternative'),
+      'Alternative 2: engine 0.2.2',
+    )
     await expect(
       dialog.getByRole('list', { name: 'Software substitutions' }),
     ).toContainText(
@@ -573,11 +580,15 @@ for (const scope of ['every-project', 'only-project']) {
     await review.click()
     await finishReview('ready')
     // Changing scope must invalidate the approval, not merely change the label.
-    await scopeChoice.selectOption(
-      scope === 'every-project' ? 'only-project' : 'every-project',
+    await chooseOption(
+      scopeChoice,
+      scope === 'every-project' ? 'Only this project' : 'Every project on it',
     )
     await expect(apply).toHaveCount(0)
-    await scopeChoice.selectOption(scope)
+    await chooseOption(
+      scopeChoice,
+      scope === 'every-project' ? 'Every project on it' : 'Only this project',
+    )
     await page.clock.install()
     await review.click()
     await finishReview('ready')
@@ -618,7 +629,10 @@ for (const scope of ['every-project', 'only-project']) {
     await page
       .getByRole('button', { name: 'Review restore', exact: true })
       .click()
-    await scopeChoice.selectOption(scope)
+    await chooseOption(
+      scopeChoice,
+      scope === 'every-project' ? 'Every project on it' : 'Only this project',
+    )
     await review.click()
     await dialog.getByRole('button', { name: 'Close', exact: true }).click()
     await page.getByRole('button', { name: 'Projects', exact: true }).click()
