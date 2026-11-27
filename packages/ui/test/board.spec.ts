@@ -2,6 +2,58 @@ import { expect, test } from '@playwright/test'
 
 test.use({ hasTouch: true })
 
+test('reserved results share progress and recorded history follows edits without leaving empty terminal frames', async ({
+  page,
+}) => {
+  await page.goto('/#board-results')
+  const pending = page.locator('[data-board-pending]')
+  const history = page.locator('[data-board-history]')
+  await expect(pending).toHaveCount(1)
+  await expect(history).toHaveCount(1)
+  await expect(
+    page.getByRole('progressbar', { name: 'Run progress' }),
+  ).toHaveAttribute('aria-valuenow', '0.41')
+  await page.getByRole('button', { name: 'Finish run', exact: true }).click()
+  await expect(pending).toHaveCount(0)
+  await expect(
+    page.locator('[data-board-item][data-kind="picture"]'),
+  ).toHaveCount(4)
+  await expect(history).toHaveCount(1)
+  const path = await history.getAttribute('d')
+  const last = page.locator('[data-board-item="result-3"]')
+  await last.scrollIntoViewIfNeeded()
+  const box = (await last.boundingBox())!
+  await page.mouse.move(box.x + 40, box.y + 40)
+  await page.mouse.down()
+  await page.mouse.move(box.x + 40, box.y + 100, { steps: 5 })
+  await page.mouse.up()
+  await expect(history).not.toHaveAttribute('d', path!)
+  for (const id of ['result-3', 'result-2', 'result-1', 'result-0']) {
+    await page
+      .locator(`[data-board-item="${id}"]`)
+      .click({ position: { x: 30, y: 30 } })
+    await page.keyboard.press('Delete')
+  }
+  await expect(history).toHaveCount(0)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(history).toHaveCount(1)
+  await page.getByRole('button', { name: 'Later run', exact: true }).click()
+  await expect(pending).toHaveCount(4)
+  for (const progress of await page
+    .getByRole('progressbar', { name: 'Run progress' })
+    .all())
+    await expect(progress).toHaveAttribute('aria-valuenow', '0.41')
+  await page
+    .getByRole('button', { name: 'Failed without files', exact: true })
+    .click()
+  await page.getByRole('button', { name: 'Finish run', exact: true }).click()
+  await expect(pending).toHaveCount(0)
+  await expect(history).toHaveCount(0)
+  await expect(
+    page.locator('[data-board-item="workflow"]').getByRole('status'),
+  ).toHaveText('Failed')
+})
+
 test('card controls edit without dragging, menus dismiss, and removal is undoable', async ({
   page,
 }) => {

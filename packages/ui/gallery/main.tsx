@@ -109,6 +109,7 @@ import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
 import { BoardGallery } from './board.js'
 import { BoardCardsGallery } from './board-cards.js'
+import { BoardResultsGallery } from './board-results.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
 import { SelectGallery } from './select.js'
@@ -122,6 +123,7 @@ const navigation = [
   { label: 'Account data', href: '#account-data', icon: User },
   { label: 'Board', href: '#board', icon: LayoutList },
   { label: 'Board cards', href: '#board-cards', icon: LayoutList },
+  { label: 'Board results', href: '#board-results', icon: LayoutList },
   {
     label: 'Canvas',
     href: '#canvas',
@@ -219,7 +221,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#board-cards', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#board-cards', '#board-results', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -244,7 +246,7 @@ function Gallery() {
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#board-cards' || route() === '#node-search'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#board-cards' || route() === '#board-results' || route() === '#node-search'}
       >
         <Show
           when={!loading()}
@@ -483,6 +485,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#board-cards'}>
               <BoardCardsGallery />
+            </Match>
+            <Match when={route() === '#board-results'}>
+              <BoardResultsGallery />
             </Match>
             <Match when={route() === '#node-search'}>
               <NodeSearchGallery />

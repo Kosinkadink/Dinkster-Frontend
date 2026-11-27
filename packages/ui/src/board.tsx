@@ -34,6 +34,7 @@ import {
   type BoardCardItem,
   type BoardItem,
   type BoardMediaItem,
+  type BoardRect,
   type BoardSession,
 } from '@dinkster/core'
 import {
@@ -52,6 +53,7 @@ import {
 import { ProductAudioWaveform } from './audio-waveform.js'
 import { useFieldFocus } from './field-focus.js'
 import { ProductMenu } from './menu.js'
+import { ProductProgress } from './messages.js'
 import { BlueprintIcon } from './search.js'
 
 /** Shared card chrome; the source owner supplies exposed controls and run state. */
@@ -164,6 +166,12 @@ export function ProductBoardCard(props: {
 export interface ProductBoardProps {
   readonly store: BoardSession
   readonly fill?: boolean
+  readonly pendingRuns?: readonly {
+    readonly job: string
+    readonly card: string
+    readonly places: readonly BoardRect[]
+    readonly progress?: number
+  }[]
   readonly assetUrl: (asset: BoardAsset) => string
   readonly viewControls: (view: {
     readonly zoom: number
@@ -709,6 +717,50 @@ export function ProductBoard(props: ProductBoardProps) {
     }
     return item.rect
   }
+  const history = createMemo(() => {
+    const board = document()
+    const groups = new Map<
+      string,
+      { readonly card: string; readonly places: readonly BoardRect[] }
+    >(
+      Object.entries(board.runs ?? {}).map(([job, run]) => [
+        job,
+        {
+          card: run.card,
+          places: run.items.flatMap((id) => {
+            const item = board.items[id]
+            return item && 'asset' in item ? [itemRect(item)] : []
+          }),
+        },
+      ]),
+    )
+    for (const run of props.pendingRuns ?? []) groups.set(run.job, run)
+    return [...groups].flatMap(([job, run]) => {
+      const card = board.items[run.card]
+      if (
+        !card ||
+        (card.kind !== 'workflow' && card.kind !== 'blueprint') ||
+        !run.places.length
+      )
+        return []
+      const from = itemRect(card)
+      const x = Math.min(...run.places.map((place) => place.x))
+      const top = Math.min(...run.places.map((place) => place.y))
+      const bottom = Math.max(
+        ...run.places.map((place) => place.y + place.height),
+      )
+      const startX = from.x + from.width
+      const startY = from.y + from.height / 2
+      const endY = (top + bottom) / 2
+      const bend = (startX + x) / 2
+      return [
+        {
+          job,
+          path: `M ${startX} ${startY} C ${bend} ${startY}, ${bend} ${endY}, ${x} ${endY}`,
+        },
+      ]
+    })
+  })
   let touches:
     | readonly [{ x: number; y: number }, { x: number; y: number }]
     | undefined
@@ -1117,6 +1169,42 @@ export function ProductBoard(props: ProductBoardProps) {
                 </foreignObject>
               )
             }}
+          </For>
+          <For each={props.pendingRuns ?? []}>
+            {(run) => (
+              <For each={run.places}>
+                {(place) => (
+                  <foreignObject
+                    x={place.x}
+                    y={place.y}
+                    width={place.width}
+                    height={place.height}
+                    data-board-pending={run.job}
+                  >
+                    <div class="dinkster-board-pending">
+                      <span>
+                        {run.progress === undefined
+                          ? 'Running'
+                          : `Running ${Math.round(run.progress * 100)}%`}
+                      </span>
+                      <ProductProgress
+                        label="Run progress"
+                        value={run.progress}
+                      />
+                    </div>
+                  </foreignObject>
+                )}
+              </For>
+            )}
+          </For>
+          <For each={history()}>
+            {(line) => (
+              <path
+                class="dinkster-board-history"
+                data-board-history={line.job}
+                d={line.path}
+              />
+            )}
           </For>
         </g>
       </svg>
