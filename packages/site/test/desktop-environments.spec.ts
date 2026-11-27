@@ -875,7 +875,7 @@ test('cleanup bounds and engine identifiers validate before review while read-on
     'Total allocated (shared files counted once): unavailable',
   )
   await expect(details).toContainText(
-    'Observed allocation lower bound: 17,003 bytes',
+    'Observed allocation lower bound: 16.6 KB',
   )
   await expect(details).toContainText('Snapshot 4: deferred - Running engine')
   await expect(details).toContainText(
