@@ -1753,7 +1753,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
   const [editor, setEditor] = createSolidSignal<WidgetEditorState | undefined>(undefined)
   const [secretEditor, setSecretEditor] = createSolidSignal<{
-    readonly tab: Tab; readonly backend: Backend; readonly name: string; readonly canManageDeployment: boolean
+    readonly tab: Tab; readonly backend: Backend; readonly principal: number; readonly name: string; readonly canManageDeployment: boolean
     readonly source: 'account' | 'deployment' | null; readonly fallback: boolean
   }>()
   const [secretRevision, setSecretRevision] = createSolidSignal(0)
@@ -1761,9 +1761,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let secretOpenRequest = 0
   let secretContextTab: Tab | undefined
   let secretContextBackend: Backend | undefined
-  const secretContextIsCurrent = (tab: Tab, backend: Backend): boolean => {
+  const secretContextIsCurrent = (tab: Tab, backend: Backend, principal: number): boolean => {
     const current = activeTab()
-    return current !== undefined && props.app.liveTabContinuing(tab.store) === current && props.app.backendForTab(current) === backend
+    return current !== undefined && props.app.liveTabContinuing(tab.store) === current &&
+      props.app.backendForTab(current) === backend && backend.connection.principalGeneration.get() === principal
   }
   onCleanup(() => { secretOpenRequest++ })
   createEffect(() => {
@@ -1778,6 +1779,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setSecretEditor(undefined)
       setSecretFacts({})
     }
+  })
+  createEffect(() => {
+    backendsTick(); tabTargets()
+    const tab = activeTab()
+    if (tab === undefined) return
+    const backend = props.app.backendForTab(tab)
+    onCleanup(backend.connection.principalGeneration.subscribe(() => {
+      secretOpenRequest++
+      setSecretEditor(undefined)
+      setSecretFacts({})
+      setSecretRevision((revision) => revision + 1)
+    }))
   })
   // An in-row editor that handed its row to a popover, which leaves the row drawn.
   const [rowHandedOff, setRowHandedOff] = createSolidSignal<WidgetEditorState | undefined>(undefined)
@@ -2885,9 +2898,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setSecretFacts({})
       onCleanup(() => abort.abort())
       if (backend === undefined || tab?.execution !== undefined) return
+      const principal = backend.connection.principalGeneration.get()
       for (const name of names) {
         void backend.connection.fetchSecretPresence(name, abort.signal).then((presence) => {
-          if (!abort.signal.aborted) setSecretFacts((facts) => ({ ...facts, [name]: presence.set }))
+          if (!abort.signal.aborted && backend.connection.principalGeneration.get() === principal) {
+            setSecretFacts((facts) => ({ ...facts, [name]: presence.set }))
+          }
         }).catch(() => {})
       }
     })
@@ -5782,10 +5798,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           return
         }
         const request = ++secretOpenRequest
-        const isCurrent = () => request === secretOpenRequest && secretContextIsCurrent(tab, backend)
+        const principal = backend.connection.principalGeneration.get()
+        const isCurrent = () => request === secretOpenRequest && secretContextIsCurrent(tab, backend, principal)
         void backend.connection.fetchSecretPresence(name).then((presence) => {
           if (!isCurrent()) return
-          setSecretEditor({ tab, backend, name, canManageDeployment: presence.canManageDeployment,
+          setSecretEditor({ tab, backend, principal, name, canManageDeployment: presence.canManageDeployment,
             source: presence.source, fallback: presence.fallback })
         }).catch(() => {
           if (isCurrent()) showGestureRefusal([diag('error', 'command', 'secret.access.failed', 'Cannot access secret. Try again')])
@@ -8408,11 +8425,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         {(target) => <ProductSecretDialog name={target.name} contextKey={`${target.tab.id}:${target.backend.id}`}
           canManageDeployment={target.canManageDeployment} removalFallback={target.fallback}
           {...(target.source === 'account' ? { onRemove: async () => {
-            if (!secretContextIsCurrent(target.tab, target.backend)) throw new Error('Secret context changed')
+            if (!secretContextIsCurrent(target.tab, target.backend, target.principal)) throw new Error('Secret context changed')
             await target.backend.connection.removeSecret(target.name)
           } } : {})}
           onSave={async (value, scope) => {
-            if (!secretContextIsCurrent(target.tab, target.backend)) throw new Error('Secret context changed')
+            if (!secretContextIsCurrent(target.tab, target.backend, target.principal)) throw new Error('Secret context changed')
             await target.backend.connection.saveSecret(target.name, value, scope)
           }}
           onCancel={() => setSecretEditor(undefined)}
