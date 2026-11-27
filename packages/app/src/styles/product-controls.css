@@ -89,6 +89,8 @@
 .product-table th { color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); font-weight: var(--dinkster-weight-bold); }
 .product-table-sticky thead { position: sticky; top: 0; z-index: 1; }
 
+.product-select { width: auto; }
+
 .product-tabs { min-width: 0; color: var(--dinkster-text-primary); }
 .product-tablist { display: flex; gap: var(--dinkster-space-4); border-bottom: 1px solid var(--dinkster-border-subtle); }
 .product-tablist[aria-orientation='vertical'] { flex-direction: column; border-right: 1px solid var(--dinkster-border-subtle); border-bottom: 0; }
