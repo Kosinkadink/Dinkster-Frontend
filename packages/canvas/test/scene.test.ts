@@ -2307,6 +2307,8 @@ describe('an editor on the Inputs panel', () => {
       { kind: 'choice', id: 'mode', default: 'a', options: ['a', 'b'].map((key) => ({ key, rows: [
         { kind: 'input', id: `${key}Adapter`, type: { kind: 'concrete', types: ['COMBO'] },
           widget: { type: 'COMBO', options: key === 'a' ? { formula: '[branchSeed]' } : { lookup: 'pack.b', args: [] } } },
+        ...(key === 'a' ? [{ kind: 'input', id: 'unshown', type: { kind: 'concrete', types: ['STRING'] },
+          pin: false, visible: { formula: 'branchSeed != ""' } }] : []),
       ] })) },
     ] })
     if (schema === undefined) throw new Error(JSON.stringify(diagnostics))
@@ -2355,7 +2357,7 @@ describe('an editor on the Inputs panel', () => {
           })
         }
         expect(elabInputsOf(face.elaborated!).filter((item) => item.spec.id.startsWith('mode.')).map((item) => item.spec.id))
-          .toEqual([`mode.${node === 'first' ? 'b' : 'a'}Adapter`])
+          .toEqual([`mode.${node === 'first' ? 'b' : 'a'}Adapter`, ...(node === 'second' ? ['mode.unshown'] : [])])
         expect(lookupSitesOf(face.elaborated!.items).map((site) => site.call.lookup))
           .toEqual([...(flat ? ['pack.loras'] : []), ...(node === 'first' ? ['pack.b'] : [])])
         for (const site of [...lookupSitesOf(face.elaborated!.items), ...(face.elaborated!.lookupDependencies ?? [])]) {

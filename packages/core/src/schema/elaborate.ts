@@ -1940,7 +1940,8 @@ function elaboratePass(
     } finally {
       readingLookups = outer
       for (const site of dependencies) lookupDependencies.add(site)
-      if ('id' in row && dependencies.size > 0) rowLookupDependencies[raw.prefix + row.id] = [...dependencies]
+      if (!raw.dormant && raw.kept === undefined && 'id' in row && dependencies.size > 0)
+        rowLookupDependencies[raw.prefix + row.id] = [...dependencies]
     }
   }
 
