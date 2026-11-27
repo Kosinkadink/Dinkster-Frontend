@@ -1,4 +1,10 @@
 {
+  "catalog.noneEnabled": "No packs are enabled in this project",
+  "catalog.noneInstalled": "No node packs are installed",
+  "catalog.enableAll": "Enable all installed packs",
+  "catalog.setup": "Set up",
+  "catalog.loading": "Reading installed packs",
+  "catalog.factsUnavailable": "The engine did not supply node catalog recovery facts. Update the engine.",
   "storagePanel.title": "Storage",
   "storagePanel.description": "Set up model folders and the folders this project uses.",
   "backendsPanel.resources": "Resources",

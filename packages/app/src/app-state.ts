@@ -2660,6 +2660,7 @@ export class AppState {
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
   readonly searchCatalogRequests = createSignal(0)
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
+  readonly nodeCatalogSetupRequested = createSignal(false)
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
   readonly projectPackNotification = createSignal<{ readonly message: string } | undefined>(undefined)
   private readonly projectNeedsChecks = new WeakMap<Backend, object>()

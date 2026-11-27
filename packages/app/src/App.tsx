@@ -58,6 +58,7 @@ import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
 import { TemplateGallery } from './TemplateGallery.js'
 import { EditorFirstRunSetup } from './EditorFirstRunSetup.js'
+import { NodeCatalogRecovery } from './NodeCatalogRecovery.js'
 import type { SetupStatus } from './SetupForm.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
@@ -539,6 +540,7 @@ export function App(props: {
   const modalPanel = useSignal(app.modalPanel)
   const searchOpen = useSignal(app.searchOpen)
   const nodeInstallRequest = useSignal(app.nodeInstallRequest)
+  const catalogSetupRequested = useSignal(app.nodeCatalogSetupRequested)
   const projectNeedsReview = useSignal(app.projectNeedsReview)
   const projectPackNotification = useSignal(app.projectPackNotification)
   const placementStatus = useSignal(app.placementStatus)
@@ -1425,6 +1427,9 @@ export function App(props: {
         return { label: backend.label, protocol: backend.protocol, status: statusOf(backend) }
       }}
       refreshTick={libraryTick}
+      catalogRecovery={activeBackend().registry.get()?.schemas.size === 0
+        ? <Show when={activeBackend()} keyed>{(backend) => <NodeCatalogRecovery app={app} backend={backend} />}</Show>
+        : undefined}
       onActivate={activateLibraryEntry}
       onAction={libraryEntryAction}
     />
@@ -2044,7 +2049,7 @@ export function App(props: {
             />
         </Show>
       </div>
-      <Show when={empty() && !galleryRequested()}>
+      <Show when={empty() && !galleryRequested() && !catalogSetupRequested()}>
         <EditorFirstRunSetup backendUrl={activeBackend().baseUrl} onStatusChange={(status) => {
           setSetupEditors((current) => {
             const next = new Map(current)
@@ -3278,6 +3283,8 @@ export function App(props: {
         </>}
       />
       <ProductToast notification={projectPackNotification()} onDismiss={() => app.projectPackNotification.set(undefined)} />
+      <Show when={catalogSetupRequested()}><EditorFirstRunSetup backendUrl={activeBackend().baseUrl} requested
+        onComplete={() => { app.nodeCatalogSetupRequested.set(false); void app.refreshBackendSchemas(activeBackend()) }} /></Show>
       <Show when={searchOpen()}><UniversalSearch app={app} /></Show>
       <Show when={nodeInstallRequest()} keyed>{(request) => <NodeInstallPrompt app={app} request={request} />}</Show>
       <Show when={nodeInstallRequest() === undefined && modalPanel() === '' ? projectNeedsReview() : undefined} keyed>{(review) => <ProjectNeedsPrompt app={app} review={review} />}</Show>

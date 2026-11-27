@@ -138,11 +138,13 @@ export function packsSource(app: AppState): CollectionSource {
       if (!reg?.packs) return []
       const nodeCounts = new Map<string, number>()
       for (const s of reg.schemas.values()) {
-        if (s.pack !== undefined) nodeCounts.set(s.pack, (nodeCounts.get(s.pack) ?? 0) + 1)
+        const pack = s.pack ?? 'core'
+        nodeCounts.set(pack, (nodeCounts.get(pack) ?? 0) + 1)
       }
       const entries: CollectionEntry[] = []
       for (const [packId, info] of reg.packs) {
         const count = nodeCounts.get(packId) ?? 0
+        if (count === 0) continue
         const sourceKind = info.source?.split(':', 1)[0]
         const assetCount = info.assets?.length ?? 0
         entries.push({
