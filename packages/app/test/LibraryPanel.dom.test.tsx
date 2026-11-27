@@ -43,7 +43,7 @@ describe('LibraryPanel', () => {
       license: 'apache-2.0', destination: '/archive/alpha.safetensors', mount: 'archive', kind: 'model/checkpoint' }
     const downloading: ModelDownloadJob = { ...selection, name: 'alpha.safetensors', digest: `blake3:${'b'.repeat(64)}`, jobId: 'active', status: 'downloading', received: 3072 }
     const stopped: ModelDownloadJob = { ...selection, name: 'beta.safetensors', file: 'beta.safetensors', jobId: 'stopped', status: 'failed', received: 1536 }
-    const checking: ModelDownloadJob = { ...selection, name: 'gamma.safetensors', file: 'gamma.safetensors', mount: 'studio', jobId: 'checking', status: 'verifying', received: 8192 }
+    const checking: ModelDownloadJob = { ...selection, kind: 'model/diffusion', name: 'gamma.safetensors', file: 'gamma.safetensors', mount: 'studio', jobId: 'checking', status: 'verifying', received: 8192 }
     const jobs = createCoreSignal<readonly ModelDownloadJob[]>([downloading, stopped, checking])
     const opened: ModelDownloadJob[] = []
     const root = document.createElement('div')
@@ -59,6 +59,15 @@ describe('LibraryPanel', () => {
       expect(root.querySelector('[role="progressbar"][aria-valuenow="0.375"]')).not.toBeNull()
       expect(root.querySelector('[data-state="checking"]')).not.toBeNull()
       expect(root.textContent).toContain('Not downloaded')
+      root.querySelector<HTMLButtonElement>('[aria-label="Model kind"]')!.click()
+      const checkpoints = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Checkpoints')
+      expect(checkpoints).toBeDefined()
+      checkpoints!.click()
+      expect(root.textContent).toContain('2 models in 2 folders')
+      expect(root.textContent).not.toContain('gamma.safetensors')
+      root.querySelector<HTMLButtonElement>('[aria-label="Model kind"]')!.click()
+      ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'All kinds')!.click()
+      expect(root.textContent).toContain('3 models in 2 folders')
       root.querySelector<HTMLButtonElement>('[aria-label="Download: beta.safetensors"]')!.click()
       expect(opened).toEqual([stopped])
       root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()

@@ -5,7 +5,7 @@ import { ProductButton, ProductConfirmation, ProductErrorBanner, ProductModelLis
 import { ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
-import { useAppMessage } from './locale.js'
+import { useAppMessage, useModelKindLabel } from './locale.js'
 import { mountAssetSource } from './asset-browser/mountAssetSource.js'
 import { localMountScanAdapter } from './asset-browser/local-mount-logical-model.js'
 import { ingestLogicalModels } from './asset-browser/logical-model-merge.js'
@@ -23,6 +23,7 @@ export function LibraryModels(props: {
   readonly onAddModelFolder: () => void
 }) {
   const message = useAppMessage()
+  const kindLabel = useModelKindLabel()
   const [settings, setSettings] = createSignal<ModelSettingsState>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
   const [models, setModels] = createSignal<readonly LogicalModel[]>([])
@@ -270,7 +271,7 @@ export function LibraryModels(props: {
           <ProductTextInput type="search" aria-label={message('library.search', { source: message('library.models.title').toLocaleLowerCase() })} value={query()} onInput={(event) => setQuery(event.currentTarget.value)} />
           <ProductSelect ariaLabel={message('library.models.kind')} selectedId={kind()} options={[
             { id: '', label: message('library.models.allKinds'), value: '' },
-            ...[...new Set(inventory().map((model) => model.kind))].sort().map((value) => ({ id: value, label: value.split('/').at(-1)!, value })),
+            ...[...new Set(inventory().map((model) => model.kind))].sort().map((value) => ({ id: value, label: kindLabel(value), value })),
           ]} onSelect={(option) => setKind(option.value)} />
           <ProductSelect ariaLabel={message('library.models.folder')} selectedId={folder()} options={[
             { id: '', label: message('library.models.allFolders'), value: '' },
