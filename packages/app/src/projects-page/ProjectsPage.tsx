@@ -411,6 +411,8 @@ export function ProjectsView(props: {
   }
   const painted = () => page.value() !== undefined
   const projectHeading = createUniqueId()
+  const renameForm = createUniqueId()
+  const folderForm = createUniqueId()
   void rereadPage()
   const firstRun = () => installations()?.all.length === 0 || installations()?.settingUp === true
   onMount(() => {
@@ -841,8 +843,10 @@ export function ProjectsView(props: {
         </div>
       </ProductPageLoad>
         <Show when={dialog() === 'rename'}>
-          <ProductDialog title={message('projects.rename.title')} onDismiss={closeDialog} pending={busy()}>
+          <ProductDialog title={message('projects.rename.title')} onDismiss={closeDialog} pending={busy()}
+            action={<ProductButton type="submit" form={renameForm} fill="solid" disabled={newName().trim() === '' || busy()}>{message('projects.rename.save')}</ProductButton>}>
             <form
+              id={renameForm}
               class="dinkster-stack"
               onSubmit={(event) => {
                 event.preventDefault()
@@ -862,12 +866,6 @@ export function ProjectsView(props: {
                   />
                 )}
               </ProductField>
-              <div class="dinkster-actions">
-                <ProductButton onClick={closeDialog}>{message('projects.action.cancel')}</ProductButton>
-                <ProductButton type="submit" fill="solid" disabled={newName().trim() === '' || busy()}>
-                  {message('projects.rename.save')}
-                </ProductButton>
-              </div>
             </form>
           </ProductDialog>
         </Show>
@@ -1057,13 +1055,10 @@ export function ProjectsView(props: {
         </div>
       </form>
       <Show when={folderDraft() !== undefined}>
-        <ProductDialog title={message('projects.new.changeFolder')} onDismiss={() => setFolderDraft(undefined)}>
-          <form class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); if (folderDraft()!.trim()) { setFilesChoice(folderDraft()!.trim()); setFolderDraft(undefined) } }}>
+        <ProductDialog title={message('projects.new.changeFolder')} onDismiss={() => setFolderDraft(undefined)}
+          action={<ProductButton type="submit" form={folderForm} disabled={!folderDraft()!.trim()}>{message('projects.new.useFolder')}</ProductButton>}>
+          <form id={folderForm} class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); if (folderDraft()!.trim()) { setFilesChoice(folderDraft()!.trim()); setFolderDraft(undefined) } }}>
             <ProductField label={message('projects.facts.filesFolder')}>{(attributes) => <ProductTextInput {...attributes} value={folderDraft()} onInput={(event) => setFolderDraft(event.currentTarget.value)} required />}</ProductField>
-            <div class="dinkster-actions">
-              <ProductButton onClick={() => setFolderDraft(undefined)}>{message('projects.action.cancel')}</ProductButton>
-              <ProductButton type="submit" disabled={!folderDraft()!.trim()}>{message('projects.new.useFolder')}</ProductButton>
-            </div>
           </form>
         </ProductDialog>
       </Show>

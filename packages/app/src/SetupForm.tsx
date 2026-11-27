@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
 import { activeLocale } from '@dinkster/core'
 import { ProductBrandMark, ProductButton, ProductDialog, ProductField, ProductMenu, ProductNotice, ProductPageLoad, ProductProgress, ProductTextButton, ProductTextInput } from '@dinkster/ui'
 import { desktopFileBridge } from './desktop-bridge.js'
@@ -24,6 +24,7 @@ export function SetupForm(props: {
     onCleanup(() => props.onStatusChange?.(undefined))
   })
   const [folder, setFolder] = createSignal<string>()
+  const folderForm = createUniqueId()
   const [folderBusy, setFolderBusy] = createSignal(false)
   const [folderError, setFolderError] = createSignal<string>()
   const problem = () => (setup.page.error() ? undefined : setup.error()?.message) ?? folderError() ?? setup.job()?.error?.message
@@ -142,10 +143,10 @@ export function SetupForm(props: {
       </Show>
       </ProductPageLoad>
       <Show when={folder() !== undefined}>
-        <ProductDialog title={message('setup.chooseFolder')} pending={setup.planning()} onDismiss={() => { if (!setup.planning()) setFolder(undefined) }}>
-          <form class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); void replanRoot(folder()!) }}>
+        <ProductDialog title={message('setup.chooseFolder')} pending={setup.planning()} onDismiss={() => { if (!setup.planning()) setFolder(undefined) }}
+          action={<ProductButton type="submit" form={folderForm} disabled={setup.planning() || folder() === setup.plan()?.root}>{message('setup.reviewFolder')}</ProductButton>}>
+          <form id={folderForm} class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); void replanRoot(folder()!) }}>
             <ProductField label={message('setup.folder')} error={setup.error()?.message ?? ''}>{(attributes) => <ProductTextInput {...attributes} value={folder()} onInput={(event) => setFolder(event.currentTarget.value)} disabled={setup.planning()} required />}</ProductField>
-            <div class="dinkster-actions"><ProductButton disabled={setup.planning()} onClick={() => setFolder(undefined)}>{message('setup.cancel')}</ProductButton><ProductButton type="submit" disabled={setup.planning() || folder() === setup.plan()?.root}>{message('setup.reviewFolder')}</ProductButton></div>
           </form>
         </ProductDialog>
       </Show>

@@ -1,5 +1,20 @@
 import { expect, test } from '@playwright/test'
 
+test('a form dialog tabs from Cancel to its action and Cancel dismisses it', async ({ page }) => {
+  await page.goto('/#projects')
+  await page.getByRole('button', { name: 'Project actions' }).click()
+  await page.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Rename project' })
+  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true })
+  const save = dialog.getByRole('button', { name: 'Save', exact: true })
+  await expect(dialog).toBeVisible()
+  await cancel.focus()
+  await page.keyboard.press('Tab')
+  await expect(save).toBeFocused()
+  await cancel.click()
+  await expect(dialog).toHaveCount(0)
+})
+
 test('the project list selects by pointer and arrow keys and the detail follows', async ({
   page,
 }) => {

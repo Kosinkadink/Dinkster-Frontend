@@ -1014,16 +1014,7 @@ export function ProjectsGallery() {
         <ProductDialog
           title="Rename project"
           onDismiss={() => setDialog(undefined)}
-        >
-          <ProductField label="Name">
-            {(attributes) => (
-              <ProductTextInput {...attributes} value={project().name} />
-            )}
-          </ProductField>
-          <div class="dinkster-actions">
-            <ProductButton onClick={() => setDialog(undefined)}>
-              Cancel
-            </ProductButton>
+          action={
             <ProductButton
               fill="solid"
               onClick={() => {
@@ -1033,7 +1024,13 @@ export function ProjectsGallery() {
             >
               Save
             </ProductButton>
-          </div>
+          }
+        >
+          <ProductField label="Name">
+            {(attributes) => (
+              <ProductTextInput {...attributes} value={project().name} />
+            )}
+          </ProductField>
         </ProductDialog>
       </Show>
       <Show when={dialog() === 'delete'}>
