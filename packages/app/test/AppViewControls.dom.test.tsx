@@ -64,7 +64,7 @@ it('shows each product value once and keeps canvas-only values out of read-only 
       expect(readonly.textContent).toContain('Driven by a link - edit on the canvas')
       if (id === 'video') {
         expect(editable.querySelector('canvas')).not.toBeNull()
-        expect(editable.querySelector('button')?.textContent).toContain('Edit')
+        expect(editable.querySelector('button')?.getAttribute('aria-label')).toContain('Edit')
         expect(connected.querySelector('canvas')).not.toBeNull()
         expect(readonly.textContent).not.toContain('{}')
         expect(readonly.getAttribute('aria-label')).toContain('connected video')
@@ -73,14 +73,15 @@ it('shows each product value once and keeps canvas-only values out of read-only 
         expect(connected.querySelector('canvas')).toBeNull()
         expect(editable.querySelector('input, textarea, button')).not.toBeNull()
         if (id === 'boolean') {
-          const checkbox = readonly.querySelector<HTMLButtonElement>('[role="checkbox"]')!
+          const checkbox = connected.querySelector<HTMLButtonElement>('[role="checkbox"]')!
           expect(checkbox.disabled).toBe(true)
           expect(checkbox.getAttribute('aria-checked')).toBe('true')
           expect(readonly.textContent).not.toContain('true')
           checkbox.click()
           expect(checkbox.getAttribute('aria-checked')).toBe('true')
         } else {
-          expect(readonly.textContent).toContain(typeof specs[id]!.default === 'string' ? specs[id]!.default : JSON.stringify(specs[id]!.default))
+          const value = specs[id]!.default
+          expect(readonly.textContent).toContain(Array.isArray(value) ? value.join(', ') : typeof value === 'string' ? value : JSON.stringify(value))
         }
       }
     }
