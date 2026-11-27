@@ -803,6 +803,16 @@ section.editor-group:not(:only-of-type):not([data-focused='true']) .tab.active {
   white-space: nowrap;
 }
 
+.activity-log-time,
+.execution-log-time {
+  container: log-time / inline-size;
+}
+
+/* The full UTC timestamp is 27 monospace characters. */
+@container log-time (width < 27ch) {
+  .log-time-full { display: none; }
+}
+
 .activity-log-severity {
   display: inline-flex;
   justify-content: center;
