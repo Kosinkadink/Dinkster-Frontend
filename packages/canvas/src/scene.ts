@@ -681,7 +681,10 @@ function occurrenceSolveOptions(
     if (resolved === undefined) return undefined
     const producer = solveProjectionGraph(resolved.graphId, resolved.instancePath)
     if (producer === undefined) return undefined
-    if (isWidgetTapRef(resolved.endpoint)) return producer.result.listCountOf(resolved.endpoint.node, 'input', resolved.endpoint.tap)
+    if (isWidgetTapRef(resolved.endpoint)) {
+      const count = producer.result.listCountOf(resolved.endpoint.node, 'input', resolved.endpoint.tap)
+      if (count !== undefined) return count
+    }
     const counts = traceEndpointAll(producer.graph, resolved.endpoint, buildRerouteIndex(producer.graph)).map((trace) =>
       trace.kind === 'output' ? producer.result.listCountOf(trace.ref.node, 'output', trace.ref.port)
         : trace.kind === 'tapValue' ? producer.result.listCountOf(trace.node, 'input', trace.input) : undefined)
@@ -1494,7 +1497,10 @@ export function buildScene(input: BuildSceneInput): Scene {
   }
   const countReroutes = buildRerouteIndex(effectiveGraph)
   const tracedListCount = (from: LinkEndpoint): number | undefined => {
-    if (isWidgetTapRef(from)) return solvedTypes.listCountOf(from.node, 'input', from.tap)
+    if (isWidgetTapRef(from)) {
+      const count = solvedTypes.listCountOf(from.node, 'input', from.tap)
+      if (count !== undefined) return count
+    }
     const counts = traceEndpointAll(effectiveGraph, from, countReroutes).flatMap((trace): (number | undefined)[] => {
       if (trace.kind === 'output') return [solvedTypes.listCountOf(trace.ref.node, 'output', trace.ref.port)]
       if (trace.kind === 'tapValue') return [solvedTypes.listCountOf(trace.node, 'input', trace.input)]

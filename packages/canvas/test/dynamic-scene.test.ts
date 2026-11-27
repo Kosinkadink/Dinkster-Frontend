@@ -305,6 +305,8 @@ it('counts scalar arrivals into joined lists without treating region iterations 
     schemaOf('Local list', [{ ...input('texts', { type: texts }), widget: {
       widgetType: 'LIST', options: {}, element: { widgetType: 'STRING', options: {} }, default: ['a', 'b', 'c'],
     } }]),
+    schemaOf('List accepting text', [{ ...input('text', { type: text, acceptsList: true }),
+      widget: { widgetType: 'STRING', options: {}, default: '' } }]),
   ]
   const join = schemaOf('Join texts', [
     group('parts', 'part', { value: input('value', { type: text, acceptsList: true, optional: true }) }, 0, 8),
@@ -319,6 +321,7 @@ it('counts scalar arrivals into joined lists without treating region iterations 
         producer: { type: '#producer' }, sibling: { type: '#joined' }, rerouted: { type: '#rerouted' },
         tapProducer: { type: '#tapProducer' }, tapSibling: { type: '#joined' }, feedback: { type: '#joined' },
         tapRerouted: { type: '#tapRerouted' }, tapConsumer: { type: '#joined' },
+        tapped: { type: sources[5]!.type }, directTap: { type: '#joined' }, routedTap: { type: '#joined' },
         mapped: { type: '#joined', region: { kind: 'map', elementPorts: ['item'] } },
         nested: { type: '#joined', region: { kind: 'map', elementPorts: ['item'] } },
       },
@@ -329,7 +332,10 @@ it('counts scalar arrivals into joined lists without treating region iterations 
         [['producer', 'result'], ['sibling', 'item']], [['texts', 'out'], ['rerouted', 'item']],
         [['tapProducer', 'result'], ['tapSibling', 'item']], [['feedback', 'result'], ['feedback', 'item']],
         [['texts', 'out'], ['tapRerouted', 'item']], [['tapRerouted', 'result'], ['tapConsumer', 'item']],
+        [['texts', 'out'], ['tapped', 'text']], [{ node: 'tapped', tap: 'text' }, ['directTap', 'item']],
+        [{ node: 'tapped', tap: 'text' }, { reroute: 'tapRoute' }], [{ reroute: 'tapRoute' }, ['routedTap', 'item']],
       ],
+      reroutes: ['tapRoute'],
     },
     joined: {
       nodes: { join: { type: join.type, dynamic: { parts: { members: ['part0'] } } } },
@@ -385,6 +391,9 @@ it('counts scalar arrivals into joined lists without treating region iterations 
     tokens: defaultTokens, measure, widgetMeasure,
   }).links.map((link) => link.listCount)).toEqual([4, 4, 4])
   const root = buildScene({ document, graphId: 'g0', resolve, tokens: defaultTokens, measure, widgetMeasure })
+  expect(root.links.filter((link) => link.from.kind === 'widgetTap' && link.from.node === 'tapped').map((link) => link.listCount)).toEqual([4, 4])
+  expect(outputCount('directTap')).toBe(4)
+  expect(outputCount('routedTap')).toBe(4)
   for (const [node, count] of [['producer', 4], ['tapProducer', 3], ['feedback', undefined]] as const) {
     expect(root.links.find((link) => link.from.kind === 'port' && link.from.node === node)?.listCount).toBe(count)
   }
