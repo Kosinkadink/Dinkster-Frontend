@@ -766,6 +766,24 @@ describe('mount listing decode', () => {
   const connectionWith = (mounts: unknown, outputMount?: unknown, mountChangesAllowed: unknown = true): DinksterConnection =>
     new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, mountChangesAllowed, ...(outputMount === undefined ? {} : { outputMount }) }) })
 
+  it('changes save access with the displayed revision and project, retaining a stale refusal', async () => {
+    const requests: { url: string; body: unknown }[] = []
+    const mount = { id: 'plates', path: '/plates', mode: 'readwrite', state: 'ready', saveError: 'Cannot save here: Permission denied' }
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/native', clientId: 'test', project: 'my project', fetchFn: async (url, init) => {
+      if (init?.method === 'PUT') {
+        requests.push({ url: String(url), body: JSON.parse(String(init.body)) })
+        return jsonResponse(409, { error: 'Mount settings changed. Refresh and try again.' })
+      }
+      return String(url).includes('/locations') ? jsonResponse(200, { mounts: [mount], activeMounts: [mount] })
+        : jsonResponse(200, { mounts: [mount], revision: 'displayed-revision', mountChangesAllowed: true })
+    } })
+    const settings = await connection.fetchMountSettings()
+    expect(settings.mounts[0]?.saveError).toBe('Cannot save here: Permission denied')
+    expect((await connection.fetchMountLocations()).activeMounts?.[0]?.saveError).toBe(mount.saveError)
+    await expect(connection.updateMountAccess('plates', 'read', settings.revision!)).rejects.toMatchObject({ status: 409, serverMessage: 'Mount settings changed. Refresh and try again.' })
+    expect(requests).toEqual([{ url: '/native/api/mounts/plates/access?project=my+project', body: { mode: 'read', revision: 'displayed-revision' } }])
+  })
+
   it.each([200, 503])('answers an older mount read with the newer snapshot after a late HTTP %s response', async (status) => {
     let finish!: (response: Response) => void
     const current = { mounts: [{ id: 'current', mode: 'readwrite', state: 'ready' }], mountChangesAllowed: true, outputMount: 'current' }

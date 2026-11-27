@@ -320,6 +320,62 @@ it('aggregates model kinds by count with Other last and updates the pin colors w
   expect(values()).toEqual(['4', '4', '15'])
 })
 
+it('changes mount saving access, requires a usable replacement and preserves a refused change', async () => {
+  let mounts: MountDescriptor[] = [
+    { id: 'renders', mode: 'readwrite', state: 'ready' },
+    { id: 'exports', mode: 'read', state: 'ready' },
+    { id: 'offline', mode: 'readwrite', state: 'ready', saveError: 'Cannot save here: Permission denied' },
+  ]
+  let outputMount = 'renders'
+  let revision = 'first'
+  let refused = false
+  const connection = {
+    fetchMountSettings: async () => ({ mounts, outputMount, revision, mountChangesAllowed: true }),
+    fetchMountLocations: async () => ({ mounts }),
+    fetchModelSettings: async () => ({ locations: [], settings: { locations: [] }, changesAllowed: true }),
+    onMountsChanged: () => () => {},
+    selectOutputMount: async (id: string) => { outputMount = id; revision = 'replacement' },
+    updateMountAccess: async (id: string, mode: 'read' | 'readwrite', expected: string) => {
+      if (expected !== revision || refused) throw new RequestFailure('PUT', '/api/mounts/access', 409, 'Configuration changed')
+      if (id === outputMount && mode === 'read') throw new Error('Choose a replacement first')
+      mounts = mounts.map((row) => row.id === id ? { ...row, mode } : row)
+      revision = 'changed'
+    },
+  } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
+  const row = (id: string) => root.querySelector(`[data-mount-id="${id}"]`)!
+  const menu = (id: string) => row(id).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
+  const action = (label: string) => [...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent === label)!
+  await vi.waitFor(() => expect(row('renders')?.textContent).toContain('New saves go here'))
+  expect(row('offline').textContent).toContain('Cannot save here: Permission denied')
+  menu('offline')
+  expect(action('Save new files here')).toBeUndefined()
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  menu('renders'); action('Stop saving to this folder').click()
+  const confirm = () => [...row('renders').querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop saving to this folder')!
+  expect(confirm().disabled).toBe(true)
+  row('renders').querySelector<HTMLButtonElement>('[role="combobox"]')!.click()
+  expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).not.toContain('offline')
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  ;[...row('renders').querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Cancel')!.click()
+  menu('exports'); action('Allow saving to this folder').click()
+  await vi.waitFor(() => expect(row('exports').textContent).not.toContain('Read only'))
+  menu('renders'); action('Stop saving to this folder').click()
+  row('renders').querySelector<HTMLButtonElement>('[role="combobox"]')!.click()
+  ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'exports')!.click()
+  confirm().click()
+  await vi.waitFor(() => expect(row('renders').textContent).toContain('Read only'))
+  expect(row('exports').textContent).toContain('New saves go here')
+  expect(root.querySelectorAll('[data-mount-id]')).toHaveLength(3)
+  refused = true
+  menu('renders'); action('Allow saving to this folder').click()
+  await vi.waitFor(() => expect(root.querySelector('[role="alert"]')).not.toBeNull())
+  expect(root.textContent).not.toContain('Folder settings saved.')
+  expect(row('renders').textContent).toContain('Read only')
+  expect(row('exports').textContent).toContain('New saves go here')
+})
+
 it('selects the default save folder from a writable mount menu', async () => {
   const mounts: MountDescriptor[] = [
     { id: 'renders', mode: 'readwrite', state: 'ready' },

@@ -88,7 +88,7 @@ export function StorageFolders(props: {
   const [busy, setBusy] = createSignal(false)
   const [editing, setEditing] = createSignal<'model' | 'models' | 'add-model' | 'folders'>()
   const [editModel, setEditModel] = createSignal<string>()
-  const [leaving, setLeaving] = createSignal<{ readonly id: string; readonly model: boolean }>()
+  const [leaving, setLeaving] = createSignal<{ readonly id: string; readonly model: boolean; readonly saving?: boolean }>()
   const [replacement, setReplacement] = createSignal('')
   const [notification, setNotification] = createSignal<{ readonly message: string }>()
   let generation = 0
@@ -139,6 +139,7 @@ export function StorageFolders(props: {
     read++
     setBusy(true)
     setError('')
+    setNotification(undefined)
     try {
       await action()
       if (owner !== generation) return
@@ -149,7 +150,7 @@ export function StorageFolders(props: {
       if (owner === generation) {
         if (leaving()) {
           props.onFailure?.(cause instanceof RequestFailure ? cause.serverMessage ?? cause.message : String(cause))
-          const reason = cause instanceof RequestFailure ? new RequestFailure(cause.method, cause.path, cause.status) : cause
+          const reason = cause instanceof RequestFailure && !leaving()?.saving ? new RequestFailure(cause.method, cause.path, cause.status) : cause
           setError(failureMessage(reason, '').trim() || message('request.reason.server'))
         } else setError(failureMessage(cause, message('request.storageSaveFailed')))
       }
@@ -200,6 +201,21 @@ export function StorageFolders(props: {
     }]).sort((left, right) => left.kind === 'other' ? 1 : right.kind === 'other' ? -1 : right.count - left.count || left.label.localeCompare(right.label))
   }
   const setOutput = (mount: MountDescriptor) => void perform(() => props.connection.selectOutputMount(mount.id))
+  const changeAccess = (id: string, mode: 'read' | 'readwrite') => void perform(async () => {
+    const connection = props.connection
+    const owner = generation
+    let current = settings()!
+    if (mode === 'read' && id === current.outputMount) {
+      if (!replacement()) return
+      await connection.selectOutputMount(replacement())
+      if (owner !== generation) return
+      current = await connection.fetchMountSettings()
+      if (owner !== generation) return
+      setSettings(current)
+    }
+    if (current.revision === undefined) throw new Error(message('request.storageLoadFailed'))
+    await connection.updateMountAccess(id, mode, current.revision)
+  })
   const useFolder = (id: string) => void perform(() => props.connection.updateProjectFolders([...selected().map((row) => row.id), id], settings()?.outputMount ?? null))
   const move = (id: string, direction: number) => {
     const order = selected().map((row) => row.id)
@@ -215,6 +231,7 @@ export function StorageFolders(props: {
   const leave = () => {
     const target = leaving()
     if (!target) return
+    if (target.saving) { changeAccess(target.id, 'read'); return }
     if (target.model) void perform(() => props.connection.setModelLocationEnabled(target.id, false))
     else {
       const output = target.id === settings()?.outputMount ? replacement() : settings()?.outputMount ?? null
@@ -232,17 +249,17 @@ export function StorageFolders(props: {
       ? undefined : mounts.reduce((sum, mount) => sum + mount.entryCount!, 0)
   }
   const removalQuestion = (id: string, model: boolean) => <ProductConfirmation
-    title={message('projectFolders.removeTitle', { folder: id })}
-    consequence={message('projectFolders.removeNotice')}
-    actionLabel={message('projectFolders.remove')} intent="neutral" surface="inherit" pending={busy()}
+    title={leaving()?.saving ? message('storagePanel.stopSaving') : message('projectFolders.removeTitle', { folder: id })}
+    consequence={leaving()?.saving ? message('storagePanel.stopSavingNotice') : message('projectFolders.removeNotice')}
+    actionLabel={message(leaving()?.saving ? 'storagePanel.stopSaving' : 'projectFolders.remove')} intent={leaving()?.saving ? 'remove' : 'neutral'} surface="inherit" pending={busy()}
     disabled={!model && id === settings()?.outputMount && !replacement()}
     onCancel={() => { setError(''); setLeaving(undefined) }} onConfirm={leave}>
-    <Show when={!model && id === settings()?.outputMount} fallback={<Show when={error()}><p class="dinkster-field-error" role="alert"><ProductIcon icon={CircleAlert} />{message('storagePanel.stopFailed', { folder: id, reason: error() })}</p></Show>}>
-      <ProductField label={message('storagePanel.replacement')} error={error() ? message('storagePanel.stopFailed', { folder: id, reason: error() }) : ''}>
+    <Show when={!model && id === settings()?.outputMount} fallback={<Show when={error()}><p class="dinkster-field-error" role="alert"><ProductIcon icon={CircleAlert} />{message(leaving()?.saving ? 'storagePanel.accessFailed' : 'storagePanel.stopFailed', { folder: id, reason: error() })}</p></Show>}>
+      <ProductField label={message('storagePanel.replacement')} error={error() ? message(leaving()?.saving ? 'storagePanel.accessFailed' : 'storagePanel.stopFailed', { folder: id, reason: error() }) : ''}>
         {(attributes) => <ProductSelect {...attributes} value={replacement()} disabled={busy()}
           options={[
             { label: message('storagePanel.chooseMount'), value: '', disabled: true },
-            ...folders().filter((row) => row.mode === 'readwrite' && row.id !== id && row.state !== 'failed').map((row) => ({ label: row.id, value: row.id })),
+            ...folders().filter((row) => row.mode === 'readwrite' && !row.saveError && row.id !== id && row.state !== 'failed').map((row) => ({ label: row.id, value: row.id })),
           ]}
           onChange={setReplacement} />}
       </ProductField>
@@ -285,17 +302,22 @@ export function StorageFolders(props: {
     description={<span class="storage-folder-description">
       <Show when={path(mount)}>{(value) => <FolderPath value={value()} />}</Show>
       <Show when={mount.mode === 'read'}><span class="storage-folder-role"><ProductIcon icon={Lock} />{message('storagePanel.readOnly')}</span></Show>
-      <Show when={mount.id === settings()?.outputMount}><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Star} />{message('storagePanel.saves')}</span></Show>
+      <Show when={!mount.saveError && mount.id === settings()?.outputMount}><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Star} />{message('storagePanel.saves')}</span></Show>
       <Show when={mount.id === locations()?.importMount}><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Download} />{message('storagePanel.imports')}</span></Show>
       <Show when={!['ready', 'failed', 'scanning'].includes(mount.state)}><span>{mount.state}</span></Show>
     </span>}
     trailing={<Show when={reading([mount])} fallback={<Show when={mount.entryCount !== undefined}>{message('storagePanel.files', { count: mount.entryCount! })}</Show>}>
       {(progress) => message('storagePanel.reading', { done: progress().filesDone, total: progress().filesTotal })}
     </Show>}
-    status={mount.state === 'failed' || reading([mount]) ? <>{mountFailure(mount)}<Show when={reading([mount])}>{(progress) => scan(progress())}</Show></> : undefined}
+    status={mount.state === 'failed' || mount.saveError || reading([mount]) ? <>{mountFailure(mount)}<Show when={mount.saveError}>{(reason) => <ProductNotice tone="warning">{reason()}</ProductNotice>}</Show><Show when={reading([mount])}>{(progress) => scan(progress())}</Show></> : undefined}
     action={<ProductMenu icon={Ellipsis} iconOnly fill="quiet" label={message('storagePanel.actions', { folder: mount.id })} items={used ? [
         { label: message('storagePanel.openAssets'), onSelect: () => props.onOpenAssets(mount.id) },
-        ...(mount.mode === 'readwrite' && mount.id !== settings()?.outputMount ? [{ label: message('storagePanel.saveHere'), disabled: disabled(), onSelect: () => setOutput(mount) }] : []),
+        ...(mount.mode === 'readwrite' && !mount.saveError && mount.state !== 'failed' && mount.id !== settings()?.outputMount ? [{ label: message('storagePanel.saveHere'), disabled: disabled(), onSelect: () => setOutput(mount) }] : []),
+        { label: message(mount.mode === 'read' ? 'storagePanel.allowSaving' : 'storagePanel.stopSaving'), intent: mount.mode === 'read' ? 'add' : 'remove', disabled: disabled() || settings()?.revision === undefined, onSelect: () => {
+          if (mount.mode === 'read') changeAccess(mount.id, 'readwrite')
+          else if (mount.id === settings()?.outputMount) { setReplacement(''); setLeaving({ id: mount.id, model: false, saving: true }) }
+          else changeAccess(mount.id, 'read')
+        } },
         { label: message('projectFolders.up'), disabled: disabled() || folders()[0]?.id === mount.id, onSelect: () => move(mount.id, -1) },
         { label: message('projectFolders.down'), disabled: disabled() || folders().at(-1)?.id === mount.id, onSelect: () => move(mount.id, 1) },
         { label: message('storagePanel.readAgain'), disabled: disabled() || mount.state === 'restart-required', onSelect: () => { void perform(() => props.connection.retryMount(mount.id)) } },

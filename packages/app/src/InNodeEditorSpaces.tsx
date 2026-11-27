@@ -344,7 +344,7 @@ export function SaveTargetSpace(props: {
     void fetch?.().then((value) => { if (live) setSettings(value) }).catch(() => { if (live) setFailed(true) })
     onCleanup(() => { live = false })
   }))
-  const ready = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready').map((entry) => entry.id) ?? []
+  const ready = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready' && !entry.saveError).map((entry) => entry.id) ?? []
   const noDefault = () => settings() !== undefined && settings()!.activeOutputMount === undefined
   const projectMount = () => settings()?.activeOutputMount ?? message(noDefault() ? 'saveTargetWidget.noOutputMount' : 'saveTargetWidget.projectDefault')
   const options = () => [
