@@ -14,7 +14,7 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { semanticHashOf } from '../src/compile/hash.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
-import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, asRerouteId } from '../src/ids.js'
 import {
   elabInputsOf,
   elabOutputsOf,
@@ -480,6 +480,50 @@ describe('dynamic.labelMember', () => {
 
 describe('dynamic.compact', () => {
   const state = { images: { members: ['m0', 'm1', 'm2'], seq: 3 } }
+
+  it('clears dead count-grown output wires and nets without moving live positions, in one undo step', () => {
+    const schema = schemaOf([socketInput('count', 'INT'), {
+      kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 },
+      grows: { count: 'count' }, minMembers: 0, maxMembers: 5,
+      value: { kind: 'output', id: 'item', type: { kind: 'concrete', name: 'IMAGE' } },
+    }])
+    const junction = { reroute: asRerouteId('r1') }
+    const initial = doc({ g0: graph({ id: 'g0',
+      nodes: { n1: node('n1', { values: { count: 1 } }), sink: node('sink', { type: 'Sink' }) },
+      links: {
+        live: { id: asLinkId('live'), from: port('n1', 'items.0'), to: port('sink', 'a') },
+        dead: { id: asLinkId('dead'), from: port('n1', 'items.2'), to: port('sink', 'b') },
+        feed: { id: asLinkId('feed'), from: port('n1', 'items.3'), to: junction },
+        tail: { id: asLinkId('tail'), from: junction, to: port('sink', 'c') },
+      },
+      nets: {
+        liveNet: { id: asNetId('liveNet'), name: 'live', source: port('n1', 'items.0'), sinks: [port('sink', 'd')] },
+        deadNet: { id: asNetId('deadNet'), name: 'dead', source: port('n1', 'items.4'), sinks: [port('sink', 'e')] },
+      },
+      reroutes: { r1: { id: asRerouteId('r1') } },
+    }) })
+    const store = new DocumentStore({ ...initial, view: { graphs: { g0: {
+      nodes: {}, collapsedNets: ['liveNet', 'deadNet'], guideNets: ['deadNet'],
+    } } } }, coreCommandRegistry(), 200, undefined,
+    () => ({ kind: 'initial', schemaResolverFor: () => (type) => type === 'Batch' ? schema : undefined }))
+    const before = store.doc
+    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
+    const after = store.doc.graphs['g0']!
+    expect(after.links).toEqual({ live: initial.graphs['g0']!.links['live'] })
+    expect(after.nets).toEqual({ liveNet: initial.graphs['g0']!.nets['liveNet'] })
+    expect([...elabOutputsOf(elaborateInterface(schema, after.nodes['n1']!, buildGraphConnectivity(after)(asNodeId('n1'))))]
+      .map((output) => output.address.port)).toEqual(['items.0'])
+    expect(store.doc.view.graphs['g0']!.collapsedNets).toEqual(['liveNet'])
+    expect(store.doc.view.graphs['g0']!.guideNets).toEqual([])
+    expect(after.nodes).toEqual(before.graphs['g0']!.nodes)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(before)
+    expect(store.redo()).toBe(true)
+    expect(store.doc.graphs['g0']!.links).toEqual(after.links)
+    const revision = store.revision
+    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
+    expect(store.revision).toBe(revision)
+  })
 
   it('removes unreferenced rows while preserving linked member identity and order', () => {
     const g = graph({

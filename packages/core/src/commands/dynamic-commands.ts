@@ -24,10 +24,10 @@ import type { DynamicPortState, GraphDef, Json, JsonObject, NodeData, WorkflowDo
 import { resolveDynamicAddress } from '../format/document.js'
 import type { CommandDefinition } from './contract.js'
 import { isPortEndpoint, isWidgetTapRef, MAX_MEMBER_ORDINAL } from '../ids.js'
-import { DEFAULT_ELAB_BUDGET, elabInputsOf, elaborateInterface, selectorMembersOf, valueKeyOf } from '../schema/elaborate.js'
+import { buildGraphConnectivity, DEFAULT_ELAB_BUDGET, elabInputsOf, elabOutputsOf, elaborateInterface, selectorMembersOf, valueKeyOf } from '../schema/elaborate.js'
 import { documentPrimitiveResolver } from '../compile/compile.js'
 import { primitiveOf } from '../primitive.js'
-import { buildRerouteIndex, traceEndpoint } from '../reroute.js'
+import { buildRerouteIndex, traceEndpoint, traceEndpointAll } from '../reroute.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { schemaResolverForCommand } from './command-support.js'
 import { constructsOf } from '../schema/body.js'
@@ -35,6 +35,7 @@ import type { ChoiceSpec, GroupSpec, TypeChoiceSpec } from '../schema/model.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
 import { allNodesOf, storeStartState } from './start-state.js'
 import { boundaryItems } from '../format/document.js'
+import { removeDefinitionLink, removeNet } from './occurrence-cleanup.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 
@@ -467,7 +468,6 @@ const dynamicCompact: CommandDefinition = {
     if (!def) return [err('graph.missing', `dynamic.compact: unknown graph '${String(params.graphId)}'`)]
     const node = def.nodes[params.nodeId]
     if (!node) return [err('node.missing', `dynamic.compact: unknown node '${params.nodeId}'`)]
-    if (node.dynamic === undefined) return []
     if (checkDocument(doc).some((diagnostic) =>
       diagnostic.code.startsWith('doc.occurrenceTopology.') || diagnostic.code === 'doc.dynamic.memberMissing')) return []
 
@@ -532,6 +532,26 @@ const dynamicCompact: CommandDefinition = {
     }
     if (unresolvedOverlay) return []
 
+    const schema = schemaResolverForCommand(doc, context)?.(node.type)
+    if (schema !== undefined) {
+      const retained = new Set([...elabOutputsOf(elaborateInterface(schema, node,
+        buildGraphConnectivity(def)(node.id)))].filter((output) => output.kept !== undefined)
+        .map((output) => output.address.port))
+      const reroutes = buildRerouteIndex(def)
+      const isDead = (from: Parameters<typeof traceEndpointAll>[1]): boolean => {
+        const sources = traceEndpointAll(def, from, reroutes)
+        return sources.length > 0 && sources.every((source) => source.kind === 'output' &&
+          source.ref.node === node.id && retained.has(source.ref.port))
+      }
+      for (const link of Object.values(def.links)) {
+        if (isDead(link.from)) removeDefinitionLink(params.graphId, link.id, tx)
+      }
+      for (const net of Object.values(def.nets)) {
+        if (isDead(net.source)) removeNet(params.graphId, net.id, tx)
+      }
+    }
+    if (node.dynamic === undefined) return []
+
     for (const item of [...(boundaryItems(def.boundary, 'inputs') ?? []), ...(boundaryItems(def.boundary, 'outputs') ?? [])]) {
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.kind === 'port') add(binding)
@@ -546,7 +566,6 @@ const dynamicCompact: CommandDefinition = {
     // member is member-owned evidence even when no link or value is present,
     // so retain every group it lies within. A required choice on its start
     // key is what adding the member would give again, so it is not use.
-    const schema = context.kind === 'initial' ? context.schemaResolverFor?.(doc)?.(node.type) : undefined
     const constructs = schema === undefined ? undefined : constructsOf(schema, node.dynamic)
     for (const [key, state] of Object.entries(node.dynamic)) {
       if (state.selected === undefined && state.options === undefined) continue

@@ -43,7 +43,7 @@ import { EXPOSED_PREVIEW_COMMANDS } from './exposed-preview-commands.js'
 import { APP_LAYOUT_COMMANDS } from './app-layout-commands.js'
 import { OCCURRENCE_LINK_COMMANDS } from './occurrence-link-commands.js'
 import { occurrenceBoundaryTargets, occurrenceEndpointReferencesDefinition } from '../compile/effective-topology.js'
-import { pruneNetDisplayState, removeAuthoredNetViews, removeNetDeliverySuppressions, removeProjectedLinkSuppressions } from './occurrence-cleanup.js'
+import { pruneNetDisplayState, removeAuthoredNetViews, removeDefinitionLink, removeNet, removeNetDeliverySuppressions } from './occurrence-cleanup.js'
 import { spliceDiff, transformSplice } from './text-splice.js'
 import { registeredExtensionCommands } from '../extensions/commands/registry.js'
 import {
@@ -139,11 +139,6 @@ function toEndpoint(e: EndpointJson): LinkEndpoint {
 
 function graphOf(doc: WorkflowDocument, graphId: Json | undefined): GraphDef | undefined {
   return typeof graphId === 'string' ? doc.graphs[graphId] : undefined
-}
-
-function removeDefinitionLink(graphId: string, linkId: string, tx: TransactionBuilder): void {
-  removeProjectedLinkSuppressions(graphId, linkId, tx)
-  tx.remove(['graphs', graphId, 'links', linkId])
 }
 
 function regionFromJson(value: Json | undefined): RegionContract | undefined {
@@ -1515,13 +1510,6 @@ const netRename: CommandDefinition = {
 // ---------------------------------------------------------------------------
 // net.remove {graphId, netId}  (the whole net: source binding + every sink)
 // ---------------------------------------------------------------------------
-
-function removeNet(graphId: string, netId: string, tx: TransactionBuilder): void {
-  removeNetDeliverySuppressions(graphId, netId, undefined, tx)
-  tx.remove(['graphs', graphId, 'nets', netId])
-  removeAuthoredNetViews(tx, (position) => position.graphId === graphId && position.netId === netId)
-  pruneNetDisplayState(graphId, netId, tx)
-}
 
 const netRemove: CommandDefinition = {
   id: 'net.remove',

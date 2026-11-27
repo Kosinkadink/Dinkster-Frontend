@@ -57,3 +57,15 @@ export function removeProjectedLinkSuppressions(graphId: string, linkId: string,
     else tx.set(['occurrenceTopologies', key, 'suppressedDeliveries'], kept as unknown as Json)
   }
 }
+
+export function removeDefinitionLink(graphId: string, linkId: string, tx: TransactionBuilder): void {
+  removeProjectedLinkSuppressions(graphId, linkId, tx)
+  tx.remove(['graphs', graphId, 'links', linkId])
+}
+
+export function removeNet(graphId: string, netId: string, tx: TransactionBuilder): void {
+  removeNetDeliverySuppressions(graphId, netId, undefined, tx)
+  tx.remove(['graphs', graphId, 'nets', netId])
+  removeAuthoredNetViews(tx, (position) => position.graphId === graphId && position.netId === netId)
+  pruneNetDisplayState(graphId, netId, tx)
+}
