@@ -892,15 +892,38 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     expect(reopened).toEqual(privateDoc)
     expect(formulaRun(reopened)).toEqual(privateRun)
 
-    for (const [mode, total] of [['active', undefined], ['active', 19], ['muted', undefined], ['bypassed', undefined], ['loop', undefined]] as const) {
+    for (const [mode, total, fanout, primaryTotal] of [
+      ['active', undefined, false, undefined], ['active', 19, false, undefined],
+      ['active', undefined, true, undefined], ['active', undefined, true, 17], ['active', 19, true, 17],
+      ['muted', undefined, false, undefined], ['bypassed', undefined, false, undefined], ['loop', undefined, false, undefined],
+    ] as const) {
       const original = doc.graphs.root!.nodes.first!
       const first = total === undefined ? original : { ...original, values: {
         ...original.values, [depth === 1 ? 'total' : 'resultValue']: total,
       } }
-      const before: WorkflowDocument = { ...doc, graphs: { ...doc.graphs, root: { ...doc.graphs.root!, nodes: {
+      const bodyId = depth === 1 ? 'detail' : 'portrait'
+      const body = doc.graphs[bodyId]!
+      const before: WorkflowDocument = { ...doc, graphs: { ...doc.graphs,
+        ...(fanout ? { [bodyId]: { ...body, nodes: { ...body.nodes,
+          ...(primaryTotal === undefined ? {} : { [depth === 1 ? 'sample' : 'detail']: {
+            ...body.nodes[depth === 1 ? 'sample' : 'detail']!,
+            values: { ...body.nodes[depth === 1 ? 'sample' : 'detail']!.values, total: primaryTotal },
+          } }),
+          ...(depth === 1 ? { other: { ...body.nodes.other!, values: { seed: 11, bias: 13, total: 5 } } }
+            : { extra: { id: 'extra', type: '#detail', values: { start: 11, total: 5 } } }),
+        }, boundary: { body: body.boundary!.body.map((item) => 'id' in item && item.id === (depth === 1 ? 'total' : 'resultValue')
+          ? { ...item, alsoBinds: [{ kind: 'port', node: depth === 1 ? 'other' : 'extra', port: 'total' }] } : item) } } } : {}),
+        root: { ...doc.graphs.root!, nodes: {
         ...doc.graphs.root!.nodes, first: mode === 'loop' ? { ...first, region: { kind: 'map', elementPorts: [depth === 1 ? 'start' : 'control'] } }
           : { ...first, mode },
-      } } } }
+      } } } } as WorkflowDocument
+      if (fanout) {
+        const expected = formulaRun(before)
+        expect(expected.prompt[`first.${depth === 1 ? 'other' : 'extra.sample'}`]!.inputs.total).toBe(total ?? 5)
+        expect(expected.prompt[`first${suffix}.sample`]!.inputs).toEqual({ seed: 21, bias: 7,
+          ...(total === undefined && primaryTotal === undefined ? {} : { total: total ?? primaryTotal }),
+        })
+      }
       const result = await flatten(before, 'root', [], 'first', formulaResolve)
       if (mode === 'bypassed' || mode === 'loop') {
         expect(result.ok).toBe(false)
@@ -916,19 +939,29 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       expect(replacement.mode ?? 'active').toBe(mode)
       const receivingId = depth === 1 ? replacement.id : `${replacement.id}.sample`
       const run = formulaRun(flattened)
-      expect(run.calculated[`second${suffix}.sample`]).toBe(33)
-      expect(run.calculated[`second${suffix}.other`]).toBe(35)
+      expect(run.calculated[`second${suffix}.sample`]).toBe(primaryTotal ?? 33)
+      expect(run.calculated[`second${suffix}.other`]).toBe(fanout && depth === 1 ? 5 : 35)
       if (mode === 'active') {
-        expect(run.calculated[receivingId]).toBe(total ?? 49)
-        expect(run.prompt[receivingId]!.inputs).toEqual({ seed: 21, bias: 7, ...(total === undefined ? {} : { total }) })
+        expect(run.calculated[receivingId]).toBe(total ?? primaryTotal ?? 49)
+        expect(run.prompt[receivingId]!.inputs).toEqual({ seed: 21, bias: 7,
+          ...(total === undefined && primaryTotal === undefined ? {} : { total: total ?? primaryTotal }),
+        })
         expect(run.labels[receivingId]).toBe('Total 49')
         expect(run.prompt.sink!.inputs).toEqual({ value: [receivingId, 0] })
+        if (fanout) {
+          const secondary = Object.values(flattened.graphs.root!.nodes).find((entry) =>
+            depth === 1 ? entry.type === 'Calculator' && entry.values.seed === 11 : entry.type === '#detail' && entry.values.start === 11)!
+          expect(run.prompt[depth === 1 ? secondary.id : `${secondary.id}.sample`]!.inputs.total).toBe(total ?? 5)
+          const inputs = (prompt: typeof run.prompt) => Object.values(prompt).filter((entry) => entry.class_type === 'Calculator')
+            .map((entry) => JSON.stringify(entry.inputs)).sort()
+          expect(inputs(run.prompt)).toEqual(inputs(formulaRun(before).prompt))
+        }
       } else {
         expect(Object.keys(run.calculated).sort()).toEqual([`second${suffix}.other`, `second${suffix}.sample`])
         expect(run.prompt.sink!.inputs).toEqual({})
       }
-      expect(flattened.graphs.detail).toEqual(doc.graphs.detail)
-      expect(flattened.graphs.portrait).toEqual(doc.graphs.portrait)
+      expect(flattened.graphs.detail).toEqual(before.graphs.detail)
+      expect(flattened.graphs.portrait).toEqual(before.graphs.portrait)
       expect(result.session.undo()).toBe(true)
       expect(result.session.doc).toEqual({ ...before, graphs: { ...before.graphs,
         root: { ...before.graphs.root!, nextOrdinal: flattened.graphs.root!.nextOrdinal },

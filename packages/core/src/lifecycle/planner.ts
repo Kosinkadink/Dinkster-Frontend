@@ -452,12 +452,6 @@ function planFlattenState(
       continue
     }
     const primaryKey = primaryBinding.port as string
-    const value = Object.hasOwn(occurrence.values, item.id)
-      ? occurrence.values[item.id]
-      : Object.hasOwn(primaryState.values, primaryKey)
-        ? primaryState.values[primaryKey]
-        : primarySlot.automatic !== undefined || primarySlot.widget === undefined
-          ? undefined : effectiveWidgetDefault(primarySlot.widget) as Json | undefined
     const controller = Object.hasOwn(occurrence.controllers ?? {}, item.id)
       ? occurrence.controllers![item.id]
       : Object.hasOwn(primaryState.controllers ?? {}, primaryKey)
@@ -470,8 +464,16 @@ function planFlattenState(
         continue
       }
       const targetKey = binding.port as string
+      const targetSchema = schemaSnapshot[target.type]
+      const route = targetSchema === undefined ? undefined : resolveBoundaryRoute(targetSchema, binding, 'input', target.values, target.dynamic)
+      const slot = route?.ok && route.route.terminal.kind === 'port' ? route.route.terminal.slot : undefined
+      const value = Object.hasOwn(occurrence.values, item.id)
+        ? occurrence.values[item.id]
+        : Object.hasOwn(target.values, targetKey)
+          ? target.values[targetKey]
+          : slot?.kind !== 'input' || slot.automatic !== undefined || slot.widget === undefined
+            ? undefined : effectiveWidgetDefault(slot.widget) as Json | undefined
       const targetValues = { ...target.values }
-      delete targetValues[targetKey]
       if (value !== undefined) targetValues[targetKey] = value
       const targetControllers = { ...(target.controllers ?? {}) }
       delete targetControllers[targetKey]
