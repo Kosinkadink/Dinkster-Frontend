@@ -1468,8 +1468,16 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     expect(flattened.dynamic?.['mode']?.selected).toBe('text')
     expect(Object.values(session.doc.graphs.root!.links).map((entry) => entry.to)).toContainEqual({ node: flattened.id, port: 'imgs.image0' })
     expect(runOf(session.doc)).toEqual(before)
+    const after = session.doc
+    expect(after.graphs.root!.nodes.second).toEqual(doc.graphs.root!.nodes.second)
+    expect(after.graphs.detail).toEqual(doc.graphs.detail)
+    expect(after.graphs.portrait).toEqual(doc.graphs.portrait)
+    expect(runOf(loadDocument(JSON.parse(JSON.stringify(after))).document!)).toEqual(before)
     expect(session.undo()).toBe(true)
     expect(session.doc.graphs).toEqual({ ...doc.graphs, root: { ...doc.graphs.root, nextOrdinal: session.doc.graphs.root!.nextOrdinal } })
+    expect(session.redo()).toBe(true)
+    expect(session.doc).toEqual(after)
+    expect(runOf(session.doc)).toEqual(before)
   })
 
   it('flattening the middle node rewrites the outer boundary and keeps both uses running the same', async () => {
@@ -1492,6 +1500,18 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     const flattened = await flatten(muted, 'root', [], 'first')
     expect(flattened.ok, JSON.stringify(flattened.reports)).toBe(true)
     expect(Object.values(flattened.session.doc.graphs.root!.nodes).find((entry) => entry.type === '#detail')!.mode).toBe('muted')
+    expect(runOf(flattened.session.doc)).toEqual(before)
+    const after = flattened.session.doc
+    expect(after.graphs.root!.nodes.second).toEqual(muted.graphs.root!.nodes.second)
+    expect(after.graphs.detail).toEqual(muted.graphs.detail)
+    expect(after.graphs.portrait).toEqual(muted.graphs.portrait)
+    expect(runOf(loadDocument(JSON.parse(JSON.stringify(after))).document!)).toEqual(before)
+    expect(flattened.session.undo()).toBe(true)
+    expect(flattened.session.doc.graphs).toEqual({ ...muted.graphs,
+      root: { ...muted.graphs.root!, nextOrdinal: after.graphs.root!.nextOrdinal },
+    })
+    expect(flattened.session.redo()).toBe(true)
+    expect(flattened.session.doc).toEqual(after)
     expect(runOf(flattened.session.doc)).toEqual(before)
 
     const bypassed = fixture('bypassed')
@@ -1645,11 +1665,38 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     expect(session.doc.graphs.root!.nodes.second!.type).toBe('#portrait')
     expect(session.doc.graphs.portrait).toEqual(doc.graphs.portrait)
     expect(runOf(session.doc)).toEqual(before)
+    const localized = session.doc
     // An edit to the detached copy reaches only the first node's run.
     const copy = detached.slice(1)
-    expect(session.dispatch({ command: 'node.setValue', params: { graphId: copy, nodeId: 'd', inputId: 'weights.w0', value: 0.7 } }).ok).toBe(true)
+    expect(session.dispatch({ command: 'node.setValues', params: { graphId: copy, nodeId: 'd',
+      values: { 'weights.w0': 0.7, 'mode.strength': 0.73 } } }).ok).toBe(true)
+    const privateEdited = session.doc
     const after = runOf(session.doc)
     expect(after.filter((entry) => entry.includes('"weights.w2":0.7'))).toHaveLength(1)
     expect(after.filter((entry) => entry.includes('"weights.w2":0.6'))).toHaveLength(1)
+    expect(session.dispatch({ command: 'dynamic.selectOption', params: {
+      graphId: 'root', nodeId: 'first', construct: 'look', option: 'image',
+    } }).ok).toBe(true)
+    const selected = session.doc
+    const selectedRun = runOf(selected)
+    expect(selectedRun.filter((entry) => entry.includes('"class_type":"Mode"') && entry.includes('"mode.strength":0.73'))).toHaveLength(1)
+    expect(selectedRun.filter((entry) => entry.includes('"class_type":"Mode"') && entry.includes('"mode.strength":0.6'))).toHaveLength(1)
+    expect(selected.graphs.root!.nodes.first!.values['look.words']).toBe('portrait')
+    expect(selected.graphs.root!.nodes.second).toEqual(doc.graphs.root!.nodes.second)
+    expect(selected.graphs.detail).toEqual(doc.graphs.detail)
+    expect(selected.graphs.portrait).toEqual(doc.graphs.portrait)
+    expect(runOf(loadDocument(JSON.parse(JSON.stringify(selected))).document!)).toEqual(selectedRun)
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(privateEdited)
+    expect(runOf(session.doc)).toEqual(after)
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(localized)
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(doc)
+    expect(session.redo()).toBe(true)
+    expect(session.redo()).toBe(true)
+    expect(session.redo()).toBe(true)
+    expect(session.doc).toEqual(selected)
+    expect(runOf(loadDocument(JSON.parse(JSON.stringify(session.doc))).document!)).toEqual(selectedRun)
   })
 })
