@@ -1,4 +1,5 @@
 import type { AssetBrowserItem } from './types.js'
+import { formatByteSize } from '../collections.js'
 
 /**
  * The asset picker's persisted grid/list mode key, shared across all its
@@ -99,4 +100,13 @@ export function assetUploadPolicy(kind: string | undefined, limits: Readonly<Rec
   const label = maxBytes === undefined || (limits === undefined && kind?.startsWith('model/') === true)
     ? undefined : maxBytes % gibibyte === 0 ? `${maxBytes / gibibyte} GiB` : formatSize(maxBytes)
   return { maxBytes, label }
+}
+
+/** This policy applies to byte uploads, not authorized native copies or mounted files. */
+export function assetUploadSizeProblem(file: Pick<File, 'name' | 'size'>, kind: string | undefined, policy: ReturnType<typeof assetUploadPolicy>): string | undefined {
+  if (policy.maxBytes === undefined || file.size <= policy.maxBytes) return undefined
+  const files = kind === 'media/image' ? 'images' : kind === 'media/video' ? 'videos'
+    : kind === 'media/audio' ? 'audio files' : kind === 'media/model3d' ? '3D models'
+      : kind === 'data/latent' ? 'latents' : 'files'
+  return `${file.name} is ${formatByteSize(file.size)}. This engine takes ${files} up to ${policy.label ?? formatSize(policy.maxBytes)}. Its owner can turn on No upload size limit.`
 }

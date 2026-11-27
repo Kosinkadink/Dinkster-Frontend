@@ -1,7 +1,7 @@
 import type { AssetUploadDestination, AssetUploadProgress, DinksterConnection, MediaAssetRef } from '@dinkster/client'
 import { importNativeAsset, resolveDroppedAsset, type DesktopFileImportProgress } from '../desktop-bridge.js'
 import { model3dMimeFor } from '../model3d-mime.js'
-import { assetUploadPolicy, formatSize, mediaAcceptsFile } from './helpers.js'
+import { assetUploadPolicy, assetUploadSizeProblem, mediaAcceptsFile } from './helpers.js'
 
 /** Native totals mark staging; only native progress reports the publication boundary. */
 export type AssetFileImportProgress =
@@ -40,9 +40,6 @@ export async function importAssetFile(file: File, options: {
   if (!existing && accept.length > 0 && !mediaAcceptsFile(accept, effectiveType, file.name) && !(latent && file.type === '')) {
     throw new Error(`Unsupported file type: ${effectiveType || 'unknown'}`)
   }
-  if (!existing && policy.maxBytes !== undefined && file.size > policy.maxBytes) {
-    throw new Error(`File exceeds the ${policy.label ?? formatSize(policy.maxBytes)} upload limit`)
-  }
   const choice = options.destination
   const destination = {
     ...(choice.mount ? { mount: choice.mount } : {}),
@@ -59,6 +56,10 @@ export async function importAssetFile(file: File, options: {
   } } : {}) })
   signal.throwIfAborted()
   if (!current()) return undefined
+  if (!existing && !imported) {
+    const problem = assetUploadSizeProblem(file, kind, policy)
+    if (problem !== undefined) throw new Error(problem)
+  }
   const transfer = {
     signal,
     ...(options.onProgress ? { onProgress: ({ sent, total }: AssetUploadProgress) => {

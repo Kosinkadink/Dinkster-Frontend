@@ -1337,11 +1337,16 @@ route. This includes native `asset<VIDEO>` inputs without a
 legacy classifier. The editor posts the original File bytes to
 `/api/assets/media` with that media kind and a bounded display basename, then
 adopts the returned canonical AssetRef verbatim. Model kinds and opaque assets
-stay on generic `/api/assets` with the 16 MiB limit. Browser File metadata does
+stay on generic `/api/assets` with a default 16 MiB limit. Browser File metadata does
 not define stored metadata or a path. MIME constraints support exact media
 types and wildcard families such as `image/*` and `video/*`; browse rows use
-the same matching rules. Image files may be up to 256 MiB; audio and video
-files may be up to 1 GiB. `DinksterConnection`
+the same matching rules. Default upload caps are 256 MiB for images and 1 GiB
+for audio and video. Browser tabs follow the running engine's advertised caps
+even on its own computer; an operator can enable No upload size limit.
+Desktop's authorized native copy is uncapped. Only a missing native path or an
+explicit unsupported-file/backend refusal permits byte fallback, which is
+checked against the cap before sending. A size refusal names the file's size,
+the kind's cap and the operator setting. `DinksterConnection`
 passes the browser File directly to `fetch` as the request body, without base64
 conversion or a JavaScript byte copy; the browser owns request streaming. The
 frontend does not add a resumable or chunk protocol. Legacy source-filename

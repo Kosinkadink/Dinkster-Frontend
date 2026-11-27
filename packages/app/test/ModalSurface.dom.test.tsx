@@ -1297,7 +1297,10 @@ describe('ASSET widget modal integration', () => {
     { transport: 'stream', policy: null, label: undefined, maximum: undefined },
     { transport: 'stream', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MiB per file', maximum: 32 * 1024 * 1024 },
     { transport: 'native', policy: null, label: undefined, maximum: undefined },
+    { transport: 'native', policy: undefined, label: '1 GiB per file', maximum: 1024 * 1024 * 1024 },
+    { transport: 'native', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MiB per file', maximum: 32 * 1024 * 1024 },
     { transport: 'refused', policy: null, label: undefined, maximum: undefined },
+    { transport: 'refused', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MiB per file', maximum: 32 * 1024 * 1024 },
     { transport: 'error', policy: null, label: undefined, maximum: undefined },
   ])('routes a typed video widget by $transport using engine upload policy $label', async ({ transport, policy, label, maximum }) => {
     const root = document.createElement('div')
@@ -1306,7 +1309,7 @@ describe('ASSET widget modal integration', () => {
     const canonical = {
       digest,
       name: 'large.webm',
-      size: maximum === undefined ? 1024 * 1024 * 1024 + 1 : 17 * 1024 * 1024,
+      size: maximum === undefined ? 1024 * 1024 * 1024 + 1 : transport === 'native' ? maximum + 1 : 17 * 1024 * 1024,
       mediaType: 'video/webm',
       virtualPath: '',
     }
@@ -1370,13 +1373,15 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('Unsupported file type: image/png'))
     expect(uploadMediaAsset).not.toHaveBeenCalled()
 
-    if (maximum !== undefined) {
-      const oversized = new File(['video'], 'too-large.webm', { type: 'video/webm' })
-      Object.defineProperty(oversized, 'size', { configurable: true, value: maximum + 1 })
-      Object.defineProperty(input, 'files', { configurable: true, value: [oversized] })
-      input.dispatchEvent(new Event('change', { bubbles: true }))
-      await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain(`File exceeds the ${label!.replace(' per file', '')} upload limit`))
-      expect(uploadMediaAsset).not.toHaveBeenCalled()
+    if (maximum !== undefined && transport !== 'native') {
+      for (const [size, sizeLabel] of [[maximum + 1, maximum === 1024 ** 3 ? '1.0 GiB' : '32 MiB'], [Math.ceil(3.2 * 1024 ** 3), '3.2 GiB']] as const) {
+        const oversized = new File(['video'], 'too-large.webm', { type: 'video/webm' })
+        Object.defineProperty(oversized, 'size', { configurable: true, value: size })
+        Object.defineProperty(input, 'files', { configurable: true, value: [oversized] })
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+        await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain(`too-large.webm is ${sizeLabel}. This engine takes videos up to ${label!.replace(' per file', '')}. Its owner can turn on No upload size limit.`))
+        expect(uploadMediaAsset).not.toHaveBeenCalled()
+      }
     }
 
     const file = new File(['webm bytes'], 'large.webm', { type: 'video/webm' })

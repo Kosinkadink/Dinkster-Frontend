@@ -195,8 +195,8 @@ import type { LatentMetadata } from './latent-metadata.js'
 import { ModalSurface } from './ModalSurface.js'
 import { UploadDestination } from './UploadDestination.js'
 import { AssetFileLocation } from './AssetFileLocation.js'
-import { formatSize } from './asset-browser/helpers.js'
-import { importNativeAsset, resolveDroppedAsset } from './desktop-bridge.js'
+import { assetUploadPolicy, assetUploadSizeProblem, formatSize } from './asset-browser/helpers.js'
+import { desktopFileBridge, importNativeAsset, resolveDroppedAsset } from './desktop-bridge.js'
 import { activeProjectId } from './projects.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 import { palettePreviewLayout, placementSchemaKey } from './palette-node-preview.js'
@@ -6277,16 +6277,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         presentFileDropResult({ state: 'error', title, detail: message })
       }
       const uploadLimit = (kind: 'media/image' | 'media/video' | 'data/latent'): number | undefined => {
-        const limits = props.app.registryForTab(tab)?.uploadLimits
-        return limits === null ? undefined : limits === undefined
-          ? (kind === 'media/image' ? 256 * 1024 * 1024 : 1024 * 1024 * 1024)
-          : limits[kind]
+        return assetUploadPolicy(kind, props.app.registryForTab(tab)?.uploadLimits).maxBytes
       }
       const withinUploadLimit = (kind: 'media/image' | 'media/video' | 'data/latent'): boolean => {
-        const limit = uploadLimit(kind)
-        if (limit === undefined || file.size <= limit) return true
+        if (desktopFileBridge()?.importFile) return true
+        const problem = assetUploadSizeProblem(file, kind, assetUploadPolicy(kind, props.app.registryForTab(tab)?.uploadLimits))
+        if (problem === undefined) return true
         finish()
-        report('fileDrop.tooLarge', `File exceeds the ${formatSize(limit)} upload limit. Nothing was imported.`)
+        report('fileDrop.tooLarge', problem)
         return false
       }
       const openWorkflow = async (document: unknown, originalPrompt?: JsonObject): Promise<void> => {
@@ -6303,6 +6301,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const loadLatent = async (metadata: LatentMetadata, existing?: AssetRef): Promise<void> => {
         if (!ownerLive()) { finish(); return }
         if (!existing && !withinUploadLimit('data/latent')) return
+        let sizeProblem: string | undefined
         setFileDropSurface({
           state: 'uploading',
           title: 'Adding latent',
@@ -6325,8 +6324,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             if (backend.protocol !== 'dinkster') throw new Error('latent upload requires a Dinkster backend')
             const imported = await importNativeAsset(backend.baseUrl, file, {
               name: body.name, mediaType: 'application/x-comfy-latent', kind: 'data/latent',
-            }, ownerLive)
+            }, ownerLive, { signal: abort.signal })
             if (!ownerLive()) throw new Error('File import cancelled')
+            if (!imported) {
+              sizeProblem = assetUploadSizeProblem(file, 'data/latent', assetUploadPolicy('data/latent', props.app.registryForTab(tab)?.uploadLimits))
+              if (sizeProblem !== undefined) throw new Error(sizeProblem)
+            }
             return imported ?? backend.connection.uploadLatentAsset(body, { scope: 'local', name: body.name, signal: abort.signal })
           },
           dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
@@ -6348,7 +6351,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             ...(existing && backend.protocol === 'dinkster' ? { location: { backend, digest: existing.digest, project } } : {}),
             ...(facts.length === 0 ? {} : { facts }),
           })
-        } else if (outcome === 'upload-failed') report('fileDrop.latentUploadFailed', 'Dropped latent upload failed; no node was inserted', 'Latent could not be added')
+        } else if (outcome === 'upload-failed') report(sizeProblem ? 'fileDrop.tooLarge' : 'fileDrop.latentUploadFailed', sizeProblem ?? 'Dropped latent upload failed; no node was inserted', 'Latent could not be added')
         else if (outcome === 'invalid-asset') report('fileDrop.invalidLatentAsset', 'Latent upload returned an incomplete asset reference; no node was inserted', 'Latent could not be added')
         else if (outcome === 'schema-missing') report('fileDrop.loadLatentUnavailable', 'The active catalog has no canonical Load Latent ASSET node; no node was inserted', 'Load Latent unavailable')
         else if (outcome === 'rejected') report('fileDrop.insertLatentRejected', 'Load Latent insertion was rejected atomically', 'Latent could not be added')
@@ -6379,6 +6382,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const kind = video ? 'media/video' : 'media/image'
         if (!existing && !withinUploadLimit(kind)) return
         let uploaded: AssetRef | undefined
+        let sizeProblem: string | undefined
         setFileDropSurface({
           state: 'uploading',
           title: `Adding ${noun}`,
@@ -6405,8 +6409,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               ...(destination?.mount ? { mount: destination.mount } : {}),
               ...(destination?.folder ? { folder: destination.folder } : {}),
             }
-            const imported = await importNativeAsset(backend.baseUrl, file, target, ownerLive)
+            const imported = await importNativeAsset(backend.baseUrl, file, target, ownerLive, { signal: abort.signal })
             if (!ownerLive()) throw new Error('File import cancelled')
+            if (!imported) {
+              sizeProblem = assetUploadSizeProblem(file, kind, assetUploadPolicy(kind, props.app.registryForTab(tab)?.uploadLimits))
+              if (sizeProblem !== undefined) throw new Error(sizeProblem)
+            }
             uploaded = imported ?? await backend.connection.uploadMediaAsset(
               body.type === mediaType ? body : new File([body], body.name, { type: mediaType }),
               { ...target, scope: 'local', kind, signal: abort.signal },
@@ -6431,7 +6439,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             location: { backend, digest: uploaded.digest, project },
           })
         }
-        else if (outcome === 'upload-failed') report('fileDrop.uploadFailed', `${origin === 'drop' ? 'Dropped' : 'Pasted'} ${noun} import failed; no node was inserted`, `${titleNoun} could not be added`)
+        else if (outcome === 'upload-failed') report(sizeProblem ? 'fileDrop.tooLarge' : 'fileDrop.uploadFailed', sizeProblem ?? `${origin === 'drop' ? 'Dropped' : 'Pasted'} ${noun} import failed; no node was inserted`, `${titleNoun} could not be added`)
         else if (outcome === 'invalid-asset') report('fileDrop.invalidAsset', `${titleNoun} import returned an incomplete asset reference; no node was inserted`, `${titleNoun} could not be added`)
         else if (outcome === 'schema-missing') report('fileDrop.loaderUnavailable', `The active catalog has no loader accepting this ${noun}; no node was inserted`, `${loaderName} unavailable`)
         else if (outcome === 'rejected') report('fileDrop.insertRejected', `${loaderName} insertion was rejected atomically`, `${titleNoun} could not be added`)
