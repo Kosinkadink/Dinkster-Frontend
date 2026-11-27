@@ -23,7 +23,7 @@ import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { LibraryStorageSettings } from './LibraryStorageSettings.js'
-import { ProductButton, ProductSettingsSection, ProductShortcut } from '@dinkster/ui'
+import { ProductButton, ProductSelect as SharedProductSelect, ProductSettingsSection, ProductShortcut } from '@dinkster/ui'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import type { Backend } from './app-state.js'
@@ -214,24 +214,24 @@ function AutomaticFixField(props: {
       aria-label={message('settingsDialog.action.resetSettingAria', { name: message(`automaticFixes.kind.${props.kind.id}`) })}
     >{message('settingsDialog.action.reset')}</ProductButton></Show>}
   >
-    <ProductSelect id={id} ariaLabelledBy={ids.label} ariaDescribedBy={ids.description}
-      selectedId={asks() ? 'ask' : 'apply'}
+    <SharedProductSelect id={id} aria-labelledby={ids.label} aria-describedby={ids.description}
+      value={asks() ? 'ask' : 'apply'}
       options={[
-        { id: 'apply', label: message('automaticFixes.apply'), value: false },
-        { id: 'ask', label: message('automaticFixes.ask'), value: true },
+        { value: 'apply', label: message('automaticFixes.apply') },
+        { value: 'ask', label: message('automaticFixes.ask') },
       ]}
-      onSelect={(option) => commit(option.value, removesWire())}
+      onChange={(value) => commit(value === 'ask', removesWire())}
     />
     <Show when={props.kind.wire}><div class="automatic-fix-wire">
       <label id={`${id}-wire-label`} class="product-field-label" for={`${id}-wire`}>{message(`automaticFixes.wire.${props.kind.id}`)}</label>
-      <ProductSelect id={`${id}-wire`}
-        ariaLabelledBy={`${id}-wire-label`}
-        selectedId={removesWire() ? 'remove' : 'keep'}
+      <SharedProductSelect id={`${id}-wire`}
+        aria-labelledby={`${id}-wire-label`}
+        value={removesWire() ? 'remove' : 'keep'}
         options={[
-          { id: 'keep', label: message('automaticFixes.keepWire'), value: false },
-          { id: 'remove', label: message('automaticFixes.removeWire'), value: true },
+          { value: 'keep', label: message('automaticFixes.keepWire') },
+          { value: 'remove', label: message('automaticFixes.removeWire') },
         ]}
-        onSelect={(option) => commit(asks(), option.value)}
+        onChange={(value) => commit(asks(), value === 'remove')}
       />
     </div></Show>
   </ProductField>
@@ -423,7 +423,7 @@ export function SettingsDialog(props: {
                         { id: 'values', kinds: ['unresolvedAutomatic', 'numberOutsideLimits'] },
                         { id: 'nodes', kinds: ['nodeReplacement', 'switchBranchRemoved', 'subgraphRowRemoved', 'boundaryFieldRemoved'] },
                       ]}>{(group) => <ProductSettingsSection title={message(`automaticFixes.group.${group.id}`)}>
-                        <div class="dinkster-stack">
+                        <div class="automatic-fix-fields">
                           <For each={group.kinds}>{(id) => {
                             const kind = automaticFixKinds.find((candidate) => candidate.id === id)!
                             return <AutomaticFixField kind={kind} settings={props.settings} changed={changed} />
