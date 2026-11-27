@@ -109,12 +109,6 @@
       "issue": 382
     },
     {
-      "kind": "rawControl",
-      "path": "packages/app/src/DesktopSetup.tsx",
-      "count": 1,
-      "issue": 382
-    },
-    {
       "kind": "inlineStyle",
       "path": "packages/app/src/ExecutedImageViewer.tsx",
       "count": 4,

@@ -2498,7 +2498,7 @@ export interface ProjectPackInstallationReview {
 export interface ProjectNeedsReview {
   readonly backend: Backend
   readonly project: LibraryProject
-  readonly needs: ProjectNeeds
+  readonly needs: ProjectNeeds & { readonly installed: ProjectNeeds['packs'] }
   readonly enable: readonly string[]
   readonly changes: ProjectNeeds['packs']
   readonly requested?: ProjectNeeds['packs']
@@ -7490,6 +7490,7 @@ export class AppState {
       const project = await backend.connection.getProject(projectId)
       const needs = await backend.connection.projectNeeds(projectId)
       if (!current() || !stillWanted()) return
+      if (needs.installed === undefined) throw new Error('The engine did not supply installed pack facts')
       const required = new Map<string, { pack: string; version: string | null }>()
       const add = (pack: string, version: string | null): void => { required.set(JSON.stringify([pack, version]), { pack, version }) }
       for (const pack of needs.packs) add(pack.pack, pack.version)
@@ -7517,7 +7518,7 @@ export class AppState {
       const enable = [...new Set([...required.values()].map(({ pack }) => pack))]
         .filter((pack) => !enabled.has(pack) && !changing.has(pack)).sort()
       if (enable.length === 0 && changes.length === 0 && errors.size === 0) return
-      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current, owned,
+      this.projectNeedsReview.set({ backend, project, needs: { ...needs, installed: needs.installed }, enable, changes, errors: [...errors].sort(), current, owned,
         ...(requested === undefined ? {} : { requested }) })
     } catch (error) {
       if (!current()) return
@@ -7674,6 +7675,7 @@ export class AppState {
       const needs = await backend.connection.projectNeeds(review.project.id)
       const latest = await backend.connection.getProject(review.project.id)
       const running = await backend.connection.activeEnvironment()
+      if (needs.installed === undefined) throw new Error(t('projectNeeds.activationChanged'))
       const expected = new Map(review.needs.installed.map(({ pack, version }) => [pack, version]))
       for (const { pack, version } of review.changes) expected.set(pack, version!)
       const selected = [...new Set([...review.enable, ...review.changes.map(({ pack }) => pack)])]
