@@ -28,6 +28,7 @@ import {
   planOccurrenceLinkMutation,
   parseDinksterSchema,
   loadDocument,
+  lookupSitesOf,
   type Json,
   type NodeProgress,
   type NodeSchema,
@@ -2268,7 +2269,7 @@ describe('an editor on the Inputs panel', () => {
       ] })) },
     ] })
     if (schema === undefined) throw new Error(JSON.stringify(diagnostics))
-    for (const depth of [1, 2]) {
+    for (const [depth, flat] of [[1, true], [2, true], [1, false], [2, false]] as const) {
       const document = loadDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-lookup', root: 'root',
         graphs: {
@@ -2278,11 +2279,11 @@ describe('an editor on the Inputs panel', () => {
           } },
           detail: { id: 'detail', name: 'Detail', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
             nodes: { sample: { id: 'sample', type: 'Picker', values: { category: 'sdxl' } } },
-            boundary: { body: [...['kind', 'pick', 'dependent'].map((id, i) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'sample', port: i === 0 ? 'category' : i === 1 ? 'lora' : 'dependent' } })),
+            boundary: { body: [...(flat ? ['kind', 'pick', 'dependent'] : []).map((id, i) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'sample', port: i === 0 ? 'category' : i === 1 ? 'lora' : 'dependent' } })),
               { kind: 'input', id: 'mode', binds: { kind: 'construct', node: 'sample', port: 'mode' } }] } },
           ...(depth === 1 ? {} : { portrait: { id: 'portrait', name: 'Portrait', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
             nodes: { detail: { id: 'detail', type: '#detail', values: { kind: 'sdxl' } } },
-            boundary: { body: [...['category', 'list', 'dependent'].map((id, i) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'detail', port: i === 0 ? 'kind' : i === 1 ? 'pick' : 'dependent' } })),
+            boundary: { body: [...(flat ? ['category', 'list', 'dependent'] : []).map((id, i) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'detail', port: i === 0 ? 'kind' : i === 1 ? 'pick' : 'dependent' } })),
               { kind: 'input', id: 'mode', binds: { kind: 'construct', node: 'detail', port: 'mode' } }] } } }),
         }, view: { graphs: {} },
       }).document as WorkflowDocument
@@ -2297,21 +2298,42 @@ describe('an editor on the Inputs panel', () => {
             ? [`${args[0]}-one`, `${args[0]}-two`] : lookup.endsWith('Seed') ? lookup : [lookup] }),
         })
         const panel = scene.boundaryNodes.find((item) => item.side === 'inputs')!
-        expect(panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'pick')).toMatchObject({
-          spec: { options: { options: [`${category}-one`, `${category}-two`] } },
-        })
         const face = boundaryFieldNode(panel)!
-        expect(face.elaborated?.lookupDependencies?.map((site) => site.call.lookup)).toEqual(['pack.flatSeed'])
-        expect(panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'dependent')).toMatchObject({
-          spec: { options: { options: ['pack.flatSeed'] } },
-        })
-        expect(elabInputsOf(face.elaborated!).find((item) => item.spec.id === 'pick')?.looked?.options).toMatchObject({
-          state: 'ready', call: { lookup: 'pack.loras', args: [category], nodeType: 'Picker' },
-        })
-        expect(elabInputsOf(face.elaborated!).filter((item) => item.spec.id.startsWith('mode.'))).toEqual([])
+        expect(face.elaborated?.lookupDependencies?.map((site) => site.call.lookup)).toEqual([
+          ...(flat ? ['pack.flatSeed'] : []), ...(node === 'second' ? ['pack.branchSeed'] : []),
+        ])
+        if (flat) {
+          expect(panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'pick')).toMatchObject({
+            spec: { options: { options: [`${category}-one`, `${category}-two`] } },
+          })
+          expect(panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'dependent')).toMatchObject({
+            spec: { options: { options: ['pack.flatSeed'] } },
+          })
+          expect(elabInputsOf(face.elaborated!).find((item) => item.spec.id === 'pick')?.looked?.options).toMatchObject({
+            state: 'ready', call: { lookup: 'pack.loras', args: [category], nodeType: 'Picker' },
+          })
+        }
+        expect(elabInputsOf(face.elaborated!).filter((item) => item.spec.id.startsWith('mode.')).map((item) => item.spec.id))
+          .toEqual([`mode.${node === 'first' ? 'b' : 'a'}Adapter`])
+        expect(lookupSitesOf(face.elaborated!.items).map((site) => site.call.lookup))
+          .toEqual([...(flat ? ['pack.loras'] : []), ...(node === 'first' ? ['pack.b'] : [])])
+        for (const site of [...lookupSitesOf(face.elaborated!.items), ...(face.elaborated!.lookupDependencies ?? [])]) {
+          expect(site.call.nodeType).toBe('Picker')
+        }
         expect(panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === `mode.${node === 'first' ? 'b' : 'a'}Adapter`)).toMatchObject({
           spec: { options: { options: [node === 'first' ? 'pack.b' : 'pack.branchSeed'] } },
         })
+        const cold = buildScene({ document, graphId: 'detail', resolve, tokens: defaultTokens, measure,
+          widgetMeasure: () => ({ viewId: 'core.select', rows: 1 }),
+          occurrence: { owner: { instancePath: path.slice(0, -1), node: path.at(-1)! }, plannerAvailable: true },
+          occurrenceView: occurrenceDynamicView(document, resolve, path), lookupAnswers: () => undefined,
+        })
+        const coldFace = boundaryFieldNode(cold.boundaryNodes.find((item) => item.side === 'inputs')!)!
+        expect(coldFace.elaborated?.lookupDependencies?.map((site) => site.call.lookup)).toEqual([
+          ...(flat ? ['pack.flatSeed'] : []), ...(node === 'second' ? ['pack.branchSeed'] : []),
+        ])
+        expect(lookupSitesOf(coldFace.elaborated!.items).map((site) => [site.call.lookup, site.call.nodeType]))
+          .toEqual([...(flat ? [['pack.loras', 'Picker']] : []), ...(node === 'first' ? [['pack.b', 'Picker']] : [])])
       }
     }
   })

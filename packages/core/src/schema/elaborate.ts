@@ -260,6 +260,8 @@ export interface ElaboratedInput {
    * each. The answers in use are already in `spec.widget`.
    */
   readonly looked?: Readonly<Partial<Record<LookedWidgetField, LookedState>>>
+  /** Hidden lookup sources read while working out this field's presentation. */
+  readonly lookupDependencies?: readonly LookupSite[]
   /**
    * Not drawn because of where it sits: its `visible` is false, or a hidden
    * choice or group holds it. Its `spec.hidden` is set, but the run is sent
@@ -971,8 +973,9 @@ function settle(
   // count or a leader reads the values the previous pass worked out.
   let settled: ReadonlyMap<string, string | null> = new Map()
   let inUse: ReadonlyMap<string, Json | Unknown> = new Map()
+  let lookups: ReadonlyMap<string, ReadonlySet<LookupSite>> = new Map()
   for (let pass = 1; ; pass++) {
-    const result = elaboratePass(schema, node, connectivity, options, settled, inUse)
+    const result = elaboratePass(schema, node, connectivity, options, settled, inUse, lookups)
     const unsettled = [...result.early].filter((path) => (result.chosen.get(path) ?? null) !== (settled.get(path) ?? null))
     if (unsettled.length === 0 && (sameInUse(result.inUse, inUse) || pass === MAX_CHOICE_PASSES)) return result
     if (pass === MAX_CHOICE_PASSES) {
@@ -987,6 +990,7 @@ function settle(
     }
     settled = result.chosen
     inUse = result.inUse
+    lookups = result.lookups
   }
 }
 
@@ -997,11 +1001,13 @@ function elaboratePass(
   options: ElaborateOptions,
   settled: ReadonlyMap<string, string | null>,
   previousInUse: ReadonlyMap<string, Json | Unknown>,
+  previousLookups: ReadonlyMap<string, ReadonlySet<LookupSite>>,
 ): {
   readonly elaborated: ElaboratedInterface
   readonly chosen: ReadonlyMap<string, string | null>
   readonly early: ReadonlySet<string>
   readonly inUse: ReadonlyMap<string, Json | Unknown>
+  readonly lookups: ReadonlyMap<string, ReadonlySet<LookupSite>>
   /** Rows this pass reported a problem on, and whether it hid any row. */
   readonly problems: ReadonlySet<string>
   readonly hid: boolean
@@ -1153,7 +1159,10 @@ function elaboratePass(
    * Undefined for any other field.
    */
   const automaticInUse = (path: string): Json | Unknown | undefined => {
-    if (!resolving) return previousInUse.get(path)
+    if (!resolving) {
+      useLookups(previousLookups.get(path) ?? [])
+      return previousInUse.get(path)
+    }
     if (!sites.has(path)) return undefined
     const outcome = automaticOutcome(path)
     if (outcome === undefined) return UNKNOWN
@@ -1794,6 +1803,9 @@ function elaboratePass(
       exhaust('elab.projectedNamespaceCollision', `projected input namespace collision at '${path}'`)
       return
     }
+    const outerLookups = readingLookups
+    const dependencies = new Set<LookupSite>()
+    readingLookups = dependencies
     const own = row.labelFormula !== undefined ? labelOf(row.labelFormula, row.id, scope) : row.displayName ?? row.id
     const boxedLabel = label === undefined && scope.inMemberBox && scope.labelPrefix !== undefined
     let spec: InputSpec = {
@@ -1824,6 +1836,8 @@ function elaboratePass(
     // A census also visits rows not chosen; they never replace a chosen row's entry.
     if (!scope.dormant || !unsetReads.has(path)) unsetReads.set(path, readWhenUnset(sent ? sentSpecOf(spec, hiddenByScope) : { ...spec, sent: false }))
     if (!scope.ghost && !scope.dormant && scope.kept === undefined) formulaDefaults.set(path, unsetReads.get(path))
+    readingLookups = outerLookups
+    useLookups(dependencies)
     push({
       kind: 'input',
       address: { port: path },
@@ -1838,6 +1852,7 @@ function elaboratePass(
       ...(row.unavailable !== undefined ? { kept: row.unavailable.message } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),
       ...(looked !== undefined && Object.keys(looked.states).length > 0 ? { looked: looked.states } : {}),
+      ...(dependencies.size ? { lookupDependencies: [...dependencies] } : {}),
       ...(hiddenByScope ? { hiddenByScope: true as const } : {}),
       ...(scope.hiddenByDeclaration ? { hiddenByDeclaration: true as const } : {}),
       ...extra,
@@ -2801,8 +2816,11 @@ function elaboratePass(
     const found = item.kind === 'input' ? outcomes.get(item.address.port) : undefined
     if (found === undefined || item.kind !== 'input') continue
     const outcome = labelled(found)
-    items[index] = { ...item, automatic: outcome, automaticContext: contextOf(sites.get(item.address.port)!.scope) }
-    useLookups([...(formulaLookups.get(item.address.port) ?? [])].filter((site) => site.call !== outcome.call))
+    const dependencies = [...(formulaLookups.get(item.address.port) ?? [])].filter((site) => site.call !== outcome.call)
+    items[index] = { ...item, automatic: outcome, automaticContext: contextOf(sites.get(item.address.port)!.scope),
+      ...(dependencies.length ? { lookupDependencies: [...(item.lookupDependencies ?? []), ...dependencies] } : {}),
+    }
+    useLookups(dependencies)
     if (outcome.state === 'default') {
       const shown = typeof outcome.value === 'string' ? outcome.value : JSON.stringify(outcome.value)
       diagnostics.push(diag('warning', 'schema', 'automatic.default',
@@ -2843,7 +2861,7 @@ function elaboratePass(
     ...(suffix ? { titleSuffix: suffix } : {}),
     diagnostics,
   }
-  return { elaborated, chosen, early, inUse, problems, hid }
+  return { elaborated, chosen, early, inUse, lookups: formulaLookups, problems, hid }
 }
 
 // ---------------------------------------------------------------------------

@@ -65,6 +65,7 @@ import {
   type GraphDefId,
   type Json,
   type LinkEndpoint,
+  type LookupCallSpec,
   type MaterializeFrame,
   type NodeData,
   type NodeProgress,
@@ -1972,6 +1973,25 @@ export function buildScene(input: BuildSceneInput): Scene {
         rows, pins: [], boxes: boxes.map((box) => ({ ...box, y: box.y - top, first: box.first - first, last: box.last - first })),
       })
       outsideRows.set(item.id, rows.filter((row): row is Extract<LayoutRow, { kind: 'widget' }> => row.kind === 'widget'))
+      if (inner.elaborated !== undefined) {
+        const drawn = new Set(rows.flatMap((row) => row.kind === 'widget' ? [row.inputId] : []))
+        const nativeCall = (call: LookupCallSpec): LookupCallSpec => ({ ...call, nodeType: call.nodeType ?? inner.node.type })
+        const fields = elabInputsOf(inner.elaborated).filter((field) => under(field.address.port) && drawn.has(panelKey(field.address.port)))
+          .map((field) => ({ ...field, address: { port: panelKey(field.address.port) },
+            spec: { ...field.spec, id: panelKey(field.spec.id) },
+            ...(field.looked === undefined ? {} : { looked: Object.fromEntries(Object.entries(field.looked).map(([key, state]) => [key,
+              'call' in state && state.call !== undefined ? { ...state, call: nativeCall(state.call) } : state,
+            ])) }),
+            ...(field.automatic?.call === undefined ? {} : { automatic: { ...field.automatic, call: nativeCall(field.automatic.call) } }),
+            ...(field.automaticIfEmptied?.call === undefined ? {} : { automaticIfEmptied: { ...field.automaticIfEmptied, call: nativeCall(field.automaticIfEmptied.call) } }),
+            ...(field.automaticIfEmptiedLookups === undefined ? {} : { automaticIfEmptiedLookups: field.automaticIfEmptiedLookups.map((site) => ({ ...site, call: nativeCall(site.call) })) }),
+            ...(field.lookupDependencies === undefined ? {} : { lookupDependencies: field.lookupDependencies.map((site) => ({ ...site, call: nativeCall(site.call) })) }),
+          }))
+        const retained: ElaboratedInterface = fieldElaborated ?? { items: [], formulaValues: {}, submissionValues: [], constructs: [], groups: [], diagnostics: [] }
+        fieldElaborated = { ...retained, items: [...retained.items, ...fields],
+          lookupDependencies: [...(retained.lookupDependencies ?? []), ...fields.flatMap((field) => field.lookupDependencies ?? [])],
+        }
+      }
     }
     // A value the owner receives by a wire outside the subgraph is not
     // edited here; a document literal on that wire is shown instead.
