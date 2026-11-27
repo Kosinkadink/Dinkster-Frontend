@@ -380,7 +380,7 @@ documentTest('remote COMBO reuses the controller chip with refresh-specific copy
   const chip = await chipPoint(page, 'choice')
   await page.mouse.click(chip.x, chip.y)
   await expect(page.getByTestId('seed-controller-menu')).toContainText('After refresh')
-  await expect(page.getByTestId('seed-controller-increment')).toContainText('Choose the next option after refresh.')
+  await expect(page.getByTestId('seed-controller-increment')).toHaveText('Next')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('seed-controller-menu')).not.toBeVisible()
   const row = await widgetPoint(page, 'choice')
