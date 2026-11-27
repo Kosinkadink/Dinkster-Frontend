@@ -11,6 +11,7 @@ import { inspectBoardMedia } from './board-media.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductButton, ProductFileInput } from './ProductControls.js'
 import { failureMessage } from './request-failure.js'
+import { RequestFailure } from '@dinkster/client'
 import { ProductActionFooter } from './ProductForm.js'
 import { UploadDestination } from './UploadDestination.js'
 import { activeProjectId } from './projects.js'
@@ -80,7 +81,7 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
       clearError()
       setImporting(undefined)
     } catch (reason) {
-      if (current()) { setError(failureMessage(reason, 'Files could not be imported.')); setImporting(undefined) }
+      if (current()) { setError(reason instanceof RequestFailure ? failureMessage(reason, 'Files could not be imported.') : reason instanceof Error ? reason.message : String(reason)); setImporting(undefined) }
     } finally {
       if (importAbort === abort) { importAbort = undefined; setBusy(false) }
     }
@@ -124,7 +125,7 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
           if (live && props.entry === entry && request === drop) clearError()
         } catch (reason) {
           if (live && props.entry === entry && request === drop)
-            setError(failureMessage(reason, 'The file could not be placed.'))
+            setError(reason instanceof RequestFailure ? failureMessage(reason, 'The file could not be placed.') : reason instanceof Error ? reason.message : String(reason))
         }
       })()
     }}
@@ -186,7 +187,7 @@ export function installBoardPages(app: AppState): () => void {
             if (app.boards.entries.get().includes(owner)) setSaveError(undefined)
           } catch (reason) {
             if (app.boards.entries.get().includes(owner))
-              setSaveError(failureMessage(reason, 'The board could not be saved.'))
+              setSaveError(reason instanceof RequestFailure ? failureMessage(reason, 'The board could not be saved.') : reason instanceof Error ? reason.message : String(reason))
           }
         },
         snapshot: () => app.boards.entries.get().find((candidate) => candidate.id === entry.id)?.session.doc,

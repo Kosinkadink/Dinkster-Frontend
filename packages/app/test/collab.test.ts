@@ -612,7 +612,7 @@ describe('stableActorId', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2)
     expect(JSON.parse(fetchFn.mock.calls[1]![1]!.body as string)).toEqual({ actorId: id })
     const refused = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ error: 'actor-principal-mismatch' }), { status: 409 }))
-    await expect(bindBrowserActor('http://fixture', 'session', 'squatted', refused)).rejects.toThrow('actor-principal-mismatch')
+    await expect(bindBrowserActor('http://fixture', 'session', 'squatted', refused)).rejects.toMatchObject({ status: 409 })
     expect(refused).toHaveBeenCalledTimes(2)
   })
 

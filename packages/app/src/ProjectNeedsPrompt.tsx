@@ -1,5 +1,5 @@
 import { createSignal, For, onCleanup, Show } from 'solid-js'
-import type { PackPreparationProgress } from '@dinkster/client'
+import { PackInstallError, RequestFailure, type PackPreparationProgress } from '@dinkster/client'
 import { ProductErrorBanner, ProductNotice } from '@dinkster/ui'
 import { PackPreparationStatus } from './PackPreparationStatus.js'
 import type { AppState, ProjectNeedsReview, ProjectPackInstallationReview } from './app-state.js'
@@ -51,7 +51,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
           setError(message('search.installExpired'))
         }, Math.min(result.expiresAt - performance.now(), 2_147_483_647))
       }
-    } catch (cause) { if (!disposed) setError(failureMessage(cause)) }
+    } catch (cause) { if (!disposed) setError(cause instanceof RequestFailure || cause instanceof PackInstallError ? failureMessage(cause) : cause instanceof Error ? cause.message : String(cause)) }
     finally { if (!disposed) { setBusy(false); setPreparing(false) } }
   }
   const apply = async (): Promise<void> => {
@@ -66,7 +66,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
     catch (cause) {
       if (!disposed) {
         setUncertain(props.app.projectPackInstallations.has(props.review.backend))
-        setError(failureMessage(cause))
+        setError(cause instanceof RequestFailure || cause instanceof PackInstallError ? failureMessage(cause) : cause instanceof Error ? cause.message : String(cause))
       }
     } finally { if (!disposed) { setPlan(undefined); setApplying(false); setBusy(false) } }
   }

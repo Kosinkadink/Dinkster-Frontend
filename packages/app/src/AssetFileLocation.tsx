@@ -55,7 +55,7 @@ export function AssetFileLocation(props: {
       if (path !== undefined) await navigator.clipboard.writeText(path)
       else if (canReveal()) await desktopFileBridge()!.revealFile!(url, identity)
     } catch (failure) {
-      if (request === generation) setError(failureMessage(failure))
+      if (request === generation) setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
       if (request === generation) setBusy(false)
     }

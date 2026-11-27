@@ -2,7 +2,7 @@
 
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
-import type { LibraryStorage, PackSettings } from '@dinkster/client'
+import { RequestFailure, type LibraryStorage, type PackSettings } from '@dinkster/client'
 import { registerCatalog, setLocale, t } from '@dinkster/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../src/locale.js'
@@ -138,7 +138,7 @@ describe('SettingsDialog search', () => {
       updateLibraryStorageLimit: async () => {},
       clearLibraryStorage: async () => {
         await pending
-        if (fail) throw new Error('Cleanup unavailable')
+        if (fail) throw new RequestFailure('POST', '/api/library/storage/clear', 503, 'Cleanup unavailable')
         return { collectionEnabled: enabled, blocked: enabled ? [] : ['owner_completeness_unknown'],
           reclaimedBytes: enabled ? 113 : 0, reclaimedFiles: enabled ? 2 : 0 }
       },
@@ -152,7 +152,7 @@ describe('SettingsDialog search', () => {
     expect(clear.disabled).toBe(true)
     expect(root.textContent).toContain('Clearing eligible assets...')
     finish()
-    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Cleanup unavailable'))
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('The action could not be completed. Cleanup unavailable'))
     expect(clear.disabled).toBe(false)
     fail = false
     pending = Promise.resolve()
@@ -174,7 +174,7 @@ describe('SettingsDialog search', () => {
       fetchLibraryStorage: async () => ({ temporaryBytes: null, vaultBytes: null, adoptedBytes: null,
         reclaimableBytes: null, blocked: ['reference_state_unavailable'], collectionEnabled: false,
         policyAvailable: available, limitBytes: available ? 8193 : null }),
-      updateLibraryStorageLimit: async () => { throw new Error('Operator permission denied') },
+      updateLibraryStorageLimit: async () => { throw new RequestFailure('PATCH', '/api/library/storage', 403, 'Operator permission denied') },
       clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') },
     }
     const root = document.createElement('div')
@@ -189,7 +189,7 @@ describe('SettingsDialog search', () => {
     await vi.waitFor(() => expect(unlimited.disabled).toBe(false))
     unlimited.click()
     ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Apply limit')!.click()
-    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Operator permission denied'))
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('The action could not be completed. Operator permission denied'))
     expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('Unknown')
     unmount()
   })
@@ -572,13 +572,13 @@ describe('SettingsDialog search', () => {
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} packSettings={{
       client: {
-        fetchPackSettings: async () => { throw new Error('pack is unavailable') },
+        fetchPackSettings: async () => { throw new RequestFailure('GET', '/api/packs/test/settings', 503, 'pack is unavailable') },
         updatePackSettings: async () => { throw new Error('unexpected update') },
       },
       packs: () => [{ id: 'broken', displayName: 'Broken Pack' }],
     }} />, root)
     root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Broken Pack"]')!.click()
-    await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toBe('pack is unavailable'))
+    await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toBe('The action could not be completed. pack is unavailable'))
     expect(root.querySelector('[data-pack-setting-id]')).toBeNull()
     unmount()
   })

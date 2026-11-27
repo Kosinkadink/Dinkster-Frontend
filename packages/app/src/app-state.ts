@@ -3125,7 +3125,7 @@ export class AppState {
   /** Problems-to-canvas handoff; CanvasHost revalidates the anchor before acting. */
   readonly diagnosticFocus: Signal<DiagnosticFocusRequest | undefined> = createSignal<DiagnosticFocusRequest | undefined>(undefined)
   readonly logs: Signal<readonly AppLogEntry[]> = createSignal<readonly AppLogEntry[]>([])
-  private readonly unsubscribeRequestFailures = subscribeRequestFailures((failure) => this.log('error', 'Requests', failure.message))
+  private readonly unsubscribeRequestFailures = subscribeRequestFailures((failure) => this.log('error', 'Requests', failure.message), true)
   /**
    * All connected backends; index 0 is the default (never removable). Most
    * users have exactly one and see none of the multi-backend chrome.
@@ -3960,7 +3960,7 @@ export class AppState {
       this.workspaceAuthorityEnabled = false
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
         'error', 'command', 'workspace.tabs.failed',
-        `Shared tab workspace unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        failureMessage(error, 'Shared tab workspace unavailable.'),
       )])
       throw error
     }
@@ -4066,7 +4066,7 @@ export class AppState {
       (error: unknown) => {
         if (this.workspaceTabConnection === connection) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
           'error', 'command', 'workspace.tabs.mutationFailed',
-          `Shared tab change failed: ${error instanceof Error ? error.message : String(error)}`,
+          failureMessage(error, 'Shared tab change failed.'),
         )])
       },
     ).finally(() => {
@@ -4219,7 +4219,7 @@ export class AppState {
       'warning',
       'command',
       'workspace.tabs.reconnecting',
-      `Shared tab workspace reconnecting: ${error.message}`,
+      failureMessage(error, 'Shared tab workspace reconnecting.'),
     )])
     this.disableWorkspaceAuthority(true)
     let delay = 250
@@ -4360,7 +4360,7 @@ export class AppState {
         'error',
         'command',
         'workspace.authority.failed',
-        `Shared workspace unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        failureMessage(error, 'Shared workspace unavailable.'),
       )])
     }
   }
@@ -5005,7 +5005,7 @@ export class AppState {
         if (connection.status.get() !== 'connected') return
         reconcile().catch((e: unknown) => {
           this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-            diag('error', 'runtime', 'reconcile.failed', `[${label}] failed to reconcile executions after reconnect: ${e instanceof Error ? e.message : String(e)}`),
+            diag('error', 'runtime', 'reconcile.failed', failureMessage(e, `Executions for ${label} could not be reloaded after reconnecting.`)),
           ])
         })
       }
@@ -5351,7 +5351,7 @@ export class AppState {
               'error',
               'runtime',
               'execution.artifactHydrationFailed',
-              `[${label}] failed to hydrate completed execution artifacts: ${error instanceof Error ? error.message : String(error)}`,
+              failureMessage(error, `Outputs for ${label} could not be loaded.`),
             ),
           ])
         })
@@ -5435,7 +5435,7 @@ export class AppState {
       // The live probe never throws, but an injected discovery can; keep
       // the named-problem contract instead of an unhandled rejection.
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag('error', 'schema', 'backend.discovery-failed', `'${trimmed}': discovery failed: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'schema', 'backend.discovery-failed', failureMessage(e, 'The backend could not be found.')),
       ])
       return undefined
     }

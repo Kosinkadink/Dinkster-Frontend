@@ -403,7 +403,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         void loadLogicalModels(combined)
       }).catch((reason: unknown) => {
         if (!live) return
-        setMountDiscoveryError(reason instanceof Error ? reason.message : String(reason))
+        setMountDiscoveryError(failureMessage(reason, 'Folders could not be loaded.'))
         void loadLogicalModels([local])
       })
     }
@@ -893,7 +893,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                       <AssetVideoPreview
                         preview={preview()}
                         onError={(error) => {
-                          if (error !== undefined) setAssetError(error instanceof Error ? error.message : String(error))
+                          if (error !== undefined) setAssetError(failureMessage(error, 'Video preview unavailable.'))
                           setAssetPreviewFailed(true)
                         }}
                         onDimensions={setAssetPreviewDims}

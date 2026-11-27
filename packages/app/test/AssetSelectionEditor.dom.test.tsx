@@ -1,6 +1,6 @@
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { AssetSelectionOption } from '@dinkster/client'
+import { RequestFailure, type AssetSelectionOption } from '@dinkster/client'
 import { AssetSelectionEditor } from '../src/editors/AssetSelectionEditor.js'
 
 afterEach(() => document.body.replaceChildren())
@@ -78,7 +78,7 @@ it('disables stale picks during refresh, reports errors, and aborts superseded a
   button('Refresh').click()
   expect(requests[1]!.signal.aborted).toBe(true)
   requests[1]!.resolve([{ name: 'pixel_space', shape: 'literal' }])
-  requests[2]!.reject(new Error('selection service unavailable'))
+  requests[2]!.reject(new RequestFailure('GET', '/api/assets/selections', 503, 'selection service unavailable'))
   await vi.waitFor(() => expect(root.textContent).toContain('selection service unavailable'))
   expect(button('Use selection').disabled).toBe(true)
   expect(root.querySelector('[data-entry="pixel_space"]')).toBeNull()

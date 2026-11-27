@@ -1350,7 +1350,10 @@ export interface ProjectCreation {
     | { readonly kind: 'project'; readonly project: string }
 }
 
-export class ProjectRevisionConflictError extends Error {}
+export class ProjectRevisionConflictError extends Error {
+  readonly status = 409
+  readonly serverError = this.message
+}
 
 export interface LibraryProject {
   readonly accountProject?: AccountProjectLink | null

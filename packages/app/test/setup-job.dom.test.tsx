@@ -3,6 +3,7 @@
 import { createRoot } from 'solid-js'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createSetupController, type SetupJob, type SetupPlan } from '../src/setup-job.js'
+import '../src/locale.js'
 
 const plan: SetupPlan = {
   id: 'plan-1', root: '/install/nightly', channel: 'nightly', variant: 'linux-nvidia',
@@ -14,7 +15,7 @@ const running: SetupJob = {
   id: 'job-1', root: plan.root, channel: 'nightly', variant: 'linux-nvidia',
   state: 'running', progress: null, error: null, installation: null,
 }
-const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+const answer = (body: unknown, status = 200) => Response.json(body, { status })
 const tick = async () => { await vi.advanceTimersByTimeAsync(0) }
 let dispose: (() => void) | undefined
 afterEach(() => { dispose?.(); vi.unstubAllGlobals(); vi.useRealTimers() })
@@ -50,6 +51,7 @@ it('replans a typed folder and never starts the old plan after a refused replan'
   fetch.mockImplementationOnce(async () => answer({ error: 'invalid-root', message: 'Use an absolute path.' }, 400))
   await setup.refresh({ root: 'relative' })
   expect(setup.error()?.code).toBe('invalid-root')
+  expect(setup.error()?.message).toBe('The action could not be completed. Use an absolute path.')
   expect(setup.canStart()).toBe(false)
   await setup.start()
   expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0)
@@ -74,7 +76,7 @@ it('recovers a successful start with a lost reply without submitting another job
   await tick()
   await setup.start()
   expect(setup.job()).toEqual(running)
-  expect(setup.error()?.message).toBe('Reply lost')
+  expect(setup.error()?.message).toBe('The action could not be completed. The engine did not answer.')
   expect(setup.canStart()).toBe(false)
   await setup.start()
   expect(posts).toBe(1)

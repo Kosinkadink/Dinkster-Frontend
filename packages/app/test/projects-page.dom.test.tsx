@@ -4,7 +4,7 @@ import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { asConnectionId, setLocale } from '@dinkster/core'
-import { DinksterConnection, type LibraryProject, type ProjectCreation } from '@dinkster/client'
+import { DinksterConnection, RequestFailure, type LibraryProject, type ProjectCreation } from '@dinkster/client'
 import '../src/locale.js'
 import {
   processSource,
@@ -475,7 +475,7 @@ it('renames the selected project at the revision it read', async () => {
 
 it('keeps the Delete consequence and selected project after a refused deletion', async () => {
   const data = source(projects)
-  data.deleteProject = async () => { throw new Error('Project changed. Try again.') }
+  data.deleteProject = async () => { throw new RequestFailure('DELETE', '/api/projects/test', 409, 'Project changed. Try again.') }
   render(() => <ProjectsView shell={shell()} source={data} />, document.body)
   await settle()
   document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()

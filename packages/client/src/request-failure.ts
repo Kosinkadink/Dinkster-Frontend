@@ -16,13 +16,17 @@ export class RequestFailure extends Error {
 const failures = new WeakMap<Response, RequestFailure>()
 const listeners = new Set<(failure: RequestFailure) => void>()
 const observedFetches = new WeakSet<FetchLike>()
+const history: RequestFailure[] = []
 
-export function subscribeRequestFailures(listener: (failure: RequestFailure) => void): () => void {
+export function subscribeRequestFailures(listener: (failure: RequestFailure) => void, replay = false): () => void {
+  if (replay) for (const failure of history) listener(failure)
   listeners.add(listener)
   return () => { listeners.delete(listener) }
 }
 
 function report(failure: RequestFailure): void {
+  history.push(new RequestFailure(failure.method, failure.path, failure.status))
+  if (history.length > 500) history.shift()
   for (const listener of listeners) listener(failure)
 }
 

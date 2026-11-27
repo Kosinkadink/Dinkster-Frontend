@@ -14,6 +14,7 @@ import {
 import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } from 'solid-js'
 import { Load3dSourceError, type Load3dSource, type Load3dSourceProblem } from './load3d-source.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 import type { Model3dCameraState, Model3dTransform, Model3dViewerHandle } from './model3d-viewer.js'
 
 /** What the 3D view in a node needs from its host. */
@@ -169,7 +170,7 @@ export function Load3dSpace(props: {
       setState('ready')
     })().catch((reason: unknown) => {
       if (abort.signal.aborted) return
-      setSourceError(reason instanceof Load3dSourceError ? undefined : reason instanceof Error ? reason.message : String(reason))
+      setSourceError(reason instanceof Load3dSourceError ? undefined : failureMessage(reason, '3D preview unavailable.'))
       setState(reason instanceof Load3dSourceError ? reason.problem : 'unavailable')
     })
   }))
@@ -229,7 +230,7 @@ export function Load3dSpace(props: {
       setRecord('idle')
     } catch (reason) {
       if (abort.signal.aborted) return
-      setRecordError(reason instanceof Error ? reason.message : String(reason))
+      setRecordError(failureMessage(reason, 'Recording could not be saved.'))
       setRecord('failed')
     }
   }

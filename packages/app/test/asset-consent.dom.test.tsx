@@ -1,7 +1,7 @@
 import { render } from 'solid-js/web'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { asConnectionId, createSignal } from '@dinkster/core'
-import { DinksterConnection, parseAssetsMissingRejection, type ModelDownloadJob, type ModelDownloadSpace, type WebSocketLike } from '@dinkster/client'
+import { DinksterConnection, RequestFailure, parseAssetsMissingRejection, type ModelDownloadJob, type ModelDownloadSpace, type WebSocketLike } from '@dinkster/client'
 import type { AppState } from '../src/app-state.js'
 import { AssetConsentDialog } from '../src/AssetConsentDialog.js'
 import { installAssetConsent, type AssetConsentRequest } from '../src/dialog-requests.js'
@@ -143,7 +143,7 @@ it('offers Run only after selectable models are ready, then keeps pack and media
   let failPlan = false
   const connection = {
     planModelDownload: async () => {
-      if (failPlan) throw new Error('Source unavailable')
+      if (failPlan) throw new RequestFailure('POST', '/api/models/downloads/plan', 503, 'Source unavailable')
       return { ...requirement, status: 'local' as const }
     },
     startModelDownload: vi.fn(), fetchModelDownloads: async () => ({ instance: 'one', jobs: [] }),
