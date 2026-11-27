@@ -117,7 +117,7 @@ describe('logical model CollectionPanel adapter', () => {
     expect(mounted.root.textContent).toContain('Other model')
     expect(mounted.root.textContent).toContain('left.safetensors')
     expect(mounted.root.textContent).toContain('right.safetensors')
-    expect(mounted.root.textContent).toContain('2.0 KiB')
+    expect(mounted.root.textContent).toContain('2 KB')
     expect(mounted.root.textContent).toContain('installed')
     expect(mounted.root.textContent).not.toContain('hidden-alias')
     expect(mounted.root.textContent).not.toContain(A.slice(0, 15))
