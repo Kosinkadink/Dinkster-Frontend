@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { noEngineOpen, type MemoryStatus } from '@dinkster/client'
-import { ProductRunActivity, ProductRunIcon } from '@dinkster/ui'
+import { ProductFixesCount, ProductRunActivity, ProductRunIcon } from '@dinkster/ui'
 import Workflow from 'lucide-solid/icons/workflow'
 import Snowflake from 'lucide-solid/icons/snowflake'
 import Download from 'lucide-solid/icons/download'
@@ -28,25 +28,25 @@ function formatBytes(bytes: number | null | undefined): string {
 
 interface BackgroundTask { readonly key: string; readonly backend: string; readonly text: string }
 
-function BackendTasks(props: { readonly backend: Backend; readonly update: (tasks: readonly BackgroundTask[]) => void }) {
+function BackendTasks(props: { readonly app: AppState; readonly backend: Backend; readonly update: (tasks: readonly BackgroundTask[]) => void }) {
   const message = useAppMessage()
   const composition = useSignal(props.backend.composition)
   const supervisor = useSignal(props.backend.supervisor)
   const connection = useSignal(props.backend.connection.status)
-  const [downloads, setDownloads] = createSignal<readonly BackgroundTask[]>([])
+  const downloadTasks = useSignal(props.app.modelDownloadTasks)
+  const downloads = () => connection() !== 'connected' ? [] : (downloadTasks().get(props.backend) ?? []).map((task) => ({
+    key: task.key, backend: props.backend.label,
+    text: task.queued ? message('shell.status.downloadWaiting', { name: task.name })
+      : message('shell.status.download', { name: task.name, received: formatBytes(task.received), total: formatBytes(task.size) }),
+  }))
   const [scans, setScans] = createSignal<readonly BackgroundTask[]>([])
   createEffect(() => {
-    if (connection() !== 'connected') { setDownloads([]); setScans([]); return }
+    if (connection() !== 'connected') { setScans([]); return }
     let live = true
     let timer: ReturnType<typeof setTimeout> | undefined
     const poll = async () => {
       await Promise.all([
-        props.backend.connection.fetchModelDownloads().then(({ jobs }) => {
-          if (live) setDownloads(jobs.filter((job) => !['completed', 'cancelled', 'failed'].includes(job.status)).map((job) => ({
-            key: job.jobId, backend: props.backend.label,
-            text: message('shell.status.download', { name: job.name, received: formatBytes(job.received), total: formatBytes(job.size) }),
-          })))
-        }).catch(() => { if (live) setDownloads([]) }),
+        props.app.modelDownloadsFor(props.backend).refresh(),
         props.backend.connection.fetchMountSettings().then(({ mounts }) => {
           if (live) setScans(mounts.filter((mount) => mount.state === 'pending' || mount.state === 'scanning').map((mount) => ({
             key: mount.id, backend: props.backend.label,
@@ -120,6 +120,14 @@ export function StatusBar(props: {
   const backends = useSignal(props.app.backends)
   const backendTick = useSignal(props.app.backendsTick)
   const settings = useSignal(props.app.settings.changed)
+  const adjustmentNotices = useSignal(props.app.adjustmentNotices)
+  // After its cross, the notice leaves only this count until the workflow is saved or closed.
+  const adjusted = () => {
+    const tab = props.tab()
+    const notice = tab === undefined ? undefined : adjustmentNotices().get(tab.id)
+    if (notice === undefined || !notice.dismissed) return 0
+    return notice.adjustments.reduce((total, adjustment) => total + adjustment.count, 0)
+  }
   const [tasks, setTasks] = createSignal<ReadonlyMap<string, readonly BackgroundTask[]>>(new Map())
   const allTasks = createMemo(() => [...tasks().values()].flat())
   const workflowTab = () => {
@@ -181,7 +189,7 @@ export function StatusBar(props: {
     onCleanup(() => { resize.disconnect(); mutation.disconnect() })
   })
   return <>
-    <For each={backends()}>{(backend) => <BackendTasks backend={backend} update={(entries) => setTasks((current) => {
+    <For each={backends()}>{(backend) => <BackendTasks app={props.app} backend={backend} update={(entries) => setTasks((current) => {
       const next = new Map(current); if (entries.length === 0) next.delete(backend.id); else next.set(backend.id, entries); return next
     })} />}</For>
     <footer ref={footer} class="statusbar statusbar-state" data-testid="status-bar" aria-label={message('shell.applicationStatus')}
@@ -208,6 +216,12 @@ export function StatusBar(props: {
         <Show when={props.problems()}>{(problem) => <ProductButton variant="ghost" size="compact" class="status-item status-problems"
           data-testid="status-problems" data-severity={problem().severity} aria-label={problem().label} data-tooltip-label={problem().label}
           onClick={() => props.openPanel('problems')}>{message('shell.status.problemCount', { count: problem().count })}</ProductButton>}</Show>
+        <Show when={adjusted() > 0}>
+          <span class="status-item status-adjusted" data-testid="status-adjusted">
+            <ProductFixesCount size="compact" count={adjusted()} label={message('fixesNotice.count', { count: adjusted() })}
+              onOpen={() => props.app.reopenAdjustmentNotice(props.tab()!.id)} />
+          </span>
+        </Show>
         <Show when={allTasks().length > 0}><ProductButton variant="ghost" size="compact" class="status-item status-background" data-testid="status-background"
           aria-label={backgroundLabel()} data-tooltip-label={backgroundLabel()} onClick={props.openAppLog}>
           <Icon icon={Download} /><span class="status-background-description">{allTasks().length === 1 ? allTasks()[0]!.text : message('shell.status.tasks', { count: allTasks().length })}</span>

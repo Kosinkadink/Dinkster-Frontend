@@ -49,6 +49,7 @@ import {
   ProductButton,
   ProductCheckbox,
   ProductConfirmation,
+  ProductConfirmationDialog,
   ProductDialog,
   ProductEmptyState,
   ProductErrorBanner,
@@ -100,6 +101,7 @@ import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 import { ProjectsGallery } from './projects.js'
 import { TemplatesGallery } from './templates.js'
+import { ModelDownloadsGallery } from './model-downloads.js'
 import { EngineStatesGallery } from './engine-states.js'
 import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
@@ -163,6 +165,7 @@ function Gallery() {
   const [toast, setToast] = createSignal<{ readonly message: string }>()
   const [error, setError] = createSignal(true)
   const [dialog, setDialog] = createSignal(false)
+  const [confirmationCase, setConfirmationCase] = createSignal<'one' | 'several' | 'safe' | 'working' | 'failed'>('one')
   const [wideDialog, setWideDialog] = createSignal(false)
   const [pending, setPending] = createSignal(false)
   const [fail, setFail] = createSignal(false)
@@ -1203,13 +1206,14 @@ function Gallery() {
             </Match>
             <Match when={route() === '#confirmations'}>
               <Section
-                title="Site confirmation"
+                title="In place"
                 components="ProductConfirmation"
               >
+                <ProductList label="Backend above the question"><ProductListRow title="Local" description="This computer" /></ProductList>
                 <ProductConfirmation
-                  title="Remove API key?"
-                  consequence="Applications using this key will lose access immediately."
-                  actionLabel="Remove key"
+                  title={'Remove "Studio B"?'}
+                  consequence="Studio B and its saved access tokens are removed from this project. No files are deleted."
+                  actionLabel="Remove backend"
                   intent="remove"
                   pending={pending()}
                   onConfirm={async () => {
@@ -1222,10 +1226,11 @@ function Gallery() {
                   }}
                   onCancel={() => complete('Removal cancelled')}
                 />
+                <ProductList label="Backend below the question"><ProductListRow title="Render farm" description="Disconnected" /></ProductList>
               </Section>
               <Section
-                title="App dialog"
-                components="ProductDialog with ProductConfirmation"
+                title="Something is lost"
+                components="ProductConfirmationDialog"
               >
                 <ProductButton intent="remove" onClick={() => setDialog(true)}>
                   Review removal
@@ -1234,6 +1239,19 @@ function Gallery() {
                   Open wide dialog
                 </ProductButton>
               </Section>
+              <For each={[
+                { id: 'several' as const, title: 'Several things' },
+                { id: 'safe' as const, title: 'Nothing is lost' },
+                { id: 'working' as const, title: 'Working' },
+                { id: 'failed' as const, title: 'Failed' },
+              ]}>{(example) => <Section title={example.title} components="ProductConfirmationDialog">
+                <ProductButton onClick={() => {
+                  setConfirmationCase(example.id)
+                  setPending(example.id === 'working')
+                  setDialog(true)
+                  if (example.id === 'working') window.setTimeout(() => setPending(false), 600)
+                }}>Review {example.title.toLowerCase()}</ProductButton>
+              </Section>}</For>
               <Section
                 title="Replaced built-in text"
                 components="ProductStringsProvider"
@@ -1262,26 +1280,31 @@ function Gallery() {
         onDismiss={() => setToast(undefined)}
       />
       <Show when={dialog()}>
-        <ProductDialog
-          title="Remove item?"
+        <ProductConfirmationDialog
+          title={confirmationCase() === 'several' ? 'Close 3 other tabs?' : confirmationCase() === 'safe' ? 'Show "strength" on Portrait fix?' : 'Remove "Studio B"?'}
           pending={pending()}
-          onDismiss={() => setDialog(false)}
-        >
-          <ProductConfirmation
-            consequence="This item will no longer be available."
-            actionLabel="Remove item"
-            intent="remove"
-            pending={pending()}
+            consequence={confirmationCase() === 'several' ? 'Two of them have unsaved changes, which will be lost.' : confirmationCase() === 'safe' ? 'The row is added to each subgraph on the way up. A subgraph used in several places gets it in every place.' : 'Studio B and its saved access tokens are removed from this project. No files are deleted.'}
+            actionLabel={confirmationCase() === 'several' ? 'Close and discard' : confirmationCase() === 'safe' ? 'Show on Portrait fix' : 'Remove backend'}
+            intent={confirmationCase() === 'safe' ? 'add' : 'remove'}
+            items={confirmationCase() === 'several' ? [
+              { name: 'Valley matte paintings', outcome: 'Unsaved changes' },
+              { name: 'Film grain experiments', outcome: 'Unsaved changes' },
+            ] : confirmationCase() === 'safe' ? [
+              { name: 'Blend detail', detail: 'used in 2 places', outcome: 'Already has it' },
+              { name: 'Detail pass', detail: 'used in 2 places', outcome: 'Gets the row' },
+              { name: 'Portrait fix', detail: 'used in 3 places', outcome: 'Gets the row' },
+            ] : undefined}
+            error={confirmationCase() === 'failed' ? 'Studio B was not removed. The library did not answer.' : undefined}
             onConfirm={async () => {
               setPending(true)
               await new Promise((resolve) => window.setTimeout(resolve, 600))
               setPending(false)
               setDialog(false)
+              setConfirmationCase('one')
               complete('Item removed')
             }}
-            onCancel={() => setDialog(false)}
+            onCancel={() => { setDialog(false); setConfirmationCase('one') }}
           />
-        </ProductDialog>
       </Show>
       <Show when={wideDialog()}>
         <ProductDialog
@@ -1695,7 +1718,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs', '#models'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
@@ -1726,6 +1749,9 @@ function GalleryRoot() {
           </Match>
           <Match when={route() === '#templates'}>
             <TemplatesGallery />
+          </Match>
+          <Match when={route() === '#model-downloads'}>
+            <ModelDownloadsGallery />
           </Match>
           <Match when={route() === '#page-tabs'}>
             <PageTabsGallery />

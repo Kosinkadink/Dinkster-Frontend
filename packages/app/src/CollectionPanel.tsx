@@ -152,6 +152,7 @@ export function CollectionPanel(props: {
   const [items, setItems] = createSolidSignal<readonly CollectionEntry[]>([])
   const [cursor, setCursor] = createSolidSignal<string | undefined>(undefined)
   const [total, setTotal] = createSolidSignal<number | undefined>(undefined)
+  const [disabledActions, setDisabledActions] = createSolidSignal<readonly string[]>([])
   const [loading, setLoading] = createSolidSignal(false)
   const [error, setError] = createSolidSignal<string | undefined>(undefined)
   // Owner of the COMMITTED page (see onSourceAction). Invalidated the
@@ -161,20 +162,11 @@ export function CollectionPanel(props: {
   const [pageOwner, setPageOwner] = createSolidSignal<string | undefined>(undefined)
   const [selectedId, setSelectedId] = createSolidSignal<string | undefined>(undefined)
   const [expandedIds, setExpandedIds] = createSolidSignal<ReadonlySet<string>>(new Set())
-  const [armedAction, setArmedAction] = createSolidSignal<string>()
   const instanceId = createUniqueId()
   const resultsId = `collection-results-${instanceId}`
   const descriptionId = `collection-description-${instanceId}`
   let rootEl: HTMLDivElement | undefined
   let searchEl: HTMLInputElement | undefined
-  let actionArmTimer: ReturnType<typeof setTimeout> | undefined
-  createEffect(() => {
-    const selection = `${sourceId()}:${selectedId() ?? ''}`
-    void selection
-    if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
-    actionArmTimer = undefined
-    setArmedAction(undefined)
-  })
   const clearSearch = (): void => {
     if (searchEl === undefined || searchEl.value === '') return
     searchEl.value = ''
@@ -343,6 +335,7 @@ export function CollectionPanel(props: {
         setItems(append ? [...new Map([...items(), ...page.items].map((entry) => [entry.id, entry])).values()] : page.items)
         setCursor(page.cursor)
         setTotal(page.total)
+        setDisabledActions(page.disabledActions ?? [])
         setPageOwner(page.owner)
         setLoading(false)
         if (!append && pendingInitialSelection !== undefined && selectedId() === undefined) {
@@ -398,7 +391,6 @@ export function CollectionPanel(props: {
   })
   onCleanup(() => {
     if (debounceTimer !== undefined) clearTimeout(debounceTimer)
-    if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
     generation++ // orphan any in-flight page
     controller?.abort()
   })
@@ -526,32 +518,18 @@ export function CollectionPanel(props: {
   const Actions = (p: { entry: CollectionEntry }) => (
     <div class="collection-actions" data-testid="collection-actions">
       <For each={p.entry.actions ?? []}>
-        {(a) => {
-          const key = () => `${sourceId()}:${p.entry.id}:${a.id}`
-          const armed = () => a.id === 'delete' && armedAction() === key()
-          return <button
-              class="collection-action"
-              data-testid="collection-action"
-              data-action={a.id}
-              data-tone={a.id === 'delete' ? 'danger' : 'accent'}
-              aria-pressed={a.id === 'delete' ? armed() : undefined}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (a.id === 'delete' && !armed()) {
-                  setArmedAction(key())
-                  if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
-                  actionArmTimer = setTimeout(() => setArmedAction(undefined), 4000)
-                  return
-                }
-                if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
-                actionArmTimer = undefined
-                setArmedAction(undefined)
-                props.onAction?.(sourceId(), p.entry, a.id)
-              }}
-            >
-              {armed() ? message('collection.action.confirmDelete') : a.label}
-            </button>
-        }}
+        {(a) => <button
+          class="collection-action"
+          data-testid="collection-action"
+          data-action={a.id}
+          data-tone={a.id === 'delete' ? 'danger' : 'accent'}
+          onClick={(e) => {
+            e.stopPropagation()
+            props.onAction?.(sourceId(), p.entry, a.id)
+          }}
+        >
+          {a.label}
+        </button>}
       </For>
     </div>
   )
@@ -795,7 +773,7 @@ export function CollectionPanel(props: {
               class="collection-source-action"
               data-testid="collection-source-action"
               data-action={a.id}
-              disabled={loading()}
+              disabled={loading() || disabledActions().includes(a.id)}
               onClick={() => props.onSourceAction?.(sourceId(), a.id, pageOwner())}
             >
               {a.label}

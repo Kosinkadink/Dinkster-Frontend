@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, For, on, onCleanup, Show, type JSX } from 'solid-js'
 import type { CommandOutcome } from '@dinkster/core'
 import { AppWindow, Bookmark, ChevronDown, Focus, Frame, Layers, Map as MapIcon, MessageCircleWarning, Palette, Route, Workflow, type LucideIcon } from 'lucide-solid'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from './editors.js'
@@ -174,6 +174,7 @@ export function CanvasCornerControls(props: {
   readonly shortcuts?: { readonly zoomIn?: string | undefined; readonly zoomOut?: string | undefined }
   readonly ref?: (element: HTMLDivElement) => void
   readonly minimapRef?: (element: HTMLCanvasElement) => void
+  readonly children?: JSX.Element
   readonly onToggleMinimap: () => void
   readonly onToggleSetting: (id: string) => void
   readonly onOpenMenu: (menu: CanvasCornerMenu) => void
@@ -186,6 +187,30 @@ export function CanvasCornerControls(props: {
   let settingsTrigger: HTMLButtonElement | undefined
   let zoomTrigger: HTMLButtonElement | undefined
   let menuElement: HTMLDivElement | undefined
+  let controls!: HTMLDivElement
+  let minimap!: HTMLCanvasElement
+  const [minimapFits, setMinimapFits] = createSignal(true)
+  createEffect(() => {
+    props.size
+    const stage = controls.closest<HTMLElement>('.canvas-stage')
+    if (!stage) return
+    const toolbar = stage.querySelector('.canvas-stage-toolbar')
+    const bar = controls.querySelector('.canvas-corner-bar')!
+    const measure = (): void => {
+      const gap = Number.parseFloat(getComputedStyle(controls).rowGap)
+      // The CSS height remains available while the map is hidden. Measuring
+      // its rectangle instead would make hiding and showing oscillate.
+      const height = Number.parseFloat(getComputedStyle(minimap).height)
+      const top = toolbar?.getBoundingClientRect().bottom ?? stage.getBoundingClientRect().top
+      setMinimapFits(bar.getBoundingClientRect().top - gap - height >= top + gap)
+    }
+    const observer = new ResizeObserver(measure)
+    for (const element of [stage, toolbar, bar, minimap]) {
+      if (element) observer.observe(element)
+    }
+    measure()
+    onCleanup(() => observer.disconnect())
+  })
   const percent = () => Math.round(props.zoom * 100)
   const [typed, setTyped] = createSignal(String(percent()))
   const [typing, setTyping] = createSignal(false)
@@ -223,11 +248,12 @@ export function CanvasCornerControls(props: {
     if (menuElement) menuElement.style.maxHeight = props.menuMaxHeight === undefined ? '' : `${props.menuMaxHeight}px`
   })
   return (
-    <div ref={props.ref} class="canvas-corner-controls" data-minimap-size={props.size} data-menu-open={props.menu === undefined ? undefined : 'true'}>
+    <div ref={(element) => { controls = element; props.ref?.(element) }} class="canvas-corner-controls" data-minimap-size={props.size} data-menu-open={props.menu === undefined ? undefined : 'true'}>
+      {props.children}
       <canvas
-        ref={props.minimapRef}
+        ref={(element) => { minimap = element; props.minimapRef?.(element) }}
         class="minimap"
-        classList={{ hidden: !props.minimapVisible }}
+        classList={{ hidden: !props.minimapVisible || !minimapFits() }}
         data-testid="minimap"
         data-node-colors={props.settings['nodes']}
         data-links={props.settings['noodles']}

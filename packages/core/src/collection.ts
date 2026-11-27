@@ -86,6 +86,8 @@ export interface CollectionPage {
   readonly cursor?: string
   /** Total matches for the query, when the source knows it cheaply. */
   readonly total?: number
+  /** Unavailable source-action ids, based on the whole corpus, not query matches. */
+  readonly disabledActions?: readonly string[]
   /**
    * Identity of the backend/service instance that SERVED this page (remote
    * sources set it, even on empty pages; local sources omit it). Hosts use
