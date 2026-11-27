@@ -1782,7 +1782,7 @@ button.dinkster-row-main { cursor: pointer; }
 }
 .dinkster-check[type='checkbox'] + .product-checkbox-mark { flex: none; color: var(--dinkster-accent-foreground); }
 .dinkster-choice:has(> .dinkster-check[type='checkbox']) { position: relative; cursor: pointer; }
-.dinkster-choice:has(> .dinkster-check:disabled) { cursor: default; }
+.dinkster-choice:has(> .dinkster-check:disabled) { color: var(--dinkster-text-disabled); cursor: default; }
 .dinkster-check:disabled + .product-checkbox-mark { color: var(--dinkster-text-disabled); }
 .dinkster-check:focus-visible + .product-checkbox-mark { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
 .dinkster-choice:hover > .dinkster-check:not(:disabled) + .product-checkbox-mark { border-color: var(--dinkster-border-hover); }
