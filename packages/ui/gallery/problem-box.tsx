@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
-import { asNodeId, createSignal as coreSignal, diag, type Diagnostic, type WidgetRegistry } from '@dinkster/core'
+import { asNodeId, createSignal as coreSignal, diag, t, type Diagnostic, type WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
@@ -255,6 +255,35 @@ export function ProblemBoxGallery(props: { theme: 'dark' | 'light' }) {
                 : 'Fix all is absent when a problem has no immediate fix. Downloads, installs, secrets, pickers and questions never run through Fix all.'}</figcaption>
             </figure>
           )
+        }}</For>
+        <For each={['offered', 'storing', 'stale', 'no-output'] as const}>{(state) => {
+          const app = { tabs: coreSignal([]), activeTabId: coreSignal(''), activeTab: () => undefined } as unknown as AppState
+          const noOutput = state === 'no-output'
+          const item = diag('warning', 'environment', 'saveTarget.mountsMissing', state === 'stale'
+            ? t('problemFix.workflowChanged') : noOutput
+              ? `${t('saveTargetWidget.bothTitle', { id: 'renders' })} ${t('saveTargetWidget.noDefaultBody')}`
+              : t('problemFix.saveTargetsMissing', { mounts: '"renders", "clips"' }), {
+              refs: ['portrait', 'movie'].map((nodeId) => ({ graphId: 'root', nodeId, valueKey: 'target', portId: 'target', direction: 'input' as const })),
+            })
+          const label = t(state === 'storing' ? 'problemFix.storing' : state === 'stale' ? 'problemFix.checkAgain'
+            : noOutput ? 'problems.action.modelStorage' : 'problemFix.useProjectDefaultForAll')
+          return <figure class="dinkster-canvas-example dinkster-problem-fixes-example" data-testid={`save-target-fix-${state}`}>
+            <ProductPanel>
+              <ProblemsPanel app={app} diagnostics={() => [item]} compatSkips={() => []} fixes={{
+                forProblem: () => ({ label, labels: [t('problemFix.useProjectDefaultForAll'), t('problemFix.storing'),
+                  t('problemFix.checkAgain'), t('problems.action.modelStorage')], disabled: state === 'storing', run: () => {} }),
+                all: () => state === 'offered' || state === 'storing' ? {
+                  label: t(state === 'storing' ? 'problemFix.storing' : 'problemFix.fixAll'),
+                  labels: [t('problemFix.fixAll'), t('problemFix.storing')], disabled: state === 'storing', run: () => {},
+                } : undefined,
+              }} />
+            </ProductPanel>
+            <figcaption class="dinkster-metadata">{state === 'offered'
+              ? 'One fix covers all stored save targets whose mounts are missing. Names stay unchanged; Undo restores the targets together.'
+              : state === 'storing' ? 'Storing disables the group action and Fix all while the same batch is in flight.'
+              : state === 'stale' ? 'A changed workflow or mount snapshot needs Check again before anything is stored.'
+              : 'Without a ready project output, the same missing-target entry opens Storage. Fix all is absent; a ready output restores the fix without reopening.'}</figcaption>
+          </figure>
         }}</For>
         <figure class="dinkster-canvas-example dinkster-automatic-fixes-example" data-testid="automatic-fixes-settings">
           <h3 class="dinkster-heading">Automatic fixes</h3>
