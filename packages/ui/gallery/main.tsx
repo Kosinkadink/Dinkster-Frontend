@@ -57,7 +57,6 @@ import {
   ProductEmptyState,
   ProductErrorBanner,
   ProductField,
-  ProductSwitch,
   ProductForm,
   ProductIcon,
   ProductRunIcon,
@@ -187,7 +186,7 @@ function Gallery() {
   const [quietType, setQuietType] = createSignal('Any type')
   const [formMount, setFormMount] = createSignal('input')
   const [formFolder, setFormFolder] = createSignal('reference/')
-  const [formReadOnly, setFormReadOnly] = createSignal(false)
+  const [formRemember, setFormRemember] = createSignal(false)
   const [serverOpen, setServerOpen] = createSignal(false)
   const [progressOpen, setProgressOpen] = createSignal(false)
   const [versionSelected, setVersionSelected] = createSignal(false)
@@ -324,7 +323,7 @@ function Gallery() {
                   </ProductDisclosure>
                 </ProductPanel>
               </Section>
-              <Section title="Editable filled block" components="ProductPanel, ProductField, ProductSelect, ProductTextInput, ProductSwitch">
+              <Section title="Editable filled block" components="ProductPanel, ProductField, ProductSelect, ProductTextInput, ProductCheckbox">
                 <ProductPanel fill="quiet">
                   <ProductField label="Mount" layout="inline">
                     {(attributes) => <ProductSelect {...attributes} value={formMount()} onChange={setFormMount}
@@ -336,8 +335,9 @@ function Gallery() {
                     {(attributes) => <ProductTextInput {...attributes} value={formFolder()}
                       onInput={(event) => setFormFolder(event.currentTarget.value)} />}
                   </ProductField>
-                  <ProductField label="Read only" layout="inline">
-                    {(attributes) => <ProductSwitch {...attributes} label="Read only" checked={formReadOnly()} onChange={setFormReadOnly} />}
+                  <ProductField layout="self-labeled">
+                    {(attributes) => <ProductCheckbox {...attributes} label="Remember for this project" checked={formRemember()}
+                      onChange={(event) => setFormRemember(event.currentTarget.checked)} />}
                   </ProductField>
                 </ProductPanel>
               </Section>
