@@ -21,6 +21,22 @@ export function ProductNotice(props: {
   )
 }
 
+export function ProductRecoveryNotice(props: {
+  message: string
+  action?: { readonly label: string; readonly onSelect: () => void; readonly pending?: boolean }
+  error?: string
+}) {
+  return <div class="dinkster-stack">
+    <ProductNotice>{props.message}</ProductNotice>
+    <Show when={props.action}>{(action) => <div class="dinkster-actions">
+      <ProductButton pending={action().pending} onClick={() => action().onSelect()}>{action().label}</ProductButton>
+    </div>}</Show>
+    <Show when={props.error}>{(error) => <p class="dinkster-field-error" role="alert">
+      <ProductIcon icon={CircleAlert} />{error()}
+    </p>}</Show>
+  </div>
+}
+
 export function ProductProgress(props: { label: string; value?: number | undefined }) {
   return (
     <div

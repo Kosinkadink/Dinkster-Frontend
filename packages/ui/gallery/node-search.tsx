@@ -3,7 +3,7 @@ import { ArrowLeft, Download, Folder, PanelTop, Wrench } from 'lucide-solid'
 import { autoConnectTarget, cardinalityOf, schemaMatchesPortFilters, typeExprFromTypeId, type NodeSchema, type WidgetRegistry } from '@dinkster/core'
 import { defaultTokens, typeColor } from '@dinkster/canvas'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
-import { BlueprintIcon, ProductButton, ProductIcon, ProductMenu, ProductSearch, ProductSearchNodePreview, ProductSearchTypeLabel, ProductSection, productSearchTypeName, productSearchTypeOptions, type ProductSearchGroup } from '../src/index.js'
+import { BlueprintIcon, ProductButton, ProductIcon, ProductMenu, ProductRecoveryNotice, ProductSearch, ProductSearchNodePreview, ProductSearchTypeLabel, ProductSection, productSearchTypeName, productSearchTypeOptions, type ProductSearchGroup } from '../src/index.js'
 import { NodeDrawing, node } from './search.js'
 
 type Kind = 'node' | 'blueprint' | 'utility'
@@ -36,7 +36,7 @@ const KINDS = [
 const RECENT = ['GradientImage', 'ImageStats']
 const image = { kind: 'concrete' as const, name: 'IMAGE' }
 
-function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; list?: boolean; registry: WidgetRegistry }) {
+function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; list?: boolean; recovery?: 'disabled' | 'uninstalled' | 'readonly' | 'failed'; registry: WidgetRegistry }) {
   const [query, setQuery] = createSignal(props.query ?? '')
   const [kind, setKind] = createSignal('all')
   const [wire, setWire] = createSignal(props.wire ?? false)
@@ -49,7 +49,10 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
   const wireType = () => props.list ? 'list<IMAGE>' : 'IMAGE'
   const wireName = () => props.list ? 'image list' : 'image'
   const target = (item: Entry) => autoConnectTarget(item.schema, anchor(), 'in')
+  const [recovered, setRecovered] = createSignal(false)
+  const emptyCatalog = () => props.recovery !== undefined && !recovered()
   const corpus = () => ENTRIES.filter((item) =>
+    (!emptyCatalog() || item.kind === 'utility') &&
     (!wire() || (!item.notInstalled && target(item) !== undefined)) &&
     (kind() === 'all' || item.kind === kind()) &&
     schemaMatchesPortFilters(item.schema, {
@@ -152,6 +155,13 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
         onCurrent={setCurrent}
         onActivate={choose}
         onClose={() => setChosen('Search closed')}
+        notice={emptyCatalog() ? <ProductRecoveryNotice
+          message={props.recovery === 'uninstalled' ? 'No node packs are installed' : 'No packs are enabled in this project'}
+          {...(props.recovery === 'readonly' ? {} : { action: {
+            label: props.recovery === 'uninstalled' ? 'Set up' : 'Enable all installed packs',
+            onSelect: () => { if (props.recovery !== 'failed') setRecovered(true) },
+          } })}
+          {...(props.recovery === 'failed' ? { error: 'Project changed elsewhere. Refresh before saving.' } : {})} /> : undefined}
         empty={{ title: 'No matches', detail: 'Try another name or type.' }}
         hints={[
           { keys: ['Up', 'Down'], label: 'move' },
@@ -184,6 +194,11 @@ export function NodeSearchGallery() {
     { title: 'From a dropped wire', text: 'Only installed entries that can take the wire are offered. The row names the input; Enter places and connects.', id: 'node-search-wire', wire: true },
     { title: 'From a dropped list wire', text: 'A list wire finds list inputs and inputs that take either one value or a whole list. A scalar-only input is not offered.', id: 'node-search-list-wire', wire: true, list: true },
     { title: 'Before you type', text: 'What was placed last and the categories to walk through. Opening a category keeps the same search surface.', id: 'node-search-before' },
+    { title: 'No packs enabled', text: 'Recovery leaves the query in place and brings installed nodes into the same search.', id: 'node-search-disabled', query: 'image', recovery: 'disabled' as const },
+    { title: 'Pack-less utilities remain', text: 'The recovery is above utilities that do not need a pack.', id: 'node-search-utilities', query: 'reroute', recovery: 'disabled' as const },
+    { title: 'No node packs installed', text: 'Set up opens the existing setup flow.', id: 'node-search-uninstalled', query: 'image', recovery: 'uninstalled' as const },
+    { title: 'Read-only project', text: 'The explanation remains without an action the caller cannot take.', id: 'node-search-readonly', query: 'image', recovery: 'readonly' as const },
+    { title: 'Recovery failure', text: 'The engine reason stays below the action.', id: 'node-search-failed', query: 'image', recovery: 'failed' as const },
   ]}>{(example) => <ProductSection title={example.title}>
     <p class="dinkster-description">{example.text}</p>
     <NodeSearchExample {...example} registry={registry} />
