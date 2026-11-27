@@ -2667,7 +2667,7 @@ function elaboratePass(
           : `Record field '${saved!['name']}' changed type from ${canonicalTypeIdOf(oldType)} to ${canonicalTypeIdOf(current)}.`
         diagnostics.push(diag('warning', 'schema', 'record-field-removed', message, {
           ...(options.nodeId === undefined ? {} : { anchor: { port: { node: options.nodeId, port: asPortId(type.index) } } }),
-          data: { oldType, ...(current === undefined ? {} : { newType: current }) },
+          data: { input: type.index, oldType, ...(current === undefined ? {} : { newType: current }) },
         }))
         return oldType
       } catch (error) {

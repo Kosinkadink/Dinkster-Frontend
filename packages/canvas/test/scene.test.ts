@@ -24,6 +24,7 @@ import {
   type Json,
   type NodeProgress,
   type NodeSchema,
+  type TypeExpr,
   type WorkflowDocument,
   boundaryOf,
   boundaryItems,
@@ -234,6 +235,48 @@ describe('buildScene', () => {
     expect(failing[0]!.anchor).toEqual({ port: { node: 'n0', port: 'batch_size' } })
     expect(failing[0]!.message).toBe('Could not work out batch_size. Using the default, 1.')
     expect(warnings(sceneWith({ width: 64, height: 64, batch_size: 2 }))).toHaveLength(0)
+  })
+
+  it('lists removed and retyped record selections on their fields until explicitly reselected', () => {
+    const integer: TypeExpr = { kind: 'concrete', name: 'INT' }
+    const text: TypeExpr = { kind: 'concrete', name: 'STRING' }
+    const selected = (type: string) => JSON.stringify({ path: ['seed-id'], name: 'seed', type: { kind: 'concrete', types: [type] } })
+    const saved = selected('INT')
+    const document = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'record-warnings', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 3, links: {}, nets: {}, reroutes: {}, nodes: {
+        read: { id: 'read', type: 'Read', values: { field: saved } },
+        change: { id: 'change', type: 'Change', values: { field: saved } },
+      } } }, view: { graphs: { g0: { nodes: {} } } },
+    }).document!
+    const sceneWith = (fields: Extract<TypeExpr, { kind: 'record' }>['fields'], selection = saved) => {
+      const record: TypeExpr = { kind: 'record', name: 'settings', fields }
+      const schema = (type: string): NodeSchema => ({
+        type, displayName: type, category: 'Records', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'record', type: record, optional: false },
+          { kind: 'input', id: 'field', type: text, optional: false },
+          ...(type === 'Read' ? [] : [{ kind: 'input' as const, id: 'value', optional: true,
+            type: { kind: 'record_field' as const, input: 'record', index: 'field' } }]),
+          { kind: 'output', id: type === 'Read' ? 'value' : 'record', type: type === 'Read'
+            ? { kind: 'record_field', input: 'record', index: 'field' } : record },
+        ],
+      })
+      const graph = document.graphs.g0!
+      const current = { ...document, graphs: { g0: { ...graph, nodes: Object.fromEntries(Object.entries(graph.nodes)
+        .map(([id, node]) => [id, { ...node, values: { field: selection } }])) } } }
+      return buildScene({ document: current, graphId: 'g0', resolve: schema, tokens: defaultTokens, measure, widgetMeasure })
+    }
+    const warnings = (scene: Scene) => scene.diagnostics.filter((diagnostic) => diagnostic.code === 'record-field-removed')
+    expect(warnings(sceneWith([{ id: 'seed-id', name: 'noise', type: integer, optional: false }]))).toEqual([])
+    const removed = warnings(sceneWith([{ id: 'different-id', name: 'seed', type: text, optional: false }]))
+    expect(removed.map((diagnostic) => [diagnostic.severity, diagnostic.message, diagnostic.anchor?.port]))
+      .toEqual(['read', 'change'].map((node) => ['warning', "Record field 'seed' was removed.", { node, port: 'field' }]))
+    const retyped = [{ id: 'seed-id', name: 'seed', type: text, optional: false }]
+    expect(warnings(sceneWith(retyped)).map((diagnostic) => diagnostic.message))
+      .toEqual(["Record field 'seed' changed type from INT to STRING.", "Record field 'seed' changed type from INT to STRING."])
+    expect(warnings(sceneWith(retyped, selected('STRING')))).toEqual([])
+    expect(document.graphs.g0!.nodes.read!.values.field).toBe(saved)
   })
 
   it('keeps numeric edit scenes equal to a fresh build and declines value-dependent presentation', () => {

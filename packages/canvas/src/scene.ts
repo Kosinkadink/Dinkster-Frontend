@@ -1242,9 +1242,9 @@ export function buildScene(input: BuildSceneInput): Scene {
 
   const nodes: SceneNode[] = []
   const byId = new Map<string, SceneNode>()
-  // An automatic value that cannot be worked out: the field's warning, also
-  // listed in Problems, where picking it moves to the field.
-  const automaticDiagnostics: Diagnostic[] = []
+  // Declared field warnings also belong in Problems, where picking one
+  // moves to its field. Several projected ports can share one selection.
+  const fieldDiagnostics = new Map<string, Diagnostic>()
   let fallbackY = 0
   for (const node of Object.values(def.nodes)) {
     const view = viewNodes[node.id]
@@ -1273,8 +1273,9 @@ export function buildScene(input: BuildSceneInput): Scene {
       : undefined
     for (const diagnostic of elaborated?.diagnostics ?? []) {
       const port = diagnostic.data?.['input']
-      if (diagnostic.code !== 'automatic.default' || typeof port !== 'string') continue
-      automaticDiagnostics.push({ ...diagnostic, anchor: { port: { node: asNodeId(node.id), port: asPortId(port) } } })
+      if ((diagnostic.code !== 'automatic.default' && diagnostic.code !== 'record-field-removed') || typeof port !== 'string') continue
+      const anchored = { ...diagnostic, anchor: { port: { node: asNodeId(node.id), port: asPortId(port) } } }
+      fieldDiagnostics.set(JSON.stringify(anchored), anchored)
     }
     const baseLayout = schema
       ? layoutNode(schema, occurrenceNode, input.tokens, measure, input.widgetMeasure, {
@@ -2140,7 +2141,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   const result: Scene = {
     graphId: input.graphId, nodes, links, reroutes, netStubs, groups, boundaryNodes,
     ...(graphView?.groupMembership === undefined ? {} : { groupMembership: graphView.groupMembership }),
-    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...automaticDiagnostics],
+    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...fieldDiagnostics.values()],
     ...(input.occurrence !== undefined ? { occurrence: { owner: input.occurrence.owner, bodyGraph: def.id } } : {}),
   }
   if (input.layoutGeneration !== undefined && input.occurrence === undefined && input.occurrenceView === undefined && view !== undefined) {
