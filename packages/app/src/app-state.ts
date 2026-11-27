@@ -7796,7 +7796,7 @@ export class AppState {
     }
   }
 
-  private legacyAssetReferences(tab: Tab, backend: Backend): readonly ImportAssetReference[] {
+  private legacyAssetReferences(tab: Tab, backend: Backend, includeModels: boolean): readonly ImportAssetReference[] {
     const registry = backend.registry.get()
     if (!registry) return []
     const resolve = documentResolver(tab.store.doc, registry.resolve)
@@ -7806,6 +7806,7 @@ export class AppState {
       if (!schema) continue
       for (const item of inputsOf(schema)) {
         if (item.widget?.widgetType !== 'ASSET' || item.widget.selection === true) continue
+        if (!includeModels && item.widget.kind?.startsWith('model/')) continue
         const value = node.values[item.id]
         if (typeof value === 'string') refs.push({ graphId, nodeId: node.id, inputId: item.id, name: value })
       }
@@ -7817,10 +7818,11 @@ export class AppState {
     tab: Tab,
     backend: Backend & { protocol: 'dinkster' },
     digestHints: readonly ImportAssetDigestHint[],
+    includeModels = true,
   ): Promise<void> {
     const registry = backend.registry.get()
     const resolution = this.importAssetResolution.get()
-    const refs = this.legacyAssetReferences(tab, backend)
+    const refs = this.legacyAssetReferences(tab, backend, includeModels)
     const names = [...new Set(refs.map((ref) => ref.name))]
     if (names.length === 0) return
     const liveTab = (): Tab | undefined => this.tabs.get().find((candidate) =>
@@ -8329,7 +8331,7 @@ export class AppState {
       }
       if (!this.tabs.get().includes(tab)) return false
       if (replacePage && !this.pages.replaceWithWorkflow(replacePage, tab)) return false
-      void this.offerImportAssetResolution(tab, backend, [])
+      void this.offerImportAssetResolution(tab, backend, [], false)
       return true
     } catch (e) {
       if (this.ownerStillLive(backend)) {
@@ -8351,7 +8353,7 @@ export class AppState {
       const tab = await this.openDocumentOnBackend(readableRegionTemplateLayout(document), title, backend, stillWanted)
       if (!tab || !this.tabs.get().includes(tab)) return false
       if (replacePage && !this.pages.replaceWithWorkflow(replacePage, tab)) return false
-      void this.offerImportAssetResolution(tab, backend, [])
+      void this.offerImportAssetResolution(tab, backend, [], false)
       return true
     } catch (error) {
       if (this.ownerStillLive(backend)) {

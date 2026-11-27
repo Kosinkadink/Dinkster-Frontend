@@ -186,6 +186,7 @@
   "projectNeeds.changed": "项目或已安装的节点包已更改。请重新检查项目需求。",
   "projectNeeds.exactVersionsRequired": "检查安装方案需要每个节点包都有唯一的已记录版本，且不存在无法识别的工作流需求。",
   "execution.scopes.checking": "正在检查可执行的选择...",
+  "modelPresence.missingSummary": "\u7f3a\u5c11 {count} \u4e2a\u6a21\u578b",
   "modelDownloads.title": "下载模型",
   "modelDownloads.list": "此工作流所需的模型",
   "modelDownloads.workflow": "此工作流",
