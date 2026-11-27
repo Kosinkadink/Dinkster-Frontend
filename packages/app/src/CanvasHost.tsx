@@ -2166,6 +2166,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     problemBoxHost?.highlightRow(undefined)
   }
 
+  const storingNumberFixes = new Map<string, NonNullable<ProblemBoxLine['numberFix']>>()
+  const refreshProblemBox = (recheck?: string): void => {
+    const open = problemBox()
+    if (open === undefined) return
+    const lines = open.owner === problemBoxHost?.owner() ? problemBoxHost.lines(open.nodeId) : []
+    if (lines.length === 0) { closeProblemBox(); return }
+    setProblemBox({ ...open, lines: lines.map((line) => {
+      const previous = open.lines.find((candidate) => candidate.key === line.key)
+      // Keep the offered snapshot until an explicit recheck, never silently
+      // retarget a button after another viewer changes its cause.
+      return line.numberFix !== undefined && previous?.numberFix !== undefined && line.key !== recheck
+        ? { ...line, numberFix: previous.numberFix } : line
+    }), ...(lines.some((line) => line.key === open.highlighted) ? {} : { highlighted: undefined }) })
+  }
+
   /** Opens the node's box, optionally with one line highlighted; false when the node has no line to show. */
   const openProblemBox = (nodeId: string, pick?: (line: ProblemBoxLine) => boolean): boolean => {
     const host = problemBoxHost
@@ -4602,6 +4617,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         // A runtime cause belongs to the run's own Error tab, not this box.
         const problems = (nodeProblems[nodeId] ?? []).filter((line) =>
           !((runErrorsByNode().has(nodeId) || lastRunNodes.has(nodeId)) && line.diagnostic.origin === 'runtime'))
+        const numberFixes = props.app.scanTabNumberFixes(tab).filter((fix) =>
+          fix.part.graphId === currentGraphId(tab) && fix.part.nodeId === nodeId &&
+          JSON.stringify(fix.part.instancePath ?? []) === JSON.stringify(viewInstancePath(tab)))
         return problemBoxLines(problems, problemBoxRows(node), (row) => {
           const port = row.startsWith(outputRowKey('')) ? row.slice(outputRowKey('').length) : row
           return node.layout.pins.find((pin) => pin.portId === port)?.label ?? port
@@ -4610,6 +4628,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const place = line.row === undefined ? undefined : `${nodeId}.${line.row}: `
           const text = line.diagnostic.message
           return place !== undefined && text.startsWith(place) ? text.slice(place.length) : text
+        }).map((line): ProblemBoxLine => {
+          if (line.problem.diagnostic.code !== 'automatic.numberOutsideLimits' ||
+            props.app.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'ask') return line
+          const offered = numberFixes.find((fix) => fix.valueKey === line.row)
+          if (offered === undefined) return line
+          const key = JSON.stringify([line.row, line.problem.diagnostic.code])
+          const numberFix = storingNumberFixes.get(JSON.stringify([problemBoxHost?.owner(), nodeId, key])) ?? { offered, state: 'offered' as const }
+          return { ...line, key, numberFix }
         })
       },
       title: (nodeId) => renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.title ?? nodeId,
@@ -5064,12 +5090,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // projection outlines that row.
     const widgetValueDiagnostics = (): Diagnostic[] => {
       const out: Diagnostic[] = []
+      const tab = activeTab()
+      const fixes = tab === undefined ? [] : props.app.scanTabNumberFixes(tab).filter((fix) =>
+        fix.part.graphId === scene.graphId && JSON.stringify(fix.part.instancePath ?? []) === JSON.stringify(viewInstancePath(tab)))
       for (const node of scene.nodes) {
         for (const row of node.fieldRows ?? node.layout.rows) {
           if (row.kind !== 'widget' || row.selector !== undefined) continue
           if (companionInputs.get(node.id)?.has(row.valueKey)) continue
-          out.push(...storedValueProblems(widgetRegistry(), scene.graphId,
-            { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey]))
+          const fix = fixes.find((candidate) => candidate.part.nodeId === node.id && candidate.valueKey === row.valueKey)
+          if (fix !== undefined) {
+            out.push(diag('warning', 'schema', 'automatic.numberOutsideLimits',
+              `${node.id}.${row.valueKey}: ${message('problemFix.numberOutsideLimits', { value: String(fix.before) })}`, {
+                refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
+              }))
+          } else {
+            out.push(...storedValueProblems(widgetRegistry(), scene.graphId,
+              { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey]))
+          }
         }
       }
       return out
@@ -5390,15 +5427,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setNodeOutputTexts(nodeOutputTexts)
       renderer.setNodePreviews(model.previews)
       // Background overlay updates must not dismiss a still-valid user decision.
-      const openBox = problemBox()
-      if (openBox !== undefined) {
-        const lines = openBox.owner === JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])
-          ? problemBoxHost?.lines(openBox.nodeId) ?? []
-          : []
-        // The box and its tab go together when the node's last problem goes.
-        if (lines.length === 0) closeProblemBox()
-        else setProblemBox({ ...openBox, lines, ...(lines.some((line) => line.key === openBox.highlighted) ? {} : { highlighted: undefined }) })
-      }
+      refreshProblemBox()
       setProblemBoxTick((tick) => tick + 1)
       setBadgePopover((anchor) => {
         if (!anchor || anchor.owner !== JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])) return undefined
@@ -8096,7 +8125,28 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   onAction={(line, action) => {
                     const open = problemBox()
                     if (!open) return
-                    if (action === 'edit-field' && line.row !== undefined) {
+                    if (action === 'check-number-fix') {
+                      refreshProblemBox(line.key)
+                    } else if (action === 'apply-number-fix') {
+                      if (line.numberFix?.state !== 'offered') return
+                      const tab = activeTab()
+                      if (tab === undefined || open.owner !== problemBoxHost?.owner()) return
+                      const key = JSON.stringify([open.owner, open.nodeId, line.key])
+                      if (storingNumberFixes.has(key)) return
+                      const storing = { ...line.numberFix, state: 'storing' as const }
+                      storingNumberFixes.set(key, storing)
+                      setProblemBox({ ...open, lines: open.lines.map((entry) => entry.key === line.key ? { ...entry, numberFix: storing } : entry) })
+                      void props.app.applyNumberFixes(tab, [line.numberFix.offered]).then((outcome) => {
+                        storingNumberFixes.delete(key)
+                        const current = problemBox()
+                        if (current?.owner !== open.owner || current.nodeId !== open.nodeId) return
+                        setProblemBox({ ...current, lines: current.lines.map((entry): ProblemBoxLine => entry.key === line.key && entry.numberFix !== undefined
+                          ? { ...entry, numberFix: { ...entry.numberFix, state: outcome.kind === 'done' ? 'offered' : 'stale',
+                            ...(outcome.message === undefined ? {} : { message: outcome.message }) } }
+                          : entry) })
+                        refreshProblemBox(outcome.kind === 'done' ? line.key : undefined)
+                      })
+                    } else if (action === 'edit-field' && line.row !== undefined) {
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, line.row)
                     } else if (action === 'locate-asset') {

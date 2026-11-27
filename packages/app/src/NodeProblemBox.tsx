@@ -41,8 +41,17 @@ export function NodeProblemBox(props: {
     kind: line.kind,
     ...(line.row === undefined ? {} : { row: line.row }),
     ...(line.rowName === undefined ? {} : { rowName: line.rowName }),
-    message: lineText(line),
-    actions: line.actions.map((action) => ({ id: action, label: actionLabel(action) })),
+    message: line.numberFix?.message ?? lineText(line),
+    ...(line.numberFix === undefined ? {} : { actionsBelow: true }),
+    actions: line.numberFix === undefined
+      ? line.actions.map((action) => ({ id: action, label: actionLabel(action) }))
+      : [{
+        id: line.numberFix.state === 'stale' ? 'check-number-fix' : 'apply-number-fix',
+        label: line.numberFix.state === 'storing' ? message('problemFix.storing')
+          : line.numberFix.state === 'stale' ? message('problemFix.checkAgain')
+          : message('problemFix.useNumber', { value: String(line.numberFix.offered.after) }),
+        disabled: line.numberFix.state === 'storing',
+      }],
   }))
   const lineOf = (view: ProblemBoxViewLine | undefined): ProblemBoxLine | undefined =>
     view === undefined ? undefined : props.lines.find((line) => line.key === view.key)

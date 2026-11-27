@@ -1,8 +1,9 @@
 import { outputRowKey, type SceneNode } from '@dinkster/canvas'
+import type { StoredNumberFix } from '@dinkster/core'
 import type { NodeProblemKind, NodeProblemLine } from './problem-display.js'
 
 /** What a line in the node's box offers; none of them fetches anything by itself. */
-export type ProblemBoxAction = 'edit-field' | 'locate-asset' | 'review-model' | 'model-management' | 'model-storage'
+export type ProblemBoxAction = 'edit-field' | 'locate-asset' | 'review-model' | 'model-management' | 'model-storage' | 'apply-number-fix' | 'check-number-fix'
 
 /** One line in a node's problem box: one cause, with its row's name and its actions. */
 export interface ProblemBoxLine {
@@ -13,6 +14,11 @@ export interface ProblemBoxLine {
   readonly message: string
   readonly actions: readonly ProblemBoxAction[]
   readonly problem: NodeProblemLine
+  readonly numberFix?: {
+    readonly offered: StoredNumberFix
+    readonly state: 'offered' | 'storing' | 'stale'
+    readonly message?: string
+  }
 }
 
 /** A row a problem can belong to, in the order the node draws its rows. */
