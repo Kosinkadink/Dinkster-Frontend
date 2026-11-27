@@ -295,6 +295,8 @@ export function problemBoxGallery(
   const fixCards = [
     { id: 'ask-me-fix', value: 7, message: 'Only 4 items are known.', action: 'Use the last item',
       caption: 'Ask me keeps item 7. The fix sits at the right end of the warning, wrapping below only when needed. Pressing it stores item 4 in one undo step.' },
+    { id: 'ask-me-wrap', value: 7, message: 'Only 4 items are known.', action: 'Use the last item', narrow: true,
+      caption: 'In a narrow canvas, the same action wraps below the message and stays at the right end.' },
     { id: 'storing-fix', value: 7, message: 'Only 4 items are known.', action: 'Storing...', disabled: true,
       caption: 'While the fix is storing, its action is disabled so a second press cannot start another write. Everything or nothing is stored.' },
     { id: 'stale-fix', value: 6, message: 'Could not apply this fix. The workflow changed.', action: 'Check again',
@@ -309,7 +311,7 @@ export function problemBoxGallery(
         ...line('warning', 'item', card.message),
         actions: [{ label: card.action, disabled: 'disabled' in card && card.disabled }],
       }] }],
-      width: BOXED,
+      width: 'narrow' in card ? LEFT * 2 + 200 : BOXED,
     })),
     solverCard('type-warning', 'An image sent to samples that needs latent data. The same warning names the node in Problems and the row once in its own box. The wire and its handle are warning yellow.', [
       { id: 'load', schema: loadImage, x: column(0) },

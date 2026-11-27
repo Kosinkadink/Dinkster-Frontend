@@ -1777,7 +1777,7 @@ export function App(props: {
         disabled: fix.state === 'storing',
         run: () => {
           if (fix.state === 'stale') app.numberProblemFixes.recheck(tab, fix.key)
-          else void app.numberProblemFixes.apply(tab, [fix])
+          else return app.numberProblemFixes.apply(tab, [fix])
         },
       }
     },
@@ -1793,7 +1793,7 @@ export function App(props: {
       return {
         label: message(storing ? 'problemFix.storing' : 'problemFix.fixAll'),
         disabled: storing,
-        run: () => { void app.numberProblemFixes.apply(tab, fixes) },
+        run: () => app.numberProblemFixes.apply(tab, fixes),
       }
     },
   }

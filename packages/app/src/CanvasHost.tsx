@@ -2189,10 +2189,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     return true
   }
 
-  createEffect(() => {
-    if (problemBox() === undefined) return
+  onMount(() => {
     const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') closeProblemBox() }
     const onPointer = (event: PointerEvent): void => {
+      problemBoxPointerClose = undefined
       const open = problemBox()
       if (open === undefined || (problemBoxElement?.contains(event.target as Node | null) ?? false)) return
       problemBoxPointerClose = { nodeId: open.nodeId, at: performance.now() }

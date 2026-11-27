@@ -53,7 +53,7 @@ export function activateProblem(app: AppState, diagnostic: Diagnostic, openAsset
 export interface ProblemFixAction {
   readonly label: string
   readonly disabled?: boolean
-  readonly run: () => void
+  readonly run: () => void | Promise<void>
 }
 
 export interface ProblemFixActions {
@@ -197,6 +197,15 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
       if (install() === request && current()) setInstall({ current, phase: 'error', error: String(error) })
     }
   }
+  let panel!: HTMLElement
+  const runFix = async (action: ProblemFixAction, button: HTMLButtonElement): Promise<void> => {
+    const summary = button.closest('details')?.querySelector('summary')
+    const target = summary ?? panel
+    const ownsFocus = document.activeElement === button || document.activeElement === document.body
+    if (ownsFocus) target.focus({ preventScroll: true })
+    await action.run()
+    if (ownsFocus && !target.isConnected && document.activeElement === document.body) panel.focus({ preventScroll: true })
+  }
   const expandedProblems = new Set<string>()
   const packDiagnostics = createMemo(() => [
     ...props.compatSkips().map((skip) => diag('info', 'schema', 'pack.compatSkipped', `${skip.packId}: ${skip.nodeId} - ${skip.reason}`)),
@@ -210,7 +219,7 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
   })
 
   return (
-    <section class="rail-section" data-testid="problems-panel" data-native-text-scope>
+    <section ref={panel} class="rail-section" tabIndex={-1} data-testid="problems-panel" data-native-text-scope>
       <ProductPanelHeader title={message('shell.panel.problems.title')} actions={<>
         <label class="problems-selection-control">
           <ProductCheckbox checked={selectionOnly()} onChange={setSelectionOnly}
@@ -219,7 +228,8 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
         </label>
         <Show when={packDiagnostics().length === 0 && !(props.importedNodes?.() ?? []).some((node) => node.status === 'installable') ? props.fixes?.all() : undefined}>{(action) => (
           <ProductButton variant="secondary" size="compact" disabled={action().disabled}
-            onClick={() => action().run()}>{action().label}</ProductButton>
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={(event) => void runFix(action(), event.currentTarget)}>{action().label}</ProductButton>
         )}</Show>
       </>} />
       <Show when={selectionOnly()}><p data-testid="problems-selection">{selectionLabel()}</p></Show>
@@ -314,62 +324,69 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                   <span class="problems-group-count">{group().diagnostics.length}</span>
                 </ProductButton>
                 <div id={contentId()} class="problems-group-items" hidden={!disclosure.expanded(key)}>
-                  <For each={group().diagnostics}>
-                    {(diagnostic) => (
-                      <details class="problem" data-severity={diagnostic.severity}
-                        open={expandedProblems.has(JSON.stringify([key, diagnostic]))}
-                        onToggle={(event) => {
-                          const problemKey = JSON.stringify([key, diagnostic])
-                          if (event.currentTarget.open) expandedProblems.add(problemKey)
-                          else expandedProblems.delete(problemKey)
-                        }}
-                        data-activatable={diagnostic.anchor !== undefined ? true : undefined}>
-                        <summary title={diagnostic.message} onClick={() => activateProblem(props.app, diagnostic)}>
-                          <span class="problem-severity" aria-label={diagnostic.severity}>
-                            {diagnostic.severity === 'error' ? 'x' : diagnostic.severity === 'warning' ? '!' : 'i'}
-                          </span>
-                          <span class="problem-message">{diagnostic.message}</span>
-                        </summary>
-                        <div class="problem-detail">
-                          <code>{diagnostic.code}</code>
-                          <Show when={props.fixes?.forProblem(diagnostic)}>{(action) => (
-                            <ProductButton type="button" variant="secondary" size="compact" disabled={action().disabled}
-                              onClick={() => action().run()}>{action().label}</ProductButton>
-                          )}</Show>
-                          <Show when={diagnostic.data && diagnostic.data['numberFixKey'] === undefined}><pre>{JSON.stringify(diagnostic.data, null, 2)}</pre></Show>
-                          <Show when={diagnostic.anchor !== undefined}>
-                            <Show when={diagnostic.code === 'model.availability.missing' && diagnostic.data?.['plannable'] === true}>
-                              <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
-                                const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic)?.tab
-                                if (tab !== undefined) props.app.reviewModelDownload(tab, diagnostic)
-                              }}>{message('problems.action.reviewModel')}</ProductButton>
-                            </Show>
-                            <Show when={diagnostic.code === 'model.availability.model-hidden' || diagnostic.code === 'model.availability.folder-disabled'}>
-                              <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
-                                const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic)?.tab
-                                if (tab !== undefined) props.app.openModelStorage(tab, diagnostic)
-                              }}>{message(diagnostic.code === 'model.availability.model-hidden' ? 'problems.action.modelManagement' : 'problems.action.modelStorage')}</ProductButton>
-                            </Show>
-                            <Show when={(diagnostic.code === 'asset.availability.missing' || diagnostic.code.startsWith('model.availability.')) && typeof diagnostic.data?.['input'] === 'string'}>
-                              <ProductButton type="button" variant="secondary" size="compact"
-                                onClick={() => activateProblem(props.app, diagnostic, diagnostic.data!['input'] as string)}>
-                                {message('problems.action.locateAsset')}
+                  <For each={group().diagnostics.map((diagnostic) =>
+                    typeof diagnostic.data?.['numberFixKey'] === 'string' ? diagnostic.data['numberFixKey'] : diagnostic)}>
+                    {(entry) => {
+                      const diagnostic = () => typeof entry === 'string'
+                        ? group().diagnostics.find((candidate) => candidate.data?.['numberFixKey'] === entry)!
+                        : entry
+                      const problemKey = JSON.stringify([key, entry])
+                      return (
+                        <details class="problem" data-severity={diagnostic().severity}
+                          open={expandedProblems.has(problemKey)}
+                          onToggle={(event) => {
+                            if (event.currentTarget.open) expandedProblems.add(problemKey)
+                            else expandedProblems.delete(problemKey)
+                          }}
+                          data-activatable={diagnostic().anchor !== undefined ? true : undefined}>
+                          <summary title={diagnostic().message} onClick={() => activateProblem(props.app, diagnostic())}>
+                            <span class="problem-severity" aria-label={diagnostic().severity}>
+                              {diagnostic().severity === 'error' ? 'x' : diagnostic().severity === 'warning' ? '!' : 'i'}
+                            </span>
+                            <span class="problem-message">{diagnostic().message}</span>
+                          </summary>
+                          <div class="problem-detail">
+                            <code>{diagnostic().code}</code>
+                            <Show when={props.fixes?.forProblem(diagnostic())}>{(action) => (
+                              <ProductButton type="button" variant="secondary" size="compact" disabled={action().disabled}
+                                onPointerDown={(event) => event.preventDefault()}
+                                onClick={(event) => void runFix(action(), event.currentTarget)}>{action().label}</ProductButton>
+                            )}</Show>
+                            <Show when={diagnostic().data && diagnostic().data!['numberFixKey'] === undefined}><pre>{JSON.stringify(diagnostic().data, null, 2)}</pre></Show>
+                            <Show when={diagnostic().anchor !== undefined}>
+                              <Show when={diagnostic().code === 'model.availability.missing' && diagnostic().data?.['plannable'] === true}>
+                                <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
+                                  const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic())?.tab
+                                  if (tab !== undefined) props.app.reviewModelDownload(tab, diagnostic())
+                                }}>{message('problems.action.reviewModel')}</ProductButton>
+                              </Show>
+                              <Show when={diagnostic().code === 'model.availability.model-hidden' || diagnostic().code === 'model.availability.folder-disabled'}>
+                                <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
+                                  const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic())?.tab
+                                  if (tab !== undefined) props.app.openModelStorage(tab, diagnostic())
+                                }}>{message(diagnostic().code === 'model.availability.model-hidden' ? 'problems.action.modelManagement' : 'problems.action.modelStorage')}</ProductButton>
+                              </Show>
+                              <Show when={(diagnostic().code === 'asset.availability.missing' || diagnostic().code.startsWith('model.availability.')) && typeof diagnostic().data?.['input'] === 'string'}>
+                                <ProductButton type="button" variant="secondary" size="compact"
+                                  onClick={() => activateProblem(props.app, diagnostic(), diagnostic().data!['input'] as string)}>
+                                  {message('problems.action.locateAsset')}
+                                </ProductButton>
+                              </Show>
+                              <ProductButton type="button" variant="secondary" size="compact" class="problem-show-on-canvas"
+                                onClick={() => activateProblem(props.app, diagnostic())}>
+                                {message('problems.action.showOnCanvas')}
                               </ProductButton>
                             </Show>
-                            <ProductButton type="button" variant="secondary" size="compact" class="problem-show-on-canvas"
-                              onClick={() => activateProblem(props.app, diagnostic)}>
-                              {message('problems.action.showOnCanvas')}
-                            </ProductButton>
-                          </Show>
-                          <Show when={diagnostic.runtime?.hints?.length}>
-                            <RuntimeErrorHints hints={diagnostic.runtime!.hints} />
-                          </Show>
-                          <Show when={diagnostic.runtime}>
-                            <pre class="traceback">{diagnostic.runtime!.traceback.join('\n')}</pre>
-                          </Show>
-                        </div>
-                      </details>
-                    )}
+                            <Show when={diagnostic().runtime?.hints?.length}>
+                              <RuntimeErrorHints hints={diagnostic().runtime!.hints} />
+                            </Show>
+                            <Show when={diagnostic().runtime}>
+                              <pre class="traceback">{diagnostic().runtime!.traceback.join('\n')}</pre>
+                            </Show>
+                          </div>
+                        </details>
+                      )
+                    }}
                   </For>
                 </div>
               </section>

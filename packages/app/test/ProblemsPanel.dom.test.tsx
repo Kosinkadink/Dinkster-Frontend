@@ -66,6 +66,7 @@ function mountPanel(
   selection?: import('../src/ProblemsPanel.js').ProblemsPanelProps['selection'],
   panelDiagnostics: () => readonly Diagnostic[] = () => diagnostics,
   compatSkips: () => readonly { readonly packId: string; readonly nodeId: string; readonly reason: string }[] = () => [],
+  fixes?: import('../src/ProblemsPanel.js').ProblemFixActions,
 ) {
   const tab = {
     id: 'tab-dom', store: { doc: workflow },
@@ -83,6 +84,7 @@ function mountPanel(
   document.body.append(root)
   const unmount = render(() => (
     <ProblemsPanel app={app} diagnostics={panelDiagnostics} compatSkips={compatSkips}
+      {...(fixes === undefined ? {} : { fixes })}
       {...(selection === undefined ? {} : { selection })} />
   ), root)
   return { app, diagnosticFocus, root, unmount }
@@ -97,6 +99,35 @@ afterEach(() => {
 })
 
 describe('ProblemsPanel browser interactions', () => {
+  it('keeps a numeric row open and focused through stale and recheck messages', async () => {
+    const offered = diag('warning', 'environment', 'automatic.numberOutsideLimits', 'Numbers: amount: Stored value 14 is outside the allowed values.', {
+      data: { numberFixKey: 'number-fix' },
+    })
+    const [list, setList] = createSolidSignal<readonly Diagnostic[]>([offered])
+    const { root, unmount } = mountPanel(undefined, list, () => [], {
+      all: () => undefined,
+      forProblem: () => ({ label: 'Use 12', run: () => {
+        setList([{ ...offered, message: 'Numbers: amount: Could not apply this fix. The workflow changed.' }])
+      } }),
+    })
+    const details = root.querySelector<HTMLDetailsElement>('details.problem')!
+    const summary = details.querySelector('summary')!
+    details.open = true
+    const button = details.querySelector<HTMLButtonElement>('.problem-detail button')!
+    button.focus()
+    button.click()
+    await Promise.resolve()
+    expect(root.querySelector('[data-section="workflow"]')).not.toBeNull()
+    expect(root.querySelector('details.problem')).toBe(details)
+    expect(details.open).toBe(true)
+    expect(details.textContent).toContain('Could not apply this fix. The workflow changed.')
+    expect(document.activeElement).toBe(summary)
+    setList([{ ...offered, message: 'Numbers: amount: Stored value 14 is outside the allowed values.' }])
+    expect(details.open).toBe(true)
+    expect(document.activeElement).toBe(summary)
+    unmount()
+  })
+
   it('updates mounted static chrome while preserving disclosure nodes and raw diagnostics', () => {
     registerCatalog('de-DE', {
       'shell.panel.problems.title': '[Probleme]',

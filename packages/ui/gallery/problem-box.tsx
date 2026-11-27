@@ -220,10 +220,10 @@ export function ProblemBoxGallery(props: { theme: 'dark' | 'light' }) {
         </For>
         <For each={[true, false]}>{(offered) => {
           const app = { tabs: coreSignal([]), activeTabId: coreSignal(''), activeTab: () => undefined } as unknown as AppState
-          const item = diag('warning', 'schema', 'list.index.outside', 'Get item: item: Only 4 items are known.', {
+          const item = diag('warning', 'environment', 'list.index.outside', 'Get item: item: Only 4 items are known.', {
             anchor: { occurrence: { instancePath: [], node: asNodeId('item') } },
           })
-          const other = diag(offered ? 'warning' : 'error', 'schema', offered ? 'automatic.numberOutsideLimits' : 'rule.failed',
+          const other = diag(offered ? 'warning' : 'error', 'environment', offered ? 'automatic.numberOutsideLimits' : 'rule.failed',
             offered ? 'Sampler: steps: Stored value 12000 is outside the allowed values.' : 'Resize: Width must be positive.', {
               anchor: { occurrence: { instancePath: [], node: asNodeId('other') } },
             })

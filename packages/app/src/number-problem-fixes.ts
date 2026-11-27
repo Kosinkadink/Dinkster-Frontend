@@ -53,7 +53,7 @@ export class NumberProblemFixes {
       const node = tab.store.doc.graphs[offered.part.graphId]?.nodes[offered.part.nodeId]
       const title = node?.title || (node === undefined ? offered.part.nodeId : registry?.resolve(node.type)?.displayName ?? node.type)
       const text = `${offered.label}: ${fix.message ?? t('problemFix.numberOutsideLimits', { value: String(offered.before) })}`
-      return diag('warning', 'schema', 'automatic.numberOutsideLimits', `${title}: ${text}`, {
+      return diag('warning', 'environment', 'automatic.numberOutsideLimits', `${title}: ${text}`, {
         refs: [{ graphId: offered.part.graphId, nodeId: offered.part.nodeId, valueKey: offered.valueKey, portId: offered.valueKey, direction: 'input' }],
         anchor: { occurrence: { instancePath: (offered.part.instancePath ?? []).map(asNodeId), node: asNodeId(offered.part.nodeId) } },
         data: { numberFixKey: fix.key, nodeMessage: text },
