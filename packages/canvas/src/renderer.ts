@@ -1100,7 +1100,8 @@ export class CanvasRenderer {
     this.requestRender()
   }
 
-  setScene(scene: Scene): void {
+  /** Returns whether installation invalidated scene-derived interaction state. */
+  setScene(scene: Scene): boolean {
     // Count metadata does not invalidate pin layouts captured by a held wire.
     const countsChanged = !structuralEqual(this.baseScene.links.map(link => link.listCountFact), scene.links.map(link => link.listCountFact))
     const withoutCounts = (value: Scene): Scene => ({ ...value,
@@ -1109,7 +1110,7 @@ export class CanvasRenderer {
     const countsOnly = countsChanged && structuralEqual(withoutCounts(this.baseScene), withoutCounts(scene))
     this.baseScene = scene
     this.replacePaintScene(this.sceneWithBodyRegions(scene))
-    if (countsOnly) return
+    if (countsOnly) return false
     this.refreshConnectivity()
     this.canvasLayerNodes = Object.freeze(this.scene.nodes.map((node) => Object.freeze({
       id: node.id,
@@ -1124,6 +1125,7 @@ export class CanvasRenderer {
     // Notify AFTER installation so listeners (gesture cancellation) observe
     // the new scene through getScene().
     for (const listener of this.sceneReplacedListeners) listener(this.scene)
+    return true
   }
 
   setCanvasLayers(layers: readonly CanvasLayerContribution[], onError?: (id: string, error: unknown) => void): void {

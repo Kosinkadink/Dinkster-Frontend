@@ -4862,10 +4862,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         controller.getGroupSelection(), controller.getNetViewSelection(),
       ] as const : undefined
       const replaced = key !== sceneKey || (repositioned !== undefined ? scene !== built : !scenesEqual(scene, built))
+      let interactionInvalidated = false
       if (replaced) {
         scene = built
-        renderer.setScene(scene)
+        interactionInvalidated = renderer.setScene(scene)
         setSceneVersion((version) => version + 1)
+      }
+      if (interactionInvalidated) {
         controller.setSelectionOwner(key)
         if (keptSelection) controller.setSelection(...keptSelection)
         // A document op replaces the scene but not remote gesture state.
@@ -4898,7 +4901,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // replacement can. An unchanged scene invalidates nothing, and pruning
       // republishes the whole interaction overlay, which would drop an
       // in-flight drag's ghost noodle.
-      if (replaced) controller.pruneSelection()
+      if (interactionInvalidated) controller.pruneSelection()
       // Keep an editor through a non-document rebuild or equivalent workspace
       // session swap while its input row still has the same write contract.
       // ASSET staging may also survive document changes. Untracked: the scene

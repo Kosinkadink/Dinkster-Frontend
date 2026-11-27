@@ -387,15 +387,20 @@ it('keeps a held wire drag alive as recorded list counts arrive and disappear', 
   })
   try {
     fire('pointerdown', source.x + source.layout.width, source.y + output.y)
-    fire('pointermove', source.x + source.layout.width + 40, source.y + output.y)
+    fire('pointermove', sink.x, sink.y + input.y)
     expect(renderer.getOverlay().ghostLink).toBeDefined()
-    renderer.setScene({ ...scene, links: scene.links.map(link => ({ ...link,
+    const heldOverlay = renderer.getOverlay()
+    const install = (next: Scene) => {
+      if (renderer.setScene(next)) controller.pruneSelection()
+    }
+    install({ ...scene, links: scene.links.map(link => ({ ...link,
       listCountFact: { kind: 'estimate', count: 8, sources: ['last-run'] },
     })) })
     expect(renderer.getScene().links[0]?.listCountFact).toEqual({ kind: 'estimate', count: 8, sources: ['last-run'] })
-    renderer.setScene(scene)
+    expect(renderer.getOverlay()).toEqual(heldOverlay)
+    install(scene)
     expect(renderer.getScene().links[0]?.listCountFact).toBeUndefined()
-    fire('pointermove', sink.x, sink.y + input.y)
+    expect(renderer.getOverlay()).toEqual(heldOverlay)
     fire('pointerup', sink.x, sink.y + input.y)
     expect(dispatched).toContainEqual(expect.objectContaining({ command: 'link.connect' }))
   } finally {
