@@ -1,8 +1,9 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import type { DinksterConnection, MountDescriptor } from '@dinkster/client'
 import type { CollectionPageRequest, CollectionSource, MessageParams } from '@dinkster/core'
-import { ProductErrorBanner, ProductNotice, ProductProgress, ProductSegmented, ProductTextButton } from '@dinkster/ui'
+import { ProductErrorBanner, ProductNotice, ProductProgress, ProductTextButton } from '@dinkster/ui'
 import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js'
+import { AssetBrowserNavigation } from './asset-browser/AssetBrowserNavigation.js'
 import { assetCollectionSource } from './asset-browser/collection-adapter.js'
 import { VIEW_PREFERENCE_KEY } from './asset-browser/helpers.js'
 import { mountAssetSource } from './asset-browser/mountAssetSource.js'
@@ -142,33 +143,10 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
               ? () => setRecursive(true) : () => { setRecursive(true); select('all-mounts') })
             setWiderLabel(selectedId() === 'all-mounts' ? undefined : message(!recursive() ? 'assets.search.subfolders' : 'assets.search.allMounts'))
           })
-          return <>
-          <nav class="asset-path" aria-label={message('collection.folder.ariaLabel')}>
-            <ProductSelect class="asset-source-select" testId="asset-source-select" ariaLabel={message('assets.mounts.label')}
-              selectedId={selectedId()} options={sources().map((source) => ({ id: source.id, label: source.label, value: source.id }))}
-              onReselect={() => navigate('')}
-              onSelect={(option) => { setRecursive(true); select(option.value) }} />
-            <div class="asset-path-segments"><For each={folder().split('/').filter(Boolean)}>{(part, index) => <>
-              <span aria-hidden="true">/</span>
-              <Show when={index() < folder().split('/').length - 1} fallback={<span aria-current="page">{part}</span>}>
-                <ProductTextButton label={part} onClick={() => navigate(folder().split('/').slice(0, index() + 1).join('/'))} />
-              </Show>
-            </>}</For></div>
-          </nav>
-          <div class="asset-view-controls">
-            <Show when={selectedId() !== 'all-mounts'}>
-              <ProductSegmented label={message('assets.depth.label')} value={String(recursive())} onChange={(value) => setRecursive(value === 'true')}
-                options={[{ value: 'false', label: message('assets.depth.this') }, { value: 'true', label: message('assets.depth.subfolders') }]} />
-            </Show>
-            <div class="asset-view-switch">
-            <ProductSegmented label={message('assets.view.label')} value={mode()} onChange={(value) => setMode(value as 'list' | 'grid')}
-              options={[{ value: 'list', label: message('assets.view.names') }, { value: 'grid', label: message('assets.view.pictures') }]} />
-            </div>
-          </div>
-          <p class="asset-scope" data-testid="asset-scope">{message(recursive() ? 'assets.scope.subfolders' : 'assets.scope.this', {
-            path: `${selectedId() === 'all-mounts' ? message('assets.mounts.all') : selectedId().slice('mount:'.length)}${folder() ? `/${folder()}` : ''}`,
-          })}</p>
-        </>}}
+          return <AssetBrowserNavigation sources={sources()} selectedId={selectedId()} select={select}
+            folder={folder()} navigate={navigate} recursive={recursive()} setRecursive={setRecursive}
+            mode={mode()} setMode={setMode} />
+        }}
         renderState={(state) => assetState(loading() ? { ...state, kind: 'loading' } : state, message, widenSearch(), widerLabel())} entryContent={(entry) => <AssetEntryContent entry={entry()} />}
         detailPlacement="inline" detailRail={(entry) => <Show when={entry}>{(selected) => <AssetEntrySelection entry={selected()} adapters={adapters()}
           backendId={props.backendId} connection={props.connection} backendUrl={props.baseUrl ?? ''} backendLabel={props.backendLabel} />}</Show>}
