@@ -878,6 +878,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-segment:has(:disabled) { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .dinkster-segment:has(:disabled:not(:checked)) { color: var(--dinkster-text-secondary); }
 .dinkster-project-form { display: grid; grid-template-columns: 136px minmax(0, 1fr); align-items: center; gap: var(--dinkster-space-16) var(--dinkster-space-24); max-width: 720px; }
+.dinkster-project-form .dinkster-select-trigger { min-height: calc(var(--dinkster-space-32) + var(--dinkster-space-4)); }
 .dinkster-project-form > .dinkster-actions { grid-column: 2; justify-content: flex-end; }
 .dinkster-project-form-folder { display: contents; }
 .dinkster-project-form-path { display: flex; align-items: baseline; justify-content: space-between; gap: var(--dinkster-space-12); min-width: 0; padding-inline: var(--dinkster-space-12); }
