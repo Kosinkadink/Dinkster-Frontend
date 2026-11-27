@@ -5,9 +5,9 @@ import { useAppMessage } from './locale.js'
 
 type AccountConnection = Pick<DinksterConnection, 'accountStatus' | 'startAccountSignIn' | 'cancelAccountSignIn' | 'signOutAccount'>
 
-const PENDING_POLL_MS = 2000
+const ACCOUNT_POLL_MS = 2000
 
-/** The engine's native account session, read once and shared by every control that shows it. */
+/** The engine's native account session, shared by every control that shows it. */
 export interface AccountSession {
   /** Undefined until read; `available` is false while the engine has no account services. */
   readonly status: Accessor<AccountStatus | undefined>
@@ -23,20 +23,54 @@ export interface AccountSession {
 export function createAccountSession(connection: Accessor<AccountConnection>): AccountSession {
   const [status, setStatus] = createSignal<AccountStatus>()
   const [authorizationUrl, setAuthorizationUrl] = createSignal<string>()
-  const report = (error: unknown): void => console.error('account request failed', error)
-  const refresh = (): void => {
-    connection().accountStatus().then(setStatus, report)
+  let generation = 0
+  let refreshing: object | undefined
+  let changing = false
+  const report = (error: unknown): void => {
+    if (error instanceof DOMException && error.name === 'AbortError') return
+    console.error('account request failed', error)
   }
-  createEffect(refresh)
-  const pending = () => status()?.signIn === 'pending'
-  // Sign-in finishes in another browser tab, so status is read again while it is pending.
+  const request = <T extends AccountStatus,>(read: () => Promise<T>, accept: (value: T) => void): void => {
+    const current = ++generation
+    refreshing = undefined
+    changing = true
+    read().then((value) => {
+      if (current === generation) accept(value)
+    }, (error: unknown) => { if (current === generation) report(error) }).finally(() => {
+      if (current === generation) changing = false
+    })
+  }
+  const refresh = (): void => {
+    if (refreshing || changing) return
+    const current = generation
+    const reading = {}
+    refreshing = reading
+    connection().accountStatus().then((value) => {
+      if (current === generation) setStatus(value)
+    }, (error: unknown) => { if (current === generation) report(error) }).finally(() => {
+      if (refreshing === reading) refreshing = undefined
+    })
+  }
   createEffect(() => {
-    if (!pending()) {
-      setAuthorizationUrl(undefined)
-      return
-    }
-    const timer = setInterval(refresh, PENDING_POLL_MS)
-    onCleanup(() => clearInterval(timer))
+    const selected = connection()
+    generation += 1
+    changing = false
+    setStatus(undefined)
+    setAuthorizationUrl(undefined)
+    request(() => selected.accountStatus(), setStatus)
+    onCleanup(() => { generation += 1 })
+  })
+  const pending = () => status()?.signIn === 'pending'
+  createEffect(() => {
+    if (!pending()) setAuthorizationUrl(undefined)
+    if (!status()?.available) return
+    // Native expiry and sign-out in another window must retire this window's authority too.
+    const timer = setInterval(refresh, pending() ? ACCOUNT_POLL_MS : 30_000)
+    window.addEventListener('focus', refresh)
+    onCleanup(() => {
+      clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+    })
   })
   const open = (url: string): void => {
     window.open(url, '_blank', 'noopener')
@@ -46,14 +80,14 @@ export function createAccountSession(connection: Accessor<AccountConnection>): A
     pending,
     authorizationUrl,
     signIn() {
-      connection().startAccountSignIn().then((started) => {
+      request(() => connection().startAccountSignIn(), (started) => {
         setStatus(started)
         setAuthorizationUrl(started.authorizationUrl)
         open(started.authorizationUrl)
-      }, report)
+      })
     },
-    cancelSignIn() { connection().cancelAccountSignIn().then(setStatus, report) },
-    signOut() { connection().signOutAccount().then(setStatus, report) },
+    cancelSignIn() { request(() => connection().cancelAccountSignIn(), setStatus) },
+    signOut() { request(() => connection().signOutAccount(), setStatus) },
     openSignInPage() {
       const url = authorizationUrl()
       if (url !== undefined) open(url)

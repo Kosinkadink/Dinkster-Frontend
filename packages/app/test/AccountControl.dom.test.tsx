@@ -75,6 +75,27 @@ describe('account control', () => {
     view.dispose()
   })
 
+  it('keeps sign-out visible when an earlier account poll finishes late', async () => {
+    vi.useFakeTimers()
+    const signedIn: AccountStatus = { ...signedOut, signedIn: true,
+      profile: { displayName: 'Alex Rivers', email: null } }
+    const view = mount(signedIn)
+    await settle()
+    let release!: (value: AccountStatus) => void
+    view.connection.accountStatus.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    await vi.advanceTimersByTimeAsync(30_000)
+    view.root.querySelector<HTMLButtonElement>('button[aria-label="Account menu: Alex Rivers"]')!.click()
+    await settle()
+    document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click()
+    await settle()
+    expect(view.root.querySelector('button[aria-label="Sign in"]')).not.toBeNull()
+    release(signedIn)
+    await settle()
+    expect(view.root.querySelector('button[aria-label="Sign in"]')).not.toBeNull()
+    expect(view.root.querySelector('button[aria-label="Account menu: Alex Rivers"]')).toBeNull()
+    view.dispose()
+  })
+
   it('explains that sign-in starts on the engine machine instead of starting it', async () => {
     vi.useFakeTimers()
     const view = mount({ ...signedOut, canStartSignIn: false, signInUnavailableReason: 'account-sign-in-requires-engine-machine' })

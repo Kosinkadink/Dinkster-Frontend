@@ -367,6 +367,7 @@ export class DinksterValuesClient {
   private readonly baseUrl: string
   private readonly clientId: string
   private readonly fetchFn: FetchLike
+  private readonly lifetime: AbortSignal | undefined
   /** Normalized selectors plus ETag (or advertised/legacy fallback) -> bytes. */
   private readonly renditionCache = new Map<string, CachedRendition>()
   /** Query URL and announced identity -> cache key for no-network repeats. */
@@ -379,10 +380,11 @@ export class DinksterValuesClient {
   private peekSequence = 0
   private peekEpoch = 0
 
-  constructor(opts: { baseUrl: string; clientId: string; fetchFn?: FetchLike }) {
+  constructor(opts: { baseUrl: string; clientId: string; fetchFn?: FetchLike; lifetime?: AbortSignal }) {
     this.baseUrl = opts.baseUrl
     this.clientId = opts.clientId
     this.fetchFn = opts.fetchFn ?? ((url, init) => fetch(url, init))
+    this.lifetime = opts.lifetime
   }
 
   private url(query: ValueQuery, rendition?: string, options?: NormalizedRenditionOptions): string {
@@ -485,6 +487,8 @@ export class DinksterValuesClient {
 
   /** Descriptor + declared renditions for one output (or element) of a completed job. */
   async peek(query: ValueQuery, options: ValuePeekOptions = {}): Promise<ValuePeekResult> {
+    if (this.lifetime !== undefined) options = { ...options,
+      signal: options.signal === undefined ? this.lifetime : AbortSignal.any([this.lifetime, options.signal]) }
     if (options.signal?.aborted === true) return aborted()
     const bad = DinksterValuesClient.badElement(query)
     if (bad) return bad
@@ -551,9 +555,12 @@ export class DinksterValuesClient {
 
   /** Keep value reads bound to their descriptor and query identity. */
   async read<T>(query: ValueQuery, descriptor: ValueDescriptor, consume: () => Promise<T>): Promise<T> {
+    this.lifetime?.throwIfAborted()
     const reader = this.descriptorReaders.get(descriptor)
     if (reader?.queryUrl !== this.url(query)) throw new Error('Read requires its value descriptor')
-    return consume()
+    const value = await consume()
+    this.lifetime?.throwIfAborted()
+    return value
   }
 
   /**
@@ -561,6 +568,8 @@ export class DinksterValuesClient {
    * Completed reads are cached by normalized selectors and server identity.
    */
   async rendition(query: ValueQuery, kind: string, options: RenditionOptions = {}): Promise<RenditionResult> {
+    if (this.lifetime !== undefined) options = { ...options,
+      signal: options.signal === undefined ? this.lifetime : AbortSignal.any([this.lifetime, options.signal]) }
     if (options.signal?.aborted === true) return aborted()
     return this.readRendition(query, kind, options)
   }

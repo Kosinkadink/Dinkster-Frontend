@@ -77,6 +77,66 @@ const ref = (jobId: string): ExecutionRef => ({ connection: C0, prompt: asPrompt
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+it('retires account caches and the event stream on verified identity changes, never on stale status', async () => {
+  const signedOut = { available: true, canStartSignIn: true, signInUnavailableReason: null,
+    signedIn: false, profile: null, signIn: { state: 'idle' }, principalRevision: 'local' }
+  let status = signedOut
+  let delayed: Promise<Response> | undefined
+  const sockets: WebSocketLike[] = []
+  const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'browser',
+    fetchFn: async (url) => url.includes('/docs/pages/')
+      ? new Response(status.principalRevision, { headers: { 'Content-Type': 'text/markdown' } })
+      : delayed ?? jsonResponse(200, status),
+    webSocketFactory: () => {
+      const socket: WebSocketLike = { binaryType: '', onopen: null, onmessage: null, onclose: null, onerror: null,
+        send() {}, close() {} }
+      sockets.push(socket)
+      return socket
+    },
+  })
+  connection.connect()
+  sockets.at(-1)!.onopen?.({})
+  await connection.accountStatus()
+  sockets.at(-1)!.onopen?.({})
+  const localGeneration = connection.principalGeneration.get()
+  await connection.accountStatus()
+  expect(connection.principalGeneration.get()).toBe(localGeneration)
+  expect(await connection.fetchDocsPage('test', 'digest')).toBe('local')
+  const events: NormalizedEvent[] = []
+  connection.onEvent((event) => events.push(event))
+  const oldMessage = sockets.at(-1)!.onmessage!
+  const oldValues = connection.values()
+  status = { ...signedOut, signedIn: true, principalRevision: 'verified-a' }
+  await connection.accountStatus()
+  expect(connection.principalGeneration.get()).toBe(localGeneration + 1)
+  expect(await connection.fetchDocsPage('test', 'digest')).toBe('verified-a')
+  const query = { jobId: 'job-local', nodeId: 'n1', outputId: 'out' }
+  expect(await oldValues.peek(query)).toMatchObject({ available: false, reason: 'aborted' })
+  expect(await oldValues.rendition(query, 'default')).toMatchObject({ available: false, reason: 'aborted' })
+  sockets.at(-1)!.onopen?.({})
+  const message = { data: JSON.stringify({ type: 'queue_state', queued: 3, running: [], maxRunningJobs: 1, paused: false }) }
+  oldMessage(message)
+  expect(events).toEqual([])
+  sockets.at(-1)!.onmessage?.(message)
+  expect(events).toHaveLength(1)
+
+  let release!: (value: Response) => void
+  delayed = new Promise((resolve) => { release = resolve })
+  const old = connection.accountStatus()
+  const refused = expect(old).rejects.toThrow('Account changed')
+  delayed = undefined
+  status = signedOut
+  await connection.signOutAccount()
+  sockets.at(-1)!.onopen?.({})
+  release(jsonResponse(200, { ...signedOut, signedIn: true, principalRevision: 'verified-a' }))
+  await refused
+  expect(connection.principalGeneration.get()).toBe(localGeneration + 2)
+  status = { ...signedOut, signedIn: true, principalRevision: 'verified-b' }
+  await connection.accountStatus()
+  expect(connection.principalGeneration.get()).toBe(localGeneration + 3)
+  connection.disconnect()
+})
+
 it('decodes and revalidates static registry import metadata without backend credentials or installed schemas', async () => {
   const row = { pack: 'dinkster-text', version: '0.0.1',
     rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length',
