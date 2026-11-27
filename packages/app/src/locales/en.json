@@ -65,6 +65,7 @@
   "storagePanel.back": "Back to Storage",
   "storagePanel.addFolder": "Add folder",
   "storagePanel.addMount": "Add a mount",
+  "storagePanel.addMountAction": "Add mount",
   "storagePanel.mountFolder": "Folder",
   "storagePanel.mountName": "Name",
   "storagePanel.allowSaving": "Allow saving to this folder",

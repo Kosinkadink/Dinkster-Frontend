@@ -161,7 +161,7 @@ export function MountFolderForm(props: {
           onChange={(checked) => setMode(checked ? 'readwrite' : 'read')} /><span>{message('storagePanel.allowSaving')}</span></div>
         <div class="dinkster-dialog-actions">
           <Show when={props.onCancel}><SharedButton disabled={busy()} onClick={() => props.onCancel?.()}>{message('projectFolders.cancel')}</SharedButton></Show>
-          <SharedButton type="submit" intent="add" fill="solid" pending={busy()} disabled={!mountId().trim() || !mountPath().trim()}>{message('storagePanel.addMount')}</SharedButton>
+          <SharedButton type="submit" intent="add" fill="solid" pending={busy()} disabled={!mountId().trim() || !mountPath().trim()}>{message('storagePanel.addMountAction')}</SharedButton>
         </div>
       </form>
     </Show>

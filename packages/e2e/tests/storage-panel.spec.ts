@@ -153,7 +153,7 @@ test('Storage shows engine file and byte reading progress on model folders and m
     expect(route.request().postDataJSON()).toMatchObject({ id: 'footage', path: '/archive/source-footage', mode: 'readwrite' })
     await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'not a directory: /archive/source-footage' }) })
   })
-  await panel.getByRole('button', { name: 'Add a mount', exact: true }).click()
+  await panel.getByRole('button', { name: 'Add mount', exact: true }).click()
   await expect(panel.getByRole('alert')).toContainText('This is not a folder.')
   await expect(folder).toHaveValue('/archive/source-footage')
   await expect(name).toHaveValue('footage')

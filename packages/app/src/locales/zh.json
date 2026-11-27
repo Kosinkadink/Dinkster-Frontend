@@ -72,6 +72,7 @@
   "storagePanel.back": "返回存储",
   "storagePanel.addFolder": "添加文件夹",
   "storagePanel.addMount": "添加挂载点",
+  "storagePanel.addMountAction": "添加挂载点",
   "storagePanel.mountFolder": "文件夹",
   "storagePanel.mountName": "名称",
   "storagePanel.allowSaving": "允许保存到此文件夹",
