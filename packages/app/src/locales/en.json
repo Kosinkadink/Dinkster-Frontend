@@ -550,6 +550,8 @@
   "assets.logicalModel.providers": "Providers",
   "assets.logicalModel.quantization": "Quantization",
   "assets.logicalModel.variant": "Variant",
+  "assets.models.title": "Models",
+  "assets.models.search": "Search models",
   "assets.metadata.inspect": "Inspect model metadata",
   "assets.metadata.loading": "loading",
   "assets.metadata.unsupported": "Metadata inspection is unsupported.",

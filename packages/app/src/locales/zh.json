@@ -559,6 +559,8 @@
   "assets.logicalModel.providers": "提供者",
   "assets.logicalModel.quantization": "量化",
   "assets.logicalModel.variant": "变体",
+  "assets.models.title": "模型",
+  "assets.models.search": "搜索模型",
   "assets.metadata.inspect": "检查模型元数据",
   "assets.metadata.loading": "加载中",
   "assets.metadata.unsupported": "元数据检查不支持。",

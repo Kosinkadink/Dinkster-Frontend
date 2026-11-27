@@ -1,5 +1,6 @@
-import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component, type ComponentProps } from 'solid-js'
-import { assetMultiSelect, formatByteSize, type CollectionEntry, type CollectionPageRequest, type JsonObject } from '@dinkster/core'
+import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component } from 'solid-js'
+import { assetMultiSelect, formatByteSize, rankSearch, type CollectionEntry, type CollectionPageRequest, type JsonObject } from '@dinkster/core'
+import { ProductModelList, ProductTextInput, type ProductModel, type ProductModelVersion } from '@dinkster/ui'
 import type { AssetGuessCandidate } from '@dinkster/client'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { AssetBrowserNavigation } from '../asset-browser/AssetBrowserNavigation.js'
@@ -10,8 +11,8 @@ import { mountAssetSource, mountAssetSources } from '../asset-browser/mountAsset
 import { localAssetSource } from '../asset-browser/localAssetSource.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
 import { ingestLogicalModels } from '../asset-browser/logical-model-merge.js'
-import type { LogicalModel } from '../asset-browser/logical-model.js'
-import { logicalModelAssetRefOf, logicalModelCollectionSource, logicalModelEntrySelectable, logicalModelEntryVisible, logicalModelPickDetailOf, type LogicalModelPickDetail } from '../asset-browser/logical-model-collection-source.js'
+import type { LogicalModel, LogicalModelVariant } from '../asset-browser/logical-model.js'
+import { logicalModelVariantName, type LogicalModelPickDetail } from '../asset-browser/logical-model-collection-source.js'
 import { AssetEntryContent, AssetEntryFallback } from '../asset-browser/presentation.js'
 import { isModel3dMime, model3dMimeFor } from '../model3d-mime.js'
 import { Model3dPosterImage } from '../Model3dPosterImage.js'
@@ -187,6 +188,8 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const [logicalModels, setLogicalModels] = createSolidSignal<readonly LogicalModel[] | undefined>(undefined)
   const [logicalModelsError, setLogicalModelsError] = createSolidSignal<string | undefined>(undefined)
   const [logicalModelsLoading, setLogicalModelsLoading] = createSolidSignal(false)
+  const [modelQuery, setModelQuery] = createSolidSignal('')
+  const [inspectedModel, setInspectedModel] = createSolidSignal<{ modelId: string; versionId: string }>()
   const unresolvedAsset = ed.spec?.selection !== true && typeof ed.initial === 'string' ? ed.initial : undefined
   const [assetMatchCandidates, setAssetMatchCandidates] = createSolidSignal<readonly AssetGuessCandidate[]>([])
   const [assetMatchPending, setAssetMatchPending] = createSolidSignal(false)
@@ -525,21 +528,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     )
   }
 
-  const pickLogicalModelEntry = (detail: LogicalModelPickDetail): void => {
-    const ref = detail.variant.localRef
-    if (ref !== undefined) {
-      pickLogicalModelRef(ref, detail)
-      return
-    }
-    if (assetUploading()) return
-    setAssetSelectedItem(undefined)
-    setAssetSelectedModel(detail)
-    if (!assetMulti) {
-      void stageAssetSelection(() => [])
-      clearAssetPreview()
-    }
-  }
-
   const retryAssetMatch = async (): Promise<void> => {
     if (unresolvedAsset === undefined) return
     const backend = props.app.backendForTab(ed.tab)
@@ -572,7 +560,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   }
   const selectionDetailModel = (): LogicalModelPickDetail | undefined => {
     const detail = assetSelectedModel()
-    if (detail !== undefined && detail.variant.localRef === undefined) return detail
     const digest = detail?.variant.localRef?.digest
     const selection = assetSelection()
     if (digest !== undefined && selection.some((ref) => ref.digest === digest)) return detail
@@ -584,11 +571,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     }
     return undefined
   }
-  const selectedUncommittableModel = (): LogicalModelPickDetail | undefined => {
-    const detail = assetSelectedModel()
-    return detail?.variant.localRef === undefined ? detail : undefined
-  }
-
   const pickMatchedAsset = (candidate: AssetGuessCandidate): void => {
     const ref = assetGuessCandidateToRef(candidate)
     if (ref === undefined) return
@@ -615,9 +597,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     const assetUrl = assetUrlOf()
 
     const fixedKind = assetBrowseKind()
-    if (usesLogicalModelSource()) {
-      return logicalModels() === undefined ? [] : [logicalModelCollectionSource(() => logicalModels() ?? [])]
-    }
+    if (usesLogicalModelSource()) return []
     if (adapters.length === 0) return []
     const connection = props.app.backendForTab(ed.tab).connection
     return [mountAssetSource(connection, adapters.map((adapter) => adapter.id.slice('mount:'.length))), ...adapters].map((adapter) => ({
@@ -629,12 +609,37 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       filters: [],
     }))
   })
+  const modelId = (model: LogicalModel): string => JSON.stringify([model.kind, model.logicalId])
+  const modelVersionId = (variant: LogicalModelVariant): string => JSON.stringify([variant.variantId, variant.digest ?? null])
+  const modelRows = createMemo<readonly ProductModel[]>(() => rankSearch(modelQuery(), logicalModels() ?? [], (model) => [
+    { text: model.displayName, weight: 3 },
+    ...model.aliases.map((text) => ({ text, weight: 2 })),
+    ...model.variants.map((variant) => ({ text: logicalModelVariantName(variant), weight: 3 })),
+  ]).filter((model) => model.variants.length > 0).map((model) => ({
+    id: modelId(model), name: model.displayName, kind: model.kind,
+    versions: model.variants.map((variant): ProductModelVersion => ({
+      id: modelVersionId(variant), name: logicalModelVariantName(variant),
+      state: variant.localRef !== undefined ? 'installed'
+        : variant.availability === 'downloadable' ? 'not-downloaded'
+          : variant.availability === 'resolving' ? 'checking' : 'unavailable',
+      ...(variant.size !== undefined ? { size: formatByteSize(variant.size) } : {}),
+      ...(variant.precision !== undefined ? { precision: variant.precision } : {}),
+    })),
+  })))
+  const modelDetail = (id: string, versionId: string): LogicalModelPickDetail | undefined => {
+    const model = logicalModels()?.find((candidate) => modelId(candidate) === id)
+    const variant = model?.variants.find((candidate) => modelVersionId(candidate) === versionId)
+    return model !== undefined && variant !== undefined
+      ? { modelName: model.displayName, aliases: model.aliases, variant } : undefined
+  }
+  const inspectedModelDetail = (): LogicalModelPickDetail | undefined => {
+    const keys = inspectedModel()
+    return keys !== undefined ? modelDetail(keys.modelId, keys.versionId) : undefined
+  }
+  const selectedModelKeys = createMemo(() => (logicalModels() ?? []).flatMap((model) => model.variants
+    .filter((variant) => variant.localRef !== undefined && assetSelection().some((ref) => ref.digest === variant.localRef?.digest))
+    .map((variant) => ({ modelId: modelId(model), versionId: modelVersionId(variant) }))))
   const pickAssetEntry = (entry: CollectionEntry): void => {
-    if (usesLogicalModelSource()) {
-      const detail = logicalModelPickDetailOf(entry)
-      if (detail !== undefined) pickLogicalModelEntry(detail)
-      return
-    }
     const item = assetItemOf(entry)
     if (item) pickBrowsedAsset(item)
   }
@@ -649,16 +654,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     return item?.digest === current.digest && (current.virtualPath === '' || item?.virtualPath === current.virtualPath)
   }
   const matchesCurrentAsset = (entry: CollectionEntry): boolean => {
-    if (usesLogicalModelSource()) {
-      const ref = logicalModelAssetRefOf(entry)
-      if (ref !== undefined && assetSelection().some((selected) => selected.digest === ref.digest)) return true
-      const detail = logicalModelPickDetailOf(entry)
-      const selected = selectedUncommittableModel()
-      return !assetMulti && detail !== undefined && selected !== undefined &&
-        detail.variant.logicalId === selected.variant.logicalId &&
-        detail.variant.variantId === selected.variant.variantId &&
-        detail.variant.digest === selected.variant.digest
-    }
     return assetSelection().some((ref) => matchesRef(entry, ref))
   }
 
@@ -763,44 +758,50 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                     <SearchState kind="loading" title="Loading models" detail="Grouping variants from available sources." />
                   </Show>
                 }>
-                  <CollectionPanel
+                  <Show when={usesLogicalModelSource()} fallback={<CollectionPanel
                     variant="select"
                     sources={assetPanelSources()}
-                    {...(usesLogicalModelSource() ? {} : {
-                      pageSize: 60,
-                      pagination: 'scroll',
-                      recursive: recursive(),
-                      sort: sort(),
-                      navigation: ({ selectedId, select, folder, navigate, mode, setMode }) =>
+                    pageSize={60}
+                    pagination="scroll"
+                    recursive={recursive()}
+                    sort={sort()}
+                    navigation={({ selectedId, select, folder, navigate, mode, setMode }) =>
                         <AssetBrowserNavigation sources={assetPanelSources()} selectedId={selectedId()} select={select}
                           folder={folder()} navigate={navigate} recursive={recursive()} setRecursive={setRecursive}
-                          mode={mode()} setMode={setMode} />,
-                      entryContent: (entry) => <AssetEntryContent entry={entry()} />,
-                    } satisfies Partial<ComponentProps<typeof CollectionPanel>>)}
-                    toolbarActions={usesLogicalModelSource() ? undefined : <ProductSelect testId="asset-sort-select"
+                          mode={mode()} setMode={setMode} />}
+                    entryContent={(entry) => <AssetEntryContent entry={entry()} />}
+                    toolbarActions={<ProductSelect testId="asset-sort-select"
                       ariaLabel={message('assets.order.label')} selectedId={sort()}
                       options={(['newest', 'name', 'path'] as const).map((value) => ({ id: value, label: message(`assets.order.${value}`), value }))}
                       onSelect={(option) => setSort(option.value)} />}
                     pick={{
-                      pickable: usesLogicalModelSource()
-                        ? logicalModelEntrySelectable
-                        : assetEntryPickable(assetAccept(), assetBrowseKind()),
+                      pickable: assetEntryPickable(assetAccept(), assetBrowseKind()),
                       onPick: pickAssetEntry,
-                      ...(usesLogicalModelSource() ? { visible: logicalModelEntryVisible } : {}),
                       selected: matchesCurrentAsset,
                       multi: assetMulti,
                     }}
                     initialSelection={matchesCurrentAsset}
-                    modeKey={usesLogicalModelSource() ? `${VIEW_PREFERENCE_KEY}.models` : VIEW_PREFERENCE_KEY}
-                    defaultMode={usesLogicalModelSource()
-                      ? 'list'
-                      : assetBrowseKind()?.startsWith('media/') === true ? 'grid' : 'list'}
+                    modeKey={VIEW_PREFERENCE_KEY}
+                    defaultMode={assetBrowseKind()?.startsWith('media/') === true ? 'grid' : 'list'}
                     searchPriority="primary"
                     searchLabel={`Search ${assetVocabulary().plural}`}
                     searchPlaceholder={`Search ${assetVocabulary().plural}`}
                     renderState={(state) => assetPickerState(state, assetVocabulary())}
                     entryFallback={(entry) => <AssetEntryFallback entry={entry} />}
-                  />
+                  />}>
+                    <ProductTextInput type="search" aria-label={message('assets.models.search')} placeholder={message('assets.models.search')} value={modelQuery()}
+                      onInput={(event) => setModelQuery(event.currentTarget.value)} />
+                    <ProductModelList label={message('assets.models.title')} models={modelRows()} selected={selectedModelKeys()} inlineDetails={false}
+                      onSelect={(modelId, versionId) => setInspectedModel({ modelId, versionId })}
+                      onChoose={(id, versionId) => {
+                        const detail = modelDetail(id, versionId)
+                        if (detail?.variant.localRef !== undefined) pickLogicalModelRef(detail.variant.localRef, detail)
+                      }} />
+                    <Show when={modelRows().length === 0 && !logicalModelsLoading()}>
+                      <SearchState kind="empty" title={modelQuery().trim() ? 'No matching models' : 'No models yet'}
+                        detail={modelQuery().trim() ? 'Try another search.' : 'No mounted models are available.'} />
+                    </Show>
+                  </Show>
                 </Show>
               </Show>
             </section>
@@ -810,13 +811,13 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                   <span class="asset-section-eyebrow">Selection</span>
                   <h3>{assetMulti
                     ? `${assetSelection().length} selected`
-                    : assetSelection()[0]?.name ?? selectedUncommittableModel()?.modelName ?? 'Nothing selected'}</h3>
+                    : assetSelection()[0]?.name ?? 'Nothing selected'}</h3>
                 </div>
-                <Show when={!assetMulti ? assetSelection()[0]?.size ?? selectedUncommittableModel()?.variant.size : undefined}>
+                <Show when={!assetMulti ? assetSelection()[0]?.size : undefined}>
                   {(size) => <span>{formatByteSize(size())}</span>}
                 </Show>
               </header>
-              <Show when={!assetMulti && assetSelection().length === 0 && selectedUncommittableModel() === undefined}>
+              <Show when={!assetMulti && assetSelection().length === 0 && inspectedModelDetail() === undefined}>
                 <ProductEmptyState testId="asset-selection-empty" title={usesLogicalModelSource()
                     ? `Click ${withArticle(assetVocabulary().singular)} in the list to select it.`
                     : `Click ${withArticle(assetVocabulary().singular)} in the list to select it, or upload ${withArticle(assetVocabulary().uploadSingular)}.`} />
@@ -896,10 +897,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               <Show when={selectionDetailItem()} keyed>
                 {(item) => <AssetSelectionDetails item={item} dimensions={assetPreviewDims()} adapters={assetSources() ?? []} backendId={String(props.app.backendForTab(ed.tab).id)} />}
               </Show>
-              <Show when={selectionDetailModel()} keyed>
+              <Show when={inspectedModelDetail() ?? selectionDetailModel()} keyed>
                 {(detail) => <LogicalModelVariantFacts detail={detail} />}
               </Show>
-              <Show when={assetSelection().length > 0 || selectedUncommittableModel() !== undefined}>
+              <Show when={assetSelection().length > 0}>
                 {/* Remove only stages an empty selection: nothing commits
                     before the footer commit, Cancel restores the stored
                     value. */}
@@ -908,7 +909,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                   class="asset-selection-remove"
                   data-testid="asset-selection-remove"
                   disabled={assetUploading()}
-                  onClick={() => { void stageAssetSelection(() => [], () => { setAssetSelectedItem(undefined); setAssetSelectedModel(undefined); clearAssetPreview() }) }}
+                  onClick={() => { void stageAssetSelection(() => [], () => { setAssetSelectedItem(undefined); setAssetSelectedModel(undefined); setInspectedModel(undefined); clearAssetPreview() }) }}
                 >
                   <Icon icon={X} /> Remove
                 </button>
@@ -980,7 +981,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 type="button"
                 class="primary"
                 data-testid="asset-apply"
-                disabled={assetUploading() || (!assetMulti && selectedUncommittableModel() !== undefined)}
+                disabled={assetUploading()}
                 onClick={() => {
                   if (!pickerContextCurrent()) {
                     setAssetError(message('widgetEditor.commitRefused'))

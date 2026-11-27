@@ -19,6 +19,14 @@ const assetLocationMethods = {
   onMountsChanged: () => () => {},
 }
 
+async function modelChoices(root: HTMLElement, count: number) {
+  await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="logical-model-refresh"]')?.disabled).toBe(false))
+  await vi.waitFor(() => expect(root.querySelector('.dinkster-models button')).not.toBeNull())
+  for (const group of root.querySelectorAll<HTMLButtonElement>('.dinkster-models button[aria-expanded="false"]')) group.click()
+  await vi.waitFor(() => expect(root.querySelectorAll('.dinkster-models button[aria-pressed]')).toHaveLength(count))
+  return root.querySelectorAll<HTMLButtonElement>('.dinkster-models button[aria-pressed]')
+}
+
 beforeEach(() => {
   vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (this: HTMLDialogElement) {
     this.setAttribute('open', '')
@@ -671,22 +679,32 @@ describe('ASSET widget modal integration', () => {
 
   it('uses grouped model variants with kind-scoped scans and commits an exact variant ref', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
+    const choices = await modelChoices(mounted.root, 2)
 
     // Model kinds show no upload-limit copy: the generic 16 MiB enforcement
     // bound is not an authoritative model limit.
     expect(mounted.root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).not.toContain('per file')
-    expect(mounted.root.querySelectorAll('[data-testid="collection-group"]')).toHaveLength(1)
     expect(mounted.root.querySelectorAll('[data-testid="logical-model-conflict"]')).toHaveLength(0)
-    expect(mounted.root.querySelector('[data-testid="collection-panel"]')).not.toBeNull()
+    expect(mounted.root.querySelector('input[aria-label="Search models"]')).not.toBeNull()
     expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')?.disabled).toBe(true)
     expect(mounted.connection.listMountEntries).toHaveBeenCalledWith('left', expect.objectContaining({
       kind: 'model/checkpoint', recursive: true,
     }))
-    const choices = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
     choices[1]!.click()
-    await vi.waitFor(() => expect(choices[1]!.classList.contains('selected')).toBe(true))
+    await vi.waitFor(() => expect(choices[1]!.getAttribute('aria-pressed')).toBe('true'))
     expect(mounted.root.querySelectorAll('[data-testid="logical-model-conflict"]')).toHaveLength(1)
+    choices[0]!.focus()
+    expect(choices[1]!.getAttribute('aria-pressed')).toBe('true')
+    expect(choices[0]!.getAttribute('aria-pressed')).toBe('false')
+    expect(mounted.root.querySelector('[data-testid="logical-model-variant-details"]')?.textContent).toContain('a/shared.safetensors')
+    const search = mounted.root.querySelector<HTMLInputElement>('input[aria-label="Search models"]')!
+    search.value = 'absent-model'
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(mounted.root.textContent).toContain('No matching models')
+    expect(mounted.root.querySelector('.dinkster-models button')).toBeNull()
+    search.value = 'shared'
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+    await modelChoices(mounted.root, 2)
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     expect(mounted.dispatchTo).toHaveBeenCalledOnce()
@@ -749,8 +767,8 @@ describe('ASSET widget modal integration', () => {
       }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
       let unmount = mountPicker()
       try {
-        await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
-        if (!stored) root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+        const choices = await modelChoices(root, 1)
+        if (!stored) choices[0]!.click()
         await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name))
         await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
         if (scenario === 'edited') expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
@@ -784,10 +802,10 @@ describe('ASSET widget modal integration', () => {
 
   it('stages an empty selection through Remove and only commits at the footer', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
+    const choices = await modelChoices(mounted.root, 2)
 
     expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).toBeNull()
-    mounted.root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+    choices[0]!.click()
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).not.toBeNull())
     const remove = mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')
     expect(remove).not.toBeNull()
@@ -807,8 +825,8 @@ describe('ASSET widget modal integration', () => {
     const mounted = catalogAssetEditor('model/checkpoint', {
       kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.MODEL' } },
     })
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
-    mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')[1]!.click()
+    const choices = await modelChoices(mounted.root, 2)
+    choices[1]!.click()
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-chip"]')?.textContent).toContain('shared.safetensors'))
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
@@ -837,11 +855,9 @@ describe('ASSET widget modal integration', () => {
     const mounted = catalogAssetEditor('model/checkpoint', {
       kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.MODEL' } },
     }, [aliasRef])
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
-    const canonical = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')[0]!
+    const canonical = (await modelChoices(mounted.root, 2))[0]!
 
-    expect(canonical.getAttribute('aria-selected')).toBe('true')
-    expect(canonical.classList.contains('selected')).toBe(true)
+    expect(canonical.getAttribute('aria-pressed')).toBe('true')
     expect(mounted.root.querySelector('[data-testid="logical-model-variant-details"]')).not.toBeNull()
     canonical.click()
     await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(0))
@@ -873,7 +889,7 @@ describe('ASSET widget modal integration', () => {
     const mounted = catalogAssetEditor('model/checkpoint', {
       kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.MODEL' } },
     }, [first, second])
-    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="collection-panel"]')).not.toBeNull())
+    await modelChoices(mounted.root, 2)
 
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     const value = (mounted.dispatchTo.mock.calls[0]?.[1] as { params: { value: readonly typeof first[] } }).params.value
@@ -890,7 +906,7 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.root.textContent).not.toContain('loading grouped models...')
     expect(refresh.disabled).toBe(false)
     refresh.click()
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
+    await modelChoices(mounted.root, 2)
     mounted.unmount()
   })
 
@@ -992,8 +1008,7 @@ describe('ASSET widget modal integration', () => {
     const button = (text: string) => [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === text)!
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-entry="pixel_space"]')).not.toBeNull())
     button('Browse files').click()
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(3))
-    const files = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
+    const files = await modelChoices(mounted.root, 2)
     files[1]!.click()
     await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
     button('Back to source options').click()
