@@ -754,12 +754,15 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     ...floatField('total', 5), automatic: { formula: 'seed * 2 + bias' },
     labelFormula: { formula: '"Total " + fixed(seed * 2 + bias, 0)' }, tooltip: 'Calculated in this receiver',
   }, { kind: 'output', id: 'result', type: FLOAT }])
+  const lookupCalculator: NodeSchema = { ...calculator, type: 'LookupCalculator', body: calculator.body.map((row) =>
+    row.kind === 'input' && row.id === 'total' ? { ...row, automatic: { lookup: 'calculate_total', args: ['seed', 'bias'] } } : row) }
   const formulaResolve = (type: string) => type === 'Calculator' ? calculator
+    : type === 'LookupCalculator' ? lookupCalculator
     : type === 'OptionalValue' ? node(type, [{ kind: 'input', id: 'total', type: FLOAT, optional: true,
       widget: { widgetType: 'FLOAT', options: {} } }])
     : type === 'FormulaSink' ? node(type, [{ kind: 'input', id: 'value', type: FLOAT, optional: true }])
       : type === 'Text' ? { ...node(type, [{ kind: 'input', id: 'value', type: STRING, optional: true }]), isOutputNode: false } : undefined
-  const formulaFixture = (depth: 1 | 2): WorkflowDocument => {
+  const formulaFixture = (depth: 1 | 2, calculation: 'formula' | 'lookup'): WorkflowDocument => {
     const bind = (id: string, target: string, port: string) => ({
       kind: 'input', id, promoted: true, binds: { kind: 'port', node: target, port },
     })
@@ -772,8 +775,8 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
           sink: { id: 'sink', type: 'FormulaSink', values: {} },
         }, links: { wire: { id: 'wire', from: { node: 'first', port: depth === 1 ? 'out' : 'result' }, to: { node: 'sink', port: 'value' } } } },
         detail: { id: 'detail', name: 'Detail', ...empty, nodes: {
-          sample: { id: 'sample', type: 'Calculator', values: { seed: 3, bias: 7 } },
-          other: { id: 'other', type: 'Calculator', values: { seed: 11, bias: 13 } },
+          sample: { id: 'sample', type: calculation === 'formula' ? 'Calculator' : 'LookupCalculator', values: { seed: 3, bias: 7 } },
+          other: { id: 'other', type: calculation === 'formula' ? 'Calculator' : 'LookupCalculator', values: { seed: 11, bias: 13 } },
           text: { id: 'text', type: 'Text', values: {} },
         }, boundary: { body: [bind('start', 'sample', 'seed'), bind('total', 'sample', 'total'),
           { kind: 'output', id: 'out', binds: { kind: 'port', node: 'sample', port: 'result' } },
@@ -788,13 +791,20 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     } as unknown as WorkflowDocument
   }
   const formulaRun = (doc: WorkflowDocument) => {
+    const lookupAnswers = (lookup: string, args: readonly unknown[]) => {
+      expect(lookup).toBe('calculate_total')
+      expect(args.every((value) => typeof value === 'number')).toBe(true)
+      return { state: 'ready' as const, answer: Number(args[0]) * 2 + Number(args[1]) }
+    }
     const result = compile({ document: doc, revision: 1, resolve: formulaResolve, scope: { kind: 'full' },
-      connection: asConnectionId('formula-lifecycle'), schemaHash: 'formula-lifecycle' })
+      connection: asConnectionId('formula-lifecycle'), schemaHash: 'formula-lifecycle', lookupAnswers })
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) throw new Error('formula lifecycle document did not compile')
     const labels: Record<string, string | undefined> = {}
-    const calculated = Object.fromEntries(Object.entries(result.artifact.prompt).filter(([, receiver]) => receiver.class_type === 'Calculator').map(([id, receiver]) => {
-      const row = elabInputsOf(elaborateInterface(calculator, { values: receiver.inputs as never })).find((field) => field.spec.id === 'total')!
+    const calculated = Object.fromEntries(Object.entries(result.artifact.prompt).filter(([, receiver]) =>
+      receiver.class_type === 'Calculator' || receiver.class_type === 'LookupCalculator').map(([id, receiver]) => {
+      const row = elabInputsOf(elaborateInterface(formulaResolve(receiver.class_type)!, { values: receiver.inputs as never },
+        undefined, { lookupAnswers })).find((field) => field.spec.id === 'total')!
       const stored = Object.hasOwn(receiver.inputs, 'total')
       expect(row.automatic?.state).toBe(stored ? undefined : 'worked-out')
       labels[id] = row.spec.displayName
@@ -803,8 +813,8 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     return { prompt: result.artifact.prompt, calculated, labels }
   }
 
-  it.each([1, 2] as const)('formula dependency fan-out at depth %s keeps each receiver scope through edits and reload', (depth) => {
-    const doc = formulaFixture(depth)
+  it.each([[1, 'formula'], [2, 'formula'], [1, 'lookup'], [2, 'lookup']] as const)('automatic dependency fan-out at depth %s with %s keeps each receiver scope through edits and reload', (depth, calculation) => {
+    const doc = formulaFixture(depth, calculation)
     const store = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
       kind: 'initial', schemaResolverFor: (current) => documentResolver(current, formulaResolve),
     }))
@@ -855,8 +865,9 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     check(loadDocument(JSON.parse(JSON.stringify(edited))).document!, 31, 69, 75)
   })
 
-  it.each([1, 2] as const)('formula detach and separate flatten modes at depth %s preserve native scopes and output wires', async (depth) => {
-    const doc = formulaFixture(depth)
+  it.each([[1, 'formula'], [2, 'formula'], [1, 'lookup'], [2, 'lookup']] as const)('automatic detach and separate flatten modes at depth %s with %s preserve native scopes and output wires', async (depth, calculation) => {
+    const doc = formulaFixture(depth, calculation)
+    const calculatorType = calculation === 'formula' ? 'Calculator' : 'LookupCalculator'
     const suffix = depth === 1 ? '' : '.detail'
     const initial = formulaRun(doc)
     expect(initial.calculated).toEqual({
@@ -940,7 +951,7 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       expect(result.ok, JSON.stringify(result.reports)).toBe(true)
       const flattened = result.session.doc
       const replacement = Object.values(flattened.graphs.root!.nodes).find((entry) =>
-        depth === 1 ? entry.type === 'Calculator' && entry.values.seed === 21 : entry.type === '#detail')!
+        depth === 1 ? entry.type === calculatorType && entry.values.seed === 21 : entry.type === '#detail')!
       expect(replacement.mode ?? 'active').toBe(mode)
       const receivingId = depth === 1 ? replacement.id : `${replacement.id}.sample`
       const run = formulaRun(flattened)
@@ -957,9 +968,9 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
           const optional = Object.values(flattened.graphs.root!.nodes).find((entry) => entry.type === 'OptionalValue')!
           expect(run.prompt[optional.id]!.inputs).toEqual(total === undefined ? {} : { total })
           const secondary = Object.values(flattened.graphs.root!.nodes).find((entry) =>
-            depth === 1 ? entry.type === 'Calculator' && entry.values.seed === 11 : entry.type === '#detail' && entry.values.start === 11)!
+            depth === 1 ? entry.type === calculatorType && entry.values.seed === 11 : entry.type === '#detail' && entry.values.start === 11)!
           expect(run.prompt[depth === 1 ? secondary.id : `${secondary.id}.sample`]!.inputs.total).toBe(total ?? 5)
-          const inputs = (prompt: typeof run.prompt) => Object.values(prompt).filter((entry) => entry.class_type === 'Calculator')
+          const inputs = (prompt: typeof run.prompt) => Object.values(prompt).filter((entry) => entry.class_type === calculatorType)
             .map((entry) => JSON.stringify(entry.inputs)).sort()
           expect(inputs(run.prompt)).toEqual(inputs(formulaRun(before).prompt))
         }
