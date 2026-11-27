@@ -60,6 +60,7 @@ export * from './compile/compile.js'
 export * from './compile/bypass.js'
 export * from './compile/dinkster-graph.js'
 export * from './compile/occurrence-view.js'
+export * from './compile/occurrence-solve.js'
 export * from './compile/preview-policy.js'
 export * from './compile/effective-topology.js'
 // Deliberately named (not *): applyOwnedOps is the package-internal trusted
