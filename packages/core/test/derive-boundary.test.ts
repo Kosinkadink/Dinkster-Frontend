@@ -1667,15 +1667,25 @@ describe('Boundary sample acceptance compilation', () => {
           if (level === 2) expect(doc.graphs.portrait).toEqual(before.graphs.portrait)
         }
         check(flat.doc, replacementPath)
+        const flattened = flat.doc
+        const flattenedPrompt = prompt(flattened)
         expect(flat.undo()).toBe(true)
         const { nextOrdinal: _beforeOrdinal, ...beforeRoot } = root
         const { nextOrdinal: _undoneOrdinal, ...undoneRoot } = flat.doc.graphs.root!
         expect(undoneRoot).toEqual(beforeRoot)
         expect(flat.doc.view).toEqual(before.view)
+        expect(flat.doc.graphs.root!.nextOrdinal).toBeGreaterThanOrEqual(flattened.graphs.root!.nextOrdinal)
         check(flat.doc, path)
         expect(flat.redo()).toBe(true)
         check(flat.doc, replacementPath)
-        check(loadDocument(JSON.parse(JSON.stringify(flat.doc))).document!, replacementPath)
+        expect(flat.doc.graphs).toEqual(flattened.graphs)
+        expect(flat.doc.view).toEqual(flattened.view)
+        expect(prompt(flat.doc)).toEqual(flattenedPrompt)
+        const reloaded = loadDocument(JSON.parse(JSON.stringify(flat.doc))).document!
+        check(reloaded, replacementPath)
+        expect(reloaded.graphs).toEqual(flattened.graphs)
+        expect(reloaded.view).toEqual(flattened.view)
+        expect(prompt(reloaded)).toEqual(flattenedPrompt)
       }
     })
 
