@@ -722,10 +722,12 @@ const decodeWorkspaceExecutionEvent = (value: unknown): NormalizedEvent | undefi
         (value['origin'] !== undefined && value['origin'] !== 'stdout' && value['origin'] !== 'stderr' &&
           value['origin'] !== 'logging' && value['origin'] !== 'capture') ||
         (value['logger'] !== undefined && typeof value['logger'] !== 'string') ||
+        (value['code'] !== undefined && !workspaceString(value['code'])) ||
         (value['pythonLevel'] !== undefined && typeof value['pythonLevel'] !== 'string')) return undefined
       return {
         kind: 'log', execution, timestamp,
         level: value['level'], message: value['message'], seq: value['seq'],
+        ...(value['code'] === undefined ? {} : { code: value['code'] as string }),
         ...(value['runtimeNodeId'] === undefined ? {} : { runtimeNodeId: value['runtimeNodeId'] as string }),
         ...(value['emittedAt'] === undefined ? {} : { emittedAt: value['emittedAt'] as number }),
         ...(value['origin'] === undefined ? {} : { origin: value['origin'] as 'stdout' | 'stderr' | 'logging' | 'capture' }),
@@ -8871,6 +8873,9 @@ export class AppState {
             this.retainedRegistries.set(restored.artifact, registry)
             this.store.restoreCompleted(restored)
             held = this.store.get(restored.ref)
+            // Hydrated results do not enter reconnect reconciliation; recover
+            // their coded warnings from the optional durable journal here.
+            void backend.connection.backfillRunLog(restored.jobRef, LIBRARY_SCOPE).catch(() => {})
           }
         } catch {
           // A transport failure proves nothing; retry the persisted result on a later reload.

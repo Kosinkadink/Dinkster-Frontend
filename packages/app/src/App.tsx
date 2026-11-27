@@ -38,7 +38,7 @@ import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
 import { mediaMetadataOf } from './media-metadata.js'
-import { resolveNodeOccurrence, withoutPassedOnDefaults } from './problem-display.js'
+import { executionProblemDiagnostics, resolveNodeOccurrence, withoutPassedOnDefaults } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
 import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
@@ -1776,7 +1776,7 @@ export function App(props: {
     const others = [
       ...visibleProblems(problems(), new Set([activeTabId()])),
       ...(activeTab()?.execution ? execution?.artifact?.diagnostics ?? [] : []),
-      ...(execution?.errors ?? []),
+      ...(execution === undefined ? [] : executionProblemDiagnostics(execution)),
     ]
     return [...withoutPassedOnDefaults(solveDiagnostics(), others), ...others]
   }

@@ -632,12 +632,14 @@ export class DinksterNormalizer implements EventNormalizer {
       : undefined
     const logger = activityString(data['logger'])
     const pythonLevel = activityString(data['pythonLevel'])
+    const code = activityString(data['code'])
     return [{
       kind: 'log',
       execution,
       timestamp,
       level,
       message: message.slice(0, LOG_MESSAGE_CAP),
+      ...(code === undefined ? {} : { code }),
       seq,
       ...(nodeId !== undefined ? { runtimeNodeId: nodeId } : {}),
       ...(ts !== undefined ? { emittedAt: ts * 1000 } : {}),
