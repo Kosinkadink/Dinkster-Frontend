@@ -527,6 +527,7 @@
 }
 
 .collection-state-list .collection-state { width: min(100%, 360px); }
+.collection-state-list .collection-state:has(> .dinkster-message[data-recovery]) { width: 100%; }
 
 .collection-items {
   flex: 1;
