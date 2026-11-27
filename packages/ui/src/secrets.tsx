@@ -88,6 +88,12 @@ export function ProductSecretDialog(props: {
   }
   return (
     <ProductDialog title={(removing() ? strings.removeSecretTitle : strings.setSecretTitle).replace('{name}', props.name)} onDismiss={cancel} pending={pending()} size="confirmation"
+      secondaryAction={removing() || props.onRemove === undefined || scope() !== 'account' ? undefined :
+        <ProductButton intent="remove" fill="quiet" data-remove-on-hover disabled={pending()} onClick={() => {
+          clear()
+          setFailure(undefined)
+          setRemoving(true)
+        }}>{strings.secretRemove}</ProductButton>}
       action={removing() ? undefined : <ProductButton type="submit" form={formId} fill="solid" disabled={value().length === 0} pending={pending()}>
         {pending() ? strings.secretSaving : failure() !== undefined ? strings.tryAgain : strings.secretSave}
       </ProductButton>}>
@@ -109,16 +115,9 @@ export function ProductSecretDialog(props: {
           {(attributes) => <ProductTextInput {...attributes} ref={input} type="password" autocomplete="off" spellcheck={false}
             value={value()} disabled={pending()} onInput={(event) => setValue(event.currentTarget.value)} />}
         </ProductField>
-        <Show when={props.onRemove !== undefined && scope() === 'account'}>
-          <ProductButton intent="remove" disabled={pending()} onClick={() => {
-            clear()
-            setFailure(undefined)
-            setRemoving(true)
-          }}>{strings.secretRemove}</ProductButton>
-        </Show>
       </form>}>
-        <ProductConfirmation consequence={props.removalFallback ? strings.secretRemoveFallback : strings.secretRemoveMissing}
-          actionLabel={strings.secretRemove} intent="remove" pending={pending()} error={failure()}
+        <ProductConfirmation surface="inherit" consequence={props.removalFallback ? strings.secretRemoveFallback : strings.secretRemoveMissing}
+          actionLabel={strings.secretRemoveConfirm} intent="remove" pending={pending()} error={failure()}
           onCancel={() => { if (!pending()) { setFailure(undefined); setRemoving(false) } }}
           onConfirm={() => { void remove() }} />
       </Show>

@@ -212,6 +212,7 @@ export function ProductDialog(props: {
   children: JSX.Element
   /** The footer action; the dialog owns its preceding Cancel and alignment. */
   action?: JSX.Element
+  secondaryAction?: JSX.Element
   onDismiss: () => void
   pending?: boolean
   size?: 'default' | 'wide' | 'confirmation'
@@ -293,8 +294,11 @@ export function ProductDialog(props: {
         {props.children}
         <Show when={props.action}>{(action) => (
           <footer class="dinkster-dialog-actions">
-            <ProductButton disabled={props.pending === true} onClick={props.onDismiss}>{strings.cancel}</ProductButton>
-            {action()}
+            <Show when={props.secondaryAction}>{(secondary) => <div class="dinkster-dialog-secondary-action">{secondary()}</div>}</Show>
+            <div class="dinkster-dialog-primary-actions">
+              <ProductButton disabled={props.pending === true} onClick={props.onDismiss}>{strings.cancel}</ProductButton>
+              {action()}
+            </div>
           </footer>
         )}</Show>
       </div>
