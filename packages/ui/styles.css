@@ -1305,7 +1305,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-canvas-file-copy-heading { flex: 0 1 auto; }
 .dinkster-canvas-file-copy-label { display: flex; min-width: 0; overflow: hidden; white-space: nowrap; }
 .dinkster-canvas-file-copy-prefix, .dinkster-canvas-file-copy-amount { flex: none; white-space: nowrap; }
-.dinkster-canvas-file-copy-mount { min-width: 0; overflow: hidden; text-overflow: ellipsis; margin-left: 0.25em; }
+.dinkster-canvas-file-copy-mount { min-width: 1em; overflow: hidden; text-overflow: ellipsis; margin-left: 0.25em; }
 .dinkster-canvas-file-copy-amount { margin-left: auto; }
 .dinkster-canvas-file-copy-amount:empty { display: none; }
 .dinkster-canvas-file-copy-label[data-hidden='true'] { flex: none; width: 0; }

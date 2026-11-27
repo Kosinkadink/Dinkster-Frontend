@@ -55,10 +55,10 @@ const examples: readonly FileExample[] = [
   { title: 'No sound chosen', value: null, accept: ['audio/*'] },
   { title: 'No 3D file chosen', value: null, accept: ['model/gltf-binary'] },
   { title: 'No mixed file chosen', value: null, accept: mixed },
-  { title: 'Copying a video', value: asset('diner_take3.mp4', 'video/mp4'), accept: ['video/*'], width: 340, copy: 'copying' },
-  { title: 'Copying in a narrow node', value: asset('diner_take3.mp4', 'video/mp4'), accept: ['video/*'], width: 184, copy: 'copying' },
-  { title: 'Waiting to publish a video', value: asset('diner_take3.mp4', 'video/mp4'), accept: ['video/*'], width: 340, copy: 'waiting' },
-  { title: 'Checking a video', value: asset('diner_take3.mp4', 'video/mp4'), accept: ['video/*'], width: 340, copy: 'checking' },
+  { title: 'Copying a video', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 340, copy: 'copying' },
+  { title: 'Copying in a narrow node', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 184, copy: 'copying' },
+  { title: 'Waiting to publish a video', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 340, copy: 'waiting' },
+  { title: 'Checking a video', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 340, copy: 'checking' },
 ]
 
 function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {

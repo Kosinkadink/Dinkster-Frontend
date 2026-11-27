@@ -126,7 +126,9 @@ export function CanvasFileCopy(props: { state: CanvasFileCopyState }) {
   onMount(() => {
     const observer = new ResizeObserver(() => {
       const gap = Number.parseFloat(getComputedStyle(heading).columnGap) || 0
-      setHideDestination(amount.offsetWidth > 0 && prefix.offsetWidth + amount.offsetWidth + gap > heading.clientWidth)
+      const mount = heading.querySelector<HTMLElement>('.dinkster-canvas-file-copy-mount')
+      const mountSpace = mount === null ? 0 : Number.parseFloat(getComputedStyle(mount).minWidth) + Number.parseFloat(getComputedStyle(mount).marginLeft)
+      setHideDestination(amount.offsetWidth > 0 && prefix.offsetWidth + mountSpace + amount.offsetWidth + gap > heading.clientWidth)
     })
     for (const element of [heading, prefix, amount]) observer.observe(element)
     onCleanup(() => observer.disconnect())
