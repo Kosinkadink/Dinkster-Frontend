@@ -17,6 +17,7 @@ import { AssetEntryContent, AssetEntryFallback } from '../asset-browser/presenta
 import { isModel3dMime, model3dMimeFor } from '../model3d-mime.js'
 import { Model3dPosterImage } from '../Model3dPosterImage.js'
 import { PreviewDownload } from '../PreviewDownload.js'
+import { VideoPreview } from '../VideoPreview.js'
 import { AudioRecorder } from '../AudioRecorder.js'
 import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
 import { ProductButton } from '../ProductControls.js'
@@ -58,16 +59,14 @@ function AssetVideoPreview(props: {
   readonly onError: (error?: unknown) => void
   readonly onDimensions: (dimensions: { width: number; height: number }) => void
 }) {
-  let video!: HTMLVideoElement
-  onCleanup(() => { video.pause(); video.removeAttribute('src'); video.load() })
-  return <video ref={video} class="asset-preview" data-testid="asset-video-preview" src={props.preview.src}
-    controls playsinline preload="metadata"
-    onError={() => props.onError()}
-    onLoadedMetadata={() => {
-      if (video.videoWidth > 0 && video.videoHeight > 0) props.onDimensions({ width: video.videoWidth, height: video.videoHeight })
-    }}>
-    <PreviewDownload class="" download={props.preview} label="Download video" />
-  </video>
+  const [preferences, setPreferences] = createSolidSignal({ autoplay: false, muted: false, loop: false })
+  return <div class="asset-video-preview" data-testid="asset-video-preview">
+    <VideoPreview media={{ kind: 'video', src: props.preview.src, ...(props.preview.mime ? { mime: props.preview.mime } : {}) }}
+      preferences={preferences()} onPreferences={setPreferences} onMediaError={() => props.onError()}
+      onDimensions={(dimensions) => {
+        if (dimensions.width > 0 && dimensions.height > 0) props.onDimensions(dimensions)
+      }} />
+  </div>
 }
 
 interface AssetPickerVocabulary {

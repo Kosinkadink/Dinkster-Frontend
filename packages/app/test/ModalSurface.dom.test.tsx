@@ -1290,6 +1290,14 @@ describe('ASSET widget modal integration', () => {
   it('renders selected video bytes through an owned blob with controls and a download fallback', async () => {
     const root = document.createElement('div')
     document.body.append(root)
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(async function (this: HTMLMediaElement) {
+      Object.defineProperty(this, 'paused', { configurable: true, value: false })
+      this.dispatchEvent(new Event('play'))
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (this: HTMLMediaElement) {
+      Object.defineProperty(this, 'paused', { configurable: true, value: true })
+      this.dispatchEvent(new Event('pause'))
+    })
     const digest = `blake3:${'e'.repeat(64)}`
     const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:video-preview')
     const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
@@ -1318,12 +1326,27 @@ describe('ASSET widget modal integration', () => {
     const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-video-preview"]')).not.toBeNull())
 
-    const video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"]')!
+    const video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"] video')!
     expect(video).not.toBeNull()
-    expect(video.controls).toBe(true)
+    expect(video.controls).toBe(false)
     expect(video.preload).toBe('metadata')
     expect(video.getAttribute('src')).toBe('blob:video-preview')
     expect(createObjectUrl).toHaveBeenCalledOnce()
+    expect(video.autoplay).toBe(false)
+    expect(play).not.toHaveBeenCalled()
+    Object.defineProperties(video, { videoWidth: { value: 317 }, videoHeight: { value: 181 } })
+    video.dispatchEvent(new Event('loadedmetadata'))
+    expect(root.querySelector('.asset-preview-caption')?.textContent).toContain('317')
+    expect(root.querySelector('.asset-preview-caption')?.textContent).toContain('181')
+    root.querySelector<HTMLButtonElement>('[aria-label="Play video"]')!.click()
+    await vi.waitFor(() => expect(root.querySelector('[aria-label="Pause video"]')).not.toBeNull())
+    expect(video.paused).toBe(false)
+    root.querySelector<HTMLButtonElement>('[aria-label="Pause video"]')!.click()
+    expect(video.paused).toBe(true)
+    root.querySelector<HTMLButtonElement>('[aria-label="Loop video"]')!.click()
+    expect(video.loop).toBe(true)
+    root.querySelector<HTMLButtonElement>('[aria-label="Mute video"]')!.click()
+    expect(video.muted).toBe(true)
 
     video.dispatchEvent(new Event('error'))
     const fallback = root.querySelector<HTMLElement>('[data-testid="asset-video-fallback"]')!
@@ -1486,9 +1509,9 @@ describe('ASSET widget modal integration', () => {
       expect(uploadMediaAsset.mock.calls[0]?.[0]).toBe(file)
       expect(uploadMediaAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', kind: 'media/video', name: 'large.webm' })
     }
-    const video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"]')!
+    const video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"] video')!
     expect(video.getAttribute('src')).toBe('blob:video-upload')
-    expect(video.controls).toBe(true)
+    expect(video.controls).toBe(false)
 
     if (transport !== 'native') resolveUpload(canonical)
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('large.webm'))
