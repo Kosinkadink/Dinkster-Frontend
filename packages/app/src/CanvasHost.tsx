@@ -75,7 +75,7 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasEditorNote, CanvasEditorSpace, CanvasFileCopy, CanvasRowAbsence, CanvasSidePart } from '@dinkster/ui'
 import {
   defaultValuesOf,
   initialGroupMembership,
@@ -161,6 +161,7 @@ import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { assetRowThumbnails, createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive, widgetEditorTarget } from './widget-editor-anchor.js'
 import { createAssetFieldImports } from './asset-field-imports.js'
+import { formatByteSize } from './collections.js'
 import { RowFocusOverlay, type RowFocusState, type RowRepresentation } from './editors/RowFocusOverlay.js'
 import type { RowBox } from './editors/row-placement.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
@@ -1560,7 +1561,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     return offset === undefined ? box : { ...box, x: box.x + offset.dx, y: box.y + offset.dy }
   }
   /** The screen rectangles of nodes the canvas draws in front of an editor that overlap its space. */
-  const editorCovers = (item: EditorSpaceItem): readonly EditorWorldRect[] => {
+  const editorCovers = (item: Pick<EditorSpaceItem, 'nodeId' | 'node' | 'space'>): readonly EditorWorldRect[] => {
     const boxes = nodeBoxes()
     const at = boxes.findIndex((entry) => entry.id === item.nodeId)
     if (at < 0) return []
@@ -1771,6 +1772,29 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let assetFieldTargetCurrent = (_editor: WidgetEditorState): boolean => false
   const assetFieldImports = createAssetFieldImports(props.app, (ed) => assetFieldTargetCurrent(ed))
   onCleanup(() => assetFieldImports.dispose())
+  const shownAssetImports = createMemo(() => {
+    docTick()
+    const tab = activeTab()
+    return [...assetFieldImports.states()].filter(([, state]) => tab === state.editor.tab &&
+      currentGraphId(tab) === state.editor.graphId &&
+      JSON.stringify(viewInstancePath(tab) ?? []) === JSON.stringify(state.editor.instancePath ?? []))
+  })
+  const assetFieldStatusHeights = createMemo(() => {
+    const heights: Record<string, Record<string, number>> = {}
+    for (const [, state] of shownAssetImports()) {
+      const target = state.editor.target
+      if (target.kind === 'input') (heights[target.nodeId] ??= {})[target.valueKey] = defaultTokens.rowHeight
+    }
+    return heights
+  }, undefined, { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) })
+  let assetImportSpaceOf = (_editor: WidgetEditorState): Pick<EditorSpaceItem, 'nodeId' | 'node' | 'space'> | undefined => undefined
+  const assetImportSpaces = createMemo(() => {
+    sceneVersion()
+    return shownAssetImports().flatMap(([key, state]) => {
+      const place = assetImportSpaceOf(state.editor)
+      return place === undefined ? [] : [{ key, state, ...place }]
+    })
+  })
   let clientRectToWorld = (_rect: DOMRect): { x: number; y: number; width: number; height: number } | undefined => undefined
   /** A button's line in world space; a menu button's is its whole node. */
   let buttonWorldRect = (_place: ButtonPlace, _notice = false): { x: number; y: number; width: number; height: number } | undefined => undefined
@@ -2770,6 +2794,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const item = editorSpaceByKey().get(key)
         if (item === undefined || item.wired || item.field.readOnly || item.field.disabled) continue
         summaries[draft.nodeId] = { ...summaries[draft.nodeId], [draft.valueKey]: { value: draft.value } }
+      }
+      for (const [, state] of shownAssetImports()) {
+        const target = state.editor.target
+        if (target.kind !== 'input' || state.phase === 'refused') continue
+        // The pending name is presentation only; the stored asset stays authoritative.
+        summaries[target.nodeId] = { ...summaries[target.nodeId], [target.valueKey]: { text: state.filename } }
       }
       renderer.setEditorSummaries(summaries)
     })
@@ -4628,6 +4658,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly lookups: LookupClient | undefined
       readonly lookupGeneration: number
       readonly buttonNoticeHeights: ReturnType<typeof buttonNoticeHeights>
+      readonly fieldStatus: ReturnType<typeof assetFieldStatusHeights>
       readonly editorControls: Readonly<Record<string, Readonly<Record<string, number>>>> | undefined
     } | undefined
     // A frozen tab's run records what its automatic fields used; the record
@@ -4711,6 +4742,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const currentExtensionRevision = props.app.extensionRevision.get()
       const previousBuild = sceneBuildContext
       const noticeHeights = buttonNoticeHeights()
+      const fieldStatus = assetFieldStatusHeights()
       const graphNodes = new Map(Object.entries(doc.graphs[graphId]?.nodes ?? {}))
       const canReuseScene = previousBuild !== undefined &&
         previousBuild.key === key &&
@@ -4724,6 +4756,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.lookups === lookups &&
         previousBuild.lookupGeneration === lookupGeneration &&
         previousBuild.buttonNoticeHeights === noticeHeights &&
+        previousBuild.fieldStatus === fieldStatus &&
         previousBuild.editorControls === editorControls
       const valuesUpdated = canReuseScene && path.length === 0
         ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => shown?.resolve(type), lookupAnswers)
@@ -4743,6 +4776,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           document: doc,
           seedControllerEnabled,
           buttonNoticeHeights: noticeHeights,
+          fieldStatus,
           ...(lookupAnswers === undefined ? {} : { lookupAnswers }),
           graphId,
           resolve,
@@ -4793,6 +4827,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         lookups,
         lookupGeneration,
         buttonNoticeHeights: noticeHeights,
+        fieldStatus,
         editorControls,
       }
       // A rebuild can produce a scene identical to the installed one: a
@@ -5848,6 +5883,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const node = rowNodeOf(ed.target.nodeId)?.node
       const match = node === undefined ? undefined : widgetEditorTarget(ed, [node])
       return match !== undefined && !rowIsDriven(match.node.id, match.row)
+    }
+
+    assetImportSpaceOf = (ed) => {
+      const target = ed.target
+      if (target.kind !== 'input') return undefined
+      const node = rowNodeOf(target.nodeId)?.node
+      if (node === undefined || node.layout.minimized) return undefined
+      const row = node.layout.rows.find((row) => row.kind === 'fieldStatus' && row.valueKey === target.valueKey)
+      if (row?.kind !== 'fieldStatus') return undefined
+      const pad = canvasPaintTokens.node.editorSpace.pad
+      return {
+        nodeId: node.id,
+        node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
+        space: { x: row.inset - pad, y: row.y - pad, width: node.layout.width - row.inset * 2 + pad * 2, height: row.height + pad * 2 },
+      }
     }
 
     // Tab never leaves the node: past its last stop it goes to the first. A
@@ -7411,6 +7461,48 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             </Show>
           </Show>
         )
+      }}</For>
+      <For each={assetImportSpaces().map((item) => item.key)}>{(key) => {
+        const item = () => assetImportSpaces().find((item) => item.key === key)
+        const projected = () => {
+          const current = item()
+          return current === undefined || !editorSpaceInteractive(editorViewport().scale) ? undefined
+            : mediaScreenRect(dragged(current.node, current.nodeId), current.space, editorViewport(), canvasClientRect())
+        }
+        const refusal = () => {
+          const state = item()?.state
+          return state?.phase === 'refused' ? state : undefined
+        }
+        const copyState = () => {
+          const state = item()!.state
+          if (state.phase === 'checking') return { phase: 'checking' as const, label: message('assets.import.checking') }
+          const stop = { stopLabel: message('assets.import.stop'), onStop: () => assetFieldImports.stop(state.editor) }
+          if (state.phase === 'waiting') return { phase: 'waiting' as const, label: message('assets.import.waiting'), ...stop }
+          const amount = state.phase === 'copying' && state.total !== null && state.total > 0
+            ? { received: state.received, total: state.total } : undefined
+          return {
+            phase: 'copying' as const,
+            label: amount === undefined ? message('assets.import.copying')
+              : message('assets.import.copyingAmount', { received: formatByteSize(amount.received), total: formatByteSize(amount.total) }),
+            value: amount === undefined ? undefined : Math.min(1, amount.received / amount.total),
+            ...stop,
+          }
+        }
+        return <Show when={projected()}>{(rect) => <div class="node-editor-space-overlay"
+          data-testid="asset-field-import-status" data-phase={item()!.state.phase}
+          style={overlayClipStyle(rect(), canvasEl, editorCovers(item()!))}
+          onWheel={(event) => forwardOverlayWheel(event, canvasEl)}>
+          <div class="node-editor-space-world" style={{ width: `${item()!.space.width}px`, height: `${item()!.space.height}px`, transform: `scale(${editorViewport().scale})` }}>
+            <CanvasEditorSpace ref={(element) => { element.style.inset = '0' }}>
+              <Show when={refusal()} fallback={<CanvasFileCopy state={copyState()} />}>
+                {(state) => <CanvasEditorNote tone="problem" details={{ label: message('runs.details'), title: message('assets.import.refused'),
+                  body: state().message }}>
+                  {message('assets.import.refused')}
+                </CanvasEditorNote>}
+              </Show>
+            </CanvasEditorSpace>
+          </div>
+        </div>}</Show>
       }}</For>
       <For each={visibleEditorSpaceKeys()}>{(key) => {
         const item = () => editorSpaceByKey().get(key)
