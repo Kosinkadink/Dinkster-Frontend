@@ -80,11 +80,13 @@ import {
   isValueDiagnostic,
   loadDocument,
   inputsOf,
+  graphAtInstancePath,
   isPortEndpoint,
   nodeStatesFromDinksterJob,
   numericStepConstraints,
   outputsOf,
   occurrenceDynamicView,
+  solveOccurrenceTypes,
   EMPTY_SUBGRAPH_DEFINITION,
   EMPTY_SUBGRAPH_VIEW,
   planFreshSubgraphCreate,
@@ -1399,8 +1401,7 @@ export type OwnedDiagnostic = Diagnostic & { readonly owner: ProblemOwner }
 
 /** A change the editor made by itself, reported in its tab's notice. */
 export interface Adjustment {
-  /** `replaced`: a node replaced by a newer one; `removedChoice`: a choice its pack removed, replaced. */
-  readonly kind: 'replaced' | 'removedChoice'
+  readonly kind: 'replaced' | 'removedChoice' | 'outputCount'
   readonly graphId: string
   readonly nodeId: string
   /** Where choosing the change in Review takes the canvas. */
@@ -1495,8 +1496,10 @@ const splitDynamicOps = (ops: readonly PatchOp[]): readonly PatchOp[] => ops.fla
   })
 })
 
-/** One removed choice replaced is put back on its own; anything else goes with its nodes. */
+/** Choices and replacements can be kept individually; count corrections undo the whole causing edit. */
 const adjustmentKeys = (op: PatchOp, kind: Adjustment['kind']): readonly string[] => {
+  // A count correction belongs to the whole edit that made its source known.
+  if (kind === 'outputCount') return []
   const path = op.path
   if (kind === 'removedChoice' && path[0] === 'graphs' && path[2] === 'nodes' && path[4] === 'dynamic' && path.length >= 6)
     return [`${path[1]}/${path[3]}#${path[5]}`]
@@ -5723,12 +5726,17 @@ export class AppState {
     if (adjustments.length === 0 || !this.tabs.get().includes(tab)) return
     const before = replayHistoryOps(tab.store.doc, record.inverse).doc
     this.adjustmentNotices.update((current) => {
-      const notice = current.get(tab.id)
+      const prior = current.get(tab.id)
+      // One edit can report both a replacement and a count correction.
+      const recorded = prior?.records.some(saved => saved.forward === record.forward && saved.inverse === record.inverse)
+      const notice = !recorded && prior !== undefined && holdsRecorded(before, this.adjustmentRedoOps(prior)) ? undefined : prior
       return new Map(current).set(tab.id, {
         owner: tab.id,
         adjustments: [...notice?.adjustments ?? [], ...adjustments],
-        records: [...notice?.records ?? [], { ...record, before }],
-        recordKinds: [...notice?.recordKinds ?? [], adjustments[0]!.kind],
+        records: [...notice?.records ?? [], ...recorded ? [] : [{ ...record, before }]],
+        recordKinds: recorded ? notice!.recordKinds.map((kind, index) =>
+          notice!.records[index]!.forward === record.forward && adjustments.some(adjustment => adjustment.kind === 'outputCount')
+            ? 'outputCount' : kind) : [...notice?.recordKinds ?? [], adjustments[0]!.kind],
         dismissed: notice?.dismissed ?? false,
       })
     })
@@ -6703,9 +6711,61 @@ export class AppState {
           live: comparison?.ok ? comparison.artifact : undefined })
       }, invocation)
     }
+    const before = tab.store.doc
     const outcome = tab.store.dispatch(invocation)
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
+    else if (!tab.execution && registry !== undefined && outcome.forward.some(op =>
+      op.path[0] === 'graphs' || op.path[0] === 'occurrenceListCounts')) {
+      this.reportListCountCorrections(tab, before, registry.resolve, outcome)
+    }
     return outcome
+  }
+
+  /** A newly known count reports its correction, with the causing edit as its Undo. */
+  private reportListCountCorrections(tab: Tab, before: WorkflowDocument, resolve: SchemaResolver, record: HistorySnapshotRecord): void {
+    const after = tab.store.doc
+    const oldResolve = documentResolver(before, resolve)
+    const newResolve = documentResolver(after, resolve)
+    const adjustments: Adjustment[] = []
+    const visit = (graph: GraphDef, path: readonly NodeId[], ancestors: ReadonlySet<string>): void => {
+      if (ancestors.has(graph.id)) return
+      const oldGraph = graphAtInstancePath(before, path)
+      const targets = Object.values(graph.nodes).flatMap(node => {
+        const schema = newResolve(node.type)
+        return schema === undefined || oldGraph?.id !== graph.id || oldGraph.nodes[node.id]?.type !== node.type ? []
+          : inputsOf(schema).filter(input => input.listCountOf !== undefined).map(input => ({ node, schema, input }))
+      })
+      if (targets.length > 0) {
+        const oldView = path.length === 0 ? undefined : occurrenceDynamicView(before, oldResolve, path)
+        const newView = path.length === 0 ? undefined : occurrenceDynamicView(after, newResolve, path)
+        let oldFacts: ReturnType<typeof solveOccurrenceTypes>
+        let newFacts: ReturnType<typeof solveOccurrenceTypes>
+        for (const { node, schema, input } of targets) {
+          const previous = (oldView?.values.get(node.id) ?? oldGraph!.nodes[node.id]!.values)[input.id]
+            ?? (input.widget && effectiveWidgetDefault(input.widget))
+          const current = (newView?.values.get(node.id) ?? node.values)[input.id]
+          if (typeof previous !== 'number' || typeof current !== 'number' || previous === current) continue
+          oldFacts ??= solveOccurrenceTypes(before, oldResolve, graph.id, path)
+          newFacts ??= solveOccurrenceTypes(after, newResolve, graph.id, path)
+          if (oldFacts?.listCountOf(node.id, 'input', input.listCountOf!) !== undefined ||
+              newFacts?.listCountOf(node.id, 'input', input.listCountOf!) !== current) continue
+          adjustments.push({ kind: 'outputCount', graphId: graph.id, nodeId: node.id,
+            node: node.title ?? schema.displayName, count: 1,
+            anchor: { occurrence: { instancePath: path, node: node.id } },
+            details: [t('fixesNotice.change.outputCount', { before: previous, after: current })],
+          })
+        }
+      }
+      const next = new Set([...ancestors, graph.id])
+      for (const node of Object.values(graph.nodes)) {
+        const childId = subgraphDefIdOf(node.type)
+        const child = childId === undefined ? undefined : after.graphs[childId]
+        if (child !== undefined) visit(child, [...path, node.id], next)
+      }
+    }
+    const root = after.graphs[after.root]
+    if (root !== undefined) visit(root, [], new Set())
+    this.reportAdjustments(tab, record, adjustments)
   }
 
   /** Plan, commit, then drill into one fresh empty definition. */

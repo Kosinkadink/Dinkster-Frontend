@@ -11,6 +11,69 @@ import type { ExecutionState } from '@dinkster/client'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it('reports unknown-to-known corrections per occurrence and undoes the whole causing edit atomically', async () => {
+  vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
+  const list = { kind: 'list' as const, element: { kind: 'concrete' as const, name: 'INT' } }
+  const source: NodeSchema = { type: 'Source', displayName: 'List', category: 'test', source: 'v3', isOutputNode: false, body: [
+    { kind: 'input', id: 'values', type: list, optional: false,
+      widget: { widgetType: 'LIST', options: {}, element: { widgetType: 'INT', options: {} }, default: [] } },
+  ] }
+  const wire = JSON.parse(readFileSync(new URL('../../core/test/fixtures/flow_schemas.json', import.meta.url), 'utf8'))
+  const parsed = parseDinksterSchema('Unpack', wire['dinkster.utilities.unpack']).schema!
+  const unpack: NodeSchema = { ...parsed, body: parsed.body.map(row => row.kind === 'input' && row.id === 'count'
+    ? { ...row, listCountOf: 'list' } : row) }
+  for (const nested of [false, true]) {
+    const app = createWorkflowApp([source, unpack])
+    try {
+      const document: WorkflowDocument = { format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('corrections'), root: asGraphDefId('root'),
+        graphs: { root: { id: asGraphDefId('root'), name: 'Root', nextOrdinal: 4, nets: {}, reroutes: {}, links: {}, nodes: {
+          source: { id: asNodeId('source'), type: source.type, values: { values: [19] } },
+          ...Object.fromEntries([['shrinks', 3], ['grows', 1], ['equal', 2]].map(([id, count]) => [id,
+            { id: asNodeId(String(id)), type: nested ? `#${id}` : unpack.type, values: nested ? {} : { count } }])),
+        } }, ...Object.fromEntries(nested ? [['shrinks', 3], ['grows', 1], ['equal', 2]].map(([id, count]) => [id, {
+          id: asGraphDefId(String(id)), name: String(id), nextOrdinal: 1, nets: {}, reroutes: {}, links: {},
+          nodes: { unpack: { id: asNodeId('unpack'), type: unpack.type, values: { count } } },
+          boundary: boundaryOf([{ id: asPortId('list'), binds: { kind: 'port', node: asNodeId('unpack'), port: asPortId('list') } }], []),
+        }]) : []) }, view: { graphs: {} },
+      }
+      await app.openDocument(document, 'Count corrections')
+      const tab = app.activeTab()!
+      const before = tab.store.doc
+      const connect = () => app.dispatchTo(tab, { command: 'batch', params: { invocations: [
+        { command: 'node.setValue', params: { graphId: 'root', nodeId: 'source', inputId: 'values', value: [11, 37] } },
+        ...['shrinks', 'grows', 'equal'].map(node => ({ command: 'link.connect', params: { graphId: 'root',
+          from: { node: 'source', tap: 'values' }, to: { node, port: 'list' } } })),
+      ] } })
+      const outcome = await connect()
+      expect(outcome.ok).toBe(true)
+      const corrected = tab.store.doc
+      const entries = app.adjustmentNotices.get().get(tab.id)?.adjustments
+      expect(entries?.map(entry => [entry.kind, entry.details, entry.anchor?.occurrence])).toEqual([
+        ['outputCount', ['Output count changed from 3 to 2.'], { instancePath: nested ? ['shrinks'] : [], node: nested ? 'unpack' : 'shrinks' }],
+        ['outputCount', ['Output count changed from 1 to 2.'], { instancePath: nested ? ['grows'] : [], node: nested ? 'unpack' : 'grows' }],
+      ])
+      expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+      expect(app.undoAdjustments(tab.id)).toBe(true)
+      expect(tab.store.doc.graphs.root!.nodes).toEqual(before.graphs.root!.nodes)
+      expect(tab.store.doc.graphs.root!.links).toEqual(before.graphs.root!.links)
+      expect(tab.store.doc.occurrenceListCounts).toEqual(before.occurrenceListCounts)
+      expect(app.redoAdjustments(tab.id)).toBe(true)
+      expect(tab.store.doc).toEqual(corrected)
+      expect(tab.store.undo()).toBe(true)
+      expect(app.adjustmentNoticeState(tab.id)).toBe('undone')
+      expect((await connect()).ok).toBe(true)
+      expect(app.adjustmentNotices.get().get(tab.id)?.adjustments).toHaveLength(2)
+      expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+        graphId: 'root', nodeId: 'source', inputId: 'values', value: [97],
+      } })).ok).toBe(true)
+      const changed = tab.store.doc
+      expect(app.undoAdjustments(tab.id)).toBe(false)
+      expect(tab.store.doc).toBe(changed)
+    } finally { app.dispose() }
+  }
+})
+
 it('uses a larger estimate atomically and remembers a manual answer per occurrence across reload', async () => {
   vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
   const wire = JSON.parse(readFileSync(new URL('../../core/test/fixtures/flow_schemas.json', import.meta.url), 'utf8'))

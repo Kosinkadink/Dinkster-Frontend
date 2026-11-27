@@ -876,6 +876,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     const fields = elabInputsOf(shown)
     const unknown = new Set<string>()
+    const knownCounts = new Map<string, number>()
     for (const [path, group] of constructsOf(schema, node.dynamic)) {
       if (group.kind !== 'group' || typeof group.grows !== 'object' || !('count' in group.grows)) continue
       const prefix = path.slice(0, path.lastIndexOf('.') + 1)
@@ -884,15 +885,22 @@ export function buildScene(input: BuildSceneInput): Scene {
       if (field?.spec.listCountOf === undefined) continue
       const fieldPrefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
       const source = contexts.get(fieldPrefix)?.paths.get(field.spec.listCountOf)
-      if (source !== undefined && solvedTypes.listCountFactOf(asNodeId(nodeId), 'input', source) === undefined) unknown.add(path)
+      const fact = source === undefined ? undefined : solvedTypes.listCountFactOf(asNodeId(nodeId), 'input', source)
+      if (source !== undefined && fact === undefined) unknown.add(path)
+      if (fact?.kind === 'known') knownCounts.set(path, fact.count)
     }
     const counted = unknown.size === 0 && estimatedCounts.size === 0 ? shown
       : elaborateInterface(schema, node, connectivity, { problemRows, ...lookups, unknownCountGroups: unknown, outputCountLimits: estimatedCounts })
     const previousLive = new Set(elabOutputsOf(shown).filter(output => output.kept === undefined).map(output => output.address.port))
-    if (estimatedCounts.size > 0 && elabOutputsOf(counted).some(output => output.kept !== undefined && previousLive.has(output.address.port))) {
+    const knownRetired = elabOutputsOf(counted).some(output => output.kept !== undefined && output.ancestry?.some(member => {
+      const count = knownCounts.get(member.construct)
+      return count !== undefined && member.ordinal >= count
+    }))
+    if (knownRetired || estimatedCounts.size > 0 && elabOutputsOf(counted).some(output => output.kept !== undefined && previousLive.has(output.address.port))) {
       countDiagnostics.push({
         severity: 'warning', origin: 'compile', code: 'list.count.retiredOutputs',
-        message: 'Some outputs are outside the estimated list count. Their wires give nothing.',
+        message: knownRetired ? 'Some outputs are outside the list count. Their wires give nothing.'
+          : 'Some outputs are outside the estimated list count. Their wires give nothing.',
         refs: [{ graphId: input.graphId, nodeId }],
         ...(sourcePath === undefined ? {} : { anchor: { occurrence: { instancePath: sourcePath, node: asNodeId(nodeId) } } }),
       })

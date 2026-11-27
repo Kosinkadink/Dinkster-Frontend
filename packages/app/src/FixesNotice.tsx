@@ -94,7 +94,11 @@ export function FixesNotice(props: { app: AppState; tab: Tab }) {
           <ProductFixesNotice
             changes={changes()}
             state={current()}
-            strings={notice()!.undone?.kept ? { ...strings(), undone: message('fixesNotice.undoneKept', { count: notice()!.undone!.kept }) } : strings()}
+            strings={{ ...strings(),
+              ...(notice()!.adjustments.some(adjustment => adjustment.kind === 'outputCount')
+                ? { refused: message('fixesNotice.countRefused') } : {}),
+              ...(notice()!.undone?.kept ? { undone: message('fixesNotice.undoneKept', { count: notice()!.undone!.kept }) } : {}),
+            }}
             reviewOpen={notice()!.reopened === true}
             onChoose={choose}
             onUndo={() => props.app.undoAdjustments(props.tab.id)}

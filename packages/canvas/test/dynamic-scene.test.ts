@@ -370,6 +370,15 @@ it('retires only excess estimated outputs without editing the stored count or gr
   expect(outputs(dropped).map(pin => [pin.portId, pin.inactive === true])).toEqual([['items.0', false], ['items.2', true]])
   expect(dropped.links.find(link => link.from.kind === 'port' && link.from.node === 'unpack')?.dimmed).toBe(true)
   expect(dropped.diagnostics).toContainEqual(expect.objectContaining({ severity: 'warning', anchor: { occurrence: { instancePath: [], node: 'unpack' } } }))
+  const knownSource = schemaOf('Source', [{ kind: 'output', id: 'out', type: texts, listCount: 1 }])
+  const knownDocument = { ...doc, graphs: { ...doc.graphs, g0: { ...doc.graphs.g0!, nodes: { ...doc.graphs.g0!.nodes,
+    unpack: { ...doc.graphs.g0!.nodes.unpack!, values: { count: 1 } },
+  } } } }
+  const known = buildScene({ document: knownDocument, graphId: 'g0',
+    resolve: type => type === 'Source' ? knownSource : resolve(type), tokens: defaultTokens, measure, widgetMeasure })
+  expect(outputs(known).map(pin => [pin.portId, pin.inactive === true])).toEqual([['items.0', false], ['items.2', true]])
+  expect(known.diagnostics).toContainEqual(expect.objectContaining({ code: 'list.count.retiredOutputs', severity: 'warning',
+    anchor: { occurrence: { instancePath: [], node: 'unpack' } } }))
   expect(outputs(shown(0)).map(pin => [pin.portId, pin.inactive === true])).toEqual([['items.2', true]])
   for (const count of [3, 8, undefined]) {
     expect(outputs(shown(count)).map(pin => [pin.portId, pin.inactive === true])).toEqual([
