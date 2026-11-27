@@ -587,6 +587,8 @@ export interface ElaboratedInterface {
   readonly formulaValues: Readonly<Record<string, ElaboratedFormulaValue>>
   /** Calls needed by formulas whose source fields are not shown on this node. */
   readonly lookupDependencies?: readonly LookupSite[]
+  /** Lookup sources of a row's structural and presentation formulas, by flattened row id. */
+  readonly rowLookupDependencies?: Readonly<Record<string, readonly LookupSite[]>>
   readonly chunkSafe?: Pick<NonNullable<NodeSchema['chunkSafe']>, 'inputs' | 'outputs'>
   /** Non-port values the run carries. */
   readonly submissionValues: readonly { readonly path: string; readonly apiPath: string; readonly value: Json }[]
@@ -1135,6 +1137,7 @@ function elaboratePass(
   const outcomes = new Map<string, AutomaticState>()
   const formulaLookups = new Map<string, ReadonlySet<LookupSite>>()
   const lookupDependencies = new Set<LookupSite>()
+  const rowLookupDependencies: Record<string, readonly LookupSite[]> = Object.create(null)
   let readingLookups: Set<LookupSite> | undefined
   const useLookups = (sites: Iterable<LookupSite>): void => {
     const target = readingLookups ?? lookupDependencies
@@ -1804,7 +1807,7 @@ function elaboratePass(
       return
     }
     const outerLookups = readingLookups
-    const dependencies = new Set<LookupSite>()
+    const dependencies = new Set<LookupSite>(readingLookups)
     readingLookups = dependencies
     const own = row.labelFormula !== undefined ? labelOf(row.labelFormula, row.id, scope) : row.displayName ?? row.id
     const boxedLabel = label === undefined && scope.inMemberBox && scope.labelPrefix !== undefined
@@ -1929,6 +1932,19 @@ function elaboratePass(
   const shownWhole = (scope: Scope): boolean => scope.formulaFrames.some((frame) => frame.outer !== undefined)
 
   const one = (row: BodyRow, raw: Scope): void => {
+    const outer = readingLookups
+    const dependencies = new Set<LookupSite>(outer)
+    readingLookups = dependencies
+    try {
+      rowBody(row, raw)
+    } finally {
+      readingLookups = outer
+      for (const site of dependencies) lookupDependencies.add(site)
+      if ('id' in row && dependencies.size > 0) rowLookupDependencies[raw.prefix + row.id] = [...dependencies]
+    }
+  }
+
+  const rowBody = (row: BodyRow, raw: Scope): void => {
     if ((row.kind === 'input' || row.kind === 'output') && row.unavailable !== undefined) {
       const path = raw.prefix + row.id
       const { code, message, inactive } = row.unavailable
@@ -2847,6 +2863,7 @@ function elaboratePass(
     items,
     formulaValues,
     ...(lookupDependencies.size ? { lookupDependencies: [...lookupDependencies] } : {}),
+    ...(Object.keys(rowLookupDependencies).length ? { rowLookupDependencies } : {}),
     submissionValues: [],
     ...(chunkSafe && covered ? { chunkSafe: {
       inputs: chunkSafe.inputs.filter((id) => items.some((item) => item.kind === 'input' && item.apiName === id)),

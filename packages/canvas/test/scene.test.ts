@@ -2252,6 +2252,47 @@ describe('scenesEqual', () => {
 })
 
 describe('an editor on the Inputs panel', () => {
+  it('requests a hidden lookup that sizes an exposed construct even when it has no widgets yet', () => {
+    const { schema, diagnostics } = parseDinksterSchema('Counted', { body: [
+      ...['count', 'unrelated'].map((id) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] },
+        pin: false, default: 0, automatic: { lookup: `pack.${id}`, args: [] } })),
+      { kind: 'group', id: 'items', grows: { count: 'count' }, minMembers: 0, maxMembers: 4,
+        keys: { numbered: { prefix: 'item', start: 1, pad: 0 } },
+        value: { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['FLOAT'] }, default: 0.5,
+          widget: { type: 'FLOAT' } } },
+    ] })
+    if (!schema) throw new Error(JSON.stringify(diagnostics))
+    for (const depth of [1, 2]) {
+      const document = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'counted-lookup', root: 'root',
+        graphs: {
+          root: { id: 'root', name: 'Root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+            first: { id: 'first', type: depth === 1 ? '#detail' : '#portrait', values: {} },
+          } },
+          detail: { id: 'detail', name: 'Detail', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+            sample: { id: 'sample', type: 'Counted', values: {} },
+          }, boundary: { body: [{ kind: 'input', id: 'list', binds: { kind: 'construct', node: 'sample', port: 'items' } }] } },
+          ...(depth === 1 ? {} : { portrait: { id: 'portrait', name: 'Portrait', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+            detail: { id: 'detail', type: '#detail', values: {} },
+          }, boundary: { body: [{ kind: 'input', id: 'outer', binds: { kind: 'construct', node: 'detail', port: 'list' } }] } } }),
+        }, view: { graphs: {} },
+      }).document!
+      const resolve = documentResolver(document, (type) => type === 'Counted' ? schema : undefined)
+      const path = [asNodeId('first'), ...(depth === 1 ? [] : [asNodeId('detail')])]
+      for (const ready of [false, true]) {
+        const scene = buildScene({ document, graphId: 'detail', resolve, tokens: defaultTokens, measure, widgetMeasure,
+          occurrence: { owner: { instancePath: path.slice(0, -1), node: path.at(-1)! }, plannerAvailable: true },
+          occurrenceView: occurrenceDynamicView(document, resolve, path),
+          lookupAnswers: () => ready ? { state: 'ready', answer: 2 } : undefined,
+        })
+        const panel = scene.boundaryNodes.find((node) => node.side === 'inputs')!
+        expect(boundaryFieldNode(panel)?.elaborated?.lookupDependencies?.map((site) => [site.call.lookup, site.call.nodeType]))
+          .toEqual([['pack.count', 'Counted']])
+        expect(panel.layout.rows.filter((row) => row.kind === 'widget').map((row) => row.valueKey))
+          .toEqual(ready ? ['list.item1', 'list.item2'] : [])
+      }
+    }
+  })
+
   it('shows native lookup options for the entered occurrence through renamed boundaries', () => {
     const { schema, diagnostics } = parseDinksterSchema('Picker', { body: [
       { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] }, pin: false, sent: false,

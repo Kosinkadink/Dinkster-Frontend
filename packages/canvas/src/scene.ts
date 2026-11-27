@@ -1882,6 +1882,14 @@ export function buildScene(input: BuildSceneInput): Scene {
       }
       const first = source.rows.findIndex(belongs)
       const last = source.rows.reduce((found, row, index) => belongs(row) ? index : found, -1)
+      const structural = Object.entries(inner.elaborated?.rowLookupDependencies ?? {})
+        .flatMap(([key, sites]) => under(key) ? sites.map((site) => ({ ...site, call: {
+          ...site.call, nodeType: site.call.nodeType ?? inner.node.type,
+        } })) : [])
+      if (structural.length > 0) {
+        const retained: ElaboratedInterface = fieldElaborated ?? { items: [], formulaValues: {}, submissionValues: [], constructs: [], groups: [], diagnostics: [] }
+        fieldElaborated = { ...retained, lookupDependencies: [...(retained.lookupDependencies ?? []), ...structural] }
+      }
       if (first < 0) continue
       const owners = input.occurrenceView?.valueOwners?.get(inner.id)
       const ownerOf = (key: string) => {
@@ -2096,8 +2104,12 @@ export function buildScene(input: BuildSceneInput): Scene {
     const outputsPos = viewBoundary?.outputs?.position ?? { x: maxX + BOUNDARY_GAP, y: minY }
     const inputsNode: SceneBoundaryNode = {
       side: 'inputs', x: inputsPos.x, y: inputsPos.y, layout: inputsLayout,
-      ...(outsideRows.size > 0 ? { fields: { node: fieldNode, wired: wiredFields,
-        ...(fieldElaborated === undefined ? {} : { elaborated: fieldElaborated }),
+      ...(outsideRows.size > 0 || fieldElaborated !== undefined ? { fields: { node: fieldNode, wired: wiredFields,
+        ...(fieldElaborated === undefined ? {} : { elaborated: { ...fieldElaborated,
+          lookupDependencies: [...new Map((fieldElaborated.lookupDependencies ?? []).map((site) => [
+            JSON.stringify([site.call.nodeType, site.call.lookup, site.call.args]), site,
+          ])).values()],
+        } }),
         heads: Object.fromEntries([...outsideRows].flatMap(([itemId, rows]) => rows[0] === undefined ? [] : [[itemId, rows[0].valueKey]])) } } : {}),
     }
     const outputsNode: SceneBoundaryNode = { side: 'outputs', x: outputsPos.x, y: outputsPos.y, layout: outputsLayout }
