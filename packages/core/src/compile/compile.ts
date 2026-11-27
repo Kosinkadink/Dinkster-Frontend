@@ -432,6 +432,8 @@ interface NodeElab {
   readonly inputsByValueKey: ReadonlyMap<string, ElaboratedInput>
   /** portAddressKey(port) -> input (for link/bind targets). */
   readonly inputsByAddr: ReadonlyMap<string, ElaboratedInput>
+  /** A retained input of an option not chosen, never a missing or ghost port. */
+  readonly isDormantInput: (port: string) => boolean
   /** portAddressKey(port) -> output, wireable or not. */
   readonly outputsByAddr: ReadonlyMap<string, ElaboratedOutput>
   /** portAddressKey(port) -> wire index (wireable outputs only). */
@@ -1003,7 +1005,18 @@ function compileImpl(
       outputsByAddr.set(addr, o)
       if (o.wireable !== false) outputIndexByAddr.set(addr, outputIndex++)
     }
-    return { inputs, outputs, ...(e.outputMembers ? { outputMembers: e.outputMembers } : {}), ...(e.choices ? { choices: e.choices } : {}), submissionValues: e.submissionValues, inputsByValueKey, inputsByAddr, outputsByAddr, outputIndexByAddr }
+    let dormantInputs: ReadonlySet<string> | undefined
+    const isDormantInput = (port: string): boolean => {
+      if (dormantInputs === undefined) {
+        const census = elaborateInterface(schema, state, connectivity, { promoteGhosts: false, includeDormant: true })
+        dormantInputs = new Set(census.diagnostics.some((d) => d.severity === 'error') ? [] : elabInputsOf(census)
+          .filter((input) => input.apiName === undefined && input.origin.kind === 'branch' &&
+            census.choices?.[input.origin.construct] !== input.origin.option && !hasSyntheticAncestor(input.ancestry))
+          .map((input) => portAddressKey(input.address.port)))
+      }
+      return dormantInputs.has(portAddressKey(port))
+    }
+    return { inputs, outputs, ...(e.outputMembers ? { outputMembers: e.outputMembers } : {}), ...(e.choices ? { choices: e.choices } : {}), submissionValues: e.submissionValues, inputsByValueKey, inputsByAddr, isDormantInput, outputsByAddr, outputIndexByAddr }
   }
 
   // -- Structural port resolution (walks definitions only; no flat state) ----
@@ -1141,6 +1154,7 @@ function compileImpl(
     const elab = ctx ? elabAt(ctx, node, schema) : elabOf(defId, node, schema)
     const input = elab.inputsByAddr.get(portAddressKey(ref.port))
     if (!input) {
+      if (elab.isDormantInput(ref.port)) return []
       sink.push(diag('error', 'compile', 'compile.port.unknownInput', `'${node.type}' has no input '${ref.port}'`, { anchor: anchorOf(path, node.id) }))
       return undefined
     }

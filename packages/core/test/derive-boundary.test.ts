@@ -1957,10 +1957,66 @@ describe('Boundary sample acceptance compilation', () => {
     })
 
     it(`boundary/active-option-row/${context}`, () => {
-      const store = storeFor(boundarySample(level))
+      const document = boundarySample(level)
+      Object.assign(document.graphs.root!.nodes, { caption: {
+        id: 'caption', type: 'dinkster.utilities.primitive_string', values: { value: 'literal outside caption' },
+      } })
+      const store = storeFor(document)
       edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'mode.mix', value: 0.8 })
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'mode.text', value: 'dormant occurrence caption' })
+      const original = store.doc
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      const sibling = prompt(original)[second]
       edit(store, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'mode.picture' } })
       expect(prompt(store.doc)[path]!.inputs).toMatchObject({ 'mode.mix': 0.8, 'mode.picture': ['imageA', 0] })
+      const imageLink = Object.values(store.doc.graphs.root!.links).find((link) =>
+        'port' in link.to && link.to.node === 'first' && link.to.port === 'mode.picture')!
+      edit(store, 'link.disconnect', { graphId: 'root', linkId: imageLink.id })
+      expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('mode.picture')
+      edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
+      expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('dormant occurrence caption')
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'caption', port: 'value' }, to: { node: 'first', port: 'mode.text' } })
+      const linked = store.doc
+      for (const current of [linked, loadDocument(JSON.parse(JSON.stringify(linked))).document!]) {
+        expect(prompt(current)[path]!.slotVariants?.mode).toBe('text')
+        expect(prompt(current)[path]!.inputs).toMatchObject({ 'mode.text': 'literal outside caption', 'mode.mix': 0.8 })
+        expect(prompt(current)[path]!.inputs).not.toHaveProperty('mode.picture')
+        expect(prompt(current)[second]).toEqual(sibling)
+        expect(current.graphs.root!.nodes.first!.values['mode.text']).toBe('dormant occurrence caption')
+        expect(current.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+        expect(current.graphs.detail).toEqual(original.graphs.detail)
+        expect(current.graphs.portrait).toEqual(original.graphs.portrait)
+      }
+      edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'image' })
+      expect(store.doc.graphs.root!.links).toEqual(linked.graphs.root!.links)
+      expect(prompt(store.doc)[path]!.slotVariants?.mode).toBe('image')
+      expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('mode.text')
+      const malformed = structuredClone(store.doc)
+      const staleLink = Object.values(malformed.graphs.root!.links).find((link) =>
+        'port' in link.to && link.to.node === 'first' && link.to.port === 'mode.text')!
+      Object.assign(staleLink, { to: { node: 'first', port: 'mode.undeclared' } })
+      const rejected = compile({ document: malformed, revision: 1, resolve: resolveBoundarySample,
+        scope: { kind: 'full' }, connection: asConnectionId('boundary-grid'), schemaHash: 'boundary-sample' })
+      expect(rejected.ok).toBe(false)
+      expect(!rejected.ok && rejected.diagnostics.some((diagnostic) => diagnostic.code === 'compile.port.unknownInput')).toBe(true)
+      edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
+      expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('literal outside caption')
+      const refused = store.dispatch({ command: 'link.connect', params: { graphId: 'root',
+        from: { node: 'caption', port: 'value' }, to: { node: 'first', port: 'mode' } } })
+      expect(refused.ok).toBe(false)
+      expect(store.doc).toEqual(linked)
+      const textLink = Object.values(linked.graphs.root!.links).find((link) =>
+        'port' in link.to && link.to.node === 'first' && link.to.port === 'mode.text')!
+      edit(store, 'link.disconnect', { graphId: 'root', linkId: textLink.id })
+      expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('dormant occurrence caption')
+      edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'image' })
+      expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('mode.text')
+      edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
+      const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(prompt(reopened)[path]!.inputs['mode.text']).toBe('dormant occurrence caption')
+      expect(prompt(reopened)[second]).toEqual(sibling)
+      expect(reopened.graphs.detail).toEqual(original.graphs.detail)
+      expect(reopened.graphs.portrait).toEqual(original.graphs.portrait)
     })
 
     it(`boundary/inactive-option-row/${context}`, () => {
