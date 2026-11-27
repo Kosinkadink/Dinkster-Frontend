@@ -119,6 +119,36 @@ describe('packsSource', () => {
     expect(vhs.details).toContainEqual({ label: 'asset: Video VAE', text: 'model/vae - 1.5 MB' })
   })
 
+  it('shows only a contested catalog storage choice in details and removes it on registry updates', async () => {
+    const source = packsSource(app)
+    for (const [provider, choices, visible] of [
+      ['vhs.video', ['owner.SEGS', 'other.SEGS', 'invalid', 42], true],
+      ['dev.local', ['owner.SEGS', 'other.SEGS'], true],
+      ['owner', undefined, false],
+      ['vhs.video', [], false],
+      ['vhs.video', 'owner.SEGS', false],
+    ] as const) {
+      const backend = app.backends.get()[0]!
+      backend.registry.set(buildDinksterRegistry(backend.id, {
+        ...nodesPayload,
+        packs: { ...nodesPayload.packs as object,
+          core: {
+            displayName: 'Dinkster Core',
+            typeStorage: { 'owner.SEGS': provider, 'other.SEGS': 'other-provider', invalid: 42 },
+            typeStorageChoices: choices,
+          },
+        },
+      }))
+      const core = (await source.page({ query: '', limit: 10 })).items.find((entry) => entry.id === 'core')!
+      expect(core.badges).toEqual(['2 nodes'])
+      expect(core.details?.filter((detail) => detail.label.endsWith(' values'))).toEqual(visible ? [
+        { label: 'SEGS values', text: "Stored other-provider's way", title: 'other.SEGS' },
+        { label: 'SEGS values', text: `Stored ${provider}'s way`, title: 'owner.SEGS' },
+      ] : [])
+      expect(core.details?.at(-1)?.title).toBe(visible ? 'owner.SEGS' : undefined)
+    }
+  })
+
   it('ranks the whole corpus for a query, not a loaded page', async () => {
     loadDinksterSchemas()
     // Page size 1: 'video' must still find vhs.video even though an

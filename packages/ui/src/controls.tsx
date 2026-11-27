@@ -4,6 +4,8 @@ import {
   createComputed,
   createSignal,
   createUniqueId,
+  onCleanup,
+  onMount,
   splitProps,
   type JSX,
 } from 'solid-js'
@@ -13,6 +15,7 @@ import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
 import { useFieldFocus } from './field-focus.js'
 import { ProductShortcut, productShortcutKeys } from './shortcut.js'
+import { ProductSelect } from './select.js'
 import githubMark from '../../../branding/providers/github-mark.svg?url'
 import googleMark from '../../../branding/providers/google-mark.svg?url'
 
@@ -331,6 +334,8 @@ export function ProductTextButton(
 export function ProductSegmented(props: {
   label: string
   value: string
+  /** Use the shared dropdown when the one-row choices exceed available width. */
+  overflow?: 'select'
   /**
    * `disabled` is the reason an option cannot be chosen. The option keeps its
    * place, and the reason is its accessible description and its tooltip.
@@ -339,8 +344,21 @@ export function ProductSegmented(props: {
   onChange: (value: string) => void
 }) {
   const name = createUniqueId()
-  return (
-    <div class="dinkster-segmented" role="radiogroup" aria-label={props.label}>
+  const [collapsed, setCollapsed] = createSignal(false)
+  let container: HTMLDivElement | undefined
+  let row: HTMLDivElement | undefined
+  onMount(() => {
+    if (!container || !row) return
+    const measure = () => setCollapsed(row!.getBoundingClientRect().width > container!.clientWidth)
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    observer.observe(row)
+    measure()
+    onCleanup(() => observer.disconnect())
+  })
+  const segments = () => (
+    <div ref={row} class="dinkster-segmented" role="radiogroup" aria-label={props.label}
+      aria-hidden={collapsed() || undefined} inert={collapsed()}>
       <For each={props.options}>
         {(option) => {
           const reasonId = createUniqueId()
@@ -368,6 +386,18 @@ export function ProductSegmented(props: {
         }}
       </For>
     </div>
+  )
+  return (
+    <Show when={props.overflow === 'select'} fallback={segments()}>
+      <div ref={container} class="dinkster-segmented-fit" data-collapsed={collapsed() ? '' : undefined}>
+        {segments()}
+        <Show when={collapsed()}>
+          <ProductSelect aria-label={props.label} value={props.value} onChange={props.onChange}
+            disabled={props.options.every((option) => option.disabled !== undefined)}
+            options={props.options.map((option) => ({ ...option, disabled: option.disabled !== undefined }))} />
+        </Show>
+      </div>
+    </Show>
   )
 }
 
@@ -514,7 +544,8 @@ export function ProductRadio(
   const [local, input] = splitProps(props, ['label', 'children'])
   return (
     <label class="dinkster-choice">
-      <input {...input} type="radio" class="dinkster-check" />
+      <input {...input} type="radio" class="dinkster-check dinkster-visually-hidden" />
+      <span class="product-radio-mark" aria-hidden="true" />
       <span>{local.label}</span>
     </label>
   )

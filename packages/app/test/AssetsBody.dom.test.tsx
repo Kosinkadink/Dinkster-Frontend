@@ -38,6 +38,37 @@ const stubConnection = <T extends object>(members: T): DinksterConnection => ({
 } as unknown as DinksterConnection)
 
 describe('Assets dock body', () => {
+  it('opens the requested mount after discovery without overriding later source choices', async () => {
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    const connection = stubConnection({
+      listMounts: async () => {
+        await pending
+        return [{ id: 'renders', mode: 'readwrite', state: 'ready', entryCount: 1 }, { id: 'plates', mode: 'read', state: 'ready', entryCount: 0 }]
+      },
+      listMountEntries: async (id: string) => ({ entries: id === 'renders' ? [{ virtualPath: 'render.txt', name: 'render.txt', size: 7, mediaType: 'text/plain' }] : [] }),
+      assetUrl: () => '',
+    })
+    const [focus, setFocus] = createSignal({ mountId: 'plates' })
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" mountFocus={focus()} />, root)
+    const source = () => root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!
+    try {
+      finish()
+      await vi.waitFor(() => expect(source().textContent).toContain('Other / Plates'))
+      expect(root.querySelector('[data-testid="collection-entry"]')).toBeNull()
+      setFocus({ mountId: 'renders' })
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('render.txt'))
+      expect(source().textContent).toContain('Other / Renders')
+      source().click()
+      document.querySelector<HTMLButtonElement>('[data-option-id="local-assets"]')!.click()
+      await vi.waitFor(() => expect(source().textContent).toContain('Local assets'))
+      setFocus({ mountId: 'renders' })
+      await vi.waitFor(() => expect(source().textContent).toContain('Other / Renders'))
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('render.txt'))
+    } finally { dispose() }
+  })
+
   it('offers complete available media as project/backend-tagged drags, but not models or missing bytes', async () => {
     const assets = [
       { digest: `blake3:${'a'.repeat(64)}`, name: 'song.wav', mediaType: 'audio/wav', size: 42, virtualPath: '' },

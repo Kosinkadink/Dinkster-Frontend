@@ -170,9 +170,29 @@ export function stepTypedNumber(raw: string, spec: WidgetSpec, stored: IntegerWi
   return String(value)
 }
 
-export function parsePrimitiveListCommit(raw: string, spec: WidgetSpec):
+export function parsePrimitiveListCommit(raw: string, spec: WidgetSpec, format: 'json' | 'lines' = 'json'):
   { readonly ok: true; readonly value: Json[] } | { readonly ok: false; readonly error: string } {
   let value: unknown
+  if (format === 'lines') {
+    const lines = raw === '' ? [] : raw.split(/\r?\n/)
+    const items: Json[] = []
+    for (const [index, line] of lines.entries()) {
+      const element = spec.element
+      switch (element?.widgetType) {
+        case 'STRING': items.push(line); break
+        case 'INT':
+        case 'FLOAT': {
+          const parsed = parseNumericCommit(line, element.widgetType, element.options['round'], element.options['precision'])
+          if (!parsed.ok) return { ok: false, error: `Line ${index + 1}: ${parsed.error}` }
+          items.push(parsed.value)
+          break
+        }
+        default: return { ok: false, error: 'This list has no editable item type.' }
+      }
+    }
+    if (!isPrimitiveListWidgetValue(items, spec)) return { ok: false, error: 'This list has no editable item type.' }
+    return { ok: true, value: items }
+  }
   try { value = JSON.parse(raw) } catch { return { ok: false, error: 'Enter a valid JSON array.' } }
   if (!isPrimitiveListWidgetValue(value, spec)) {
     return { ok: false, error: `Enter a JSON array of ${spec.element?.widgetType ?? 'primitive'} values. Quote integers outside the safe numeric range.` }

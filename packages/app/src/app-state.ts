@@ -4998,16 +4998,14 @@ export class AppState {
     let refreshDiagnostics = (): void => {}
     let compositionRequest = 0
     let remoteChoiceSchemaGeneration = 0
+    let principalGeneration = 0
     const invalidateRemoteChoices = (): void => {
       remoteChoiceSchemaGeneration += 1
-      // Authentication is not yet configurable in the frontend. Generation
-      // zero is still an explicit partition so the auth owner can advance it
-      // without changing the cache model when authenticated backends land.
       scopedClient.setRemoteChoicePartition({
-        principalGeneration: 0,
+        principalGeneration,
         schemaEpoch: remoteChoiceSchemaGeneration,
       })
-      lookups.setPartition({ backend: baseUrl, epoch: registry.get()?.epoch, principal: 0 })
+      lookups.setPartition({ backend: baseUrl, epoch: registry.get()?.epoch, principal: principalGeneration })
       this.backendsTick.update((value) => value + 1)
     }
     // Scoped client per backend: remote combos (model lists) differ per server.
@@ -5368,6 +5366,26 @@ export class AppState {
         refreshForEpoch,
         handleStatusChange,
       )
+      const disposePrincipal = connection.principalGeneration.subscribe((generation) => {
+        principalGeneration = generation
+        handleStatusChange('disconnected')
+        for (const held of [registry, base.keptRegistry]) {
+          const previous = held.get()
+          if (previous === undefined) continue
+          const stripped = { ...previous }
+          delete stripped.graphFeatures
+          delete stripped.extensionSnapshotPair
+          held.set(stripped)
+        }
+        base.invalidateRemoteChoices()
+        for (const tab of this.tabs.get()) {
+          if (this.backendForTab(tab) !== nativeBackend) continue
+          this.workflowAssetChecks.get(tab.store)?.controller.abort()
+          this.workflowAssetChecks.delete(tab.store)
+          this.workflowModelChecks.get(tab.store)?.controller.abort()
+          this.workflowModelChecks.delete(tab.store)
+        }
+      })
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
       const disposeLookupChanges = connection.onLookupsChanged((functions) => lookups.invalidate(functions))
       // A mount's scan commits as a mount ping; a local file a lookup waited on may be checked now.
@@ -5426,6 +5444,7 @@ export class AppState {
           disposeCatalogSetting()
           disposeCompletionHydration()
           disposeLibraryChanges()
+          disposePrincipal()
           disposeMountHealth()
           disposeLookupChanges()
           disposeLookupFiles()

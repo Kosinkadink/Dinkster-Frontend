@@ -563,6 +563,8 @@
 
 .app-tooltip {
   position: fixed;
+  inset: auto;
+  margin: 0;
   z-index: 30;
   width: max-content;
   max-width: min(360px, var(--tooltip-available-width, calc(100vw - 16px)));

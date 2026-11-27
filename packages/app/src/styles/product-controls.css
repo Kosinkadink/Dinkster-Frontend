@@ -58,6 +58,8 @@
 .product-table th { color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); font-weight: var(--dinkster-weight-bold); }
 .product-table-sticky thead { position: sticky; top: 0; z-index: 1; }
 
+.product-select { width: auto; }
+
 .product-tabs { min-width: 0; color: var(--dinkster-text-primary); }
 .product-tablist { display: flex; gap: var(--dinkster-space-4); border-bottom: 1px solid var(--dinkster-border-subtle); }
 .product-tablist[aria-orientation='vertical'] { flex-direction: column; border-right: 1px solid var(--dinkster-border-subtle); border-bottom: 0; }
@@ -98,7 +100,7 @@
 .product-number .product-number-field:focus-visible { outline: 0; }
 .product-number-field:disabled { color: var(--dinkster-text-disabled); }
 .product-number-steppers { display: flex; flex: none; border-left: 1px solid var(--dinkster-border-subtle); }
-.product-number-steppers button { min-width: var(--dinkster-control-compact-height); min-height: calc(var(--dinkster-control-compact-height) - 2 * var(--dinkster-border-width)); padding: 0; border: 0; color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); line-height: 1; cursor: pointer; }
+.product-number-steppers button { display: inline-flex; align-items: center; justify-content: center; min-width: var(--dinkster-control-compact-height); min-height: calc(var(--dinkster-control-compact-height) - 2 * var(--dinkster-border-width)); padding: 0; border: 0; color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); font: inherit; line-height: 1; cursor: pointer; }
 .product-number-steppers button + button { border-left: 1px solid var(--dinkster-border-subtle); }
 .product-number-steppers button:hover:not(:disabled) { background: var(--dinkster-interaction-hover); color: var(--dinkster-text-primary); }
 .product-number-steppers button:disabled { color: var(--dinkster-text-disabled); }

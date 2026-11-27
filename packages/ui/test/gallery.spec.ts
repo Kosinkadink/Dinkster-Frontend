@@ -264,7 +264,7 @@ for (const width of [1280, 390]) {
       await expect(page.getByRole('main')).toBeVisible()
       if (section === 'confirmations') expect(await page.evaluate(() => window.scrollY)).toBe(0)
       if (section === 'lists') {
-        const heading = page.locator('.storage-folder-heading').first()
+        const heading = page.getByRole('list', { name: 'Storage model folders', exact: true }).locator('.dinkster-row-heading')
         const name = await heading.locator('strong').boundingBox()
         const actions = await heading.getByRole('button', { name: 'Folder actions' }).boundingBox()
         expect(name!.x + name!.width).toBeLessThan(actions!.x)
@@ -401,6 +401,8 @@ test('described menu choices keep separate accessible descriptions, checks and o
       await page.setViewportSize({ width, height: 1000 })
       await page.goto(`/?theme=${theme}#setup-components`)
       await page.evaluate((theme) => { document.documentElement.dataset.theme = theme }, theme)
+      // Full-page capture must not resize the viewport while the menu is open.
+      await page.setViewportSize({ width, height: await page.evaluate(() => document.documentElement.scrollHeight) })
       const trigger = page.getByRole('button', { name: 'Change build', exact: true })
       await trigger.scrollIntoViewIfNeeded()
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
