@@ -605,12 +605,15 @@ test('Library Assets and Runs use shared empty and loading states', async ({ pag
     const presentation = library.locator('[data-collection-state]')
     await expect(presentation).toHaveAttribute('data-collection-state', state)
     if (state === 'loading') await expect(presentation.getByRole('status')).toContainText('Loading workflows')
-    if (state === 'error') await expect(presentation.getByRole('alert')).toContainText('The engine reported an error.')
+    if (state === 'error') {
+      const error = presentation.getByRole('alert')
+      await expect(error).toHaveText('Could not load Workflows. Retry')
+      await expect(error.getByTestId('collection-retry')).toBeEnabled()
+    }
     if (state === 'empty') {
       await expect(presentation).toContainText('No saved workflows')
       await expect(presentation.locator('img')).toHaveCount(0)
     }
-    if (state === 'error') await expect(library.getByTestId('collection-retry')).toBeEnabled()
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
       await page.mouse.move(width / 2, height / 2)
