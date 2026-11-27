@@ -1,4 +1,12 @@
 {
+  "catalog.noneEnabled": "此项目未启用任何节点包",
+  "catalog.noneInstalled": "未安装任何节点包",
+  "catalog.enableAll": "启用所有已安装的节点包",
+  "catalog.enableFailed": "无法启用节点包。{reason}",
+  "catalog.projectChanged": "该项目已在其他位置更改。",
+  "catalog.setup": "设置",
+  "catalog.loading": "正在读取已安装的节点包",
+  "catalog.factsUnavailable": "引擎未提供节点目录恢复信息。请更新引擎。",
   "settings.features.board": "启用看板 (实验性)",
   "command.board.new": "新建看板",
   "board.title": "看板",
