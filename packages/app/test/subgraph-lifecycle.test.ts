@@ -810,7 +810,7 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       labels[id] = row.spec.displayName
       return [id, stored ? receiver.inputs.total : row.automatic!.value]
     }))
-    return { prompt: result.artifact.prompt, calculated, labels }
+    return { prompt: result.artifact.prompt, calculated, labels, automaticCalls: result.artifact.automaticCalls ?? [] }
   }
 
   it.each([[1, 'formula'], [2, 'formula'], [1, 'lookup'], [2, 'lookup']] as const)('automatic dependency fan-out at depth %s with %s keeps each receiver scope through edits and reload', (depth, calculation) => {
@@ -820,7 +820,13 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     }))
     const suffix = depth === 1 ? '' : '.detail'
     const check = (current: WorkflowDocument, seed: number, first: number, other: number) => {
-      const { prompt, calculated, labels } = formulaRun(current)
+      const { prompt, calculated, labels, automaticCalls } = formulaRun(current)
+      expect(automaticCalls).toEqual(calculation === 'formula' ? [] : [
+        { runtimeNodeId: `first${suffix}.sample`, inputId: 'total', lookup: 'calculate_total', args: [seed, 7] },
+        { runtimeNodeId: `first${suffix}.other`, inputId: 'total', lookup: 'calculate_total', args: [seed, 13] },
+        { runtimeNodeId: `second${suffix}.sample`, inputId: 'total', lookup: 'calculate_total', args: [13, 7] },
+        { runtimeNodeId: `second${suffix}.other`, inputId: 'total', lookup: 'calculate_total', args: [13, 13] },
+      ])
       expect(calculated).toEqual({
         [`first${suffix}.sample`]: first, [`first${suffix}.other`]: other,
         [`second${suffix}.sample`]: 33, [`second${suffix}.other`]: 39,
@@ -870,6 +876,12 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     const calculatorType = calculation === 'formula' ? 'Calculator' : 'LookupCalculator'
     const suffix = depth === 1 ? '' : '.detail'
     const initial = formulaRun(doc)
+    expect(initial.automaticCalls).toEqual(calculation === 'formula' ? [] : [
+      { runtimeNodeId: `first${suffix}.sample`, inputId: 'total', lookup: 'calculate_total', args: [21, 7] },
+      { runtimeNodeId: `first${suffix}.other`, inputId: 'total', lookup: 'calculate_total', args: [11, 13] },
+      { runtimeNodeId: `second${suffix}.sample`, inputId: 'total', lookup: 'calculate_total', args: [13, 7] },
+      { runtimeNodeId: `second${suffix}.other`, inputId: 'total', lookup: 'calculate_total', args: [11, 13] },
+    ])
     expect(initial.calculated).toEqual({
       [`first${suffix}.sample`]: 49, [`first${suffix}.other`]: 35,
       [`second${suffix}.sample`]: 33, [`second${suffix}.other`]: 35,
@@ -886,6 +898,12 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     } }).ok).toBe(true)
     const privateDoc = store.doc
     const privateRun = formulaRun(privateDoc)
+    expect(privateRun.automaticCalls).toEqual(calculation === 'formula' ? [] : [
+      ...(depth === 1 ? [{ runtimeNodeId: `first${suffix}.sample`, inputId: 'total', lookup: 'calculate_total', args: [21, 19] }] : []),
+      { runtimeNodeId: `first${suffix}.other`, inputId: 'total', lookup: 'calculate_total', args: [11, 13] },
+      { runtimeNodeId: `second${suffix}.sample`, inputId: 'total', lookup: 'calculate_total', args: [13, 7] },
+      { runtimeNodeId: `second${suffix}.other`, inputId: 'total', lookup: 'calculate_total', args: [11, 13] },
+    ])
     expect(privateRun.calculated).toEqual({ ...initial.calculated, [`first${suffix}.sample`]: depth === 1 ? 61 : 19 })
     expect(privateRun.labels[`first${suffix}.sample`]).toBe(depth === 1 ? 'Total 61' : 'Total 49')
     expect(privateRun.prompt[`first${suffix}.sample`]!.inputs).toEqual(depth === 1
@@ -955,6 +973,22 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       expect(replacement.mode ?? 'active').toBe(mode)
       const receivingId = depth === 1 ? replacement.id : `${replacement.id}.sample`
       const run = formulaRun(flattened)
+      const firstOther = depth === 1 ? Object.values(flattened.graphs.root!.nodes).find((entry) =>
+        entry.type === calculatorType && entry.values.seed === 11)!.id : `${replacement.id}.other`
+      const extraOther = fanout && depth === 2 ? `${Object.values(flattened.graphs.root!.nodes).find((entry) =>
+        entry.type === '#detail' && entry.values.start === 11)!.id}.other` : undefined
+      const calls = [
+        ...(primaryTotal === undefined ? [{ runtimeNodeId: `second${suffix}.sample`, inputId: 'total', lookup: 'calculate_total', args: [13, 7] }] : []),
+        ...(fanout && depth === 1 ? [] : [{ runtimeNodeId: `second${suffix}.other`, inputId: 'total', lookup: 'calculate_total', args: [11, 13] }]),
+        ...(mode === 'active' && total === undefined && primaryTotal === undefined
+          ? [{ runtimeNodeId: receivingId, inputId: 'total', lookup: 'calculate_total', args: [21, 7] }] : []),
+        ...(mode === 'active' && !(fanout && depth === 1)
+          ? [{ runtimeNodeId: firstOther, inputId: 'total', lookup: 'calculate_total', args: [11, 13] }] : []),
+        ...(extraOther === undefined ? [] : [{ runtimeNodeId: extraOther, inputId: 'total', lookup: 'calculate_total', args: [11, 13] }]),
+        ...(fanout && depth === 2 ? [{ runtimeNodeId: 'second.extra.other', inputId: 'total', lookup: 'calculate_total', args: [11, 13] }] : []),
+      ]
+      expect([...run.automaticCalls].sort((a, b) => a.runtimeNodeId.localeCompare(b.runtimeNodeId))).toEqual(
+        calculation === 'formula' ? [] : calls.sort((a, b) => a.runtimeNodeId.localeCompare(b.runtimeNodeId)))
       expect(run.calculated[`second${suffix}.sample`]).toBe(primaryTotal ?? 33)
       expect(run.calculated[`second${suffix}.other`]).toBe(fanout && depth === 1 ? 5 : 35)
       if (mode === 'active') {

@@ -479,6 +479,10 @@ describe('buildParamRows', () => {
           ...(current.graphs.root!.nodes.outside?.type === 'IntSource'
             ? { outside: { class_type: 'IntSource', inputs: {}, outputIds: ['number'] } } : {}),
         })
+        expect(result.artifact.automaticCalls ?? []).toEqual(calculation === 'formula' ? [] : [
+          { runtimeNodeId: `first${suffix}`, inputId: 'steps', lookup: 'steps_for', args: [firstSeed] },
+          { runtimeNodeId: `second${suffix}`, inputId: 'steps', lookup: 'steps_for', args: [13] },
+        ])
         for (const [receiver, expected] of [[`first${suffix}`, firstSeed * 2], [`second${suffix}`, 26]] as const) {
           const native = elabInputsOf(elaborateInterface(automatic, {
             values: result.artifact.prompt[receiver]!.inputs as Record<string, Json>,
@@ -522,6 +526,9 @@ describe('buildParamRows', () => {
         const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
         expect(result.artifact.prompt[`first${suffix}`]!.inputs).toEqual({ seed: 31, steps: 19 })
         expect(result.artifact.prompt[`second${suffix}`]!.inputs).toEqual({ seed: 13 })
+        expect(result.artifact.automaticCalls ?? []).toEqual(calculation === 'formula' ? [] : [
+          { runtimeNodeId: `second${suffix}`, inputId: 'steps', lookup: 'steps_for', args: [13] },
+        ])
       }
       const fixed = store.doc
       if (calculation === 'lookup') {
@@ -552,6 +559,10 @@ describe('buildParamRows', () => {
             const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
             expect(result.artifact.prompt[`first${suffix}`]!.inputs).toEqual({ seed: 31, ...(stored ? { steps: 19 } : {}) })
             expect(result.artifact.prompt[`second${suffix}`]!.inputs).toEqual({ seed: 13 })
+            expect(result.artifact.automaticCalls).toEqual([
+              ...(stored ? [] : [{ runtimeNodeId: `first${suffix}`, inputId: 'steps', lookup: 'steps_for', args: [31] }]),
+              { runtimeNodeId: `second${suffix}`, inputId: 'steps', lookup: 'steps_for', args: [13] },
+            ])
             expect(JSON.stringify(current)).toBe(snapshot)
           }
         }
@@ -595,6 +606,9 @@ describe('buildParamRows', () => {
           const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
           expect(result.artifact.prompt[`first${suffix}`]!.inputs).toEqual({ seed: literal ? 47 : ['outside', 0] })
           expect(result.artifact.prompt[`second${suffix}`]!.inputs).toEqual({ seed: 13 })
+          expect(result.artifact.automaticCalls ?? []).toEqual(calculation === 'formula' ? [] : [
+            { runtimeNodeId: `second${suffix}`, inputId: 'steps', lookup: 'steps_for', args: [13] },
+          ])
           expect(current.graphs.detail).toEqual(document.graphs.detail)
           expect(current.graphs.portrait).toEqual(document.graphs.portrait)
         }
