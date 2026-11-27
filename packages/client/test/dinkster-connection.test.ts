@@ -608,9 +608,9 @@ describe('model download planning and owned jobs', () => {
 
 describe('named secrets', () => {
   it('reads fresh account presence and exposes only authorized removal fallback', async () => {
-    const absent = { name: 'service_key', set: false, source: null, fallback: false }
-    const own = { name: 'service_key', set: true, source: 'account', fallback: true }
-    const deployment = { name: 'service_key', set: true, source: 'deployment', fallback: false }
+    const absent = { name: 'service_key', set: false, source: null, fallback: false, canManageDeployment: false }
+    const own = { name: 'service_key', set: true, source: 'account', fallback: true, canManageDeployment: false }
+    const deployment = { name: 'service_key', set: true, source: 'deployment', fallback: false, canManageDeployment: false }
     let presence = absent as unknown
     const mutations: { method: string; body: unknown }[] = []
     const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'secrets', token: 'account-session',
@@ -635,6 +635,13 @@ describe('named secrets', () => {
     presence = absent
     expect(await connection.fetchSecretPresence('service_key')).toEqual(absent)
     expect(mutations).toHaveLength(2)
+    presence = { ...absent, canManageDeployment: true }
+    expect((await connection.fetchSecretPresence('service_key')).canManageDeployment).toBe(true)
+    // A host that has not added the permission field must never expose deployment writes.
+    presence = { name: 'service_key', set: true, source: 'deployment', fallback: false }
+    expect((await connection.fetchSecretPresence('service_key')).canManageDeployment).toBe(false)
+    presence = { ...absent, canManageDeployment: 'true' }
+    await expect(connection.fetchSecretPresence('service_key')).rejects.toEqual(new Error('Cannot access secret. Try again'))
   })
 
   it('never exports reflected credential values through replies or failures or replays a save', async () => {

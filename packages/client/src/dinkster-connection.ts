@@ -375,6 +375,8 @@ export interface SecretPresence {
   readonly set: boolean
   readonly source: SecretScope | null
   readonly fallback: boolean
+  /** Only the authenticated host decides whether this caller can set deployment values. */
+  readonly canManageDeployment: boolean
 }
 
 export interface PackSettingSchema {
@@ -2449,13 +2451,14 @@ export class DinksterConnection {
       if (!response.ok) throw new Error()
       const raw: unknown = await response.json()
       init.signal?.throwIfAborted()
-      if (!record(raw) || !exactKeys(raw, ['name', 'set', 'source', 'fallback'])
+      if (!record(raw) || !requiredAndOptionalKeys(raw, ['name', 'set', 'source', 'fallback'], ['canManageDeployment'])
+        || (raw['canManageDeployment'] !== undefined && typeof raw['canManageDeployment'] !== 'boolean')
         || raw['name'] !== name || typeof raw['set'] !== 'boolean' || typeof raw['fallback'] !== 'boolean'
         || (raw['source'] !== null && raw['source'] !== 'account' && raw['source'] !== 'deployment')
         || raw['set'] !== (raw['source'] !== null) || (raw['fallback'] && raw['source'] !== 'account')) {
         throw new Error()
       }
-      return { name, set: raw['set'], source: raw['source'], fallback: raw['fallback'] }
+      return { name, set: raw['set'], source: raw['source'], fallback: raw['fallback'], canManageDeployment: raw['canManageDeployment'] === true }
     } catch {
       // Neither backend error bodies nor transport exceptions may reflect a submitted value.
       throw new Error('Cannot access secret. Try again')
