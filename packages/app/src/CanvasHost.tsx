@@ -4298,14 +4298,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
 
     /**
-     * The invocations that finish a link-drop insertion: connect the
-     * dangling end to the new node's first compatible ELABORATED port
-     * (dynamic surfaces included - an autogrow member target carries its
-     * own dynamic.materialize, batched like the fixed end's per hazard
-     * N3). Empty when nothing auto-connectable: descriptor hints are
-     * unverified - the pick still inserts, it just lands unconnected.
-     */
-    /**
      * Blueprint insertion: fetch the body (digest-cached), materialize
      * fresh definitions against the CURRENT document, then commit import +
      * instance as ONE batch (one undo step, atomic reject). COPY semantics:
@@ -4354,8 +4346,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           doc: () => tab.store.doc,
           predictedNodeId: () => tab.store.predictedNodeId(graphId),
           resolveType: () => ownerRegistry?.resolve,
-          connect: (nodeId, schema) =>
-            p.linkDrop !== undefined ? linkDropInvocations(p.linkDrop, graphId, nodeId, schema) : [],
+          connect: (nodeId, schema) => {
+            if (p.linkDrop === undefined) return []
+            const connect = linkDropInvocations(p.linkDrop, graphId, nodeId, schema)
+            return connect.length > 0 ? connect : undefined
+          },
           dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onInserted: (nodeId) => {
             if (activeTab() === tab) controller.setSelection([nodeId])
@@ -4447,6 +4442,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const connect = p.splice !== undefined && schema !== undefined
         ? linkSpliceInvocations(graphId, expectedId, schema, p.splice)
         : p.linkDrop !== undefined ? linkDropInvocations(p.linkDrop, graphId, expectedId, schema) : []
+      if (p.linkDrop !== undefined && connect.length === 0) return
       const target = captureLifecycleTarget(tab, graphId)
       const selectionVersion = selVersion()
       try {

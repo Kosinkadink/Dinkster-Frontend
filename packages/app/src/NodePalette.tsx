@@ -125,7 +125,11 @@ export function buildCategoryTree(categories: readonly string[]): { folders: Cat
   return { folders: freeze(roots), uncategorized }
 }
 
-export const typeLabelOf = (type: TypeExpr): string => productSearchTypeName(presentedType(defaultTokens, type).label)
+export const typeLabelOf = (type: TypeExpr): string => {
+  if (type.kind === 'variable' && !hasKnownLinkDropAnchorType(type)) return 'Any'
+  if (type.kind === 'list') return `${typeLabelOf(type.element)} list`
+  return productSearchTypeName(presentedType(defaultTokens, type).label)
+}
 
 /** The host owns corpus and placement; all browsing state lasts only for this open. */
 export function NodePalette(props: {

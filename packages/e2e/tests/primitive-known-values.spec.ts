@@ -221,4 +221,3 @@ test('wire-34 primitive identity declarations show typed values before execution
   await testInfo.attach('primitive-known-values', { path: screenshotPath, contentType: 'image/png' })
   expect(pageErrors).toEqual([])
 })
-

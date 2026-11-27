@@ -233,8 +233,8 @@ export const hasKnownLinkDropAnchorType = (type: TypeExpr): boolean => {
  * as the canvas drag gesture names it: seeking 'in' means the anchor is a
  * source and the schema must ACCEPT the anchor type at some input;
  * seeking 'out' means the anchor is an input and some output must FEED
- * it. Unknown anchors filter only by side. Matching resolves the same
- * fresh elaborated surface used by target selection,
+ * it. Unknown anchors retain structural compatibility, including list
+ * cardinality. Matching resolves the same fresh surface used by target selection,
  * including initial autogrow members and active dynamic forms. Explicitly
  * generic candidate ports remain valid fallbacks, after any compatible
  * closed-domain port. The COMBO participates as an ordinary concrete
@@ -246,19 +246,19 @@ export function schemaMatchesLinkDrop(
   anchorType: TypeExpr,
   seeking: 'in' | 'out',
 ): boolean {
-  return autoConnectTarget(schema, hasKnownLinkDropAnchorType(anchorType) ? anchorType : { kind: 'wildcard' }, seeking) !== undefined
+  return autoConnectTarget(schema, anchorType, seeking) !== undefined
 }
 
 /**
  * The auto-connect target after a link-drop insertion, resolved against the
  * FRESH node's elaborated interface (default values, no dynamic state, no
  * connections) - the same surface the canvas will render the moment the
- * node lands. Closed-domain targets win over intentionally generic targets;
- * interface order wins within each class, mirroring canvas priority.
+ * node lands. For known anchors, closed-domain targets win over intentionally
+ * generic targets. Unknown anchors use interface order among compatible pins.
  * Dynamic surfaces are first-class: a group's offered member is a legal target, carrying the `dynamic.materialize` frames the
  * connect must batch with (hazard N3), and a choice's start option
  * inputs are real addressable ports. A choice's own dropdown (switching
- * goes through dynamic.selectOption, never link.connect) is never a target. Undefined = insert unconnected.
+ * goes through dynamic.selectOption, never link.connect) is never a target. Undefined = no compatible target.
  */
 export interface AutoConnectTarget {
   /** link.connect endpoint port: the row's flattened id. */
@@ -324,7 +324,9 @@ export function hintsMatchLinkDrop(
 ): boolean {
   const declared = seeking === 'in' ? hints.inputs : hints.outputs
   if (declared === undefined || declared.length === 0) return false
-  if (!hasKnownLinkDropAnchorType(anchorType)) return true
+  if (!hasKnownLinkDropAnchorType(anchorType)) return declared.some((hint) => seeking === 'in'
+    ? typesCompatible(anchorType, typeExprFromTypeId(hint))
+    : typesCompatible(typeExprFromTypeId(hint), anchorType))
   const atoms = atomNamesOf(anchorType)
   if (atoms === undefined) return false
   return declared.some((h) =>
