@@ -2280,7 +2280,7 @@ describe('an editor on the Inputs panel', () => {
         root: graph('root', { ...Object.fromEntries([['first', 21, 4], ['second', 13, 7]].map(([id, seed, other]) => [id, {
           id, type: depth === 1 ? '#detail' : '#portrait', values: { [`${key}.seed`]: seed, [`${key}.other`]: other },
         }])), outside: { id: 'outside', type: 'Literal', values: { value: 47 } } }),
-        detail: graph('detail', { sample: { id: 'sample', type: 'Noted', values: { 'pack.seed': 3 } } }, [bind('bundle', 'sample', 'pack')]),
+        detail: graph('detail', { sample: { id: 'sample', type: 'Noted', values: { 'pack.seed': 5 } } }, [bind('bundle', 'sample', 'pack')]),
         ...(depth === 2 ? { portrait: graph('portrait', { detail: { id: 'detail', type: '#detail', values: { 'bundle.seed': 7 } } },
           [bind('outer', 'detail', 'bundle')]) } : {}),
       }, view: { graphs: {} } }).document!
@@ -2351,8 +2351,8 @@ describe('an editor on the Inputs panel', () => {
       expect(store.doc).toEqual(edited)
       check(loadDocument(JSON.parse(JSON.stringify(edited))).document!, 31)
       expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: 'first', values: {}, unset: [`${key}.seed`] } }).ok).toBe(true)
-      check(store.doc, depth === 1 ? 3 : 7)
-      check(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, depth === 1 ? 3 : 7)
+      check(store.doc, depth === 1 ? 5 : 7)
+      check(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, depth === 1 ? 5 : 7)
       expect(store.undo()).toBe(true)
       expect(store.doc).toEqual(edited)
       for (const kind of ['literal', 'runtime'] as const) {
