@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asConnectionId, checkDocument, compile, diag, DocumentStore, loadDocument, planClipboardPaste, serializeSelection, documentResolver, documentNodeResolver, runPress, coreCommandRegistry, createLocalSession, type ActionHost, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument, boundaryOf, boundaryItems } from '@dinkster/core'
+import { asConnectionId, checkDocument, compile, diag, DocumentStore, loadDocument, parseDinksterSchema, planClipboardPaste, serializeSelection, documentResolver, documentNodeResolver, runPress, coreCommandRegistry, createLocalSession, type ActionHost, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument, boundaryOf, boundaryItems } from '@dinkster/core'
 import { extractSubgraphInvocationThroughBridge, flattenSubgraphThroughBridge } from '../src/CanvasHost.js'
 import { activateProblem } from '../src/ProblemsPanel.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection } from '../src/subgraph-lifecycle.js'
@@ -488,6 +488,222 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     })
     return { ok, reports, session }
   }
+
+  const { schema: picker } = parseDinksterSchema('Picker', { body: [
+    { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] }, pin: false, sent: false,
+      widget: { type: 'COMBO', options: ['intrinsic', 'sd', 'sdxl', 'inner-other'] } },
+    { kind: 'input', id: 'lora', type: { kind: 'concrete', types: ['COMBO'] },
+      widget: { type: 'COMBO', options: { lookup: 'pack.loras', args: ['category'] } } },
+    { kind: 'output', id: 'result', type: { kind: 'concrete', types: ['COMBO'] } },
+  ] } as never)
+  const remoteResolve = (type: string) => type === 'Picker' ? { ...picker!, isOutputNode: true }
+    : type === 'AdapterSink' ? node('AdapterSink', [{ kind: 'input', id: 'adapter', type: { kind: 'concrete', name: 'COMBO' }, optional: true }])
+      : type === 'Numeric' ? { ...node('Numeric', [floatField('amount', 0.3)]), isOutputNode: false } : undefined
+  const remoteFixture = (depth: 1 | 2, fanout = false): WorkflowDocument => {
+    const bind = (id: string, target: string, port: string) => ({
+      kind: 'input', id, binds: { kind: 'port', node: target, port }, promoted: true,
+    })
+    const selection = depth === 1 ? 'pick' : 'list'
+    const category = depth === 1 ? 'kind' : 'category'
+    return {
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'remote-lifecycle', root: 'root',
+      graphs: {
+        root: { id: 'root', name: 'Root', ...empty, nodes: {
+          first: { id: 'first', type: depth === 1 ? '#detail' : '#portrait', values: { [category]: 'sd', [selection]: 'kept-first' } },
+          second: { id: 'second', type: depth === 1 ? '#detail' : '#portrait', values: { [category]: 'sdxl', [selection]: 'kept-second' } },
+          sink: { id: 'sink', type: 'AdapterSink', values: {} },
+        }, links: { wire: { id: 'wire', from: { node: 'first', port: depth === 1 ? 'out' : 'result' }, to: { node: 'sink', port: 'adapter' } } } },
+        detail: { id: 'detail', name: 'Detail', ...empty, nodes: {
+          sample: { id: 'sample', type: 'Picker', values: { category: 'sd', lora: 'inner-selection' } },
+          ...(fanout ? { other: { id: 'other', type: 'Picker', values: { category: 'inner-other', lora: 'other-selection' } },
+            numeric: { id: 'numeric', type: 'Numeric', values: {} } } : {}),
+        }, boundary: { body: [bind('kind', 'sample', 'category'), bind('pick', 'sample', 'lora'),
+          { kind: 'output', id: 'out', binds: { kind: 'port', node: 'sample', port: 'result' } },
+        ] } },
+        ...(depth === 2 ? { portrait: { id: 'portrait', name: 'Portrait', ...empty,
+          nodes: { detail: { id: 'detail', type: '#detail', values: { kind: 'sdxl', pick: 'middle-selection' } } },
+          boundary: { body: [bind('category', 'detail', 'kind'), bind('list', 'detail', 'pick'),
+            { kind: 'output', id: 'result', binds: { kind: 'port', node: 'detail', port: 'out' } },
+          ] },
+        } } : {}),
+      }, view: { graphs: { root: { nodes: {} }, detail: { nodes: {} }, portrait: { nodes: {} } } },
+    } as unknown as WorkflowDocument
+  }
+  const remotePrompt = (doc: WorkflowDocument, state: 'ready' | 'loading' | 'unavailable' = 'ready') => {
+    const calls: unknown[] = []
+    const result = compile({ document: doc, revision: 1, resolve: remoteResolve, scope: { kind: 'full' },
+      connection: asConnectionId('remote-lifecycle'), schemaHash: 'remote-lifecycle', lookupAnswers: (lookup, args) => {
+        calls.push([lookup, args])
+        return state === 'ready' ? { state, answer: [`${args[0]}-option`] }
+          : state === 'unavailable' ? { state, reason: 'offline' } : { state }
+      } })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) throw new Error('remote option lifecycle document did not compile')
+    return { prompt: result.artifact.prompt, calls }
+  }
+
+  it.each([1, 2] as const)('remote option fan-out at depth %s preserves both receivers and refuses an incompatible addition', (depth) => {
+    const doc = remoteFixture(depth, true)
+    const store = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, remoteResolve),
+    }))
+    const selection = depth === 1 ? 'pick' : 'list'
+    const suffix = depth === 1 ? '' : '.detail'
+    expect(store.dispatch({ command: 'boundary.addBinding', params: {
+      graphId: 'detail', itemId: 'pick', node: 'other', port: 'lora',
+    } }).ok).toBe(true)
+    const joined = store.doc
+    const check = (document: WorkflowDocument, first: string) => {
+      for (const state of ['ready', 'loading', 'unavailable'] as const) {
+        const { prompt, calls } = remotePrompt(document, state)
+        expect(prompt[`first${suffix}.sample`]!.inputs).toEqual({ lora: first })
+        expect(prompt[`first${suffix}.other`]!.inputs).toEqual({ lora: first })
+        expect(prompt[`second${suffix}.sample`]!.inputs).toEqual({ lora: 'kept-second' })
+        expect(prompt[`second${suffix}.other`]!.inputs).toEqual({ lora: 'kept-second' })
+        expect(calls).toContainEqual(['pack.loras', ['sd']])
+        expect(calls).toContainEqual(['pack.loras', ['sdxl']])
+        expect(calls).toContainEqual(['pack.loras', ['inner-other']])
+        expect(prompt.sink!.inputs.adapter).toEqual([`first${suffix}.sample`, 0])
+      }
+    }
+    check(joined, 'kept-first')
+    const refused = store.dispatch({ command: 'boundary.addBinding', params: {
+      graphId: 'detail', itemId: 'pick', node: 'numeric', port: 'amount',
+    } })
+    expect(refused.ok).toBe(false)
+    expect(refused.diagnostics.some((entry) => entry.code === 'boundary.fanoutTypeMismatch')).toBe(true)
+    expect(store.doc).toBe(joined)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(doc)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(joined)
+    expect(store.dispatch({ command: 'node.setValue', params: {
+      graphId: 'root', nodeId: 'first', inputId: selection, value: 'edited-first',
+    } }).ok).toBe(true)
+    check(store.doc, 'edited-first')
+    expect(store.doc.graphs.detail).toEqual(joined.graphs.detail)
+    expect(store.doc.graphs.portrait).toEqual(joined.graphs.portrait)
+    const edited = store.doc
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(joined)
+    check(store.doc, 'kept-first')
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(edited)
+    check(loadDocument(JSON.parse(JSON.stringify(edited))).document!, 'edited-first')
+  })
+
+  it.each([1, 2] as const)('remote option detach and separate mode-specific flatten at depth %s retain selections, lookup arguments and output wires', async (depth) => {
+    const doc = remoteFixture(depth)
+    const selection = depth === 1 ? 'pick' : 'list'
+    const suffix = depth === 1 ? '.sample' : '.detail.sample'
+    const initial = remotePrompt(doc)
+    expect(initial.prompt).toEqual({
+      [`first${suffix}`]: { class_type: 'Picker', inputs: { lora: 'kept-first' }, outputIds: ['result'] },
+      [`second${suffix}`]: { class_type: 'Picker', inputs: { lora: 'kept-second' }, outputIds: ['result'] },
+      sink: { class_type: 'AdapterSink', inputs: { adapter: [`first${suffix}`, 0] }, outputIds: [] },
+    })
+    const detached = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, remoteResolve),
+    }))
+    expect(detached.dispatch({ command: 'occurrence.localize', params: { graphId: 'root', nodeId: 'first' } }).ok).toBe(true)
+    const localized = detached.doc
+    expect(localized.graphs.root!.nodes.first!.type).not.toBe(doc.graphs.root!.nodes.first!.type)
+    expect(localized.graphs.root!.nodes.second).toEqual(doc.graphs.root!.nodes.second)
+    expect(remotePrompt(localized).prompt).toEqual(initial.prompt)
+    expect(detached.dispatch({ command: 'node.setValue', params: {
+      graphId: 'root', nodeId: 'first', inputId: selection, value: 'detached-first',
+    } }).ok).toBe(true)
+    const edited = detached.doc
+    const detachedPrompt = { ...initial.prompt,
+      [`first${suffix}`]: { ...initial.prompt[`first${suffix}`]!, inputs: { lora: 'detached-first' } },
+    }
+    expect(remotePrompt(edited).prompt).toEqual(detachedPrompt)
+    expect(edited.graphs.detail).toEqual(doc.graphs.detail)
+    expect(edited.graphs.portrait).toEqual(doc.graphs.portrait)
+    expect(detached.undo()).toBe(true)
+    expect(detached.doc).toEqual(localized)
+    expect(detached.undo()).toBe(true)
+    expect(detached.doc).toEqual(doc)
+    expect(detached.redo()).toBe(true)
+    expect(detached.redo()).toBe(true)
+    expect(detached.doc).toEqual(edited)
+    expect(remotePrompt(loadDocument(JSON.parse(JSON.stringify(edited))).document!).prompt).toEqual(detachedPrompt)
+
+    expect(detached.undo()).toBe(true)
+    expect(detached.doc).toEqual(localized)
+    const privateGraph = localized.graphs.root!.nodes.first!.type.slice(1)
+    expect(detached.dispatch({ command: 'node.setValues', params: {
+      graphId: privateGraph, nodeId: depth === 1 ? 'sample' : 'detail',
+      values: depth === 1 ? { category: 'inner-other', lora: 'private-selection' }
+        : { kind: 'inner-other', pick: 'private-selection' },
+    } }).ok).toBe(true)
+    expect(remotePrompt(detached.doc).prompt).toEqual(initial.prompt)
+    const privateDefaults = detached.doc
+    expect(detached.dispatch({ command: 'node.setValues', params: {
+      graphId: 'root', nodeId: 'first', values: {}, unset: [depth === 1 ? 'kind' : 'category', selection],
+    } }).ok).toBe(true)
+    const fallback = detached.doc
+    const fallbackPrompt = { ...initial.prompt,
+      [`first${suffix}`]: { ...initial.prompt[`first${suffix}`]!, inputs: { lora: 'private-selection' } },
+    }
+    for (const current of [fallback, loadDocument(JSON.parse(JSON.stringify(fallback))).document!]) {
+      const { prompt, calls } = remotePrompt(current)
+      expect(prompt).toEqual(fallbackPrompt)
+      expect(calls).toContainEqual(['pack.loras', ['inner-other']])
+      expect(calls).toContainEqual(['pack.loras', ['sdxl']])
+      expect(current.graphs.detail).toEqual(doc.graphs.detail)
+      expect(current.graphs.portrait).toEqual(doc.graphs.portrait)
+    }
+    expect(detached.undo()).toBe(true)
+    expect(detached.doc).toEqual(privateDefaults)
+    expect(remotePrompt(detached.doc).prompt).toEqual(initial.prompt)
+    expect(detached.undo()).toBe(true)
+    expect(detached.doc).toEqual(localized)
+    expect(detached.redo()).toBe(true)
+    expect(detached.redo()).toBe(true)
+    expect(detached.doc).toEqual(fallback)
+    expect(remotePrompt(detached.doc).prompt).toEqual(fallbackPrompt)
+
+    for (const mode of ['active', 'muted', 'bypassed', 'loop'] as const) {
+      const first = doc.graphs.root!.nodes.first!
+      const before: WorkflowDocument = { ...doc, graphs: { ...doc.graphs, root: { ...doc.graphs.root!, nodes: {
+        ...doc.graphs.root!.nodes, first: mode === 'loop' ? { ...first, region: { kind: 'map', elementPorts: [selection] } }
+          : { ...first, mode },
+      } } } }
+      const result = await flatten(before, 'root', [], 'first', remoteResolve)
+      if (mode === 'bypassed' || mode === 'loop') {
+        expect(result.ok).toBe(false)
+        expect(result.reports.map((entry) => entry.code)).toContain(mode === 'loop' ? 'subgraph.flatten.regionUnsupported' : 'subgraph.flatten.modeUnsupported')
+        expect(result.session.doc).toEqual(before)
+        expect(result.session.canUndo).toBe(false)
+        continue
+      }
+      expect(result.ok, JSON.stringify(result.reports)).toBe(true)
+      const flattened = result.session.doc
+      const replacement = Object.values(flattened.graphs.root!.nodes).find((entry) => !['second', 'sink'].includes(entry.id))!
+      expect(replacement.mode ?? 'active').toBe(mode)
+      const receivingId = depth === 1 ? replacement.id : `${replacement.id}.sample`
+      for (const state of ['ready', 'loading', 'unavailable'] as const) {
+        const { prompt, calls } = remotePrompt(flattened, state)
+        expect(prompt).toEqual({
+          ...(mode === 'active' ? { [receivingId]: { class_type: 'Picker', inputs: { lora: 'kept-first' }, outputIds: ['result'] } } : {}),
+          [`second${suffix}`]: initial.prompt[`second${suffix}`],
+          sink: { class_type: 'AdapterSink', inputs: mode === 'active' ? { adapter: [receivingId, 0] } : {}, outputIds: [] },
+        })
+        expect(calls).toContainEqual(['pack.loras', ['sdxl']])
+        if (mode === 'active') expect(calls).toContainEqual(['pack.loras', ['sd']])
+      }
+      expect(flattened.graphs.detail).toEqual(doc.graphs.detail)
+      expect(flattened.graphs.portrait).toEqual(doc.graphs.portrait)
+      expect(result.session.undo()).toBe(true)
+      expect(result.session.doc).toEqual({ ...before, graphs: { ...before.graphs,
+        root: { ...before.graphs.root!, nextOrdinal: flattened.graphs.root!.nextOrdinal },
+      } })
+      expect(result.session.redo()).toBe(true)
+      expect(result.session.doc).toEqual(flattened)
+      expect(remotePrompt(loadDocument(JSON.parse(JSON.stringify(flattened))).document!).prompt).toEqual(remotePrompt(flattened).prompt)
+    }
+  })
 
   it('keeps an enclosing button executable and instance-local after extracting and flattening its target', async () => {
     const buttonSchema = node('Counter', [floatField('amount', 3), floatField('delta', 7), {
