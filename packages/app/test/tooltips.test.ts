@@ -284,7 +284,7 @@ describe('canvas tooltip provider', () => {
       [{ kind: 'known', count: 4 }, 'list of 4 images'],
       [{ kind: 'estimate', count: 81, sources: ['last-run'] }, 'list of 81 images (estimate from last run)'],
       [{ kind: 'estimate', count: 79, sources: ['asset'] }, 'list of 79 images (estimate from asset facts)'],
-      [undefined, 'list of images; Count unknown'],
+      [undefined, 'list of images, count unknown'],
     ] as const) {
       expect(resolveCanvasTooltip({ kind: 'link', hit: { link: {
         typeName: 'list<IMAGE>', listCountFact: fact,

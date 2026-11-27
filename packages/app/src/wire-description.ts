@@ -7,7 +7,7 @@ export function wireDescription(wire: Pick<SceneLink, 'typeName' | 'fromType' | 
   const resolved = type.kind === 'concrete' ? typeExprFromTypeId(type.name) : type
   if (resolved.kind !== 'list') return typeProblemWords(resolved, 'name')
   const fact = wire.listCountFact ?? (wire.listCount === undefined ? undefined : { kind: 'known' as const, count: wire.listCount })
-  if (fact === undefined) return `${typeProblemWords(resolved, 'name')}; Count unknown`
+  if (fact === undefined) return `${typeProblemWords(resolved, 'name')}, count unknown`
   const description = `list of ${fact.count} ${typeProblemWords(resolved.element, fact.count === 1 ? 'name' : 'plural')}`
   if (fact.kind === 'known') return description
   const sources = fact.sources.map(source => source === 'asset' ? 'asset facts' : 'last run').join(' and ')

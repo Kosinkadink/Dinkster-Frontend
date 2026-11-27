@@ -8,7 +8,7 @@ import {
   autoConnectTarget, cardinalityOf, hasKnownLinkDropAnchorType, hintsMatchLinkDrop,
   hintsMatchPortFilters, isDeprecated, parseSearchFilters,
   rankSearch, schemaInputTypes, schemaMatchesLinkDrop,
-  schemaMatchesPortFilters, schemaOutputTypes, semanticDesignTokens, typeExprFromTypeId,
+  schemaMatchesPortFilters, schemaOutputTypes, semanticDesignTokens, typeExprFromTypeId, typeProblemWords,
   type Json, type NodeSchema, type PackBlueprintDescriptor, type SearchAction, type TypeExpr, type WidgetRegistry,
 } from '@dinkster/core'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
@@ -341,7 +341,8 @@ export function NodePalette(props: {
             const label = item.direction === 'takes' && props.anchor.splice !== undefined &&
               typeExprCanonicalLabel(props.anchor.splice.fromType) === item.type
               ? wireDescription(props.anchor.splice)
-              : productSearchTypeName(typeIdDisplayLabel(item.type))
+              : props.anchor.splice !== undefined ? typeProblemWords(typeExprFromTypeId(item.type), 'name')
+                : productSearchTypeName(typeIdDisplayLabel(item.type))
             const name = `${message(item.direction === 'takes' ? 'palette.filter.takes' : 'palette.filter.gives')} ${label}`
             return { label, name, direction: item.direction, color: typeColor(defaultTokens, item.type), shape: typeShape(item.type),
               removeLabel: message('palette.filter.removeType', { type: name }),

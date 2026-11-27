@@ -149,6 +149,39 @@ describe('NodePalette shared search', () => {
     } finally { view.dispose() }
   })
 
+  it('describes connection counts without changing fresh-wire or splice compatibility', () => {
+    for (const [fact, label] of [
+      [{ kind: 'known', count: 0 }, 'list of 0 images'],
+      [{ kind: 'known', count: 4 }, 'list of 4 images'],
+      [{ kind: 'estimate', count: 81, sources: ['last-run'] }, 'list of 81 images (estimate from last run)'],
+      [undefined, 'list of images, count unknown'],
+    ] as const) {
+      const type = { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } } as const
+      const image = entry('images', 'Image lists')
+      const mask = entry('masks', 'Mask lists')
+      const compatible = { ...image, schema: { ...image.schema!, body: image.schema!.body.map((row) => ({ ...row, type })) } }
+      const incompatible = { ...mask, schema: { ...mask.schema!, body: mask.schema!.body.map((row) => ({
+        ...row, type: { kind: 'list' as const, element: { kind: 'concrete' as const, name: 'MASK' } },
+      })) } }
+      for (const splice of [false, true]) {
+        const count = fact === undefined ? {} : { listCountFact: fact }
+        const anchor: PaletteAnchor = { x: 10, y: 10, worldX: 0, worldY: 0, ...(splice ? {
+          initialInputTypes: ['list<IMAGE>'], initialOutputTypes: ['list<IMAGE>'],
+          splice: { linkId: 'wire', position: { x: 0, y: 0 }, fromType: type, toType: type,
+            fixedFrom: { node: 'source', port: 'items' }, fixedInto: { node: 'sink', port: 'items' }, ...count },
+        } : {
+          linkDrop: { seeking: 'in', anchorType: type, anchorX: 0, anchorY: 0, ...count },
+        }) }
+        const view = mount(() => [compatible, incompatible], { anchor })
+        try {
+          expect([...view.root.querySelectorAll('.dinkster-search-chip')].map((chip) => chip.getAttribute('aria-label')))
+            .toEqual(splice ? [`Takes ${label}`, 'Gives list of images'] : [`Takes ${label}`])
+          expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:images'])
+        } finally { view.dispose() }
+      }
+    }
+  })
+
   it('names compatible grouped pins by their displayed labels in both wire directions', () => {
     for (const seeking of ['in', 'out'] as const) {
       const grouped = entry('grouped', 'Grouped node')
