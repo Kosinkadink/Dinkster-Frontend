@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from 'solid-js'
 import { RequestFailure, type DinksterConnection, type ModelSettingsState, type MountDescriptor, type MountLocations, type MountSettings, type MountScanProgress } from '@dinkster/client'
 import { canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
-import { formatByteProgress, semanticTokensForTheme } from '@dinkster/core'
+import { formatByteProgress, formatByteSize, semanticTokensForTheme } from '@dinkster/core'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
 import ChevronLeft from 'lucide-solid/icons/chevron-left'
 import Download from 'lucide-solid/icons/download'
@@ -187,18 +187,25 @@ export function StorageFolders(props: {
     </div>
   }
   const kinds = (ids: readonly string[]) => {
-    const result = new Map<string, number | undefined>()
+    const result = new Map<string, { count: number | undefined; bytes: number | undefined; folders: Set<string> }>()
     for (const row of counts(ids)) {
-      if (row.entryCount === 0) continue
+      const size = row.state === 'ready' && row.folderSize?.status === 'available' ? row.folderSize : undefined
+      if (row.entryCount === 0 && !size?.bytes) continue
       const kind = row.kind && Object.hasOwn(modelKindColorMap, row.kind) ? row.kind : 'other'
-      const previous = result.get(kind)
-      result.set(kind, row.entryCount === undefined || (result.has(kind) && previous === undefined)
-        ? undefined : (previous ?? 0) + row.entryCount)
+      const value = result.get(kind) ?? { count: 0, bytes: 0, folders: new Set<string>() }
+      result.set(kind, value)
+      if (size && value.folders.has(size.folder)) continue
+      if (size) value.folders.add(size.folder)
+      value.count = row.entryCount === undefined || value.count === undefined ? undefined : value.count + row.entryCount
+      value.bytes = size === undefined || value.bytes === undefined ? undefined : value.bytes + size.bytes
     }
+    const sized = [...result.values()].some((value) => value.bytes !== undefined)
     const theme = props.theme ?? 'dark'
     const colors = canvasTypePaintForTheme(theme).typeColors
-    return [...result].flatMap(([kind, count]) => count === undefined ? [] : [{
-      kind, label: message(`storagePanel.kind.${kind.split('/').at(-1)}`), count,
+    return [...result].flatMap(([kind, { count, bytes }]) => count === undefined && bytes === undefined ? [] : [{
+      kind, label: message(`storagePanel.kind.${kind.split('/').at(-1)}`), count: count ?? 0,
+      ...(sized ? { weight: bytes ?? 0, value: bytes === undefined
+        ? message('storagePanel.modelCount', { count: count! }) : formatByteSize(bytes) } : {}),
       color: kind === 'other' ? semanticTokensForTheme(theme).text.muted : colors[modelKindColorMap[kind]!]!,
     }]).sort((left, right) => left.kind === 'other' ? 1 : right.kind === 'other' ? -1 : right.count - left.count || left.label.localeCompare(right.label))
   }
@@ -250,6 +257,16 @@ export function StorageFolders(props: {
     return mounts.length !== ids.length || mounts.some((mount) => mount.entryCount === undefined)
       ? undefined : mounts.reduce((sum, mount) => sum + mount.entryCount!, 0)
   }
+  const modelTotal = (ids: readonly string[]) => {
+    const mounts = counts(ids)
+    if (!mounts.some((mount) => mount.state === 'ready' && mount.folderSize?.status === 'available')) {
+      const count = modelCount(ids)
+      return count === undefined ? undefined : message('storagePanel.modelCount', { count })
+    }
+    if (mounts.length !== ids.length || mounts.some((mount) => mount.state !== 'ready' || mount.folderSize?.status !== 'available')) return undefined
+    const sizes = new Map(mounts.flatMap((mount) => mount.folderSize?.status === 'available' ? [[mount.folderSize.folder, mount.folderSize.bytes] as const] : []))
+    return formatByteSize([...sizes.values()].reduce((sum, bytes) => sum + bytes, 0))
+  }
   const removalQuestion = (id: string, model: boolean) => <ProductConfirmation
     title={message(leaving()?.saving ? 'storagePanel.stopSavingTitle' : 'projectFolders.removeTitle', { folder: id })}
     consequence={!model && id === settings()?.outputMount && replacements(id).length === 0 ? '' : message(leaving()?.saving ? 'storagePanel.stopSavingNotice' : 'projectFolders.removeNotice')}
@@ -280,7 +297,7 @@ export function StorageFolders(props: {
         <Show when={models()?.settings.downloadLocation === location.id}><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Download} />{message('storagePanel.downloads')}</span></Show>
         <Show when={!location.active}><span>{message('modelSettings.inactive')}</span></Show>
       </span>}
-      trailing={<Show when={reading(counts(location.mounts))} fallback={<Show when={modelCount(location.mounts) !== undefined}>{message('storagePanel.modelCount', { count: modelCount(location.mounts)! })}</Show>}>
+      trailing={<Show when={reading(counts(location.mounts))} fallback={modelTotal(location.mounts)}>
         {(progress) => message('storagePanel.reading', { done: progress().filesDone, total: progress().filesTotal })}
       </Show>}
       {...disclosure}
