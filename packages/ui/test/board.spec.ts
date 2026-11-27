@@ -207,6 +207,9 @@ test('sound and video play in place, and media can move, resize and undo removal
           .evaluate((element) => (element as HTMLMediaElement).currentTime),
       )
       .toBeCloseTo(duration * 0.25, 1)
+    await expect(progress).toHaveCSS('outline-style', 'none')
+    await progress.press('ArrowRight')
+    await expect(progress).toHaveCSS('outline-style', 'solid')
     await page.mouse.move(
       track.x + track.width * 0.25,
       track.y + track.height / 2,

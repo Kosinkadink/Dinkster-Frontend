@@ -1677,7 +1677,7 @@
 .dinkster-audio-time { flex: none; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dinkster-audio-waveform { display: block; flex: 1; min-width: 0; width: 100%; height: 100%; fill: none; stroke: var(--dinkster-text-muted); stroke-width: 2; }
 .dinkster-audio-waveform[role='slider']:not([aria-disabled='true']) { cursor: ew-resize; touch-action: none; }
-:root[data-field-focus='pointer'] :is(.dinkster-audio-waveform, .dinkster-board-video-track):focus-visible { outline: none; }
+:root[data-field-focus='pointer'] :is(.dinkster-audio-waveform, .dinkster-board-video-track):focus { outline: none; }
 .dinkster-audio-waveform-played, .dinkster-audio-waveform-playhead { stroke: var(--dinkster-text-primary); }
 .dinkster-audio-waveform-playhead { stroke-width: 1; vector-effect: non-scaling-stroke; }
 .dinkster-board-media-control { position: absolute; right: var(--dinkster-space-4); bottom: var(--dinkster-space-4); display: flex; align-items: center; gap: var(--dinkster-space-8); padding-right: var(--dinkster-space-8); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-frame); color: var(--dinkster-text-primary); font-size: var(--dinkster-type-metadata-size); font-variant-numeric: tabular-nums; }
