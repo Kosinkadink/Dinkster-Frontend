@@ -1763,7 +1763,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models', '#settings-section', '#setup-components'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
@@ -1780,7 +1780,7 @@ function GalleryRoot() {
   })
   return (
     <Show
-      when={route().startsWith('#site-')}
+      when={route().startsWith('#site-') && route() !== '#site-field-alignment'}
       fallback={
         <Switch fallback={<Gallery />}>
           <Match when={route() === '#window-toolbar'}>
