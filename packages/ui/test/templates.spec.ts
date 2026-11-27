@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseOption } from '../../e2e/choices.js'
 
 test('a narrow page returns from a template to the search and blank workflow', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 1000 })
@@ -141,7 +142,7 @@ test('a tile shows what is left to download, then how far it is, and a template 
 test('without a model folder the page offers Storage, and without templates it still offers a blank workflow', async ({ page }) => {
   await page.goto('/#templates')
   const state = page.getByRole('combobox', { name: 'State' })
-  await state.selectOption('no-folders')
+  await chooseOption(state, 'No model folder')
   const needs = page.getByRole('region', { name: 'Needs' })
   await expect(needs).toContainText('0 of 3 on this computer')
   await expect(needs.getByRole('listitem')).toHaveText([
@@ -154,7 +155,7 @@ test('without a model folder the page offers Storage, and without templates it s
   await page.getByRole('button', { name: 'Open Storage' }).click()
   await expect(page.getByRole('status').last()).toHaveText('Storage opened')
 
-  await state.selectOption('empty')
+  await chooseOption(state, 'No templates')
   await expect(page.getByRole('listbox', { name: 'Makes' }).getByRole('option')).toHaveText(['All0'])
   await expect(page.getByRole('listbox', { name: 'Model family' })).toHaveCount(0)
   await expect(page.getByText('No templates yet. Packs you add can bring their own.')).toBeVisible()
@@ -163,7 +164,7 @@ test('without a model folder the page offers Storage, and without templates it s
   await page.getByRole('button', { name: 'Blank workflow' }).click()
   await expect(page.getByRole('status').last()).toHaveText('Blank workflow opened')
 
-  await state.selectOption('ready')
+  await chooseOption(state, 'Ready')
   await expect(page.getByRole('button', { name: /Download 2 models/ })).toBeVisible()
   await expect(needs).toContainText('1 of 3 on this computer')
 })
