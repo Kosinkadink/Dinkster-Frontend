@@ -355,6 +355,8 @@ export function ProductTile(props: {
   detail?: string
   picture?: JSX.Element
   empty?: JSX.Element
+  disabled?: boolean
+  tooltip?: string | undefined
   onClick: () => void
 }) {
   return (
@@ -362,6 +364,8 @@ export function ProductTile(props: {
       type="button"
       class="dinkster-tile"
       aria-label={props.caption ? undefined : props.label}
+      disabled={props.disabled}
+      data-tooltip-label={props.tooltip}
       onClick={() => props.onClick()}
     >
       <span class="dinkster-tile-picture">
