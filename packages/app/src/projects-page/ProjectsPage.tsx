@@ -64,6 +64,10 @@ import './projects-page.css'
 import { byProjectTime, formatBytes, formatWhen, projectTime } from './project-facts.js'
 import { WorkflowPicture } from './workflow-picture.js'
 import { EngineLogDialog } from '../EngineRunControl.js'
+import { templateCollectionSource, type TemplateCollectionRef } from '../collections.js'
+import { RemoteTemplateCatalog } from '../template-catalog.js'
+import { SettingsRegistry } from '../settings.js'
+import { TemplatePicker, type ProjectTemplateCatalog, type ProjectTemplateChoice } from './TemplatePicker.js'
 
 /** An installation a project can run on. */
 export interface PageInstallation {
@@ -100,6 +104,8 @@ export interface ProjectsSource {
   }>
   /** Opens the project's folder in this computer's file manager. */
   openFolder(project: string): Promise<void>
+  /** Absent unless the running engine explicitly enables templates. Never starts an engine. */
+  templates?(): Promise<ProjectTemplateCatalog | undefined>
 }
 
 /** The process's engine state, from /supervisor/status. */
@@ -162,6 +168,25 @@ function processConnection(): DinksterConnection {
 /** The page's reads from the always-on process serving this page. */
 export function processSource(connection: DinksterConnection = processConnection()): ProjectsSource {
   return {
+    async templates() {
+      const runtime = await connection.fetchRuntimeSettings()
+      if (runtime.features?.templates?.enabled !== true) return undefined
+      const registry = await connection.fetchSchemas()
+      const settings = new SettingsRegistry()
+      settings.register({ id: 'templates.registryUrl', name: 'Template registry URL', type: 'string', defaultValue: '' })
+      const registryUrl = settings.get<string>('templates.registryUrl')
+      const remote = new RemoteTemplateCatalog(registryUrl)
+      const backend = { id: connection.id, label: 'This computer', connection, registry: { get: () => registry } }
+      const page = await templateCollectionSource(() => backend, () => registryUrl).page({ query: '', limit: Number.MAX_SAFE_INTEGER })
+      return {
+        entries: page.items,
+        resolve: registry.resolve,
+        document(entry) {
+          const ref = entry.ref as TemplateCollectionRef
+          return ref.kind === 'remote' ? remote.fetchBody(ref.template) : connection.fetchTemplateBody(ref.pack, ref.id)
+        },
+      }
+    },
     async listProjects() {
       const projects: LibraryProject[] = []
       let cursor: string | undefined
@@ -902,6 +927,36 @@ export function ProjectsView(props: {
   const [workflowFile, setWorkflowFile] = createSignal<{ readonly name: string; readonly content: string }>()
   const [readingWorkflow, setReadingWorkflow] = createSignal(false)
   const [workflowError, setWorkflowError] = createSignal<string>()
+  const [templateCatalog, setTemplateCatalog] = createSignal<ProjectTemplateCatalog>()
+  const [templateChoice, setTemplateChoice] = createSignal<ProjectTemplateChoice>()
+  const [pickingTemplate, setPickingTemplate] = createSignal(false)
+  let templateRead = 0
+  let templatesLive = true
+  onCleanup(() => { templatesLive = false; templateRead++ })
+  const refreshTemplates = async () => {
+    const request = ++templateRead
+    const catalog = await props.source.templates?.().catch(() => undefined)
+    if (!templatesLive || request !== templateRead) return undefined
+    setTemplateCatalog(catalog)
+    if (!catalog) {
+      setPickingTemplate(false)
+      setTemplateChoice(undefined)
+      if (startChoice() === 'template' && !creationAttempt()) setStartChoice('empty')
+    } else if (templateChoice() && !catalog.entries.some((entry) => {
+      const template = (entry.ref as TemplateCollectionRef).template
+      const choice = templateChoice()!
+      return template.pack === choice.pack && template.id === choice.id && template.digest === choice.digest
+    })) {
+      setTemplateChoice(undefined)
+    }
+    return catalog
+  }
+  void refreshTemplates()
+  onMount(() => {
+    const refresh = () => { void refreshTemplates() }
+    window.addEventListener('focus', refresh)
+    onCleanup(() => window.removeEventListener('focus', refresh))
+  })
   let workflowInput!: HTMLInputElement
   const creationLocked = () => creating() || readingWorkflow() || choosingFolder() || creationAttempt() !== undefined
   const filesFolder = () => {
@@ -913,7 +968,9 @@ export function ProjectsView(props: {
     return `${parent.replace(/[\\/]+$/u, '')}${parent.includes('\\') ? '\\' : '/'}${leaf}`
   }
   const startingProject = () => copySource() ?? selected()?.id
-  const startingContents = (): ProjectCreation['startWith'] => creationAttempt()?.creation.startWith ?? (startChoice() === 'workflow'
+  const startingContents = (): ProjectCreation['startWith'] => creationAttempt()?.creation.startWith ?? (startChoice() === 'template'
+    ? templateCatalog() && templateChoice() && { kind: 'workflow', name: templateChoice()!.name, content: JSON.stringify(templateChoice()!.document) }
+    : startChoice() === 'workflow'
     ? workflowFile() && { kind: 'workflow', ...workflowFile()! }
     : startChoice() === 'project'
       ? live()?.some((row) => row.id === startingProject()) ? { kind: 'project', project: startingProject()! } : undefined
@@ -948,13 +1005,15 @@ export function ProjectsView(props: {
     }
   }
   const create = async () => {
-    const trimmed = name().trim()
-    const startWith = startingContents()
-    if (trimmed === '' || creating() || readingWorkflow() || choosingFolder() || !filesFolder().trim() || !startWith) return
-    const installationRoot = newInstallation() ?? chosenInstallation()?.root
-    setNewInstallation(installationRoot)
+    if (creating() || readingWorkflow() || choosingFolder()) return
     setCreating(true)
     try {
+      if (startChoice() === 'template' && !await refreshTemplates()) return
+      const trimmed = name().trim()
+      const startWith = startingContents()
+      if (trimmed === '' || !filesFolder().trim() || !startWith) return
+      const installationRoot = newInstallation() ?? chosenInstallation()?.root
+      setNewInstallation(installationRoot)
       const attempt = creationAttempt() ?? { id: `p-${uuidv4()}`, creation: { filesFolder: filesFolder(), startWith } }
       setCreationAttempt(attempt)
       if (startWith.kind === 'project') setCopySource(startWith.project)
@@ -972,6 +1031,7 @@ export function ProjectsView(props: {
       setCopySource(undefined)
       setWorkflowFile(undefined)
       setWorkflowError(undefined)
+      setTemplateChoice(undefined)
       props.shell.showProjects()
     } catch {
       setCreateError(message('projects.new.failed'))
@@ -1027,9 +1087,17 @@ export function ProjectsView(props: {
           <ProductSegmented label={message('projects.new.startWith')} value={startChoice()} onChange={setStartChoice}
             options={[
               { value: 'empty', label: message('projects.new.empty') },
+              ...(templateCatalog() ? [{ value: 'template', label: message('projects.new.template') }] : []),
               { value: 'workflow', label: message('projects.new.workflowFile') },
               { value: 'project', label: message('projects.new.copyProject') },
             ].map((option) => ({ ...option, ...(creationLocked() ? { disabled: message('projects.new.choicesLocked') } : {}) }))} />
+          <Show when={startChoice() === 'template' && templateCatalog()}>
+            <ProductField label={message('projects.new.template')}>{() => <div class="dinkster-project-form-path" role="group" aria-label={message('projects.new.template')}>
+              <span>{templateChoice()?.name ?? message('projects.new.noTemplate')}</span>
+              <ProductTextButton label={message(templateChoice() ? 'projects.facts.change' : 'projects.new.choose')} disabled={creationLocked()}
+                onClick={() => { void refreshTemplates().then((catalog) => { if (catalog && !creationLocked()) setPickingTemplate(true) }) }} />
+            </div>}</ProductField>
+          </Show>
           <Show when={startChoice() === 'workflow'}>
             <ProductField label={message('projects.new.workflowFile')} error={workflowError() ?? ''}>{(attributes) => <div class="dinkster-project-form-path">
               <span>{workflowFile()?.name ?? message('projects.new.noWorkflow')}</span>
@@ -1049,7 +1117,7 @@ export function ProjectsView(props: {
         </div>
         <div class="dinkster-actions">
           <ProductButton disabled={creating()} onClick={cancelCreation}>{message('projects.action.cancel')}</ProductButton>
-          <ProductButton type="submit" intent="add" fill="solid" disabled={name().trim() === '' || !filesFolder().trim() || !startingContents() || creating() || readingWorkflow() || choosingFolder()}>
+          <ProductButton type="submit" intent="add" fill="solid" disabled={name().trim() === '' || !filesFolder().trim() || !startingContents() || (startChoice() === 'template' && !templateCatalog()) || creating() || readingWorkflow() || choosingFolder()}>
             {message('projects.new.create')}
           </ProductButton>
         </div>
@@ -1077,6 +1145,21 @@ export function ProjectsView(props: {
 
   return (
     <div class="projects-page-content" data-testid="projects-content">
+    <Show when={!pickingTemplate() || !newProject()} fallback={
+      <Show when={templateCatalog()}>{(catalog) => <TemplatePicker catalog={catalog()} initial={templateChoice()}
+        drawing={(document, resolve) => <WorkflowPicture document={document} resolve={resolve} widgets={widgets} />}
+        onCancel={() => setPickingTemplate(false)}
+        onChoose={async (choice) => {
+          const current = await refreshTemplates()
+          if (!current) return
+          if (!current.entries.some((entry) => {
+            const template = (entry.ref as TemplateCollectionRef).template
+            return template.pack === choice.pack && template.id === choice.id && template.digest === choice.digest
+          })) throw new Error('Template changed')
+          setTemplateChoice(choice)
+          setPickingTemplate(false)
+        }} />}</Show>
+    }>
     <Show when={!setupOnly()} fallback={setup()}>
       <ProductProjectsView
         narrowPanel={newProject() || narrowDetail() ? 'detail' : 'list'}
@@ -1138,6 +1221,7 @@ export function ProjectsView(props: {
           </Show>
         </Show>
       </ProductProjectsView>
+    </Show>
     </Show>
     </div>
   )

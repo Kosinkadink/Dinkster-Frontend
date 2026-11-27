@@ -188,7 +188,7 @@ export function packsSource(app: AppState): CollectionSource {
 }
 
 /** Resolve template pack-local asset ids for display, preserving dangling ids defensively. */
-export function templateAssetLines(descriptor: TemplateDescriptor, backend: Backend | undefined): string[] {
+export function templateAssetLines(descriptor: TemplateDescriptor, backend: Pick<TemplateCollectionBackend, 'registry'> | undefined): string[] {
   const assets = backend?.registry.get()?.packs?.get(descriptor.pack)?.assets ?? []
   const byId = new Map(assets.map((asset) => [asset.id, asset]))
   return (descriptor.assets ?? []).map((id) => {
@@ -205,8 +205,12 @@ export type TemplateCollectionRef = (
   readonly models: readonly { readonly name: string; readonly here: boolean; readonly size?: number }[]
 }
 
+export type TemplateCollectionBackend = Pick<Extract<Backend, { protocol: 'dinkster' }>, 'id' | 'label' | 'connection'> & {
+  readonly registry: Pick<Backend['registry'], 'get'>
+}
+
 const allLocalTemplates = async (
-  backend: Extract<Backend, { protocol: 'dinkster' }>,
+  backend: TemplateCollectionBackend,
 ): Promise<readonly TemplateDescriptor[]> => {
   const templates: TemplateDescriptor[] = []
   let cursor: string | undefined
@@ -218,7 +222,7 @@ const allLocalTemplates = async (
   return templates
 }
 
-const templateModels = (template: TemplateDescriptor, backend: Backend): readonly string[] => [...new Set([
+const templateModels = (template: TemplateDescriptor, backend: TemplateCollectionBackend): readonly string[] => [...new Set([
   ...(template.models ?? []),
   ...(template.assets ?? []).map((id) =>
     backend.registry.get()?.packs?.get(template.pack)?.assets?.find((asset) => asset.id === id)?.name ?? id),
@@ -229,6 +233,12 @@ export const normalizeTemplateSearch = (value: string): string => value
   .replace(/[^\p{L}\p{N}]+/gu, '')
 
 export function templatesSource(app: AppState, resolveBackend = () => app.libraryBackend()): CollectionSource {
+  return templateCollectionSource(resolveBackend, () => app.settings.list().some((setting) => setting.id === 'templates.registryUrl')
+    ? app.settings.get<string>('templates.registryUrl') : '')
+}
+
+/** The same collection can be read from Projects without constructing an editor. */
+export function templateCollectionSource(resolveBackend: () => TemplateCollectionBackend | undefined, registryUrl: () => string): CollectionSource {
   return {
     id: 'templates',
     label: 'Templates',
@@ -246,9 +256,7 @@ export function templatesSource(app: AppState, resolveBackend = () => app.librar
       const offset = rawOffset === undefined ? 0 : Number(rawOffset)
       if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('invalid template continuation')
       const pack = req.filters?.['pack']
-      const registryUrl = app.settings.list().some((setting) => setting.id === 'templates.registryUrl')
-        ? app.settings.get<string>('templates.registryUrl') : ''
-      const catalog = new RemoteTemplateCatalog(registryUrl)
+      const catalog = new RemoteTemplateCatalog(registryUrl())
       const [local, remote] = await Promise.all([allLocalTemplates(backend), catalog.list()])
       const query = normalizeTemplateSearch(req.query.trim())
       const templates = [
