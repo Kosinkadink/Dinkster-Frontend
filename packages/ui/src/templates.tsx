@@ -220,8 +220,10 @@ export function ProductTemplatesPage(props: {
   const escape = (event: KeyboardEvent) => {
     if (event.key !== 'Escape' || event.defaultPrevented || props.pending) return
     if (detail() && back?.getClientRects().length) showList()
-    else if (props.search !== '') props.onSearch('')
-    else if (props.onCancel) props.onCancel()
+    else if (props.search !== '') {
+      props.onSearch('')
+      page.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
+    } else if (props.onCancel) props.onCancel()
     else return
     event.preventDefault()
     event.stopPropagation()
