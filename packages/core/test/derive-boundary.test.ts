@@ -1889,9 +1889,15 @@ describe('Boundary sample acceptance compilation', () => {
     for (const feature of ['sections', 'shared-lines'] as const) {
       it(`boundary/${feature}/${context}`, () => {
         const store = storeFor(boundarySample(level))
-        const before = prompt(store.doc)
         const graphId = level === 1 ? 'detail' : 'portrait'
         const fields = ['strength', 'radius', 'feather', 'balance']
+        if (feature === 'shared-lines') {
+          edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: { radius: 0.17, feather: 0.37, balance: 0.57 } })
+          edit(store, 'node.setValues', { graphId: 'root', nodeId: 'second', values: { radius: 0.81, feather: 0.61, balance: 0.41 } })
+        }
+        const before = prompt(store.doc)
+        const original = store.doc
+        const originalSchema = documentResolver(original, resolveBoundarySample)(`#${graphId}`)!
         const rest = store.doc.graphs[graphId]!.boundary!.body
           .filter((row) => !('id' in row && fields.includes(row.id)))
           .map((row) => ({ kind: row.kind, id: (row as { id: string }).id }))
@@ -1903,6 +1909,44 @@ describe('Boundary sample acceptance compilation', () => {
           : { kind: 'line', rows }
         edit(store, 'boundary.arrange', { graphId, body: [...rest, layout] })
         expect(prompt(store.doc)).toEqual(before)
+        if (feature === 'shared-lines') {
+          const joined = store.doc
+          const joinedSchema = documentResolver(joined, resolveBoundarySample)(`#${graphId}`)!
+          expect(fields.map((id) => inputsOf(joinedSchema).find((field) => field.id === id)))
+            .toEqual(fields.map((id) => inputsOf(originalSchema).find((field) => field.id === id)))
+          expect(outputsOf(joinedSchema)).toEqual(outputsOf(originalSchema))
+          expect(fields.map((id) => before[path]!.inputs[id])).toEqual([0.2, 0.17, 0.37, 0.57])
+          const sibling = level === 1 ? 'second.sample' : 'second.detail.sample'
+          expect(fields.map((id) => before[sibling]!.inputs[id])).toEqual([0.8, 0.81, 0.61, 0.41])
+          for (const badRows of [[rows[0]!, { kind: 'output', id: 'result' }], [...rows, { kind: 'input', id: 'count' }]]) {
+            const excluded = new Set(badRows.map((row) => `${row.kind}:${row.id}`))
+            const refused = store.dispatch({ command: 'boundary.arrange', params: { graphId,
+              body: [...[...rest, ...rows].filter((row) => !excluded.has(`${row.kind}:${row.id}`)), { kind: 'line', rows: badRows }],
+            } })
+            expect(refused.ok).toBe(false)
+            expect(refused.diagnostics.map((item) => item.code)).toContain('boundary.arrangeShape')
+            expect(store.doc).toBe(joined)
+          }
+          expect(store.undo()).toBe(true)
+          expect(store.doc).toEqual(original)
+          expect(store.redo()).toBe(true)
+          expect(store.doc).toEqual(joined)
+          edit(store, 'boundary.arrange', { graphId, body: [...rest, ...rows] })
+          expect(prompt(store.doc)).toEqual(before)
+          expect(store.undo()).toBe(true)
+          expect(store.doc).toEqual(joined)
+          edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'feather', value: 0.93 })
+          const changed = store.doc
+          const reloaded = loadDocument(JSON.parse(JSON.stringify(changed))).document!
+          expect(prompt(reloaded)[path]!.inputs).toEqual({ ...before[path]!.inputs, feather: 0.93 })
+          expect(prompt(reloaded)[sibling]).toEqual(before[sibling])
+          expect(reloaded.graphs.detail!.nodes).toEqual(original.graphs.detail!.nodes)
+          if (level === 2) expect(reloaded.graphs.portrait!.nodes).toEqual(original.graphs.portrait!.nodes)
+          expect(store.undo()).toBe(true)
+          expect(store.doc).toEqual(joined)
+          expect(store.redo()).toBe(true)
+          expect(store.doc).toEqual(changed)
+        }
       })
     }
   }
