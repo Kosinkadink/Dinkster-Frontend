@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildScene, defaultTokens, type Hit } from '@dinkster/canvas'
-import { asNodeId, boundaryItems, coreCommandRegistry, createLocalSession, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, resolveWidgetRepresentation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import { asNodeId, boundaryItems, coreCommandRegistry, coreMenuContributions, createLocalSession, createMenuRegistry, DocumentStore, effectiveOccurrenceTopology, isPortEndpoint, loadDocument, planOccurrenceLinkMutation, resolveWidgetRepresentation, type MenuContext, type MenuItem, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 import { intKind } from '@dinkster/widgets'
 import { toolboxMenuRequest } from '../src/CanvasHost.js'
 import { canvasMenuContext, curveHistogramMenuGroup, memberRemovalInvocation, menuFlat, menuTargetOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetRepresentationAddress, widgetRepresentationMenuGroup } from '../src/menu-target.js'
@@ -14,6 +14,62 @@ const item = (id: string): MenuItem => ({
 const group = (name: string, ...ids: string[]): ResolvedMenuGroup => ({
   group: name,
   items: ids.map(item),
+})
+
+describe('field-line menus', () => {
+  it('saves independent member folds through row menus without changing wires or values', () => {
+    const field = (id: string): Extract<NodeSchema['body'][number], { kind: 'input' }> => ({ kind: 'input', id,
+      type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } })
+    const schema: NodeSchema = {
+      type: 'Stack', displayName: 'Stack', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: 'm', start: 0, pad: 0 },
+        grows: 'button', minMembers: 1, member: [{ kind: 'row', rows: [field('first'), field('last')] }] }],
+    }
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'lines', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Lines', nextOrdinal: 2, nodes: {
+        n1: { id: 'n1', type: 'Stack', values: { 'items.m1.first': 7, 'items.m10.last': 19 },
+          dynamic: { items: { members: ['m1', 'm10'], seq: 11 } } },
+      }, links: { same: { id: 'same', from: { node: 'n1', tap: 'items.m1.first' }, to: { node: 'n1', port: 'items.m1.last' } } }, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 20, y: 30 } } } } } },
+    })
+    expect(loaded.diagnostics).toEqual([])
+    let store = new DocumentStore(loaded.document!, coreCommandRegistry())
+    const scene = () => buildScene({ document: store.doc, graphId: 'g0', resolve: () => schema,
+      tokens: defaultTokens, measure: (s) => s.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }) })
+    const menu = createMenuRegistry()
+    for (const contribution of coreMenuContributions()) menu.register(contribution)
+    const toggle = (inputId: string, label: string) => {
+      const node = scene().nodes[0]!
+      const row = node.layout.rows.find((row) => row.kind === 'widget' && row.inputId === inputId)!
+      if (row.kind !== 'widget') throw new Error('No field row')
+      const target = menuTargetOf({ kind: 'widget', node, row, x: 0, y: 0, width: 1, height: 1, localX: 0, localY: 0 })
+      const item = menu.resolve({ doc: store.doc, graphId: 'g0', target, selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0 })
+        .flatMap((group) => group.items).find((item) => item.id === 'core.line.toggle')!
+      expect(item.label).toBe(label)
+      if (item.action?.kind !== 'command') throw new Error('No fold command')
+      expect(store.dispatch(item.action.invocation).ok).toBe(true)
+    }
+    const graph = store.doc.graphs.g0
+    toggle('items.m1.last', 'Unfold line')
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([false, true])
+    const unfolded = store.doc
+    expect(store.undo()).toBe(true)
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([true, true])
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(unfolded)
+    store = new DocumentStore(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, coreCommandRegistry())
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([false, true])
+    toggle('items.m10.first', 'Unfold line')
+    toggle('items.m1.first', 'Fold line')
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([true, false])
+    expect(store.doc.graphs.g0).toEqual(graph)
+    expect(store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'same' } }).ok).toBe(true)
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([true, false])
+    expect(store.undo()).toBe(true)
+    expect(store.doc.graphs.g0).toEqual(graph)
+    expect(scene().nodes[0]!.layout.lines!.map((line) => line.folded)).toEqual([true, false])
+  })
 })
 
 describe('direct member removal', () => {
@@ -406,9 +462,6 @@ describe('widgetRepresentationMenuGroup', () => {
   })
 })
 
-// menuTargetOf only reads the discriminant plus the identity fields asserted
-// below, so fixtures carry exactly those (cast through unknown - full scene
-// objects would drag in layout state irrelevant to the mapping).
 const hit = (h: unknown): Hit => h as Hit
 
 describe('menuTargetOf', () => {
@@ -417,7 +470,7 @@ describe('menuTargetOf', () => {
     expect(
       menuTargetOf(hit({
         kind: 'widget',
-        node: { id: 'inst' },
+        node: { id: 'inst', layout: { rows: [] } },
         row: {
           inputId: 'lora.m1.strength',
           address: { port: 'lora.m1.strength' },
@@ -435,12 +488,12 @@ describe('menuTargetOf', () => {
 
   it('flags unpersisted widget rows and taps synthetic (ghost, materialize)', () => {
     const flagged = (row: object) =>
-      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row: { address: { port: 'x' }, ...row } })) as { synthetic?: true }).synthetic
+      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1', layout: { rows: [] } }, row: { address: { port: 'x' }, ...row } })) as { synthetic?: true }).synthetic
     expect(flagged({ inputId: 'x', ghost: true })).toBe(true)
     expect(flagged({ inputId: 'x', materialize: [{ construct: 'c', member: 'm' }] })).toBe(true)
     expect(flagged({ inputId: 'x' })).toBeUndefined()
     const construct = (row: object) =>
-      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1' }, row: { address: { port: 'x' }, inputId: 'x', ...row } })) as { construct?: true }).construct
+      (menuTargetOf(hit({ kind: 'widget', node: { id: 'n1', layout: { rows: [] } }, row: { address: { port: 'x' }, inputId: 'x', ...row } })) as { construct?: true }).construct
     expect(construct({ selector: { construct: 'mode' } })).toBe(true)
     expect(construct({ dynamicSlot: { construct: 'value', variants: [] } })).toBe(true)
     expect(construct({})).toBeUndefined()

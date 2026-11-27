@@ -94,7 +94,7 @@ describe('buildScene', () => {
     expect(scene()).toEqual(folded)
   })
 
-  it('gives folded editors and sections their height back through one-step undo and redo, sized or not', async () => {
+  it('gives folded editors, sections and field lines their height back through one-step undo and redo, sized or not', async () => {
     const base = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
     const editorViews = [
       ['CURVE', 'core.curve', 3], ['WEBCAM', 'core.webcam', 1],
@@ -115,6 +115,8 @@ describe('buildScene', () => {
           }] },
           { kind: 'group', id: 'extras', keys: { kind: 'named', names: ['first', 'second'] }, grows: 'button', minMembers: 0,
             value: { kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } } },
+          { kind: 'row', rows: ['first', 'last'].map((id) => ({ kind: 'input', id, optional: false,
+            type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } })) },
         ] }],
       }
       const graph = base.graphs.g0!
@@ -177,6 +179,8 @@ describe('buildScene', () => {
       checkFold('view.setSectionCollapsed', { sectionId: 'inner', collapsed: startsOpen })
       checkFold('view.setSectionCollapsed', { sectionId: 'group:extras', collapsed: true })
       checkFold('view.setSectionCollapsed', { sectionId: 'group:extras', collapsed: false })
+      checkFold('view.setLineFolded', { lineKey: 'first', folded: false })
+      checkFold('view.setLineFolded', { lineKey: 'first', folded: true })
       checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
       checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: false })
       const openHeight = scene().height
@@ -389,6 +393,35 @@ describe('buildScene', () => {
     // The link from the instance's boundary output resolves like any node's.
     expect(scene.links).toHaveLength(1)
     expect(scene.links[0]!.from).toMatchObject({ kind: 'port', port: 'image' })
+  })
+
+  it('centers a folded line on drawn boundary wires, not hidden ones, without carrying its fold to the face', () => {
+    const field = (id: string): Extract<NodeSchema['body'][number], { kind: 'input' }> => ({ kind: 'input', id, optional: false,
+      type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } })
+    const schema: NodeSchema = { type: 'Fields', displayName: 'Fields', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: [field('first'), field('last')] }] }
+    const document = structuredClone(loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document!)
+    ;(document.graphs.g1!.nodes as Record<string, unknown>).n0 = { id: 'n0', type: 'Fields', values: { first: 7, last: 19 } }
+    ;(document.graphs.g1 as { boundary: unknown }).boundary = { body: [
+      { kind: 'input', id: 'first', promoted: true, wireHidden: true, binds: { kind: 'port', node: 'n0', port: 'first' } },
+      { kind: 'input', id: 'last', promoted: true, binds: { kind: 'port', node: 'n0', port: 'last' } },
+    ] }
+    const resolve = documentResolver(document, (type) => type === 'Fields' ? schema : schemas.get(type))
+    const scene = (graphId: string) => buildScene({ document, graphId, resolve, tokens: defaultTokens, measure, widgetMeasure })
+    for (const hidden of [true, false]) {
+      const item = boundaryItems(document.graphs.g1!.boundary!, 'inputs')[0]!
+      ;(item as { wireHidden: boolean }).wireHidden = hidden
+      const inner = scene('g1')
+      const layout = inner.nodes[0]!.layout
+      const row = layout.rows[0]!
+      const center = row.y + defaultTokens.rowHeight / 2
+      const lastPin = layout.pins.find((pin) => pin.portId === 'last' && pin.direction === 'in')!
+      expect(lastPin.y).toBe(hidden ? center : center + canvasPaintTokens.node.box.clusterPitch.two / 2)
+      expect(inner.links.find((link) => link.to.kind === 'port' && link.to.port === 'first')?.hidden === true).toBe(hidden)
+      const face = scene('g0').nodes.find((node) => node.id === 'n0')!.layout
+      expect(face.lines).toBeUndefined()
+      expect(face.rows[0]!.y).not.toBe(face.rows[1]!.y)
+    }
   })
 
   it('inner subgraph definitions render standalone by graph id', () => {
@@ -1644,17 +1677,13 @@ describe('solver verdicts on scene edges', () => {
 
 describe('groups', () => {
 
-  it('nodesInGroup: membership is spatial (node center inside bounds)', () => {
+  it('initializes legacy membership with full bounds and keeps stored membership independent of bounds', () => {
     const scene = sceneOf('subgraph')
     const group = scene.groups[0]!
-    // All three g0 nodes (positions 60/380/720 x ~200) center inside the
-    // 40..800 x 140..440 rect.
-    expect(nodesInGroup(scene, group).sort()).toEqual(['n0', 'n1', 'n2'])
-    // Shrink the rect so only n0's center fits: membership follows.
-    const narrow = { ...group, x: 40, width: 200 }
-    expect(nodesInGroup(scene, narrow)).toEqual(['n0'])
-    // A rect over empty space carries nothing.
-    expect(nodesInGroup(scene, { ...group, x: -5_000, y: -5_000, width: 10, height: 10 })).toEqual([])
+    expect(nodesInGroup(scene, group).sort()).toEqual(['n0', 'n1'])
+    const stored = { ...scene, groupMembership: { nodes: { n0: group.id }, reroutes: {}, groups: {}, boundary: {} } }
+    expect(nodesInGroup(stored, group)).toEqual(['n0'])
+    expect(nodesInGroup(stored, { ...group, x: -5_000, y: -5_000, width: 10, height: 10 })).toEqual(['n0'])
   })
 
 })
@@ -1796,14 +1825,14 @@ describe('boundary pseudo-nodes', () => {
     expect(sceneOf('exec-subgraph').boundaryNodes).toEqual([])
   })
 
-  it('participate in spatial group membership by center', () => {
+  it('initializes fully enclosed legacy boundary panels as group members', () => {
     const scene = g1SceneWith({ inputs: { position: { x: 100, y: 100 } } })
     const inputs = scene.boundaryNodes.find((node) => node.side === 'inputs')!
     const group = {
       id: 'group', title: 'Boundary', x: inputs.x - 10, y: inputs.y - 10,
       width: inputs.layout.width + 20, height: inputs.layout.height + 20,
     }
-    expect(boundaryNodesInGroup(scene, group)).toContain('inputs')
+    expect(boundaryNodesInGroup({ ...scene, groups: [group] }, group)).toContain('inputs')
   })
 
   it('a definition derives Inputs (pins face out) and Outputs (pins face in)', () => {

@@ -1215,7 +1215,7 @@ describe('view.setEditorUnfolded and view.setPictureHeight', () => {
   const unfold = (nodeId: string, valueKey: string, unfolded: boolean | null) =>
     ({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', nodeId, valueKey, unfolded } })
 
-  it.each(['link.connect', 'link.rewire', 'net.connectInput'])('folds on %s arrival, keeps later choices and restores the open state on undo', (command) => {
+  it.each(['link.connect', 'link.rewire', 'net.connectInput'])('preserves editor folds on %s arrival, disconnect and undo', (command) => {
     const schema: NodeSchema = {
       type: 'Editor', displayName: 'Editor', category: '', source: 'v3', isOutputNode: false,
       body: [
@@ -1233,10 +1233,11 @@ describe('view.setEditorUnfolded and view.setPictureHeight', () => {
       () => ({ kind: 'initial', schemaResolverFor: () => (type) => type === 'Editor' ? schema : undefined }))
     const send = (portId: string) => store.dispatch({ command, params: { graphId: 'g0', from: port('n1', 'out'), to: port('n2', portId), linkId: 'l1', netId: 'net1' } })
     expect(send('curve').ok).toBe(true)
-    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toBeUndefined()
     expect(store.undo()).toBe(true)
     expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toBeUndefined()
     expect(store.redo()).toBe(true)
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toBeUndefined()
     expect(store.dispatch(unfold('n2', 'curve', true)).ok).toBe(true)
     expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'value', value: 9 } }).ok).toBe(true)
     expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: true })
@@ -1246,12 +1247,18 @@ describe('view.setEditorUnfolded and view.setPictureHeight', () => {
       : { command: 'link.disconnect', params: { graphId: 'g0', linkId: links[0]! } }).ok).toBe(true)
     expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: true })
     if (command !== 'link.rewire') {
+      expect(store.dispatch(unfold('n2', 'compare', true)).ok).toBe(true)
       expect(send('image').ok).toBe(true)
-      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: false })
+      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: true })
+      expect(store.undo()).toBe(true)
+      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: true })
+      expect(store.redo()).toBe(true)
       expect(store.dispatch(unfold('n2', 'compare', false)).ok).toBe(true)
       expect(store.dispatch(command === 'net.connectInput'
         ? { command: 'net.disconnectInput', params: { graphId: 'g0', to: port('n2', 'image') } }
         : { command: 'link.disconnect', params: { graphId: 'g0', linkId: Object.keys(store.doc.graphs.g0!.links)[0]! } }).ok).toBe(true)
+      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: false })
+      expect(send('image').ok).toBe(true)
       expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: false })
     }
   })
