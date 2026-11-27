@@ -514,6 +514,9 @@ describe('model download planning and owned jobs', () => {
     await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source)
     expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
       project: selected.project, scope: 'local', source: selected.source })
+    await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source, 'archive')
+    expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
+      project: selected.project, scope: 'local', source: selected.source, location: 'archive' })
     for (const destinationSpace of [
       { status: 'available', filesystem: 'shared-volume', freeBytes: 0 },
       { status: 'available', filesystem: 'shared-volume', freeBytes: 310 },

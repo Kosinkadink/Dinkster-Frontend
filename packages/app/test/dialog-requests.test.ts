@@ -521,6 +521,80 @@ describe('installAssetConsent ownership', () => {
     slot.set(undefined)
   })
 
+  it('replans the selected set without accepting stale destinations or moving active downloads', async () => {
+    const slot = slotOf<AssetConsentRequest>()
+    const exact = { digest: `blake3:${'c'.repeat(64)}`, name: 'exact.safetensors', size: 137,
+      mediaType: 'application/x-safetensors', virtualPath: 'models/vae/exact.safetensors' }
+    const requirements = [{ name: exact.name, kind: 'model/vae', asset: exact },
+      { name: 'base.safetensors', kind: 'model/checkpoint' }]
+    const source = 'https://huggingface.co/studio/vae/resolve/main/exact.safetensors'
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let hold = false
+    let arrived!: () => void
+    const arrival = new Promise<void>((resolve) => { arrived = resolve })
+    const plans = new Map<string, Record<string, unknown>>()
+    const jobs: ModelDownloadJob[] = []
+    const connection = new DinksterConnection({ id: asConnectionId('destination-test'), baseUrl: '', project: 'studio', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        const path = new URL(url, 'http://localhost').pathname
+        if (path.endsWith('/plan')) {
+          const body = JSON.parse(String(init?.body)) as { name: string; kind: string; location?: string; source?: string; asset?: typeof exact }
+          const location = body.location ?? 'default'
+          const planId = `${location}-${body.name}`
+          const plan = { name: body.name, kind: body.kind, project: 'studio', provider: 'huggingface',
+            source: body.source ?? 'https://huggingface.co/studio/base', repo: 'studio/models', revision: 'a'.repeat(40),
+            file: body.name, sha256: 'b'.repeat(64), size: body.asset?.size ?? 251, license: 'apache-2.0',
+            ...(body.asset ? { digest: body.asset.digest } : {}),
+            mount: `${location}-${body.kind}`, destination: `/${location}/${body.kind}/${body.name}`, planId,
+            status: 'consent-required', destinationSpace: { status: 'available', filesystem: location, freeBytes: location === 'small' ? 200 : 1000 } }
+          plans.set(planId, plan)
+          if (hold) { hold = false; arrived(); await held }
+          return new Response(JSON.stringify(plan))
+        }
+        if (path.endsWith('/start')) {
+          const { planId } = JSON.parse(String(init?.body)) as { planId: string }
+          const plan = plans.get(planId)!
+          const job = { ...plan, jobId: planId, status: 'downloading', received: 13 } as unknown as ModelDownloadJob
+          jobs.push(job)
+          return new Response(JSON.stringify(job))
+        }
+        return new Response(JSON.stringify({ instance: 'engine', jobs }))
+      } })
+    const controller = new ModelDownloadsController(connection, 'studio')
+    try {
+      installAssetConsent({ slot, models: requirements, modelDownloads: { connection, project: 'studio', controller } })
+      slot.value!.selectModelSource!(0, source)
+      await slot.value!.reviewModel!(0)
+      await slot.value!.reviewModel!(1)
+      const stale = slot.value!
+      hold = true
+      const small = stale.selectModelLocation!('small')
+      await arrival
+      expect(slot.value!.models!.every((row) => row.plan === undefined)).toBe(true)
+      const large = slot.value!.selectModelLocation!('large')
+      release()
+      await Promise.all([small, large])
+      await stale.selectModelLocation!('obsolete')
+      expect(slot.value!.modelDownloadLocation).toBe('large')
+      expect(slot.value!.models!.map((row) => row.plan?.status === 'consent-required' ? row.plan.destination : undefined))
+        .toEqual(['/large/model/vae/exact.safetensors', '/large/model/checkpoint/base.safetensors'])
+      const reviewed = slot.value!.models![0]!
+      expect(reviewed.requirement.asset).toEqual(exact)
+      expect(reviewed.plan).toMatchObject({ digest: exact.digest, source })
+      await slot.value!.selectModelLocation!('small')
+      expect(modelDownloadTotals(slot.value!.models!).insufficient).toBe(true)
+      await slot.value!.downloadModels!([0, 1])
+      expect(slot.value!.models!.every((row) => row.job === undefined)).toBe(true)
+      await slot.value!.selectModelLocation!('large')
+      await slot.value!.downloadModel!(0)
+      expect(slot.value!.models![0]!.job?.destination).toBe('/large/model/vae/exact.safetensors')
+      await slot.value!.selectModelLocation!('small')
+      expect(slot.value!.models![0]!.job).toMatchObject({ destination: '/large/model/vae/exact.safetensors', received: 13 })
+      expect(slot.value!.models![1]!.plan).toMatchObject({ destination: '/small/model/checkpoint/base.safetensors' })
+    } finally { release(); slot.set(undefined); controller.dispose() }
+  })
+
   it('requires reviewed model consent, stops on dismissal, and retries only after verified completion', async () => {
     const slot = slotOf<AssetConsentRequest>()
     const { result, retries } = rejection([])

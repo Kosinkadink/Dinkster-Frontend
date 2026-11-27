@@ -56,6 +56,7 @@ export class ModelDownloadsController {
   private readonly observation = new AbortController()
   private planning: Promise<void> = Promise.resolve()
   private readonly starting = new Map<ModelDownloadState, { invalidated: boolean }>()
+  private readonly locations = new Map<string, string>()
   private pumping = false
   private poll: ReturnType<typeof setTimeout> | undefined
   private disposed = false
@@ -123,6 +124,22 @@ export class ModelDownloadsController {
     })
   }
 
+  async setLocation(requirements: readonly ModelDownloadRequirement[], location: string): Promise<void> {
+    if (this.disposed) return
+    const keys = new Set(requirements.map(keyOf))
+    for (const key of keys) this.locations.set(key, location)
+    const changed: ModelDownloadRequirement[] = []
+    this.state.update((rows) => rows.map((row) => {
+      if (!keys.has(keyOf(row.requirement)) || this.starting.has(row) ||
+        (row.job && (active(row.job) || row.job.status === 'completed')) || row.plan?.status === 'local') return row
+      changed.push(row.requirement)
+      return { requirement: row.requirement, pending: false,
+        ...(row.source === undefined ? {} : { source: row.source }),
+      }
+    }))
+    await Promise.all(changed.map((requirement) => this.review(requirement)))
+  }
+
   invalidate(requirement: ModelDownloadRequirement): void {
     const row = this.row(requirement)
     if (!row) return
@@ -177,6 +194,7 @@ export class ModelDownloadsController {
   review(requirement: ModelDownloadRequirement): Promise<void> {
     const row = this.row(requirement)
     if (!row || row.pending || row.queued || this.disposed) return Promise.resolve()
+    const location = this.locations.get(keyOf(requirement))
     const pending = { ...row, pending: true }
     if (!this.update(row, pending)) return Promise.resolve()
     const action = async (): Promise<void> => {
@@ -199,7 +217,8 @@ export class ModelDownloadsController {
         }
         if (job) this.update(pending, { ...base, job })
         else {
-          const plan = await this.connection.planModelDownload(requirement, this.observation.signal, row.source || undefined)
+          if (this.row(requirement) !== pending) return
+          const plan = await this.connection.planModelDownload(requirement, this.observation.signal, row.source || undefined, location)
           if (plan.status === 'consent-required' && !this.matches(plan, requirement))
             throw new Error('Model plan does not match the captured project and requirement')
           const completed = plan.status === 'local' ? [...jobs].reverse().find((job) => this.matches(job, requirement) && job.status === 'completed') : undefined
