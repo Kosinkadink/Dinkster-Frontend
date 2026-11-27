@@ -218,13 +218,15 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
           values: { ...reordered.graphs.root!.nodes.first!.values, [`${group}.blue`]: 11 },
           dynamic: { [group]: { members: ['red', 'gold', 'blue'] } } },
       } } } })
+      if (depth === 2) edit(detached, 'node.setValue', { graphId: 'portrait', nodeId: 'detail', inputId: 'selection', value: 'gold' })
+      const beforeDetach = detached.doc
       edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
       const privateGraph = detached.doc.graphs.root!.nodes.first!.type.slice(1)
       edit(detached, 'node.setValue', { graphId: privateGraph, nodeId: depth === 1 ? 'sample' : 'detail', inputId: depth === 1 ? 'pick' : 'selection', value: 'blue' })
       edit(detached, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: [pick] })
-      expect(detached.doc.graphs.detail).toEqual(reordered.graphs.detail)
-      expect(detached.doc.graphs.portrait).toEqual(reordered.graphs.portrait)
-      expect(detached.doc.graphs.root!.nodes.second).toEqual(reordered.graphs.root!.nodes.second)
+      expect(detached.doc.graphs.detail).toEqual(beforeDetach.graphs.detail)
+      expect(detached.doc.graphs.portrait).toEqual(beforeDetach.graphs.portrait)
+      expect(detached.doc.graphs.root!.nodes.second).toEqual(beforeDetach.graphs.root!.nodes.second)
       await run('detached', detached.doc, { [first]: { layers: [...ordered.layers, { key: 'blue', value: 11 }], pick: 'blue', order: 'red,gold,blue' },
         [second]: sibling }, { [first]: 11, [second]: 1 })
       for (const mode of ['active', 'muted', 'bypassed'] as const) {
