@@ -1152,6 +1152,7 @@
   "library.models.allFolders": "All model folders",
   "library.models.reading": "Reading {folder}",
   "library.models.readCount": "{done} of {total} files read",
+  "library.models.downloadProgress": "{percent}%, {received} of {total}",
   "library.models.noMatch": "No matching models",
   "library.models.count": "{models} in {folders}",
   "library.models.oneModel": "1 model",

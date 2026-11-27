@@ -1161,6 +1161,7 @@
   "library.models.allFolders": "所有模型文件夹",
   "library.models.reading": "正在读取 {folder}",
   "library.models.readCount": "已读取 {done} / {total} 个文件",
+  "library.models.downloadProgress": "{percent}%，{received} / {total}",
   "library.models.noMatch": "没有匹配的模型",
   "library.models.count": "{folders}中有 {models}",
   "library.models.oneModel": "1 个模型",

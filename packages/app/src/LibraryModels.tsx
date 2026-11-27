@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import type { DinksterConnection, ModelDownloadJob, ModelSettingsState, MountDescriptor } from '@dinkster/client'
-import { formatByteSize, type ReadonlySignal } from '@dinkster/core'
+import { formatByteProgress, formatByteSize, type ReadonlySignal } from '@dinkster/core'
 import { ProductButton, ProductConfirmation, ProductErrorBanner, ProductModelList, ProductProgress, type ProductModel } from '@dinkster/ui'
 import { ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
@@ -208,6 +208,9 @@ export function LibraryModels(props: {
         state: installed ? 'installed' : job?.status === 'failed' || job?.status === 'cancelled'
           ? 'not-downloaded' : job?.status === 'downloading' ? 'downloading' : 'checking',
         ...(!installed && job?.status === 'downloading' && job.size > 0 ? { progress: job.received / job.size } : {}),
+        ...(!installed && job?.status === 'downloading' ? { message: job.size > 0
+          ? message('library.models.downloadProgress', { percent: Math.round(job.received / job.size * 100), ...formatByteProgress(job.received, job.size) })
+          : formatByteSize(job.received) } : {}),
         facts: [
           { label: message('library.models.file'), value: localRef(model, variant)?.virtualPath || job?.file || logicalModelVariantName(variant), monospace: true },
           { label: message('library.models.folder'), value: providersFor(variant).map((location) => location.path).join('\n'), monospace: true },
