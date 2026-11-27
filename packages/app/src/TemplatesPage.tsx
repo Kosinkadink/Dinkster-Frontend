@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, type JSX } from 'solid-js'
 import type { CollectionEntry } from '@dinkster/core'
-import type { ModelDownloadJob, ModelRequirement } from '@dinkster/client'
+import type { ModelDownloadRequirement } from '@dinkster/client'
 import {
   ProductButton,
   ProductErrorBanner,
@@ -12,9 +12,9 @@ import {
 } from '@dinkster/ui'
 import type { AppState, Backend } from './app-state.js'
 import { formatByteSize, normalizeTemplateSearch, templatesSource, type TemplateCollectionRef } from './collections.js'
-import { installAssetConsent } from './dialog-requests.js'
 import { lookupAnswersOf } from './lookup-demand.js'
 import { useAppMessage } from './locale.js'
+import type { ModelDownloadState } from './model-downloads.js'
 import { activeProjectId } from './projects.js'
 import { useSignal } from './solid-adapter.js'
 import { RemoteTemplateCatalog } from './template-catalog.js'
@@ -35,6 +35,7 @@ export function TemplatesPage(props: {
   const backendTick = useSignal(props.app.backendsTick)
   const activeTabId = useSignal(props.app.activeTabId)
   const settingsTick = useSignal(props.app.settings.changed)
+  const downloadTasks = useSignal(props.app.modelDownloadTasks)
   const backend = () => props.backend ?? props.app.libraryBackend()
   const [entries, setEntries] = createSignal<readonly CollectionEntry[]>([])
   const [loading, setLoading] = createSignal(true)
@@ -48,8 +49,8 @@ export function TemplatesPage(props: {
   const [opening, setOpening] = createSignal(false)
   const [noFolders, setNoFolders] = createSignal<boolean>()
   const [pictures, setPictures] = createSignal<ReadonlyMap<string, string>>(new Map())
-  const [jobs, setJobs] = createSignal<readonly ModelDownloadJob[]>([])
-  const [requirements, setRequirements] = createSignal<ReadonlyMap<string, readonly ModelRequirement[]>>(new Map())
+  const [requirements, setRequirements] = createSignal<ReadonlyMap<string, readonly ModelDownloadRequirement[]>>(new Map())
+  const [states, setStates] = createSignal<ReadonlyMap<string, readonly ModelDownloadState[]>>(new Map())
   const [stopping, setStopping] = createSignal(false)
   const ref = (entry: CollectionEntry) => entry.ref as TemplateCollectionRef
   const available = createMemo(() => {
@@ -60,51 +61,51 @@ export function TemplatesPage(props: {
   })
 
   const project = activeProjectId()
-  const activeJobs = (entry: CollectionEntry) => jobs().filter((job) =>
-    activeProjectId() === project && job.project === project &&
-    requirements().get(entry.id)?.some((model) => model.name === job.name && model.kind === job.kind) &&
-    !['completed', 'cancelled', 'failed'].includes(job.status))
+  const activeDownloads = (entry: CollectionEntry) => activeProjectId() !== project ? [] :
+    (states().get(entry.id) ?? []).filter((row) => row.queued ||
+      (row.job && !['completed', 'cancelled', 'failed'].includes(row.job.status)))
   const progress = (entry: CollectionEntry): number | undefined => {
-    const active = activeJobs(entry)
+    const active = activeDownloads(entry)
     if (active.length === 0) return undefined
-    const total = active.reduce((sum, job) => sum + job.size, 0)
-    return total === 0 ? 0 : active.reduce((sum, job) => sum + job.received, 0) / total
+    const total = active.reduce((sum, row) => sum + (row.job?.size ?? (row.plan?.status === 'consent-required' ? row.plan.size : 0)), 0)
+    return total === 0 ? 0 : active.reduce((sum, row) => sum + (row.job?.received ?? 0), 0) / total
   }
-  const cancellable = (job: ModelDownloadJob) => ['starting', 'checking-existing', 'downloading', 'verifying'].includes(job.status)
+  const cancellable = (row: ModelDownloadState) => !row.pending && (row.queued ||
+    (row.job !== undefined && ['starting', 'checking-existing', 'downloading'].includes(row.job.status)))
   createEffect(() => {
     const owner = backend()
-    setJobs([])
+    const wanted = requirements()
+    setStates(new Map())
     if (!available() || !owner) return
-    const controller = new AbortController()
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const poll = async (): Promise<void> => {
-      try {
-        const next = await owner.connection.fetchModelDownloads(controller.signal)
-        if (controller.signal.aborted) return
-        const previous = jobs()
-        setJobs(next.jobs)
-        if (previous.some((job) => !['completed', 'cancelled', 'failed'].includes(job.status) &&
-          next.jobs.some((current) => current.jobId === job.jobId && current.status === 'completed')))
-          setRefresh((value) => value + 1)
-      } catch {
-        if (!controller.signal.aborted) setJobs([])
+    const observations = [...wanted].map(([id, models]) => ({ id,
+      rows: models.map((model) => useSignal(props.app.modelDownloadStateFor(owner, model, project))),
+    }))
+    let previous = new Map<string, readonly ModelDownloadState[]>()
+    createEffect(() => {
+      const next = new Map(observations.map(({ id, rows }) => [id,
+        rows.flatMap((read) => { const row = read(); return row ? [row] : [] }),
+      ]))
+      if ([...next].some(([id, rows]) => rows.some((row) => row.job?.status === 'completed' &&
+        previous.get(id)?.some((old) => old.job?.jobId === row.job?.jobId && old.job?.status !== 'completed')))) {
+        setRefresh((value) => value + 1)
       }
-      if (!controller.signal.aborted) timer = setTimeout(() => { void poll() }, 1000)
-    }
-    void poll()
-    onCleanup(() => { controller.abort(); clearTimeout(timer) })
+      previous = next
+      setStates(next)
+    })
   })
   const stop = async (entry: CollectionEntry): Promise<void> => {
     const owner = backend()
     if (!available() || !owner || stopping() || activeProjectId() !== project) return
-    const targets = activeJobs(entry).filter(cancellable)
+    const targets = activeDownloads(entry).filter(cancellable)
     setStopping(true)
     try {
-      const results = await Promise.allSettled(targets.map(async (job) => {
-        const next = await owner.connection.cancelModelDownload(job.jobId)
-        if (live && backend() === owner) setJobs((current) => current.map((item) => item.jobId === next.jobId ? next : item))
-      }))
-      if (live && backend() === owner && results.some((result) => result.status === 'rejected')) {
+      const transfers = props.app.modelDownloadsFor(owner, project)
+      const results = await Promise.allSettled(targets.map((row) => row.queued
+        ? transfers.cancel(row.requirement)
+        : owner.connection.cancelModelDownload(row.job!.jobId)))
+      await transfers.refresh()
+      if (live && backend() === owner && (results.some((result) => result.status === 'rejected') ||
+        targets.some((row) => props.app.modelDownloadStateFor(owner, row.requirement, project).get()?.error !== undefined))) {
         setLoadFailed(false)
         setError(message('templatesPage.stopError'))
       }
@@ -212,7 +213,7 @@ export function TemplatesPage(props: {
     })
   })
   const current = () => shown().find((entry) => entry.id === selected()) ?? shown()[0]
-  const modelRequirements = async (entry: CollectionEntry, owner: Extract<Backend, { protocol: 'dinkster' }>): Promise<readonly ModelRequirement[]> => {
+  const modelRequirements = async (entry: CollectionEntry, owner: Extract<Backend, { protocol: 'dinkster' }>): Promise<readonly ModelDownloadRequirement[]> => {
     const registry = owner.registry.get()
     if (!registry) return []
     const source = ref(entry)
@@ -221,17 +222,22 @@ export function TemplatesPage(props: {
       : await owner.connection.fetchTemplateBody(source.pack, source.id)
     if (!document) throw new Error('Template unavailable')
     return [...new Map(workflowModelOccurrences(document, registry.resolve, lookupAnswersOf(owner.lookups))
-      .filter((model) => model.valid).map(({ name, kind }) => [JSON.stringify([name, kind]), { name, kind }])).values()]
+      .filter((model) => model.valid).map(({ name, kind, asset }) => [JSON.stringify([name, kind, asset?.digest]),
+        { name, kind, ...(asset === undefined ? {} : { asset }) }])).values()]
   }
-  const downloadingNames = createMemo(() => [...new Set(jobs().filter((job) => job.project === project &&
-    !['completed', 'cancelled', 'failed'].includes(job.status)).map((job) => job.name))].sort().join('\0'))
+  const downloadingNames = createMemo(() => {
+    const owner = backend()
+    return [...new Set((owner ? downloadTasks().get(owner) ?? [] : [])
+      .map((task) => task.name))].sort().join('\0')
+  })
   createEffect(() => {
     const all = entries()
     const owner = backend()
     const names = downloadingNames().split('\0')
+    const selected = current()
     let live = true
     if (owner && available()) {
-      for (const entry of all.filter((item) => ref(item).models.some((model) => names.includes(model.name)))) {
+      for (const entry of all.filter((item) => item === selected || ref(item).models.some((model) => names.includes(model.name)))) {
         void modelRequirements(entry, owner).then((models) => {
           if (live) setRequirements((previous) => new Map([...previous, [entry.id, models]]))
         }).catch(() => { /* Opening or reviewing reports an unavailable template. */ })
@@ -281,17 +287,10 @@ export function TemplatesPage(props: {
       if (requirements.length === 0 || missing(entry).some((model) => !requirements.some((item) => item.name === model.name))) {
         throw new Error('Template has unresolved model requirements')
       }
-      const presence = await owner.connection.checkModelPresence(requirements, controller.signal)
       if (!current() || props.app.assetConsent.get() !== previousConsent) return
       setRequirements((previous) => new Map([...previous, [entry.id, requirements]]))
-      if (presence.every((model) => model.status === 'local')) {
-        setRefresh((value) => value + 1)
-        return
-      }
-      installAssetConsent({
-        models: presence.filter((model) => model.status !== 'local').map(({ name, kind }) => ({ name, kind })),
-        slot: props.app.assetConsent, signal: controller.signal, beforeRetry: current,
-        modelDownloads: { connection: owner.connection, providerConnection: owner.connection, backendUrl: owner.baseUrl, project },
+      props.app.openModelDownloads(owner, requirements, {
+        workflowTitle: entry.title, signal: controller.signal, stillCurrent: current,
       })
     } catch {
       if (current()) setError(message('templatesPage.reviewError', { name: entry.title }))
@@ -361,7 +360,7 @@ export function TemplatesPage(props: {
             missingLabel: message('templatesPage.missing'),
             downloadingLabel: message('templatesPage.downloadingModel'),
             models: models(entry()).map((model) => ({ name: model.name, here: model.here,
-              downloading: activeJobs(entry()).some((job) => job.name === model.name),
+              downloading: activeDownloads(entry()).some((row) => row.requirement.name === model.name),
               size: model.size === undefined ? undefined : formatByteSize(model.size) })),
           }}
           facts={[
@@ -383,9 +382,9 @@ export function TemplatesPage(props: {
                 </span>
               </Show>}>
                 <ProductTemplateDownload
-                  label={message('templatesPage.downloading', { count: activeJobs(entry()).length, percent: Math.round(progress(entry())! * 100) })}
+                  label={message('templatesPage.downloading', { count: activeDownloads(entry()).length, percent: Math.round(progress(entry())! * 100) })}
                   progress={progress(entry())!}
-                  stop={<ProductTextButton label={message('templatesPage.stop')} disabled={stopping() || !activeJobs(entry()).some(cancellable)} onClick={() => { void stop(entry()) }} />}
+                  stop={<ProductTextButton label={message('templatesPage.stop')} disabled={stopping() || !activeDownloads(entry()).some(cancellable)} onClick={() => { void stop(entry()) }} />}
                 />
               </Show>
             </Show>
