@@ -727,6 +727,12 @@ function Gallery() {
                     <ProductSelect {...attributes} options={[{ value: 'read', label: 'Read only' }, { value: 'disabled', label: 'Unavailable', disabled: true }, { value: 'mint', label: 'Mint only' }]} />
                   )}
                 </ProductField>
+                <ProductField label="Editable choice">
+                  {(attributes) => (
+                    <ProductSelect {...attributes} editable placeholder="Choose or type a name"
+                      options={[{ value: 'caption-service', label: 'caption-service' }, { value: 'caption-service-work', label: 'caption-service-work' }, { value: 'image-host', label: 'image-host' }]} />
+                  )}
+                </ProductField>
                 <ProductField label="Unavailable choice">
                   {(attributes) => (
                     <ProductSelect {...attributes} disabled options={[{ value: 'read', label: 'Read only' }]} />
