@@ -255,12 +255,17 @@ function DestinationLabel(props: {
 }) {
   let label!: HTMLSpanElement
   let name!: HTMLElement
+  let path!: HTMLSpanElement
   let disposed = false
   const [truncated, setTruncated] = createSignal(false)
   const placeSpace = () => {
     if (disposed || !label || !name) return
     label.dataset.spaceBelow = 'false'
+    label.dataset.pathBelow = 'false'
     label.dataset.spaceBelow = String(name.scrollWidth > name.clientWidth)
+    label.dataset.pathBelow = String(
+      path.getBoundingClientRect().height > name.getBoundingClientRect().height,
+    )
     setTruncated(name.scrollWidth > name.clientWidth)
   }
   createEffect(() => {
@@ -292,7 +297,7 @@ function DestinationLabel(props: {
       <strong ref={name} data-tooltip-label={truncated() ? props.name : undefined}>
         {props.name}
       </strong>
-      <span class="dinkster-model-download-destination-path">{props.path}</span>
+      <span ref={path} class="dinkster-model-download-destination-path">{props.path}</span>
       <span class="dinkster-model-download-space">{props.freeSpace}</span>
     </span>
   )
