@@ -1871,6 +1871,73 @@ describe('Boundary sample acceptance compilation', () => {
       expect(store.doc).toEqual(edited)
     })
 
+    it(`boundary/whole-construct-fallback/${context}`, () => {
+      const document = boundarySample(level)
+      const detail = document.graphs.detail!
+      Object.assign(detail, { boundary: { body: detail.boundary!.body.map((row) =>
+        'id' in row && row.id === 'layers' ? { ...row, id: 'weights' }
+          : 'id' in row && row.id === 'mode' ? { ...row, id: 'pick' } : row) } })
+      Object.assign(detail.nodes.sample!.values, { 'mode.mix': 0.4 })
+      if (level === 2) {
+        const portrait = document.graphs.portrait!
+        Object.assign(portrait, { boundary: { body: portrait.boundary!.body.map((row) =>
+          'id' in row && row.id === 'layers' ? { ...row, id: 'strokes', binds: { kind: 'construct', node: 'detail', port: 'weights' } }
+            : 'id' in row && row.id === 'mode' ? { ...row, id: 'treatment', binds: { kind: 'construct', node: 'detail', port: 'pick' } } : row) } })
+        Object.assign(portrait.nodes.detail!, {
+          values: { 'weights.layer0.strength': 0.6, 'pick.mix': 0.6, 'pick.text': 'middle text' },
+          dynamic: { weights: { members: ['layer0'] }, pick: { selected: 'image' } },
+        })
+      }
+      const group = level === 1 ? 'weights' : 'strokes'
+      const choice = level === 1 ? 'pick' : 'treatment'
+      for (const [nodeId, mix, text, members] of [
+        ['first', 0.2, 'outer text', ['layer0', 'layer1']],
+        ['second', 0.8, 'second text', ['layer0']],
+      ] as const) Object.assign(document.graphs.root!.nodes[nodeId]!, {
+        values: { [`${group}.layer0.strength`]: mix, [`${group}.layer1.strength`]: 0.9,
+          [`${choice}.mix`]: mix, [`${choice}.text`]: text },
+        dynamic: { [group]: { members }, [choice]: { selected: 'text' } },
+      })
+      const store = storeFor(document)
+      const original = store.doc
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      const sibling = prompt(original)[second]
+      const suffix = level === 1 ? 'layer2' : 'layer3'
+      const check = (mix: number, text: string, strength: number) => {
+        for (const current of [store.doc, loadDocument(JSON.parse(JSON.stringify(store.doc))).document!]) {
+          const compiled = prompt(current)
+          expect(compiled[path]!.inputs).toMatchObject({
+            'mode.mix': mix, 'mode.text': text,
+            'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4,
+            [`layers.${suffix}.strength`]: strength,
+            [`layers.layer${level === 1 ? 3 : 4}.strength`]: 0.9,
+            ...(level === 2 ? { 'layers.layer2.strength': 0.6 } : {}),
+          })
+          expect(compiled[path]!.slotVariants?.mode).toBe('text')
+          expect(compiled[path]!.outputMembers?.layers).toEqual(level === 1
+            ? ['layer0', 'layer1', 'layer2', 'layer3'] : ['layer0', 'layer1', 'layer2', 'layer3', 'layer4'])
+          expect(compiled[second]).toEqual(sibling)
+          expect(current.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+        }
+      }
+      check(0.2, 'outer text', 0.2)
+      edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {},
+        unset: [`${group}.layer0.strength`, `${choice}.mix`, `${choice}.text`] })
+      check(level === 1 ? 0.4 : 0.6, level === 1 ? 'dormant inner text' : 'middle text', 0.3)
+      expect(store.doc.graphs.detail).toEqual(original.graphs.detail)
+      expect(store.doc.graphs.portrait).toEqual(original.graphs.portrait)
+      if (level === 2) {
+        edit(store, 'node.setValues', { graphId: 'portrait', nodeId: 'detail', values: {}, unset: ['pick.mix', 'pick.text'] })
+        check(0.4, 'dormant inner text', 0.3)
+      }
+      edit(store, 'node.setValues', { graphId: 'detail', nodeId: 'sample', values: {}, unset: ['mode.mix', 'mode.text'] })
+      check(0.3, 'inner text', 0.3)
+      expect(store.undo()).toBe(true)
+      check(0.4, 'dormant inner text', 0.3)
+      expect(store.redo()).toBe(true)
+      check(0.3, 'inner text', 0.3)
+    })
+
     it(`boundary/whole-construct/linked-outside/${context}`, () => {
       for (const [construct, inputId, receivingId] of [
         ['layers', 'layers.layer0.strength', 'layers.layer2.strength'],
