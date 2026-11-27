@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
+import { applyStoredNumberFixes, buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, storedNumberFixes, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
 import { decodeSteps } from '../src/actions/steps.js'
 import type { CommandDefinition } from '../src/commands/contract.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
@@ -112,6 +112,61 @@ function later<T>(): { promise: Promise<T>; settle: (value: T) => void } {
 }
 
 describe('one press is one undo step, or nothing', () => {
+  it('corrects stored numbers through steps in one undo, leaving wired values, specials and decimals alone', async () => {
+    addSchema('test.numeric-fixes', [
+      ...['whole', 'wired', 'special', 'large'].map((id) => ({
+        kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 0,
+        widget: { type: 'NUMBER', min: id === 'large' ? '9007199254740993' : 0,
+          max: id === 'large' ? '9007199254741003' : 20, step: 4, special: [[-1, 'Off']] },
+      })),
+      { kind: 'input', id: 'decimal', type: { kind: 'concrete', types: ['FLOAT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: 10, step: 0.1 } },
+      { kind: 'input', id: 'clamped', type: { kind: 'concrete', types: ['FLOAT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: 10, step: 0.1 } },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.numeric-fixes', values: {
+      whole: 14, wired: 99, special: -1, large: '9007199254740998', decimal: 7.53, clamped: 12.5,
+    } } }, link('feed', ['n1', 'out'], ['n1', 'wired'])))
+    const original = session.doc
+    const host = hostOf()
+    const fixes = storedNumberFixes(session.doc, at('unused'), host)
+    expect(await applyStoredNumberFixes(session, fixes, host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ whole: 12, wired: 99, special: -1, large: '9007199254740997', decimal: 7.53, clamped: 10 })
+    expect(storedNumberFixes(session.doc, at('unused'), host)).toEqual([])
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(original)
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)['whole']).toBe(12)
+    expect(session.undo()).toBe(true)
+    expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'whole', value: 18 } }).ok).toBe(true)
+    const changed = session.doc
+    expect(await applyStoredNumberFixes(session, fixes, host, { staleMessage: 'The workflow changed.' }))
+      .toMatchObject({ kind: 'failed', message: 'The workflow changed.' })
+    expect(session.doc).toEqual(changed)
+    expect(valuesOf(session)['clamped']).toBe(12.5)
+    expect(await applyStoredNumberFixes(session, storedNumberFixes(session.doc, at('unused'), host), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)['whole']).toBe(16)
+
+    const outer = documentOf({ left: { type: '#g1', values: { shown: 14 } }, right: { type: '#g1', values: { shown: 18 } } })
+    const nested: WorkflowDocument = { ...outer, graphs: { ...outer.graphs, g1: {
+      ...documentOf({ n1: { type: 'test.numeric-fixes', values: { whole: 8 } } }).graphs.g0!, id: asGraphDefId('g1'),
+      boundary: { body: [{ kind: 'input', id: asPortId('shown'),
+        binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('whole') }, promoted: true }] },
+    } } }
+    const nestedHost = hostOf({ schemaResolverFor: (doc) => documentResolver(doc, resolve) })
+    const nestedSession = createLocalSession(nested, nestedHost.commands, { schemaResolverFor: nestedHost.schemaResolverFor! })
+    const nestedFixes = storedNumberFixes(nestedSession.doc, { graphId: 'g1', nodeId: 'n1', instancePath: ['left'] }, nestedHost)
+    expect(await applyStoredNumberFixes(nestedSession, nestedFixes, nestedHost)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(nestedSession, 'left')).toEqual({ shown: 12 })
+    expect(valuesOf(nestedSession, 'right')).toEqual({ shown: 18 })
+    expect(nestedSession.doc.graphs.g1!.nodes.n1!.values).toEqual({ whole: 8 })
+    expect(nestedSession.undo()).toBe(true)
+    expect(nestedSession.doc).toEqual(nested)
+    expect(nestedSession.canUndo).toBe(false)
+  })
+
   it('keeps multiple-choice Ask answers as list locals for later steps', async () => {
     addSchema('test.ask-list', [
       { kind: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, default: 0 },

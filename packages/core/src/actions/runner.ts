@@ -59,7 +59,7 @@ import {
 } from '../schema/elaborate.js'
 import type { ButtonSpec, DescribedSpec, GroupSpec, InputSpec, NodeSchema, OptionRow } from '../schema/model.js'
 import { canonicalTypeIdOf, typeExprFromTypeId } from '../schema/model.js'
-import { integerWidgetValue, numericStepConstraints } from '../schema/numeric-step.js'
+import { correctNumericValue, integerWidgetValue, isIntegerWidgetValue, numericStepConstraints, type IntegerWidgetValue } from '../schema/numeric-step.js'
 import { solveGraphTypes } from '../schema/solve.js'
 import { typesCompatible } from '../schema/type-relations.js'
 import { effectiveWidgetDefault, readWhenUnset } from '../schema/widget-defaults.js'
@@ -518,6 +518,62 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
   const contexts = new Map<string, FormulaContext>()
   const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue, incomingType })
   return { doc, graph, node, schema, elaborated, contexts, connectivity, incomingValue, incomingType, valueOwners: occurrence?.valueOwners.get(node.id) ?? new Map() }
+}
+
+/** One stored-number correction, expressed as the same steps a declared button runs. */
+export interface StoredNumberFix {
+  readonly part: StepPart
+  readonly valueKey: string
+  readonly label: string
+  readonly before: IntegerWidgetValue
+  readonly after: IntegerWidgetValue
+  /** The effective field declaration and storage owner when the fix was offered. */
+  readonly stamp: string
+}
+
+/** Wired, derived, unstored and not-yet-known values are never correction targets. */
+export function storedNumberFixes(doc: WorkflowDocument, target: StepPlace, host: ActionHost): readonly StoredNumberFix[] {
+  const view = viewOf(doc, target, host)
+  if (view === undefined) return []
+  return elabInputsOf(view.elaborated).flatMap((field): StoredNumberFix[] => {
+    const widget = field.spec.widget
+    const path = valueKeyOf(field)
+    if (widget === undefined || !['INT', 'FLOAT'].includes(widget.widgetType) || field.derivedValue !== undefined || field.kept !== undefined ||
+      view.connectivity.isInputConnected(path) || !Object.hasOwn(view.node.values, path)) return []
+    const before = view.node.values[path]
+    if (!isIntegerWidgetValue(before)) return []
+    const after = correctNumericValue(before, numericStepConstraints(widget))
+    if (after === undefined || after === before) return []
+    // Flattened fields keep their declaration scope; a repeated row's local
+    // name is not necessarily its stored value key.
+    for (const [prefix, context] of view.contexts) {
+      const name = [...context.paths].find(([, key]) => key === path)?.[0]
+      if (name === undefined) continue
+      const value = widget.widgetType === 'INT' ? BigInt(after) : after
+      return [{ valueKey: path, label: field.spec.displayName ?? field.spec.id, before, after,
+        stamp: JSON.stringify([view.node.type, widget, view.valueOwners.get(path) ??
+          { graphId: target.graphId, nodeId: target.nodeId, instancePath: target.instancePath ?? [] }]),
+        part: { ...target, prefix, steps: [{ step: 'set', field: name, value: { kind: 'literal', value } }] } }]
+    }
+    return []
+  })
+}
+
+/** Recheck every offered correction, then store all of them as one strict step run. */
+export function applyStoredNumberFixes(
+  session: DocumentSession,
+  fixes: readonly StoredNumberFix[],
+  host: ActionHost,
+  options: PressOptions = {},
+): Promise<PressOutcome> {
+  return runSteps(session, fixes.map((fix) => fix.part), host, {
+    ...options,
+    strict: true,
+    noWait: true,
+    unchanged: (doc) => options.unchanged?.(doc) !== false && fixes.every((fix) =>
+      storedNumberFixes(doc, fix.part, host).some((now) => now.valueKey === fix.valueKey && now.before === fix.before &&
+        now.after === fix.after && now.stamp === fix.stamp)),
+  })
 }
 
 /** The declaration and scope prefix of the pressed button. */
