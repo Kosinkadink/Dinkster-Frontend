@@ -55,6 +55,7 @@ export class ModelDownloadsController {
   private readonly observation = new AbortController()
   private planning: Promise<void> = Promise.resolve()
   private readonly starting = new Map<ModelDownloadState, { invalidated: boolean }>()
+  private readonly missingReviews = new Set<string>()
   private pumping = false
   private poll: ReturnType<typeof setTimeout> | undefined
   private disposed = false
@@ -86,6 +87,7 @@ export class ModelDownloadsController {
     if (this.disposed) return
     if (missing) for (const requirement of requirements) {
       const row = this.row(requirement)
+      if (row?.job && active(row.job)) this.missingReviews.add(row.job.jobId)
       if (row?.job?.status === 'completed' || row?.plan?.status === 'local') this.invalidate(requirement)
     }
     const keys = new Set(this.state.get().map((row) => keyOf(row.requirement)))
@@ -105,7 +107,13 @@ export class ModelDownloadsController {
 
   private update(previous: ModelDownloadState, next: ModelDownloadState): boolean {
     if (this.disposed || this.row(previous.requirement) !== previous) return false
+    const recheck = next.job && !active(next.job) && this.missingReviews.delete(next.job.jobId) && next.job.status === 'completed'
+    // Completion history cannot settle a missing-file review without checking the current file.
+    if (recheck) next = { requirement: next.requirement, pending: false,
+      ...(next.source === undefined ? {} : { source: next.source }),
+    }
     this.state.update((rows) => rows.map((row) => row === previous ? next : row))
+    if (recheck) void this.review(next.requirement)
     return true
   }
 

@@ -256,6 +256,15 @@ describe('addBackend / removeBackend', () => {
       expect(app.assetConsent.get()?.models?.[0]?.job).toBeUndefined()
       await app.assetConsent.get()!.reviewModel!(0)
       expect(app.assetConsent.get()?.models?.[0]?.plan?.status).toBe('consent-required')
+      jobs = [{ ...selection, jobId: 'completion-after-missing', status: 'downloading', received: 7181 }]
+      await app.modelDownloadsFor(backend).refresh()
+      app.openModelDownloads(backend, [requirement], { missing: [requirement] })
+      expect(app.assetConsent.get()?.models?.[0]?.job?.received).toBe(7181)
+      jobs = [{ ...jobs[0]!, status: 'completed', received: 8192, asset,
+        path: selection.destination, reused: false, renamed: false }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(app.assetConsent.get()?.models?.[0]?.job).toBeUndefined()
+      await vi.waitFor(() => expect(app.assetConsent.get()?.models?.[0]?.plan?.status).toBe('consent-required'))
       app.removeBackend(backend.id)
       expect(app.assetConsent.get()).toBeUndefined()
       expect(state.get()).toBeUndefined()
