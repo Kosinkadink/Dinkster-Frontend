@@ -71,6 +71,7 @@ interface ServerSession {
   readonly scope: string
   readonly documentId: string
   readonly documentKind?: CollabDocumentKind
+  title?: string
   snapshot: unknown
   snapshotRevision: number
   revision: number
@@ -188,6 +189,8 @@ class FakeCollabServer {
       scope: s.scope,
       documentId: s.documentId,
       ...(s.documentKind === undefined ? {} : { documentKind: s.documentKind }),
+      ...(s.title === undefined ? {} : { title: s.title }),
+      canEdit: true,
       revision: s.revision,
       snapshotRevision: s.snapshotRevision,
     }
@@ -213,13 +216,21 @@ class FakeCollabServer {
   readonly transport: CollabTransport = {
     create: async (baseUrl, args) => {
       this.createCalls.push({ baseUrl, scope: args.scope, documentId: args.documentId })
-      return this.descriptorOf(this.createSession(args.scope, args.documentId, args.snapshot, args.documentKind))
+      const session = this.createSession(args.scope, args.documentId, args.snapshot, args.documentKind)
+      if (args.title !== undefined) session.title = args.title
+      return this.descriptorOf(session)
     },
     list: async (_baseUrl, scope) =>
       [...this.sessions.values()].filter((s) => s.scope === scope).map((s) => this.descriptorOf(s)),
     get: async (_baseUrl, sessionId) => {
       const s = this.sessions.get(sessionId)
       return s === undefined ? undefined : this.descriptorOf(s)
+    },
+    rename: async (_baseUrl, sessionId, title) => {
+      const session = this.sessions.get(sessionId)!
+      session.title = title
+      for (const connection of session.connections) connection.emit({ kind: 'session-title', title })
+      return this.descriptorOf(session)
     },
     end: async (_baseUrl, sessionId) => {
       const s = this.sessions.get(sessionId)
@@ -366,12 +377,33 @@ describe('Board workspace collaboration', () => {
     expect((await b.listCollabSessions()).map((session) => session.sessionId)).toEqual([sessionId])
     expect(await b.joinCollabSession(sessionId, 'board')).toBeUndefined()
     const joined = b.boards.entries.get()[0]!
-    expect(joined.title).toBe('Board')
+    expect(joined.title).toBe('References')
     expect(b.activeTabId.get()).toBe(`page:board:${document.lineage}`)
     expect(b.collabBackend()?.baseUrl).toBe('http://collab')
     expect(b.activeTab()).toBeUndefined()
     expect(await b.boards.join(sessionId)).toBe(joined)
     expect((await b.boards.discover()).map((session) => session.sessionId)).toEqual([sessionId])
+    const titleTab = b.pages.tabs().find((tab) => tab.id === `page:board:${document.lineage}`)!
+    const snapshot = joined.session.doc
+    await a.boards.rename(document.lineage, 'Alice references')
+    expect(joined.title).toBe('Alice references')
+    expect(titleTab.title).toBe('Alice references')
+    expect(b.pages.tabs()).toContain(titleTab)
+    await b.boards.rename(document.lineage, 'Bob references')
+    expect(shared.title).toBe('Bob references')
+    expect(joined.session.doc).toBe(snapshot)
+    expect((await a.boards.discover())[0]?.title).toBe('Bob references')
+    const peer = [...server.sessions.get(sessionId)!.connections].find((connection) => connection.actorId === b.collabActorId)!
+    peer.emit({ kind: 'session-permissions', canEdit: false })
+    expect(b.boards.canRename(document.lineage)).toBe(false)
+    await expect(b.boards.rename(document.lineage, 'Not allowed')).rejects.toThrow('cannot be renamed')
+    expect(joined.title).toBe('Bob references')
+    peer.emit({ kind: 'session-permissions', canEdit: true })
+    const rename = server.transport.rename!
+    server.transport.rename = async () => { throw new Error('Server refused') }
+    await expect(b.boards.rename(document.lineage, 'Not saved')).rejects.toThrow('Server refused')
+    expect(titleTab.title).toBe('Bob references')
+    server.transport.rename = rename
     const otherProject = new BoardWorkspace({
       transport: server.transport, project: 'another-project', actorId: 'other',
       backend: () => 'http://collab', mediaConnection: () => undefined, onConflict: () => undefined,
@@ -388,7 +420,7 @@ describe('Board workspace collaboration', () => {
       expect(left.session.canUndo).toBe(false)
       expect(joined.shared!.session.status.get()).toBe('closed')
       a.boards.close(document.lineage)
-      expect((await a.boards.join(sessionId)).title).toBe('References')
+      expect((await a.boards.join(sessionId)).title).toBe('Bob references')
       await a.boards.end(document.lineage)
       expect(a.boards.entries.get()[0]!.shared).toBeUndefined()
       expect(server.sessions.size).toBe(0)
