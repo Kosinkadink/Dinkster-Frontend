@@ -1614,7 +1614,10 @@ describe('Boundary sample acceptance compilation', () => {
         expect(prompt(numericReload)[receiver]!.inputs).not.toHaveProperty('number')
         expect(prompt(numericReload)[receiverSecond]!.inputs.number).toEqual(literal ? 0.35 : ['numericSecond', 0])
       }
+    })
 
+    it(`boundary/plain-pin/${context} flatten history`, () => {
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
       for (const mode of ['active', 'muted', 'bypassed'] as const) {
         const flat = storeFor(boundarySample(level))
         edit(flat, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'image' } })
