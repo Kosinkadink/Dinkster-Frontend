@@ -524,6 +524,7 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
 
 /** One stored-number correction, expressed as the same steps a declared button runs. */
 export interface StoredNumberFix {
+  readonly kind: 'number'
   readonly part: StepPart
   readonly valueKey: string
   readonly owner: ValueOwner
@@ -555,7 +556,7 @@ export function storedNumberFixes(doc: WorkflowDocument, target: StepPlace, host
       const value = widget.widgetType === 'INT' ? BigInt(after) : after
       const owner = view.valueOwners.get(path) ?? { graphId: target.graphId, nodeId: target.nodeId, valueKey: path }
       if (doc.graphs[owner.graphId]?.nodes[owner.nodeId]?.values[owner.valueKey] !== before) return []
-      return [{ valueKey: path, owner, label: field.spec.displayName ?? field.spec.id, before, after,
+      return [{ kind: 'number', valueKey: path, owner, label: field.spec.displayName ?? field.spec.id, before, after,
         stamp: JSON.stringify([view.node.type, widget, owner]),
         part: { ...target, prefix, steps: [{ step: 'set', field: name, value: { kind: 'literal', value } }] } }]
     }
@@ -563,10 +564,40 @@ export function storedNumberFixes(doc: WorkflowDocument, target: StepPlace, host
   })
 }
 
+/** A failed declared rule, with its offered workflow and effective declaration. */
+export interface StoredRuleFix {
+  readonly kind: 'rule'
+  readonly part: StepPart
+  readonly rule: number
+  readonly label: string
+  readonly message: string
+  readonly fields: readonly string[]
+  readonly stamp: string
+}
+
+export type StoredProblemFix = StoredNumberFix | StoredRuleFix
+
+/** Rules are always offered, never applied merely because their check failed. */
+export function storedRuleFixes(doc: WorkflowDocument, target: StepPlace, host: ActionHost): readonly StoredRuleFix[] {
+  const view = viewOf(doc, target, host)
+  if (view === undefined) return []
+  const failed = new Set(view.elaborated.diagnostics.filter((diagnostic) => diagnostic.code === 'node.rule.failed')
+    .map((diagnostic) => diagnostic.data?.['rule']))
+  if (failed.size === 0) return []
+  const stamp = JSON.stringify([doc.root, doc.graphs, view.schema])
+  return (view.schema.validate ?? []).flatMap((rule, index): StoredRuleFix[] => {
+    if (!failed.has(index) || rule.fix.length === 0 || !rule.fixLabel?.trim()) return []
+    const diagnostic = view.elaborated.diagnostics.find((candidate) => candidate.code === 'node.rule.failed' && candidate.data?.['rule'] === index)!
+    const fields = diagnostic.data?.['fields'] as readonly string[]
+    return [{ kind: 'rule', rule: index, label: rule.fixLabel, message: rule.message, fields, stamp,
+      part: { ...target, prefix: '', steps: decodeSteps(rule.fix) } }]
+  })
+}
+
 /** Recheck every offered correction, then store all of them as one strict step run. */
-export function applyStoredNumberFixes(
+export function applyStoredProblemFixes(
   session: DocumentSession,
-  fixes: readonly StoredNumberFix[],
+  fixes: readonly StoredProblemFix[],
   host: ActionHost,
   options: PressOptions = {},
 ): Promise<PressOutcome> {
@@ -583,8 +614,10 @@ export function applyStoredNumberFixes(
         if (!outcome.ok) return false
         candidate = outcome.doc
       }
-      return fixes.every((fix) => storedNumberFixes(candidate, fix.part, host).some((now) =>
-        now.valueKey === fix.valueKey && now.before === fix.before && now.after === fix.after && now.stamp === fix.stamp))
+      return fixes.every((fix) => fix.kind === 'rule'
+        ? storedRuleFixes(candidate, fix.part, host).some((now) => now.rule === fix.rule && now.stamp === fix.stamp)
+        : storedNumberFixes(candidate, fix.part, host).some((now) =>
+          now.valueKey === fix.valueKey && now.before === fix.before && now.after === fix.after && now.stamp === fix.stamp))
     },
   })
 }

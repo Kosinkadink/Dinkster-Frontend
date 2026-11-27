@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { applyStoredNumberFixes, buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, storedNumberFixes, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
+import { applyStoredProblemFixes, buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, storedNumberFixes, storedRuleFixes, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
 import { decodeSteps } from '../src/actions/steps.js'
 import type { CommandDefinition } from '../src/commands/contract.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
@@ -113,6 +113,55 @@ function later<T>(): { promise: Promise<T>; settle: (value: T) => void } {
 }
 
 describe('one press is one undo step, or nothing', () => {
+  it('stores mixed numeric and declared fixes atomically, refusing stale offers and conflicts', async () => {
+    const type = 'test.declared-fixes'
+    const schema = parseDinksterSchema(type, {
+      body: ['width', 'cap', 'amount'].map((id) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] },
+        default: 0, ...(id === 'amount' ? { widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } } : {}) })),
+      validate: [
+        { check: { formula: 'width <= cap' }, message: 'Width exceeds cap.', fixLabel: 'Use less than the cap',
+          fix: [{ step: 'set', field: 'width', value: { formula: 'cap - 1' } }] },
+        { check: { formula: 'width <= cap' }, message: 'Alternative width.', fixLabel: 'Use two less than the cap',
+          fix: [{ step: 'set', field: 'width', value: { formula: 'cap - 2' } }] },
+        { check: { formula: 'width > 0' }, message: 'Width must be positive.', fix: [] },
+      ],
+    } as never).schema!
+    SCHEMAS.set(type, schema)
+    const session = sessionOf(documentOf({ n1: { type, values: { width: 17, cap: 9, amount: 14 } } }))
+    const host = hostOf()
+    const target = { graphId: 'g0', nodeId: 'n1' }
+    const numeric = storedNumberFixes(session.doc, target, host)
+    const rules = storedRuleFixes(session.doc, target, host)
+    const original = session.doc
+    expect(rules.map((fix) => fix.label)).toEqual(['Use less than the cap', 'Use two less than the cap'])
+    expect(await applyStoredProblemFixes(session, [...numeric, ...rules], host)).toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(original)
+    expect(session.canUndo).toBe(false)
+
+    expect(session.dispatch({ command: 'node.setValue', params: { ...target, inputId: 'cap', value: 8 } }).ok).toBe(true)
+    const changed = session.doc
+    const stale = 'Could not apply this fix. The workflow changed.'
+    expect(await applyStoredProblemFixes(session, [...numeric, rules[0]!], host, { staleMessage: stale }))
+      .toMatchObject({ kind: 'failed', message: stale })
+    expect(session.doc).toEqual(changed)
+    const fresh = [...storedNumberFixes(session.doc, target, host), storedRuleFixes(session.doc, target, host)[0]!]
+    expect(await applyStoredProblemFixes(session, fresh, host)).toMatchObject({ kind: 'done', skipped: [] })
+    expect(valuesOf(session)).toEqual({ width: 7, cap: 8, amount: 12 })
+    expect(storedRuleFixes(session.doc, target, host)).toEqual([])
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(changed)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ width: 7, cap: 8, amount: 12 })
+    expect(session.undo()).toBe(true)
+
+    SCHEMAS.set(type, { ...schema, validate: schema.validate!.map((rule) => ({ ...rule,
+      fix: [{ step: 'set', field: 'width', value: { value: 3 } }],
+    })) })
+    expect(await applyStoredProblemFixes(session, fresh, host, { staleMessage: stale }))
+      .toMatchObject({ kind: 'failed', message: stale })
+    expect(session.doc).toEqual(changed)
+  })
+
   it('corrects stored numbers through steps in one undo, leaving wired values, specials and decimals alone', async () => {
     addSchema('test.numeric-fixes', [
       ...['whole', 'wired', 'special', 'large'].map((id) => ({
@@ -136,7 +185,7 @@ describe('one press is one undo step, or nothing', () => {
     const fixes = storedNumberFixes(session.doc, at('unused'), host)
     let stored: HistorySnapshotRecord | undefined
     let storedDocument: WorkflowDocument | undefined
-    expect(await applyStoredNumberFixes(session, fixes, host, { onStored: (record, document) => {
+    expect(await applyStoredProblemFixes(session, fixes, host, { onStored: (record, document) => {
       stored = record
       storedDocument = document
     } })).toMatchObject({ kind: 'done' })
@@ -152,15 +201,15 @@ describe('one press is one undo step, or nothing', () => {
     expect(session.undo()).toBe(true)
     expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'whole', value: 18 } }).ok).toBe(true)
     const changed = session.doc
-    expect(await applyStoredNumberFixes(session, fixes, host, { staleMessage: 'The workflow changed.' }))
+    expect(await applyStoredProblemFixes(session, fixes, host, { staleMessage: 'The workflow changed.' }))
       .toMatchObject({ kind: 'failed', message: 'The workflow changed.' })
     expect(session.doc).toEqual(changed)
     expect(valuesOf(session)['clamped']).toBe(12.5)
-    expect(await applyStoredNumberFixes(session, storedNumberFixes(session.doc, at('unused'), host), host)).toMatchObject({ kind: 'done' })
+    expect(await applyStoredProblemFixes(session, storedNumberFixes(session.doc, at('unused'), host), host)).toMatchObject({ kind: 'done' })
     expect(valuesOf(session)['whole']).toBe(16)
     expect(session.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'feed' } }).ok).toBe(true)
     expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'wired', value: 20 } }).ok).toBe(true)
-    expect(await applyStoredNumberFixes(session, storedNumberFixes(session.doc, at('unused'), host), host)).toMatchObject({ kind: 'done' })
+    expect(await applyStoredProblemFixes(session, storedNumberFixes(session.doc, at('unused'), host), host)).toMatchObject({ kind: 'done' })
     expect(valuesOf(session)['late']).toBe(20)
     expect(session.undo()).toBe(true)
     expect(valuesOf(session)['late']).toBe(29)
@@ -175,7 +224,7 @@ describe('one press is one undo step, or nothing', () => {
     const nestedHost = hostOf({ schemaResolverFor: (doc) => documentResolver(doc, resolve) })
     const nestedSession = createLocalSession(nested, nestedHost.commands, { schemaResolverFor: nestedHost.schemaResolverFor! })
     const nestedFixes = storedNumberFixes(nestedSession.doc, { graphId: 'g1', nodeId: 'n1', instancePath: ['left'] }, nestedHost)
-    expect(await applyStoredNumberFixes(nestedSession, nestedFixes, nestedHost)).toMatchObject({ kind: 'done' })
+    expect(await applyStoredProblemFixes(nestedSession, nestedFixes, nestedHost)).toMatchObject({ kind: 'done' })
     expect(valuesOf(nestedSession, 'left')).toEqual({ shown: 12 })
     expect(valuesOf(nestedSession, 'right')).toEqual({ shown: 18 })
     expect(nestedSession.doc.graphs.g1!.nodes.n1!.values).toEqual({ whole: 8 })

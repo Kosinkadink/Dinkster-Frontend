@@ -94,7 +94,7 @@ import {
   scanReplacements,
   stepNumericValue,
   storedNumberFixes,
-  applyStoredNumberFixes,
+  applyStoredProblemFixes,
   type StoredNumberFix,
   type PressOutcome,
   type PressOptions,
@@ -5538,7 +5538,7 @@ export class AppState {
     if (tab.execution || first === undefined || !this.tabs.get().includes(tab))
       return Promise.resolve({ kind: 'cancelled', skipped: [], notes: [] })
     const place = { tab, ...first.part, button: '' }
-    return applyStoredNumberFixes(store, fixes, createActionHost(this, undefined, place), {
+    return applyStoredProblemFixes(store, fixes, createActionHost(this, undefined, place), {
       ...options,
       stillCurrent: () => this.tabs.get().includes(tab) && tab.store === store && options.stillCurrent?.() !== false,
       staleMessage: t('problemFix.workflowChanged'),
