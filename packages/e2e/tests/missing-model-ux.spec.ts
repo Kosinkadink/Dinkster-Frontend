@@ -46,7 +46,10 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   const checkpointEntries = await checkpointResponse.json() as { entries: Array<Record<string, unknown>> }
   const checkpoint = checkpointEntries.entries.find((entry) => entry['name'] === 'audit-local-checkpoint.safetensors')
   expect(checkpoint).toBeDefined()
-  const { kind: _kind, ...checkpointRef } = checkpoint!
+  const checkpointRef = {
+    digest: checkpoint!['digest'], name: checkpoint!['name'], size: checkpoint!['size'],
+    mediaType: checkpoint!['mediaType'], virtualPath: checkpoint!['virtualPath'],
+  }
   await page.evaluate(async (requested) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{

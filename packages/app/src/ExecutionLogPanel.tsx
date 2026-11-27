@@ -8,7 +8,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { activeLocale } from '@dinkster/core'
 import type { ExecutionLogEntry, ExecutionState } from '@dinkster/client'
-import { formatActivityTimestamp } from './ActivityLog.js'
+import { LogTimestamp } from './ActivityLog.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
 import { ProductButton } from './ProductControls.js'
@@ -315,7 +315,7 @@ export function ExecutionLogPanel(props: ExecutionLogPanelProps) {
                   testId="execution-log-row"
                   dataAttributes={{ 'data-level': row.level, 'data-source': row.source, 'data-origin': row.origin }}
                   primary={<>
-                    <time class="execution-log-time" datetime={new Date(row.timestamp).toISOString()}>{formatActivityTimestamp(row.timestamp)}</time>
+                    <LogTimestamp class="execution-log-time" timestamp={row.timestamp} />
                     <span class="execution-log-level">{locale().tag && message(`executionLog.level.${row.level}`)}</span>
                     {nodeButton(row)}
                     <span class="execution-log-message"><Show when={row.origin !== undefined}><span class="execution-log-origin">{row.origin}</span></Show>{row.message}</span>

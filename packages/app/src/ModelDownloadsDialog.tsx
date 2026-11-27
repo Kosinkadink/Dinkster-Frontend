@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createResource, createRoot, createSignal, For, onCleanup, Show, untrack, type JSX } from 'solid-js'
+import { formatByteProgress, formatByteSize } from '@dinkster/core'
 import { ProductButton, ProductDialog, ProductErrorBanner, ProductField, ProductModelDownloads, ProductRadio, ProductTextInput, ProductToast, type ProductModelDownloadRow } from '@dinkster/ui'
 import type { AssetConsentRequest, ModelConsentState } from './dialog-requests.js'
-import { formatByteSize } from './collections.js'
 import { useAppMessage, useModelKindLabel } from './locale.js'
 import { ModelProvider } from './ModelProvider.js'
 import { modelDownloadTotals } from './model-downloads.js'
@@ -115,7 +115,7 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
       const checking = job && !['starting', 'checking-existing', 'downloading', 'cancelling'].includes(job.status)
       return { ...base, state: waiting ? 'waiting' : checking ? 'checking' : 'downloading',
         progressLabel: message(waiting ? 'modelDownloads.waiting' : checking ? 'modelDownloads.checking' : 'modelDownloads.downloading',
-          { received: formatByteSize(job?.received ?? 0), total: formatByteSize(job?.size ?? 0) }),
+          formatByteProgress(job?.received ?? 0, job?.size ?? 0)),
         ...(!waiting && !checking && job?.size ? { progress: job.received / job.size } : {}),
         ...(!checking ? { stop: action('modelDownloads.stop', () => { void props.request.cancelModel?.(index) }) } : {}),
       }

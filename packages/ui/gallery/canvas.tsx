@@ -271,7 +271,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'subgraph-icon':
     'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, the cyan mark on a field shown on the subgraph node, and the Create subgraph button on the toolbox over two plain nodes, which one selected subgraph node does not show. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
   'small-flow-nodes':
-    'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
+    'Or else, Has value, Only if and hand-count Unpack as ordinary nodes: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
   'wire-looks':
     'Every look a wire has. A dashed wire means only that it may carry nothing; every other wire, including one being dragged, is solid. A wire whose source is switched off is faded.',
   'type-conflict':
@@ -968,9 +968,11 @@ export function CanvasGallery() {
             <For each={details().overflow ?? [details().badge]}>
               {(badge) => <p class="dinkster-description">{badge.glyph}</p>}
             </For>
-            <ProductButton onClick={() => setBadgeDetails(undefined)}>
-              Close
-            </ProductButton>
+            <footer class="dinkster-dialog-actions">
+              <ProductButton onClick={() => setBadgeDetails(undefined)}>
+                Close
+              </ProductButton>
+            </footer>
           </ProductDialog>
         )}
       </Show>

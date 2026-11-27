@@ -673,6 +673,12 @@ describe('workflow-open requirements', () => {
     expect(prepared).toBe(false)
     app.registerSchemas([{ ...backend.registry.get()!.resolve('std.a')!, type: 'unidentified.node' }])
     await vi.waitFor(() => expect(app.projectNeedsReview.get()).toMatchObject({ errors: [] }))
+    vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({
+      packs: [{ pack: 'absent', version: '3.0' }], extra: [], unknown: [],
+    })
+    await app.checkProjectNeeds(backend)
+    expect(app.projectNeedsReview.get()).toBeUndefined()
+    expect(prepared).toBe(false)
   })
 
   it('discards needs for a workflow replaced during the read', async () => {

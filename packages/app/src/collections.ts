@@ -8,6 +8,7 @@
  */
 
 import {
+  formatByteSize,
   formatDate,
   localCollectionSource,
   type CollectionEntry,
@@ -111,16 +112,7 @@ export function writeCollectionViewMode(
   }
 }
 
-export function formatByteSize(bytes: number): string {
-  const units = ['B', 'KiB', 'MiB', 'GiB']
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${value >= 10 || Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`
-}
+export { formatByteSize } from '@dinkster/core'
 
 /**
  * Installed packs of the ACTIVE tab's backend: the packs table joined with
@@ -361,6 +353,42 @@ export function workflowsSource(app: AppState): CollectionSource {
       return {
         owner: backend.id,
         items: page.records.map((r) => workflowEntry(r, backend)),
+        ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
+      }
+    },
+  }
+}
+
+export function boardsSource(app: AppState): CollectionSource {
+  return {
+    id: 'boards',
+    label: 'Boards',
+    page: async (req) => {
+      const backend = app.libraryBackend()
+      if (!backend) return { items: [], total: 0 }
+      const cursor = decodeOwnedCursor(backend.id, req.cursor)
+      const page = await backend.connection.listLibrary({
+        scope: LIBRARY_SCOPE,
+        query: req.query,
+        label: 'board',
+        limit: req.limit,
+        ...(cursor !== undefined ? { cursor } : {}),
+      })
+      const nextCursor = encodeOwnedCursor(backend.id, page.cursor)
+      return {
+        owner: backend.id,
+        items: page.records.map((record): CollectionEntry => ({
+          id: record.id,
+          owner: backend.id,
+          title: record.name,
+          subtitle: `Modified ${formatCollectionDate(record.modified * 1000)}`,
+          badges: [...record.labels.filter((label) => label !== 'board'), `rev ${record.revision}`],
+          details: [
+            { label: 'board id', text: record.id },
+            { label: 'backend', text: backend.label },
+            { label: 'revision', text: String(record.revision) },
+          ],
+        })),
         ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
       }
     },

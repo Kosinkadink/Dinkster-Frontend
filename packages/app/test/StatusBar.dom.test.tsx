@@ -25,6 +25,7 @@ it('counts only the focused workflow and opens its explanatory panels without to
   const status = backend.connection.status as Signal<ConnectionStatus>
   status.set('connected')
   const [problem, setProblem] = solidSignal<{ count: number; severity: 'error'; label: string }>()
+  const [setupStatus, setSetupStatus] = solidSignal<'not-set-up' | 'setting-up'>()
   const opened: string[] = []
   const root = document.createElement('div')
   document.body.append(root)
@@ -34,6 +35,7 @@ it('counts only the focused workflow and opens its explanatory panels without to
     vi.spyOn(owner.connection, 'fetchMemoryStatus').mockResolvedValue({ devices: {}, queue: { queued: 0, running: [], maxRunningJobs: 1, paused: false }, memoryGovernor: {}, leases: [] })
   }
   dispose = render(() => <StatusBar app={app} backend={() => backend} tab={() => app.activeTab()} problems={problem}
+    setupStatus={setupStatus}
     context={() => '2 nodes, 1 selected'} visible={() => true} placement={() => undefined} transient={() => undefined}
     extensions={<span>Extension state</span>} openPanel={(id) => opened.push(id)} openRuns={() => opened.push('workflow')}
     openAppLog={() => opened.push('app-log')} />, root)
@@ -61,6 +63,18 @@ it('counts only the focused workflow and opens its explanatory panels without to
   root.querySelector<HTMLButtonElement>('[data-testid="status-problems"]')!.click()
   expect(opened).toEqual(['workflow', 'backends', 'backends', 'problems'])
   expect(root.textContent).toContain('Extension state')
+  backend.supervisor.set({ protocol: 1, state: 'stopped', role: 'home', installations: 0 })
+  setSetupStatus('not-set-up')
+  app.backendsTick.update((value) => value + 1)
+  expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain('not set up')
+  expect(root.textContent).not.toContain('Loading schemas')
+  backend.supervisor.set({ protocol: 1, state: 'stopped', role: 'home', installations: 1 })
+  setSetupStatus('setting-up')
+  app.backendsTick.update((value) => value + 1)
+  expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain('setting up')
+  setSetupStatus(undefined)
+  expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain('No engine is running')
+  backend.supervisor.set(undefined)
   status.set('disconnected')
   app.backendsTick.update((value) => value + 1)
   expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain('disconnected')
@@ -189,7 +203,7 @@ it('shows the fullest measured graphics card and omits CPU, unknown and disconne
     openPanel={(id) => opened.push(id)} openRuns={() => {}} openAppLog={() => {}} />, root)
   await vi.waitFor(() => expect(root.querySelector('[data-testid="status-memory"]')).not.toBeNull())
   const memoryButton = root.querySelector<HTMLButtonElement>('[data-testid="status-memory"]')!
-  expect(memoryButton.textContent).toContain('1.8 KiB / 2.0 KiB')
+  expect(memoryButton.textContent).toContain('1.8 KB / 2 KB')
   expect(memoryButton.getAttribute('aria-label')).toContain('cuda:0')
   expect(memoryButton.getAttribute('aria-label')).toContain('cuda:1')
   expect(memoryButton.getAttribute('aria-label')).not.toContain('cuda:2')

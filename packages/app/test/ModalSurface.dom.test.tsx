@@ -792,7 +792,7 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.root.querySelectorAll('[data-testid="asset-match-candidate"]')).toHaveLength(1)
     expect(row.textContent).toContain(candidate.name)
     expect(row.textContent).toContain(candidate.virtualPath)
-    expect(row.textContent).toContain(String(candidate.size))
+    expect(row.querySelector('.asset-match-candidate-size')!.textContent).toBe('121 KB')
     expect(row.textContent).toContain(candidate.digest)
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     row.click()
@@ -863,7 +863,7 @@ describe('ASSET widget modal integration', () => {
     ), root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
 
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('16 MiB per file')
+    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('16 MB per file')
     const bytes = new Uint8Array([0, 1, 2, 3, 0, 255, 17])
     const file = new File([bytes], 'byte-proof.bin', { type: 'application/octet-stream' })
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
@@ -974,7 +974,7 @@ describe('ASSET widget modal integration', () => {
     const dialog = root.querySelector<HTMLDialogElement>('[data-modal="widget-asset"]')!
     expect(dialog.getAttribute('aria-label')).toBe('Edit Samples latent asset')
     expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('Single latent')
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GiB per file')
+    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GB per file')
     expect(root.querySelector('.asset-browser-section')?.getAttribute('aria-label')).toBe('Latents')
     expect(root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')?.getAttribute('aria-label')).toBe('Search latents')
     expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')?.textContent).toContain('Upload latent')
@@ -1142,7 +1142,7 @@ describe('ASSET widget modal integration', () => {
     } as unknown as AppState
     const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GiB per file')
+    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GB per file')
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
     expect(input.accept).toBe('video/*')
 
@@ -1156,7 +1156,7 @@ describe('ASSET widget modal integration', () => {
     Object.defineProperty(oversized, 'size', { configurable: true, value: 1024 * 1024 * 1024 + 1 })
     Object.defineProperty(input, 'files', { configurable: true, value: [oversized] })
     input.dispatchEvent(new Event('change', { bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('File exceeds the 1 GiB upload limit'))
+    await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('File exceeds the 1 GB upload limit'))
     expect(uploadMediaAsset).not.toHaveBeenCalled()
 
     const file = new File(['webm bytes'], 'large.webm', { type: 'video/webm' })

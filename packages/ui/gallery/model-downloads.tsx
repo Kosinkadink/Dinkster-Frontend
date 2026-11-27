@@ -1,4 +1,5 @@
 import { For, Show, createSignal } from 'solid-js'
+import { formatByteProgress, formatByteSize } from '@dinkster/core'
 import {
   ProductButton,
   ProductDialog,
@@ -24,26 +25,40 @@ const scenes = [
 ] as const
 type Scene = (typeof scenes)[number][0]
 
-const files = [
-  {
-    id: 'base',
-    name: 'sd_xl_base_1.0.safetensors',
-    metadata: '6.4 GB - Hugging Face',
-    folder: 'checkpoints',
-  },
-  {
-    id: 'vae',
-    name: 'sdxl_vae.safetensors',
-    metadata: '320 MB - Hugging Face',
-    folder: 'vae',
-  },
-  {
-    id: 'upscale',
-    name: '4x-UltraSharp.pth',
-    metadata: '64 MB - Civitai',
-    folder: 'upscale_models',
-  },
-] as const
+const files = (
+  [
+    {
+      id: 'base',
+      name: 'sd_xl_base_1.0.safetensors',
+      folder: 'checkpoints',
+      bytes: 6_900_000_000,
+      source: 'Hugging Face',
+    },
+    {
+      id: 'vae',
+      name: 'sdxl_vae.safetensors',
+      folder: 'vae',
+      bytes: 335_000_000,
+      source: 'Hugging Face',
+    },
+    {
+      id: 'upscale',
+      name: '4x-UltraSharp.pth',
+      folder: 'upscale_models',
+      bytes: 67_000_000,
+      source: 'Civitai',
+    },
+  ] as const
+).map((file) => ({
+  ...file,
+  metadata: `${formatByteSize(file.bytes)} - ${file.source}`,
+}))
+const freeBytes = 20 * 1024 ** 3
+const portableFreeBytes = 200 * 1024 ** 2
+const manyModelBytes = 2.25 * 1024 ** 3
+const receivedBytes = 1_200_000_000
+const downloadProgress = formatByteProgress(receivedBytes, files[0]!.bytes)
+const downloadProgressLabel = `Downloading - ${downloadProgress.received} of ${downloadProgress.total}`
 
 function SourceChoices(props: {
   readonly sources: readonly string[]
@@ -106,13 +121,13 @@ function DownloadExample(props: {
       id: 'shared',
       name: 'Shared models',
       path: '/models/shared',
-      freeSpace: '20 GB free',
+      freeSpace: `${formatByteSize(freeBytes)} free`,
     },
     {
       id: 'portable',
       name: 'Portable models',
       path: '/media/portable/models',
-      freeSpace: '200 MB free',
+      freeSpace: `${formatByteSize(portableFreeBytes)} free`,
     },
   ]
   const [locationId, setLocationId] = createSignal('shared')
@@ -198,10 +213,10 @@ function DownloadExample(props: {
     if (props.scene === 'waiting')
       return [
         {
-          ...files[0],
+          ...files[0]!,
           state: 'downloading',
-          progress: 0.17,
-          progressLabel: 'Downloading - 1.1 GB of 6.4 GB',
+          progress: receivedBytes / files[0]!.bytes,
+          progressLabel: downloadProgressLabel,
           stop: {
             label: 'Stop',
             onClick: () => setAction('Stop requested for base'),
@@ -210,7 +225,7 @@ function DownloadExample(props: {
         waitingStopped()
           ? { ...available(1), selected: false }
           : {
-              ...files[1],
+              ...files[1]!,
               state: 'waiting',
               progressLabel: 'Waiting',
               stop: { label: 'Stop', onClick: () => setWaitingStopped(true) },
@@ -222,7 +237,7 @@ function DownloadExample(props: {
         ...available(index % files.length),
         id: `model-${index}`,
         name: `model-${index + 1}.safetensors`,
-        metadata: '2.3 GB - Hugging Face',
+        metadata: `${formatByteSize(manyModelBytes)} - Hugging Face`,
         selected: selected().has(`model-${index}`),
         onSelect: (checked: boolean) => select(`model-${index}`, checked),
         initiallyExpanded: index === 0,
@@ -300,27 +315,27 @@ function DownloadExample(props: {
       return [
         stopped()
           ? {
-              ...files[0],
+              ...files[0]!,
               state: 'failed',
               reason: 'The download was stopped.',
               action: { label: 'Try again', onClick: () => setStopped(false) },
             }
           : {
-              ...files[0],
+              ...files[0]!,
               state: 'downloading',
-              progress: 0.17,
-              progressLabel: 'Downloading - 1.1 GB of 6.4 GB',
+              progress: receivedBytes / files[0]!.bytes,
+              progressLabel: downloadProgressLabel,
               stop: { label: 'Stop', onClick: () => setStopped(true) },
             },
-        { ...files[1], state: 'checking', progressLabel: 'Checking the file' },
+        { ...files[1]!, state: 'checking', progressLabel: 'Checking the file' },
         ready(2),
       ]
     if (props.scene === 'failed')
       return [
         {
-          ...files[0],
+          ...files[0]!,
           state: 'failed',
-          reason: 'The download stopped at 1.2 GB.',
+          reason: `The download stopped at ${formatByteSize(receivedBytes)}.`,
           action: {
             label: 'Try again',
             onClick: () => setAction('Retry requested'),
@@ -333,9 +348,18 @@ function DownloadExample(props: {
   }
   const allReady = () => props.scene === 'run' || props.scene === 'done'
   const count = () => selected().size
+  const downloadBytes = () =>
+    props.scene === 'many'
+      ? count() * manyModelBytes
+      : files.reduce(
+          (total, file) => total + (selected().has(file.id) ? file.bytes : 0),
+          0,
+        )
+  const availableBytes = () =>
+    locationId() === 'portable' ? portableFreeBytes : freeBytes
   const insufficient = () =>
-    (props.scene === 'many' && count() > 8) ||
-    (props.scene === 'ready' && count() > 0 && locationId() === 'portable')
+    (props.scene === 'many' || props.scene === 'ready') &&
+    downloadBytes() > availableBytes()
   const primary = () =>
     props.scene === 'ready' || props.scene === 'many'
       ? {
@@ -372,7 +396,7 @@ function DownloadExample(props: {
           label: 'Save to',
           selectedId: locationId(),
           emptyLabel: 'Choose a folder',
-          freeSpace: locationId() === 'portable' ? '200 MB free' : '20 GB free',
+          freeSpace: `${formatByteSize(availableBytes())} free`,
           locations,
           onSelect: setLocationId,
         }}
@@ -383,14 +407,14 @@ function DownloadExample(props: {
         }
         footer={
           insufficient()
-            ? `${props.scene === 'many' ? count() * 2.25 : 6.8} GB to download, ${locationId() === 'portable' ? '200 MB' : '20 GB'} free. Save somewhere else or untick some models.`
+            ? `${formatByteSize(downloadBytes())} to download, ${formatByteSize(availableBytes())} free. Save somewhere else or untick some models.`
             : action() ||
               (props.scene === 'downloading' || props.scene === 'waiting'
                 ? 'You can close this. Downloads keep going and show under tasks in the status bar.'
                 : allReady()
                   ? '3 models ready.'
                   : props.scene === 'ready'
-                    ? '6.8 GB to download'
+                    ? `${formatByteSize(downloadBytes())} to download`
                     : props.scene === 'failed'
                       ? ''
                       : 'Nothing can be downloaded yet.')
