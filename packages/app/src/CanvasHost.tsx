@@ -950,6 +950,14 @@ export function reportBoundaryExposureRefusal(args: {
   )])
 }
 
+function NodeMediaWorld(props: { readonly rect: EditorWorldRect; readonly scale: number; readonly children: JSX.Element }) {
+  return <div class="node-media-world" style={{
+    width: `${props.rect.width / props.scale}px`,
+    height: `${props.rect.height / props.scale}px`,
+    transform: `scale(${props.scale})`,
+  }}>{props.children}</div>
+}
+
 export function NodeMediaOverlay(props: {
   readonly ownerId?: string
   readonly media: NodePreview & { readonly kind: 'video' | 'audio'; readonly src: string }
@@ -978,7 +986,7 @@ export function NodeMediaOverlay(props: {
   }
   return (
     <div class="node-media-overlay" data-node-id={props.ownerId} data-media-kind={props.media.kind} style={style()} onWheel={forwardWheel}>
-      <div class="node-media-world" style={{ width: `${props.rect.width / props.scale}px`, height: `${props.rect.height / props.scale}px`, transform: `scale(${props.scale})` }}>
+      <NodeMediaWorld rect={props.rect} scale={props.scale}>
         <Show when={props.media.kind !== 'video' && props.media.download}>
           {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
         </Show>
@@ -989,7 +997,7 @@ export function NodeMediaOverlay(props: {
           <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
             onActiveChange={props.onActiveChange} onMediaError={props.onMediaError} />
         </Show>
-      </div>
+      </NodeMediaWorld>
     </div>
   )
 }
@@ -1064,7 +1072,7 @@ export function NodeModel3dOverlay(props: {
       data-media-kind="model3d"
       style={overlayClipStyle(props.rect, props.canvas)}
     >
-      <div class="node-media-world" style={{ width: `${props.rect.width / props.scale}px`, height: `${props.rect.height / props.scale}px`, transform: `scale(${props.scale})` }}>
+      <NodeMediaWorld rect={props.rect} scale={props.scale}>
         <Show when={active()} fallback={
           <div class="node-model3d-actions">
             <Show when={props.media.download}>
@@ -1093,7 +1101,7 @@ export function NodeModel3dOverlay(props: {
             </Show>
           </div>
         </Show>
-      </div>
+      </NodeMediaWorld>
     </div>
   )
 }

@@ -722,7 +722,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                           <strong>{candidate.name}</strong>
                           <span>{candidate.virtualPath}</span>
                         </span>
-                        <span class="asset-match-candidate-size">{candidate.size} bytes</span>
+                        <span class="asset-match-candidate-size">{candidate.size === undefined ? message('assets.value.unknown') : formatByteSize(candidate.size)}</span>
                         <code title={candidate.digest}>{candidate.digest}</code>
                       </button>
                     )}
