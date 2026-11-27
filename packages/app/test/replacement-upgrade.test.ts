@@ -363,6 +363,10 @@ describe('native open-time replacement', () => {
     await backend.lookups.request(call, { refresh: true })
     await vi.waitFor(() => expect(amount()).toBe(16))
     expect(app.adjustmentNotices.get().get(tab.id)!.adjustments.map((change) => change.details)).toEqual([['amount: 29 to 16']])
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values.unrelated).toBe(29)
+    expect(app.undoAdjustments(tab.id)).toBe(true)
+    expect(amount()).toBe(29)
+    expect(tab.store.doc.view.graphs.g0!.nodes.first!.position).toEqual({ x: 280, y: 190 })
   })
 
   it('stores numeric fixes atomically, keeps later field edits on notice Undo, and does not repeat undone causes', async () => {
