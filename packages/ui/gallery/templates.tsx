@@ -252,7 +252,7 @@ export function TemplatesGallery(props: {
   onMount(() => {
     if (!props.onCancel) return
     const cancel = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      if (event.key !== 'Escape' || event.defaultPrevented) return
       event.preventDefault()
       event.stopPropagation()
       if (search() !== '') setSearch('')
