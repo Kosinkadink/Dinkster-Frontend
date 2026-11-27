@@ -16,7 +16,7 @@ import { activeProjectId } from './projects.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 import { CollectionPanel } from './CollectionPanel.js'
 import { boardBlueprintsSource, workflowsSource } from './collections.js'
-import { BoardCard } from './BoardCard.js'
+import { BoardCard, boardCardStatusLabel } from './BoardCard.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { executionProgress } from './ExecutionActivityCard.js'
 
@@ -42,14 +42,15 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
       if (card.kind !== 'workflow' && card.kind !== 'blueprint') return []
       const active = props.app.executionsForBoardCard(props.entry, card.id)
         .filter((run) => run.status === 'queued' || run.status === 'running')
+      const preparing = submissions().get(props.app.boardCardKey(props.entry, card.id))
       if (active.length) return active.map((run) => {
         const progress = executionProgress(run)?.value
         return { job: run.jobRef ?? run.key, card: card.id, places: props.app.boardResultPlaces(props.entry, run),
+          label: boardCardStatusLabel(!!preparing, run), running: !preparing && run.status === 'running',
           ...(progress === undefined ? {} : { progress }) }
       })
-      const preparing = submissions().get(props.app.boardCardKey(props.entry, card.id))
       return preparing?.places ? [{ job: props.app.boardCardKey(props.entry, card.id), card: card.id,
-        places: preparing.places }] : []
+        places: preparing.places, label: boardCardStatusLabel(true), running: false }] : []
     })
   })
   let live = true

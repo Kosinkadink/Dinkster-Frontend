@@ -508,10 +508,21 @@ describe('app page tabs', () => {
       fetch.mockResolvedValue(bytes)
       vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(`blake3:${'f'.repeat(64)}`)
       const ref = { connection: backend.id, prompt: asPromptId('board-progress') }
-      vi.spyOn(backend.connection, 'submit').mockResolvedValue({ ok: true, execution: ref, jobRef: 'board-progress' })
+      let release!: () => void
+      vi.spyOn(backend.connection, 'submit').mockImplementation(() => new Promise((resolve) => {
+        release = () => resolve({ ok: true, execution: ref, jobRef: 'board-progress' })
+      }))
       ;[...card().querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Run')!.click()
+      await vi.waitFor(() => expect(release).toBeDefined())
+      expect(root.querySelector('[data-board-pending]')?.textContent).toBe('Preparing')
+      expect(root.querySelector('[aria-label="Run progress"]')).toBeNull()
+      expect(card().querySelector('footer [role="status"]')?.textContent).toBe('Preparing')
+      release()
       await vi.waitFor(() => expect(app.store.get(ref)).toBeDefined())
       expect(root.querySelectorAll('[data-board-pending]')).toHaveLength(1)
+      await vi.waitFor(() => expect(root.querySelector('[data-board-pending]')?.textContent).toBe('Queued'))
+      expect(root.querySelector('[aria-label="Run progress"]')).toBeNull()
+      expect(card().querySelector('footer [role="status"]')?.textContent).toBe('Queued')
       app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
       app.store.apply({ kind: 'nodeStates', execution: ref, timestamp: 2,
         nodes: { n0: { state: 'done' }, n1: { state: 'running', value: 0.5 } } })

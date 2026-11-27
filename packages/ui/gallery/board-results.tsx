@@ -20,6 +20,7 @@ import {
 export function BoardResultsGallery() {
   const [example, setExample] = createSignal('first')
   const [finished, setFinished] = createSignal(false)
+  const [state, setState] = createSignal('Running')
   const [menu, setMenu] = createSignal<CanvasCornerMenu>()
   let corner: HTMLDivElement | undefined
   const dismiss = (event: PointerEvent | KeyboardEvent) => {
@@ -36,11 +37,19 @@ export function BoardResultsGallery() {
     window.removeEventListener('pointerdown', dismiss)
     window.removeEventListener('keydown', dismiss)
   })
-  const examples = ['first', 'later', 'note', 'media', 'failed'] as const
+  const examples = [
+    'first',
+    'later',
+    'note',
+    'blocked',
+    'media',
+    'failed',
+  ] as const
   const labels = [
     'First run',
     'Later run',
     'Overflow past a note',
+    'Blocked next cell',
     'Video and sound',
     'Failed without files',
   ]
@@ -65,12 +74,15 @@ export function BoardResultsGallery() {
         rect: { x: 24, y: 24, width: 340, height: 188 },
       },
     ]
-    if (example() === 'note')
+    if (example() === 'note' || example() === 'blocked')
       items.push({
         id: 'note',
         kind: 'note',
         text: 'Keep this note where it is.',
-        rect: { x: 388, y: 223, width: 584, height: 100 },
+        rect:
+          example() === 'blocked'
+            ? { x: 692, y: 24, width: 200, height: 240 }
+            : { x: 388, y: 223, width: 584, height: 100 },
       })
     next.dispatch({ command: 'board.item.add', params: { items } })
     if (finished() && example() !== 'failed')
@@ -80,7 +92,9 @@ export function BoardResultsGallery() {
           job: 'saved-run',
           card: 'workflow',
           items: Array.from(
-            { length: example() === 'media' ? 2 : 4 },
+            {
+              length: example() === 'media' || example() === 'blocked' ? 2 : 4,
+            },
             (_, index) => ({
               id: `result-${index}`,
               kind:
@@ -90,10 +104,13 @@ export function BoardResultsGallery() {
                     : ('sound' as const)
                   : ('picture' as const),
               rect: {
-                x: 388 + (index % 2) * 304,
+                x: example() === 'blocked' ? 388 : 388 + (index % 2) * 304,
                 y:
-                  24 +
-                  Math.floor(index / 2) * (example() === 'note' ? 323 : 199),
+                  example() === 'blocked'
+                    ? 24 + index * 264
+                    : 24 +
+                      Math.floor(index / 2) *
+                        (example() === 'note' ? 323 : 199),
                 width: 280,
                 height: example() === 'media' && index === 1 ? 70 : 175,
               },
@@ -127,7 +144,9 @@ export function BoardResultsGallery() {
             job: 'saved-run',
             card: 'workflow',
             places: places(),
-            progress: 0.41,
+            label: state() === 'Unknown progress' ? 'Running' : state(),
+            running: state() === 'Running' || state() === 'Unknown progress',
+            ...(state() === 'Unknown progress' ? {} : { progress: 0.41 }),
           },
         ]
   return (
@@ -150,6 +169,16 @@ export function BoardResultsGallery() {
         <ProductButton onClick={() => setFinished((value) => !value)}>
           {finished() ? 'Show running' : 'Finish run'}
         </ProductButton>
+        {['Preparing', 'Queued', 'Running', 'Unknown progress'].map((value) => (
+          <ProductButton
+            onClick={() => {
+              setState(value)
+              setFinished(false)
+            }}
+          >
+            {value}
+          </ProductButton>
+        ))}
       </div>
       <ProductBoard
         store={store()}
@@ -190,7 +219,9 @@ export function BoardResultsGallery() {
                 ? example() === 'failed'
                   ? 'Failed'
                   : 'Completed'
-                : 'Running'
+                : state() === 'Unknown progress'
+                  ? 'Running'
+                  : state()
             }
             running={!finished()}
             error={

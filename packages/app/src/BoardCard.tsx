@@ -15,8 +15,12 @@ import { ProductNotice } from './ProductForm.js'
 import { ProductSelect } from './ProductSelect.js'
 import { useSignal } from './solid-adapter.js'
 import { widgetCommitError } from './widget-commit.js'
+import type { ExecutionState } from '@dinkster/client'
 
 type LiveRow = Extract<ParamRow, { kind: 'live' }>
+
+export const boardCardStatusLabel = (preparing: boolean, run?: ExecutionState): string =>
+  preparing ? 'Preparing' : run ? executionStatusLabel(run.status) : 'Not run'
 
 function BoardCardInput(props: {
   readonly row: LiveRow
@@ -214,7 +218,7 @@ export function BoardCard(props: {
     return result.ok
   }
   return <ProductBoardCard name={props.card.name} kind={props.card.kind}
-    lastRun={pending() ? 'Preparing' : latest() ? executionStatusLabel(latest()!.status) : 'Not run'}
+    lastRun={boardCardStatusLabel(pending(), latest())}
     running={running()} disabled={!source() || !registry() || !!projection().error}
     error={error() ?? projection().error ?? latest()?.errors[0]?.message}
     onRun={() => void run()} onStop={() => void props.app.stopBoardCard(props.entry, props.card.id)}

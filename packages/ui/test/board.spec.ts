@@ -10,6 +10,21 @@ test('reserved results share progress and recorded history follows edits without
   const history = page.locator('[data-board-history]')
   await expect(pending).toHaveCount(1)
   await expect(history).toHaveCount(1)
+  for (const state of ['Preparing', 'Queued']) {
+    await page.getByRole('button', { name: state, exact: true }).click()
+    await expect(pending).toHaveText(state)
+    await expect(
+      page.getByRole('progressbar', { name: 'Run progress' }),
+    ).toHaveCount(0)
+  }
+  await page
+    .getByRole('button', { name: 'Unknown progress', exact: true })
+    .click()
+  await expect(pending).toHaveText('Running')
+  await expect(
+    page.getByRole('progressbar', { name: 'Run progress' }),
+  ).not.toHaveAttribute('aria-valuenow')
+  await page.getByRole('button', { name: 'Running', exact: true }).click()
   await expect(
     page.getByRole('progressbar', { name: 'Run progress' }),
   ).toHaveAttribute('aria-valuenow', '0.41')
@@ -27,6 +42,13 @@ test('reserved results share progress and recorded history follows edits without
   await page.mouse.down()
   await page.mouse.move(box.x + 40, box.y + 100, { steps: 5 })
   await page.mouse.up()
+  await expect(history).toHaveAttribute('d', path!)
+  const first = page.locator('[data-board-item="result-0"]')
+  const firstBox = (await first.boundingBox())!
+  await page.mouse.move(firstBox.x + 40, firstBox.y + 40)
+  await page.mouse.down()
+  await page.mouse.move(firstBox.x + 40, firstBox.y + 90, { steps: 5 })
+  await page.mouse.up()
   await expect(history).not.toHaveAttribute('d', path!)
   for (const id of ['result-3', 'result-2', 'result-1', 'result-0']) {
     await page
@@ -37,6 +59,17 @@ test('reserved results share progress and recorded history follows edits without
   await expect(history).toHaveCount(0)
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
   await expect(history).toHaveCount(1)
+  await page
+    .getByRole('button', { name: 'Blocked next cell', exact: true })
+    .click()
+  await page.getByRole('button', { name: 'Finish run', exact: true }).click()
+  expect(
+    await history.evaluate((element) => {
+      const line = element as SVGPathElement
+      const end = line.getPointAtLength(line.getTotalLength())
+      return { x: end.x, y: end.y }
+    }),
+  ).toEqual({ x: 388, y: 111.5 })
   await page.getByRole('button', { name: 'Later run', exact: true }).click()
   await expect(pending).toHaveCount(4)
   for (const progress of await page

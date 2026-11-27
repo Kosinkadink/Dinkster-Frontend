@@ -170,6 +170,8 @@ export interface ProductBoardProps {
     readonly job: string
     readonly card: string
     readonly places: readonly BoardRect[]
+    readonly label: string
+    readonly running: boolean
     readonly progress?: number
   }[]
   readonly assetUrl: (asset: BoardAsset) => string
@@ -743,14 +745,11 @@ export function ProductBoard(props: ProductBoardProps) {
       )
         return []
       const from = itemRect(card)
-      const x = Math.min(...run.places.map((place) => place.x))
-      const top = Math.min(...run.places.map((place) => place.y))
-      const bottom = Math.max(
-        ...run.places.map((place) => place.y + place.height),
-      )
+      const first = run.places[0]!
+      const x = first.x
       const startX = from.x + from.width
       const startY = from.y + from.height / 2
-      const endY = (top + bottom) / 2
+      const endY = first.y + first.height / 2
       const bend = (startX + x) / 2
       return [
         {
@@ -1182,14 +1181,16 @@ export function ProductBoard(props: ProductBoardProps) {
                   >
                     <div class="dinkster-board-pending">
                       <span>
-                        {run.progress === undefined
-                          ? 'Running'
-                          : `Running ${Math.round(run.progress * 100)}%`}
+                        {!run.running || run.progress === undefined
+                          ? run.label
+                          : `${run.label} ${Math.round(run.progress * 100)}%`}
                       </span>
-                      <ProductProgress
-                        label="Run progress"
-                        value={run.progress}
-                      />
+                      <Show when={run.running}>
+                        <ProductProgress
+                          label="Run progress"
+                          value={run.progress}
+                        />
+                      </Show>
                     </div>
                   </foreignObject>
                 )}
