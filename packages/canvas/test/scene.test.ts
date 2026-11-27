@@ -2252,16 +2252,22 @@ describe('scenesEqual', () => {
 
 describe('an editor on the Inputs panel', () => {
   it('shows native lookup options for the entered occurrence through renamed boundaries', () => {
-    const { schema } = parseDinksterSchema('Picker', { body: [
+    const { schema, diagnostics } = parseDinksterSchema('Picker', { body: [
       { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] }, pin: false, sent: false,
         widget: { type: 'COMBO', options: ['intrinsic', 'sd', 'sdxl'] } },
       { kind: 'input', id: 'lora', type: { kind: 'concrete', types: ['COMBO'] },
         widget: { type: 'COMBO', options: { lookup: 'pack.loras', args: ['category'] } } },
+      ...['flatSeed', 'branchSeed'].map((id) => ({ kind: 'input', id,
+        type: { kind: 'concrete', types: ['STRING'] }, pin: false, default: 'fallback',
+        widget: { type: 'STRING', multiline: false }, automatic: { lookup: `pack.${id}`, args: [] } })),
+      { kind: 'input', id: 'dependent', type: { kind: 'concrete', types: ['COMBO'] },
+        widget: { type: 'COMBO', options: { formula: '[flatSeed]' } } },
       { kind: 'choice', id: 'mode', default: 'a', options: ['a', 'b'].map((key) => ({ key, rows: [
         { kind: 'input', id: `${key}Adapter`, type: { kind: 'concrete', types: ['COMBO'] },
-          widget: { type: 'COMBO', options: { lookup: `pack.${key}`, args: [] } } },
+          widget: { type: 'COMBO', options: key === 'a' ? { formula: '[branchSeed]' } : { lookup: 'pack.b', args: [] } } },
       ] })) },
     ] })
+    if (schema === undefined) throw new Error(JSON.stringify(diagnostics))
     for (const depth of [1, 2]) {
       const document = loadDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-lookup', root: 'root',
@@ -2272,11 +2278,11 @@ describe('an editor on the Inputs panel', () => {
           } },
           detail: { id: 'detail', name: 'Detail', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
             nodes: { sample: { id: 'sample', type: 'Picker', values: { category: 'sdxl' } } },
-            boundary: { body: [...['kind', 'pick'].map((id, i) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'sample', port: i === 0 ? 'category' : 'lora' } })),
+            boundary: { body: [...['kind', 'pick', 'dependent'].map((id, i) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'sample', port: i === 0 ? 'category' : i === 1 ? 'lora' : 'dependent' } })),
               { kind: 'input', id: 'mode', binds: { kind: 'construct', node: 'sample', port: 'mode' } }] } },
           ...(depth === 1 ? {} : { portrait: { id: 'portrait', name: 'Portrait', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
             nodes: { detail: { id: 'detail', type: '#detail', values: { kind: 'sdxl' } } },
-            boundary: { body: [...['category', 'list'].map((id, i) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'detail', port: i === 0 ? 'kind' : 'pick' } })),
+            boundary: { body: [...['category', 'list', 'dependent'].map((id, i) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'detail', port: i === 0 ? 'kind' : i === 1 ? 'pick' : 'dependent' } })),
               { kind: 'input', id: 'mode', binds: { kind: 'construct', node: 'detail', port: 'mode' } }] } } }),
         }, view: { graphs: {} },
       }).document as WorkflowDocument
@@ -2288,19 +2294,23 @@ describe('an editor on the Inputs panel', () => {
           occurrence: { owner: { instancePath: path.slice(0, -1), node: path.at(-1)! }, plannerAvailable: true },
           occurrenceView: occurrenceDynamicView(document, resolve, path),
           lookupAnswers: (lookup, args) => ({ state: 'ready', answer: lookup === 'pack.loras'
-            ? [`${args[0]}-one`, `${args[0]}-two`] : [lookup] }),
+            ? [`${args[0]}-one`, `${args[0]}-two`] : lookup.endsWith('Seed') ? lookup : [lookup] }),
         })
         const panel = scene.boundaryNodes.find((item) => item.side === 'inputs')!
         expect(panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'pick')).toMatchObject({
           spec: { options: { options: [`${category}-one`, `${category}-two`] } },
         })
         const face = boundaryFieldNode(panel)!
+        expect(face.elaborated?.lookupDependencies?.map((site) => site.call.lookup)).toEqual(['pack.flatSeed'])
+        expect(panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'dependent')).toMatchObject({
+          spec: { options: { options: ['pack.flatSeed'] } },
+        })
         expect(elabInputsOf(face.elaborated!).find((item) => item.spec.id === 'pick')?.looked?.options).toMatchObject({
           state: 'ready', call: { lookup: 'pack.loras', args: [category], nodeType: 'Picker' },
         })
         expect(elabInputsOf(face.elaborated!).filter((item) => item.spec.id.startsWith('mode.'))).toEqual([])
         expect(panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === `mode.${node === 'first' ? 'b' : 'a'}Adapter`)).toMatchObject({
-          spec: { options: { options: [node === 'first' ? 'pack.b' : 'pack.a'] } },
+          spec: { options: { options: [node === 'first' ? 'pack.b' : 'pack.branchSeed'] } },
         })
       }
     }
