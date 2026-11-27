@@ -13,7 +13,7 @@ import { activeLocale, type MessageParams } from '@dinkster/core'
 import type { DinksterConnection, PackSettings } from '@dinkster/client'
 import type { AppCommand, CommandRegistry, KeybindingRegistry, SettingDefinition, SettingsRegistry } from './settings.js'
 import { captureKeydown, initialSettingsCategory } from './settings.js'
-import { automaticFixKinds, automaticFixPreference, setAutomaticFixPreference, type AutomaticFixKind, type AutomaticFixPreference } from './automatic-fixes.js'
+import { automaticFixKinds, automaticFixLabel, automaticFixPreference, setAutomaticFixPreference, type AutomaticFixKind, type AutomaticFixPreference } from './automatic-fixes.js'
 import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel, type SettingsSearchItem } from './settings-search.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
@@ -206,7 +206,7 @@ function AutomaticFixField(props: {
     controlId={id}
     class="automatic-fix-setting"
     label={message(`automaticFixes.kind.${props.kind.id}`)}
-    description={message(preference() === 'apply' ? 'automaticFixes.builtIn' : 'automaticFixes.personal')}
+    description={automaticFixLabel(props.kind.id, removesWire(), message)}
     dataAttributes={{ 'data-setting-id': props.kind.setting }}
     actions={<Show when={preference() !== 'apply'}><ProductButton
       type="button"
@@ -222,15 +222,18 @@ function AutomaticFixField(props: {
       ]}
       onSelect={(option) => commit(option.value, removesWire())}
     />
-    <Show when={props.kind.wire}><ProductSelect id={`${id}-wire`}
-      ariaLabel={message('automaticFixes.wireChoice', { kind: message(`automaticFixes.kind.${props.kind.id}`) })}
-      selectedId={removesWire() ? 'remove' : 'keep'}
-      options={[
-        { id: 'keep', label: message('automaticFixes.keepWire'), value: false },
-        { id: 'remove', label: message('automaticFixes.removeWire'), value: true },
-      ]}
-      onSelect={(option) => commit(asks(), option.value)}
-    /></Show>
+    <Show when={props.kind.wire}><div class="automatic-fix-wire">
+      <label id={`${id}-wire-label`} class="product-field-label" for={`${id}-wire`}>{message(`automaticFixes.wire.${props.kind.id}`)}</label>
+      <ProductSelect id={`${id}-wire`}
+        ariaLabelledBy={`${id}-wire-label`}
+        selectedId={removesWire() ? 'remove' : 'keep'}
+        options={[
+          { id: 'keep', label: message('automaticFixes.keepWire'), value: false },
+          { id: 'remove', label: message('automaticFixes.removeWire'), value: true },
+        ]}
+        onSelect={(option) => commit(asks(), option.value)}
+      />
+    </div></Show>
   </ProductField>
 }
 

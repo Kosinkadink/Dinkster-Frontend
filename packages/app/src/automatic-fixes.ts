@@ -17,6 +17,12 @@ export const automaticFixKinds = [
 export type AutomaticFixKind = typeof automaticFixKinds[number]
 export type AutomaticFixPreference = 'apply' | 'ask' | 'apply-remove-wire' | 'ask-remove-wire'
 
+/** Shared action wording for settings descriptions and the offered fix. */
+export function automaticFixLabel(kind: AutomaticFixKind['id'], removeWire = false, message: (key: string) => string = t): string {
+  if (removeWire && (kind === 'listShrinksWithWires' || kind === 'subgraphRowRemoved')) return message(`automaticFixes.action.${kind}Remove`)
+  return message(`automaticFixes.action.${kind}`)
+}
+
 export function automaticFixPreference(settings: SettingsRegistry, kind: AutomaticFixKind): AutomaticFixPreference {
   return kind.id === 'nodeReplacement'
     ? settings.get<boolean>(kind.setting) ? 'ask' : 'apply'
@@ -33,9 +39,7 @@ export function registerAutomaticFixSettings(settings: SettingsRegistry): void {
     id: kind.setting,
     category: 'automaticFixes',
     get name() { return t(`automaticFixes.kind.${kind.id}`) },
-    get description() {
-      return t(automaticFixPreference(settings, kind) === 'apply' ? 'automaticFixes.builtIn' : 'automaticFixes.personal')
-    },
+    get description() { return automaticFixLabel(kind.id, automaticFixPreference(settings, kind).endsWith('remove-wire')) },
     type: kind.id === 'nodeReplacement' ? 'boolean' : 'combo',
     defaultValue: kind.id === 'nodeReplacement' ? false : 'apply',
     get options() {
