@@ -64,6 +64,7 @@ import './projects-page.css'
 import { byProjectTime, formatWhen, projectTime } from './project-facts.js'
 import { WorkflowPicture } from './workflow-picture.js'
 import { EngineLogDialog } from '../EngineRunControl.js'
+import { InstallationsView } from './InstallationsPage.js'
 
 /** An installation a project can run on. */
 export interface PageInstallation {
@@ -345,6 +346,9 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
           <Switch>
             <Match when={place() === 'projects'}>
               <ProjectsView shell={props.shell} source={source} onCount={setCount} onEngine={setEngine} onSetupStatusChange={setSetupStatus} />
+            </Match>
+            <Match when={place() === 'installations'}>
+              <InstallationsView source={source} onEngine={setEngine} onSetupStatusChange={setSetupStatus} />
             </Match>
             <Match when={true}>
               <ProductProjectsView>

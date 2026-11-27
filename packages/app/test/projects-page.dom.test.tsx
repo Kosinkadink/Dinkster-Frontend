@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { asConnectionId, setLocale } from '@dinkster/core'
 import { DinksterConnection, type LibraryProject, type ProjectCreation } from '@dinkster/client'
 import '../src/locale.js'
+import { InstallationsView } from '../src/projects-page/InstallationsPage.js'
 import {
   processSource,
   ProjectsPage,
@@ -94,6 +95,53 @@ const projects = [
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 const rows = () => [...document.querySelectorAll('[role="option"]')].map((row) => row.textContent)
 const loading = (label: string) => [...document.querySelectorAll('[role="status"]')].find((node) => node.textContent === label)
+
+it('selects installations independently of the running engine and opens setup in the detail pane', async () => {
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({
+    all: [stable, nightly], open: nightly, engine: 'ready',
+  }) }} />, document.body)
+  await settle()
+  expect(rows()).toEqual(['StableStopped', 'NightlyRunning'])
+  expect(document.querySelector('[aria-label="About this installation"]')?.textContent).toContain(stable.root)
+  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  await settle()
+  expect(document.querySelector('h2')?.textContent).toBe('Nightly')
+  expect(document.querySelector('[aria-label="About this installation"]')?.textContent).toContain(nightly.root)
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Set up'))!.click()
+  await settle()
+  expect(document.querySelector('[data-testid="setup-form"]')).not.toBeNull()
+  expect(document.querySelector('.dinkster-projects-detail')?.textContent).toContain('Set up Dinkster')
+  document.querySelectorAll<HTMLElement>('[role="option"]')[0]!.click()
+  await settle()
+  expect(document.querySelector('[data-testid="setup-form"]')).toBeNull()
+  expect(document.querySelector('h2')?.textContent).toBe('Stable')
+  dispose()
+})
+
+it('does not invent stopped status when the installation list is readable but engine status is not', async () => {
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable] }) }} />, document.body)
+  await settle()
+  expect(rows()).toEqual(['StableCould not read engine status'])
+  expect(document.querySelector('.dinkster-project-header')?.textContent).toContain('Could not read engine status')
+  dispose()
+})
+
+it('offers setup only after a failed installations read recovers to a known empty list', async () => {
+  let unavailable = true
+  const dispose = render(() => <InstallationsView source={{ installations: async () => {
+    if (unavailable) throw new Error('Registry is unavailable')
+    return { all: [] }
+  } }} />, document.body)
+  await settle()
+  expect(document.body.textContent).toContain('Registry is unavailable')
+  expect(document.querySelector('[data-testid="setup-form"]')).toBeNull()
+  unavailable = false
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Try again')!.click()
+  await settle()
+  expect(document.body.textContent).not.toContain('Registry is unavailable')
+  expect(document.querySelector('[data-testid="setup-form"]')).not.toBeNull()
+  dispose()
+})
 
 it.each([
   { required: ['a', 'b', 'a'], extra: ['a', 'c', 'c'], unknown: 0, text: '2 needed by its workflows, 1 added', names: 'a\nb\nc' },
