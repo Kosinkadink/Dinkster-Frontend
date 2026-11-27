@@ -165,7 +165,7 @@ import type { RowBox } from './editors/row-placement.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, retainProvenExecution, withRecordedAutomaticValues, type SelectedInputPreview } from './scene-overlays.js'
 import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
-import { problemBoxLines, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
+import { problemBoxLines, problemBoxRows, runtimeProblemBoxLines, type ProblemBoxLine } from './problem-box.js'
 import { NodeProblemBox } from './NodeProblemBox.js'
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
@@ -2142,6 +2142,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly owner: string
     readonly nodeId: string
     readonly nodeTitle: string
+    readonly runLevel?: 'error' | 'warning' | 'info'
     readonly lines: readonly ProblemBoxLine[]
     readonly highlighted?: string | undefined
   } | undefined>(undefined)
@@ -2152,7 +2153,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let problemBoxPointerClose: { readonly nodeId: string; readonly at: number } | undefined
   let problemBoxHost: {
     readonly place: (nodeId: string) => ReturnType<typeof problemBoxPlacement>
-    readonly lines: (nodeId: string) => readonly ProblemBoxLine[]
+    readonly lines: (nodeId: string, runLevel?: 'error' | 'warning' | 'info') => readonly ProblemBoxLine[]
     readonly title: (nodeId: string) => string
     readonly owner: () => string | undefined
     readonly highlightRow: (highlight: { readonly nodeId: string; readonly row: string } | undefined) => void
@@ -2167,15 +2168,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
 
   /** Opens the node's box, optionally with one line highlighted; false when the node has no line to show. */
-  const openProblemBox = (nodeId: string, pick?: (line: ProblemBoxLine) => boolean): boolean => {
+  const openProblemBox = (nodeId: string, pick?: (line: ProblemBoxLine) => boolean, runLevel?: 'error' | 'warning' | 'info'): boolean => {
     const host = problemBoxHost
     const owner = host?.owner()
     if (!host || owner === undefined) return false
-    const lines = host.lines(nodeId)
+    const lines = host.lines(nodeId, runLevel)
     const picked = pick === undefined ? undefined : lines.find(pick)
     if (lines.length === 0 || (pick !== undefined && picked === undefined)) return false
     setBadgePopover(undefined)
-    setProblemBox({ owner, nodeId, nodeTitle: host.title(nodeId), lines, ...(picked === undefined ? {} : { highlighted: picked.key }) })
+    setProblemBox({ owner, nodeId, nodeTitle: host.title(nodeId), lines, ...(runLevel === undefined ? {} : { runLevel }), ...(picked === undefined ? {} : { highlighted: picked.key }) })
     host.highlightRow(picked?.row === undefined ? undefined : { nodeId, row: picked.row })
     return true
   }
@@ -2328,14 +2329,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [dismissedErrorNodes, setDismissedErrorNodes] = createSolidSignal<
     ReadonlyMap<string, ReadonlySet<string>>
   >(new Map())
-  /** Log records of one node at one level, for the bottom-badge popover. */
-  const nodeRunLogs = (nodeId: string, level: 'info' | 'warning'): readonly ExecutionLogEntry[] =>
-    (runLogsByNode().get(nodeId) ?? []).filter((entry) => entry.level === level)
+  const [dismissedLogTabs, setDismissedLogTabs] = createSolidSignal<ReadonlyMap<string, ReadonlySet<string>>>(new Map())
   /** Hide this run's error badge on the node; the error report is untouched. */
   const dismissNodeError = (nodeId: string): void => {
     const tab = activeTab()
     const exec = tab ? props.app.executionForTab(tab) : undefined
     setBadgePopover(undefined)
+    closeProblemBox()
     if (!exec) return
     setDismissedErrorNodes((current) => {
       const next = new Map(current)
@@ -2351,6 +2351,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
    */
   const openExecutionLogForNode = (nodeId: string): void => {
     setBadgePopover(undefined)
+    closeProblemBox()
     const ids = new Set<string>()
     for (const entry of runLogsByNode().get(nodeId) ?? []) {
       if (entry.runtimeNodeId !== undefined) ids.add(entry.runtimeNodeId)
@@ -3495,14 +3496,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         closePalette()
         setEditor(undefined)
         setMenu(undefined)
-        if (badge.id.startsWith('core.problem.')) {
+        const runLevel = badge.id === 'core.error' || badge.id === 'core.error.lastRun' ? 'error'
+          : badge.id === 'core.log.warning' ? 'warning' : badge.id === 'core.log.info' ? 'info' : undefined
+        if (badge.id.startsWith('core.problem.') || runLevel !== undefined) {
           // Either problem tab opens the node's one box; a second click on
           // it, which the press outside the box already closed, leaves it closed.
           const closedByThisPress = problemBoxPointerClose?.nodeId === node.id &&
             performance.now() - problemBoxPointerClose.at < 1000
           problemBoxPointerClose = undefined
-          if (problemBox()?.nodeId === node.id || closedByThisPress) closeProblemBox()
-          else if (!openProblemBox(node.id)) closeProblemBox()
+          if ((problemBox()?.nodeId === node.id && problemBox()?.runLevel === runLevel) || closedByThisPress) closeProblemBox()
+          else if (!openProblemBox(node.id, undefined, runLevel)) closeProblemBox()
           return
         }
         closeProblemBox()
@@ -4595,10 +4598,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
         return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport(), canvasEl.clientWidth, detailMinScale())
       },
-      lines: (nodeId) => {
+      lines: (nodeId, runLevel) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
         const tab = activeTab()
         if (node === undefined || tab === undefined) return []
+        if (runLevel !== undefined) {
+          const exec = props.app.executionForTab(tab)
+          if (exec === undefined || (runLevel === 'error'
+            ? dismissedErrorNodes().get(exec.key)?.has(nodeId)
+            : dismissedLogTabs().get(exec.key)?.has(`${nodeId}\u0000${runLevel}`))) return []
+          return runtimeProblemBoxLines(nodeErrors(nodeId), runLogsByNode().get(nodeId) ?? [], runLevel, node.isSubgraph ? [] : problemBoxRows(node))
+        }
         // A runtime cause belongs to the run's own Error tab, not this box.
         const problems = (nodeProblems[nodeId] ?? []).filter((line) =>
           !((runErrorsByNode().has(nodeId) || lastRunNodes.has(nodeId)) && line.diagnostic.origin === 'runtime'))
@@ -5020,8 +5030,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           if (picked !== undefined && input === undefined) {
             queueMicrotask(() => {
               if (activeTab() !== tab || currentGraphId(tab) !== graphId) return
-              openProblemBox(node.id, (line) => line.problem.diagnostic === picked ||
-                (line.problem.diagnostic.code === picked.code && line.problem.diagnostic.message === picked.message))
+              openProblemBox(node.id, (line) => line.problem?.diagnostic === picked ||
+                (line.problem?.diagnostic.code === picked.code && line.problem.diagnostic.message === picked.message),
+                picked.origin === 'runtime' ? 'error' : undefined)
             })
           }
         } else if (link) {
@@ -5237,6 +5248,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const dismissed = exec === undefined ? undefined : dismissedErrorNodes().get(exec.key)
           return dismissed === undefined ? {} : { dismissedErrorNodes: dismissed }
         })(),
+        dismissedLogTabs: exec === undefined ? undefined : dismissedLogTabs().get(exec.key),
         rowProblems: projectedProblems.rows,
         resolveSchema: reg?.resolve,
         mirrorPreviews: props.app.settings.get<boolean>('execution.mirrorPreviews'),
@@ -5393,7 +5405,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const openBox = problemBox()
       if (openBox !== undefined) {
         const lines = openBox.owner === JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])
-          ? problemBoxHost?.lines(openBox.nodeId) ?? []
+          ? problemBoxHost?.lines(openBox.nodeId, openBox.runLevel) ?? []
           : []
         // The box and its tab go together when the node's last problem goes.
         if (lines.length === 0) closeProblemBox()
@@ -5501,6 +5513,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       problems() // each compile/submit sweep replaces the active tab's diagnostics
       instanceDiagnostics() // scene/widget diagnostics replace and clear per build
       dismissedErrorNodes() // dismissing a node's error badge removes it now
+      dismissedLogTabs()
       settingsTick() // overlay-affecting settings (execution.mirrorPreviews)
       const tab = activeTab()
       untrack(() => refreshSceneOverlays(tab))
@@ -8103,6 +8116,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   nodeId={box().nodeId}
                   nodeTitle={box().nodeTitle}
                   lines={box().lines}
+                  lastRun={box().runLevel === 'error' && lastRunNodes.has(box().nodeId)}
                   highlighted={box().highlighted}
                   onPointLine={(line) => {
                     const open = problemBox()
@@ -8113,11 +8127,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   onAction={(line, action) => {
                     const open = problemBox()
                     if (!open) return
-                    if (action === 'edit-field' && line.row !== undefined) {
+                    if (action === 'show-log') {
+                      openExecutionLogForNode(open.nodeId)
+                    } else if (action === 'dismiss-run') {
+                      if (open.runLevel === 'error') dismissNodeError(open.nodeId)
+                      else {
+                        const tab = activeTab()
+                        const exec = tab === undefined ? undefined : props.app.executionForTab(tab)
+                        closeProblemBox()
+                        if (exec !== undefined) setDismissedLogTabs((current) => {
+                          const next = new Map(current)
+                          next.set(exec.key, new Set([...(next.get(exec.key) ?? []), `${open.nodeId}\u0000${open.runLevel}`]))
+                          return next
+                        })
+                      }
+                    } else if (action === 'edit-field' && line.row !== undefined) {
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, line.row)
                     } else if (action === 'locate-asset') {
-                      const data = line.problem.diagnostic.data
+                      const data = line.problem!.diagnostic.data
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, data!['input'] as string,
                         typeof data?.['digest'] === 'string' ? data['digest'] : undefined)
@@ -8125,8 +8153,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                       const tab = activeTab()
                       if (tab === undefined) return
                       closeProblemBox()
-                      if (action === 'review-model') props.app.reviewModelDownload(tab, line.problem.diagnostic)
-                      else props.app.openModelStorage(tab, line.problem.diagnostic)
+                      if (action === 'review-model') props.app.reviewModelDownload(tab, line.problem!.diagnostic)
+                      else props.app.openModelStorage(tab, line.problem!.diagnostic)
                     }
                   }}
                 />
@@ -8140,10 +8168,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         {(p) => (
           <BadgePopover
             anchor={p()}
-            errors={nodeErrors}
-            nodeLogs={nodeRunLogs}
-            onDismissError={dismissNodeError}
-            onOpenExecutionLog={openExecutionLogForNode}
             problems={problemMessages}
             subgraphInfo={subgraphInfoFor}
             deprecationInfo={deprecationInfoFor}

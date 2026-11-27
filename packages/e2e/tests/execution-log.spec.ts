@@ -19,26 +19,27 @@ interface Seed {
 
 /** Open a workflow, register a run, and feed it log events plus one error report. */
 async function seedRun(page: Page): Promise<Seed> {
-  await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
-  await page.route('/object_info', (route) => route.fulfill({ json: {} }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'execution-log-fixture', schemaWire: 2 }, nodes: {},
+  } }))
   await page.goto('/')
   await waitForWorkspaceReady(page)
   const seed = await page.evaluate(async () => {
     const bridge = window.__dinksterTest!
     bridge.app.registerSchemas([
       {
-        type: 'EmptyImage', displayName: 'Empty Image', category: 'e2e', source: 'e2e', isOutputNode: false,
+        type: 'dinkster.image.empty_image', displayName: 'Empty Image', category: 'e2e', source: 'e2e', isOutputNode: false,
         body: [{ kind: 'output', id: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } }],
       },
       {
-        type: 'ImageScaleBy', displayName: 'Scale Image', category: 'e2e', source: 'e2e', isOutputNode: false,
+        type: 'dinkster.image.image_scale_by', displayName: 'Scale Image', category: 'e2e', source: 'e2e', isOutputNode: false,
         body: [
           { kind: 'input', id: 'image', type: { kind: 'concrete', name: 'IMAGE' }, optional: false },
           { kind: 'output', id: 'IMAGE', type: { kind: 'concrete', name: 'IMAGE' } },
         ],
       },
       {
-        type: 'PreviewImage', displayName: 'Preview Image', category: 'e2e', source: 'e2e', isOutputNode: true,
+        type: 'dinkster.image.preview_image', displayName: 'Preview Image', category: 'e2e', source: 'e2e', isOutputNode: true,
         body: [{ kind: 'input', id: 'images', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }],
       },
     ])
@@ -250,7 +251,7 @@ async function bottomBadgePoint(page: Page, nodeId: string): Promise<{ x: number
   }, nodeId)
 }
 
-test('bottom badges expose the run error report and log records per node', async ({ page }) => {
+test('bottom badges expose the run error report and log records per node', async ({ page }, testInfo) => {
   const seed = await seedRun(page)
   await page.evaluate(() => {
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
@@ -260,42 +261,48 @@ test('bottom badges expose the run error report and log records per node', async
   // The errored node carries its error tab on the bottom edge.
   const errorPoint = await bottomBadgePoint(page, seed.lastNode)
   await page.mouse.click(errorPoint.x, errorPoint.y)
-  const popover = page.getByTestId('badge-popover')
-  await expect(popover).toBeVisible()
-  await expect(popover).toHaveAttribute('data-badge', 'core.error')
-  await expect(popover.getByTestId('badge-error-detail')).toContainText('CUDA out of memory while decoding latents')
+  const box = page.getByTestId('problem-box')
+  await expect(box).toBeVisible()
+  await expect(box.getByTestId('problem-box-line')).toContainText('CUDA out of memory while decoding latents')
+  await expect(box).not.toContainText('RuntimeError')
+  await expect(box.locator('.traceback')).toHaveCount(0)
+  await expect(box.locator('.badge-popover-title')).toHaveCount(0)
+  await box.screenshot({ path: testInfo.outputPath('run-error-box-dark.png') })
 
   // Open in Execution log pre-filters the panel to the node's rows.
-  await popover.getByTestId('badge-open-execution-log').hover()
-  await page.mouse.down()
-  await page.mouse.up()
-  await expect(popover).not.toBeVisible()
+  await box.getByRole('button', { name: 'Show in Log', exact: true }).click()
+  await expect(box).not.toBeVisible()
   await expect(page.getByTestId('execution-log-panel')).toBeVisible()
   await expect(page.getByTestId('execution-log-node-select')).toHaveAttribute('data-selected-id', seed.lastNode)
   const rows = page.getByTestId('execution-log-row')
   await expect(rows).toHaveCount(2)
+  await expect(rows.locator('.traceback')).toContainText('RuntimeError: CUDA out of memory')
+  await page.getByTestId('execution-log-panel').screenshot({ path: testInfo.outputPath('run-error-log-dark.png') })
 
   // The info-logging node carries the compact info dot; its popover lists
   // the run's records for that node.
   const infoPoint = await bottomBadgePoint(page, seed.firstNode)
   await page.mouse.click(infoPoint.x, infoPoint.y)
-  await expect(popover).toBeVisible()
-  await expect(popover).toHaveAttribute('data-badge', 'core.log.info')
-  await expect(popover.getByTestId('badge-log-entry')).toContainText('loading checkpoint shards')
+  await expect(box).toBeVisible()
+  await expect(box).toHaveAttribute('data-kind', 'info')
+  await expect(box.getByTestId('problem-box-line')).toContainText('loading checkpoint shards')
 
   // Dismissing the error badge hides it; the error report is untouched.
   await page.mouse.click(errorPoint.x, errorPoint.y)
-  await expect(popover).toHaveAttribute('data-badge', 'core.error')
-  await popover.getByTestId('badge-dismiss-error').hover()
-  await page.mouse.down()
-  await page.mouse.up()
-  await expect(popover).not.toBeVisible()
+  await expect(box).toHaveAttribute('data-kind', 'error')
+  await box.getByRole('button', { name: 'Dismiss', exact: true }).click()
+  await expect(box).not.toBeVisible()
   await settlePaint(page)
   // The lane is left-aligned, so the node's info dot takes the freed slot:
   // clicking the same point now opens the info popover, not the error one.
   await page.mouse.click(errorPoint.x, errorPoint.y)
-  await expect(popover).toBeVisible()
-  await expect(popover).toHaveAttribute('data-badge', 'core.log.info')
+  await expect(box).toBeVisible()
+  await expect(box).toHaveAttribute('data-kind', 'info')
+  await box.getByRole('button', { name: 'Dismiss', exact: true }).click()
+  await expect(box).not.toBeVisible()
+  await expect.poll(() => page.evaluate((nodeId) =>
+    (window.__dinksterTest!.renderer!.getBadges()[nodeId] ?? []).map((badge) => badge.id), seed.lastNode))
+    .not.toContain('core.log.info')
   const errorCount = await page.evaluate(({ execution }) => {
     const state = [...window.__dinksterTest!.app.store.executions.get().values()]
       .find((entry) => entry.ref.prompt === execution.prompt)
