@@ -33,6 +33,7 @@
   "modalBackdrop": "color-mix(in srgb, var(--dinkster-surface-canvas) 72%, transparent)",
   "layout": {
     "borderWidth": 1,
+    "fieldValuePaddingStart": 12,
     "topBarHeight": 44,
     "shortcutCompactHeight": 18,
     "shortcutSettingsHeight": 22,
