@@ -327,7 +327,7 @@ function DownloadExample(props: {
               : allReady()
                 ? '3 models ready.'
                 : props.scene === 'ready'
-                  ? 'Nothing downloads until you press Download.'
+                  ? '6.8 GiB to download - 20 GiB free'
                   : props.scene === 'failed'
                     ? ''
                     : 'Nothing can be downloaded yet.')

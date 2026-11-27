@@ -103,7 +103,7 @@ it('renders plan answers, selected filesystem capacity, and independent download
     expect(button('Download 1 model').disabled).toBe(false)
     expect(root.textContent).not.toContain('Untick some models or free up space.')
     expect(button('Select all')).toBeDefined()
-    expect(root.textContent).toContain('600 B to download')
+    expect(root.querySelector('.dinkster-model-download-footer [role="status"]')?.textContent).toBe('600 B to download - 1000 B free')
     second.click()
     space = { status: 'unavailable' }
     await slot.get()!.reviewModel!(1)
