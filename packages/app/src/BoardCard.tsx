@@ -3,6 +3,7 @@ import { ProductBoardCard } from '@dinkster/ui'
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup } from 'solid-js'
 import type { AppState, Backend } from './app-state.js'
 import { ExposedParameterInput } from './AppView.js'
+import { executionStatusLabel } from './ExecutionActivityCard.js'
 import { buildParamRows, comboOptions, fetchRemoteComboOptions, type ParamRow } from './app-view-rows.js'
 import { applyCardInputs, type BoardEntry } from './board-workspace.js'
 import { ProductNotice } from './ProductForm.js'
@@ -79,6 +80,19 @@ export function BoardCard(props: {
   const identity = createMemo(() => JSON.stringify([props.entry.id, props.card.id, props.card.kind, props.card.source]))
   const [source, setSource] = createSignal<WorkflowDocument>()
   const [error, setError] = createSignal<string>()
+  const executions = useSignal(props.app.store.executions)
+  const submissions = useSignal(props.app.boardCardSubmissions)
+  const runs = createMemo(() => { executions(); return props.app.executionsForBoardCard(props.entry, props.card.id) })
+  const latest = () => runs()[0]
+  const pending = () => submissions().has(props.app.boardCardKey(props.entry, props.card.id))
+  const running = () => pending() || runs().some((run) => run.status === 'queued' || run.status === 'running')
+  let live = true
+  onCleanup(() => { live = false })
+  const run = async () => {
+    setError(undefined)
+    try { await props.app.queueBoardCard(props.entry, props.card.id) }
+    catch (reason) { if (live) setError(reason instanceof Error ? reason.message : String(reason)) }
+  }
   createEffect(on([identity, registry, backend], ([, schemas]) => {
     setSource(undefined)
     setError(undefined)
@@ -114,8 +128,12 @@ export function BoardCard(props: {
     if (!result.ok) setError(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
     return result.ok
   }
-  return <ProductBoardCard name={props.card.name} kind={props.card.kind} lastRun="Not run" disabled
-    error={error() ?? projection().error} onRun={() => undefined} onStop={() => undefined}
+  return <ProductBoardCard name={props.card.name} kind={props.card.kind}
+    lastRun={pending() ? 'Preparing' : latest() ? executionStatusLabel(latest()!.status) : 'Not run'}
+    running={running()} disabled={!source() || !registry() || !!projection().error}
+    error={error() ?? projection().error ?? latest()?.errors[0]?.message}
+    onRun={() => void run()} onStop={() => void props.app.stopBoardCard(props.entry, props.card.id)}
+    onOpenLastRun={latest() ? () => void props.app.openExecutionView(latest()!.ref) : undefined}
     onOpen={props.onOpen} onChooseInputs={props.onChooseInputs} onRemove={props.onRemove}>
     <For each={[...rows().keys()]}>{(key) => {
       const row = () => rows().get(key)!

@@ -267,7 +267,7 @@ import {
   type PersistedExecutionResult,
 } from './execution-result-persistence.js'
 import { COLLAB_SCOPE, httpCollabTransport, stableActorId, type CollabTransport } from './collab.js'
-import { BoardWorkspace } from './board-workspace.js'
+import { BoardWorkspace, type BoardEntry } from './board-workspace.js'
 import { installBoardPages } from './BoardPage.js'
 import { PresenceChannel } from './collab-presence.js'
 import {
@@ -2845,7 +2845,7 @@ export class AppState {
   private readonly localExtensions = new ExtensionHost(this.extensionTargets)
   private readonly extensionWorlds = new Map<ConnectionId, Map<string, ExtensionWorld>>()
   private readonly extensionWorldLoads = new WeakMap<ExtensionWorld, Promise<void>>()
-  private readonly submissionWorlds = new Map<AbortController, { readonly tab: Tab; readonly world: ExtensionWorld | undefined }>()
+  private readonly submissionWorlds = new Map<AbortController, { readonly tab: Tab | undefined; readonly world: ExtensionWorld | undefined }>()
   private readonly deniedExtensionPrivileges: readonly FrontendPrivilege[]
   private selectedExtensionWorld: ExtensionWorld | undefined
 
@@ -2945,7 +2945,7 @@ export class AppState {
   }
 
   /** A posted submission can outlive its tab and transfer ownership to a run. */
-  private retainSubmissionWorld(tab: Tab, artifact: CompileArtifact): { readonly signal: AbortSignal; readonly release: () => void; readonly markPosted: () => void } {
+  private retainSubmissionWorld(tab: Tab | undefined, artifact: CompileArtifact): { readonly signal: AbortSignal; readonly release: () => void; readonly markPosted: () => void } {
     const registry = this.retainedRegistries.get(artifact)
     const digest = registry?.extensionSnapshotPair?.digest
     const world = digest === undefined ? undefined : this.extensionWorlds.get(artifact.connection)?.get(digest)
@@ -3010,6 +3010,7 @@ export class AppState {
   readonly activeTabId: Signal<string> = createSignal('')
   readonly pages: ReturnType<typeof createAppPageTabs>
   readonly boards: BoardWorkspace
+  readonly boardCardSubmissions = createSignal<ReadonlyMap<string, AbortController>>(new Map())
   private readonly uninstallBoardPages: () => void
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
@@ -3778,7 +3779,7 @@ export class AppState {
     // Mirror tab, document, and active-tab changes back into storage.
     this.tabs.subscribe(() => {
       for (const [controller, { tab }] of this.submissionWorlds) {
-        if (this.liveTabContinuing(tab.store) === undefined) controller.abort()
+        if (tab !== undefined && this.liveTabContinuing(tab.store) === undefined) controller.abort()
       }
       this.selectExtensionWorld()
       this.watchTabDocuments()
@@ -3865,6 +3866,7 @@ export class AppState {
     this.pendingSelectionScopes.clear()
     this.unsubscribePackLocale()
     this.unsubscribeAppView()
+    for (const controller of this.boardCardSubmissions.get().values()) controller.abort()
     for (const controller of this.submissionWorlds.keys()) controller.abort()
     this.submissionWorlds.clear()
     for (const worlds of this.extensionWorlds.values()) for (const world of worlds.values()) world.dispose()
@@ -10062,6 +10064,121 @@ export class AppState {
       const pending = new Set(this.cancellingExecutions.get())
       pending.delete(key)
       this.cancellingExecutions.set(pending)
+    }
+  }
+
+  boardCardKey(entry: BoardEntry, cardId: string): string {
+    return JSON.stringify([entry.baseUrl, entry.id, cardId])
+  }
+
+  executionsForBoardCard(entry: BoardEntry, cardId: string): readonly ExecutionState[] {
+    const backend = this.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)
+    if (!backend) return []
+    return [...this.store.executions.get().values()].filter((execution) => {
+      const origin = execution.artifact?.snapshot.ext?.['dinkster.boardCard']
+      return execution.ref.connection === backend.id && workspaceRecord(origin) &&
+        origin['board'] === entry.id && origin['card'] === cardId
+    }).sort((a, b) => b.queuedAt - a.queuedAt)
+  }
+
+  async stopBoardCard(entry: BoardEntry, cardId: string): Promise<void> {
+    this.boardCardSubmissions.get().get(this.boardCardKey(entry, cardId))?.abort('stop')
+    const active = this.executionsForBoardCard(entry, cardId)
+      .find((run) => run.status === 'queued' || run.status === 'running')
+    if (active) await this.cancelExecution(active.ref)
+  }
+
+  /** Submit an independent full workflow; no editing session is opened or written. */
+  async queueBoardCard(entry: BoardEntry, cardId: string): Promise<ExecutionRef | undefined> {
+    const key = this.boardCardKey(entry, cardId)
+    if (this.boardCardSubmissions.get().has(key) || this.executionsForBoardCard(entry, cardId)
+      .some((run) => run.status === 'queued' || run.status === 'running')) return undefined
+    const backend = this.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)
+    const registry = backend?.registry.get()
+    const card = entry.session.doc.items[cardId]
+    if (!backend || !registry || !card || (card.kind !== 'workflow' && card.kind !== 'blueprint'))
+      throw new Error('This card or its backend is unavailable')
+    const project = activeProjectId()
+    const controller = new AbortController()
+    const current = (): boolean => {
+      const latest = entry.session.doc.items[cardId]
+      return !this.disposed && !controller.signal.aborted && activeProjectId() === project &&
+        this.backends.get().includes(backend) && backend.registry.get() === registry &&
+        this.boards.entries.get().includes(entry) && latest?.kind === card.kind &&
+        jsonSameValue(latest.source, card.source)
+    }
+    const invalidate = (): void => { if (!current()) controller.abort() }
+    const subscriptions = [this.boards.changed.subscribe(invalidate), this.backendsTick.subscribe(invalidate)]
+    this.boardCardSubmissions.set(new Map([...this.boardCardSubmissions.get(), [key, controller]]))
+    let releaseWorld: (() => void) | undefined
+    try {
+      const source = await this.boards.loadCard(entry.id, cardId, registry.resolve, current)
+      if (!current()) return undefined
+      const resolve = this.resolverWithVirtualNodes(registry.resolve)
+      let document: WorkflowDocument = { ...source,
+        lineage: asLineageId(`board-card:${entry.id}:${cardId}`),
+        ext: { ...source.ext, 'dinkster.boardCard': { board: entry.id, card: cardId, source: card.source } },
+      }
+      const stamp = stampEnvironment(document, { resolve,
+        ...(registry.packs === undefined ? {} : { packs: registry.packs }),
+        ...(registry.server === undefined ? {} : { server: registry.server }), frontendVersion: FRONTEND_VERSION,
+      })
+      if (stamp) document = { ...document, environment: stamp }
+      const result = compile({ document, revision: entry.session.revision, resolve, scope: { kind: 'full' },
+        connection: backend.id, schemaHash: registry.hash,
+        ...(registry.graphFeatures === undefined ? {} : { graphFeatures: registry.graphFeatures }),
+        lookupAnswers: lookupAnswersOf(backend.lookups), pickCandidate: ({ count }) => Math.floor(Math.random() * count),
+      })
+      if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      const artifact = result.artifact
+      this.retainedRegistries.set(artifact, registry)
+      const lease = this.retainSubmissionWorld(undefined, artifact)
+      releaseWorld = lease.release
+      let sourceDocument: string | undefined
+      try { sourceDocument = await backend.connection.uploadAsset(JSON.stringify(document)) } catch { /* Advisory stamp. */ }
+      if (!current()) return undefined
+      const identity = { workflowName: card.name, ...(sourceDocument === undefined ? {} : { sourceDocument }) }
+      lease.markPosted()
+      const submitted = await backend.connection.submit(artifact, { ...identity, previews: resolvePreviewPolicy(
+        artifact.snapshot, artifact.provenance, this.settings.get<PreviewMode>('execution.previews'),
+        this.settings.get<PreviewAnimation>('execution.previewAnimation'),
+      ) })
+      const install = (ok: Extract<DinksterSubmitResult, { ok: true }>): ExecutionRef | undefined => {
+        if (this.disposed) return undefined
+        this.installRun(ok.execution, artifact, undefined, undefined, { ...identity,
+          ...(ok.jobRef === undefined ? {} : { jobRef: ok.jobRef }),
+        })
+        // Closing a Board does not cancel an accepted run; an explicit Stop does.
+        if (controller.signal.aborted && controller.signal.reason === 'stop') void this.cancelExecution(ok.execution)
+        return ok.execution
+      }
+      if (submitted.ok) return install(submitted)
+      if (!current()) return undefined
+      if (!('assetsMissing' in submitted)) throw new Error(submitted.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      const modelReferences = workflowModelOccurrences(artifact.snapshot, registry.resolve, lookupAnswersOf(backend.lookups))
+        .flatMap((occurrence) => occurrence.asset === undefined ? [] : [{ name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset }])
+      return await new Promise<ExecutionRef | undefined>((resolve, reject) => {
+        installAssetConsent({ result: submitted, workflowTitle: card.name, modelReferences, slot: this.assetConsent,
+          signal: controller.signal, beforeRetry: current, onSettled: () => resolve(undefined),
+          modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project),
+            providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+          enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+          unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
+          onSubmitted: (ok) => resolve(install(ok)),
+          onRejected: (diagnostics) => reject(new Error(diagnostics.map((diagnostic) => diagnostic.message).join('; '))),
+          onTransportError: (message) => reject(new Error(message)),
+          onSuperseded: () => reject(new Error('Assets are still missing; run the card again to review them')),
+        })
+      })
+    } catch (error) {
+      if (!controller.signal.aborted) throw error
+      return undefined
+    } finally {
+      for (const unsubscribe of subscriptions) unsubscribe()
+      releaseWorld?.()
+      const pending = new Map(this.boardCardSubmissions.get())
+      pending.delete(key)
+      this.boardCardSubmissions.set(pending)
     }
   }
 

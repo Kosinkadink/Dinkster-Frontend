@@ -107,6 +107,107 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 }
 
 describe('Board card sources', () => {
+  it('runs independent full card snapshots on the Board backend, keeps editing tabs unchanged, and stops a posted run even when its reply arrives late', async () => {
+    const { backend, tab } = await nativeSetup()
+    const input = { graphId: 'g0', nodeId: 'n0', inputId: 'frame_rate', label: 'Rate' }
+    const source = { ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0,
+      nodes: { n0: { id: 'n0', type: 'test.numeric_union', values: { frame_rate: 25 } } }, links: {},
+    } }, ext: { 'dinkster.exposed': [input] } }
+    const bytes = JSON.stringify(source)
+    const original = tab.store.doc
+    const tabs = app.tabs.get()
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
+    vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(bytes)
+    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST2)
+    const board = app.boards.open(emptyBoard(), 'Rates', backend.baseUrl)
+    const selection = { project: activeProjectId(), baseUrl: backend.baseUrl, kind: 'workflow' as const,
+      source: { kind: 'library' as const, recordId: 'r1' }, name: 'Rates' }
+    const a = await app.boards.placeCard(board.id, selection, { x: 0, y: 0 })
+    const b = await app.boards.placeCard(board.id, selection, { x: 400, y: 0 })
+    for (const [id, value] of [[a, 17], [b, 29]] as const)
+      board.session.dispatch({ command: 'board.card.input', params: { id, input, value } })
+    const submitted: number[] = []
+    let reply: (() => void) | undefined
+    const submit = vi.spyOn(backend.connection, 'submit').mockImplementation(async (artifact) => {
+      submitted.push(artifact.prompt.n0!.inputs.frame_rate as number)
+      const execution = { connection: backend.id, prompt: asPromptId(`card-${submitted.length}`) }
+      if (submitted.length === 3) await new Promise<void>((resolve) => { reply = resolve })
+      return { ok: true, execution, jobRef: String(execution.prompt) }
+    })
+    const first = await app.queueBoardCard(board, a)
+    const second = await app.queueBoardCard(board, b)
+    expect(first?.connection).toBe(backend.id)
+    expect(second?.connection).toBe(backend.id)
+    expect(submitted).toEqual([17, 29])
+    expect(app.executionsForBoardCard(board, a)).toHaveLength(1)
+    expect(app.executionsForBoardCard(board, b)).toHaveLength(1)
+    expect(app.store.get(first!)?.sourceDocument).toBe(DIGEST2)
+    expect(app.store.get(first!)?.artifact?.snapshot.ext?.['dinkster.boardCard']).toMatchObject({ board: board.id, card: a })
+    expect(app.tabs.get()).toBe(tabs)
+    expect(tab.store.doc).toBe(original)
+    expect(JSON.parse(bytes).graphs.g0.nodes.n0.values).toEqual({ frame_rate: 25 })
+    app.store.apply({ kind: 'completed', execution: first!, timestamp: 1 })
+    const late = app.queueBoardCard(board, a)
+    await vi.waitFor(() => expect(reply).toBeDefined())
+    expect(await app.queueBoardCard(board, a)).toBeUndefined()
+    expect(submitted).toEqual([17, 29, 17])
+    await app.stopBoardCard(board, a)
+    const cancelled: string[] = []
+    vi.spyOn(backend.connection, 'cancel').mockImplementation(async (ref) => { cancelled.push(String(ref.prompt)); return 'cancelled' })
+    reply!()
+    await late
+    await vi.waitFor(() => expect(cancelled).toEqual(['card-3']))
+    expect(app.executionsForBoardCard(board, b)[0]?.ref).toEqual(second)
+    expect(submit.mock.calls.every(([artifact]) => artifact.connection === backend.id)).toBe(true)
+  })
+
+  it('cancels a card before upload completes and refuses a removed card consent retry without posting another run', async () => {
+    const { backend } = await nativeSetup()
+    const source = { ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0,
+      nodes: { n0: { id: 'n0', type: 'test.numeric_union', values: { frame_rate: 25 } } }, links: {},
+    } } }
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
+    vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(source))
+    const board = app.boards.open(emptyBoard(), 'Rates', backend.baseUrl)
+    const card = await app.boards.placeCard(board.id, { project: activeProjectId(), baseUrl: backend.baseUrl,
+      kind: 'workflow', source: { kind: 'library', recordId: 'r1' }, name: 'Rates' }, { x: 0, y: 0 })
+    let uploaded: (() => void) | undefined
+    const upload = vi.spyOn(backend.connection, 'uploadAsset').mockImplementation(async () => {
+      await new Promise<void>((resolve) => { uploaded = resolve }); return DIGEST
+    })
+    let posted = 0
+    const execution = { connection: backend.id, prompt: asPromptId('card-consent') }
+    vi.spyOn(backend.connection, 'submit').mockImplementation(async () => {
+      posted++
+      return { ok: false, assetsMissing: { assets: [{ digest: DIGEST, kind: 'media/image', name: 'Image' }] },
+        diagnostics: [], retryWithAssets: async () => { posted++; return { ok: true, execution } } }
+    })
+    const cancelled = app.queueBoardCard(board, card)
+    await vi.waitFor(() => expect(uploaded).toBeDefined())
+    await app.stopBoardCard(board, card)
+    uploaded!()
+    expect(await cancelled).toBeUndefined()
+    expect(posted).toBe(0)
+    upload.mockResolvedValue(DIGEST)
+    const pending = app.queueBoardCard(board, card)
+    await vi.waitFor(() => expect(app.assetConsent.get()).toBeDefined())
+    const consent = app.assetConsent.get()!
+    expect(board.session.dispatch({ command: 'board.item.remove', params: { ids: [card] } }).ok).toBe(true)
+    await pending
+    await consent.retry?.([DIGEST])
+    expect(posted).toBe(1)
+    expect(app.store.get(execution)).toBeUndefined()
+    expect(app.boardCardSubmissions.get().size).toBe(0)
+    expect(board.session.undo()).toBe(true)
+    const accepted = app.queueBoardCard(board, card)
+    await vi.waitFor(() => expect(app.assetConsent.get()).toBeDefined())
+    await app.assetConsent.get()!.retry?.([DIGEST])
+    expect(await accepted).toEqual(execution)
+    expect(posted).toBe(3)
+    expect(app.executionsForBoardCard(board, card)[0]?.ref).toEqual(execution)
+    expect(app.boardCardSubmissions.get().size).toBe(0)
+  })
+
   it('places referenced cards undoably and resolves their exposed values independently without changing the saved workflow or open tab', async () => {
     const { backend, tab } = await nativeSetup()
     const { connection, baseUrl } = backend

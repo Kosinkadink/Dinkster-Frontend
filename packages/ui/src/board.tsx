@@ -67,7 +67,7 @@ export function ProductBoardCard(props: {
   readonly onStop: () => void
   readonly onOpen: () => void
   readonly onChooseInputs: () => void
-  readonly onOpenLastRun?: () => void
+  readonly onOpenLastRun?: (() => void) | undefined
   readonly onRemove: () => void
 }) {
   return (
