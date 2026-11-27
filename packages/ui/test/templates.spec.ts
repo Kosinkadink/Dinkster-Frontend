@@ -1,5 +1,20 @@
 import { expect, test } from '@playwright/test'
 
+test('a narrow page returns from a template to the search and blank workflow', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 1000 })
+  await page.goto('/#templates')
+  const search = page.getByRole('searchbox', { name: 'Search templates' })
+  const tiles = page.getByRole('listbox', { name: 'Templates' })
+  await search.fill('inpaint')
+  await tiles.getByRole('option', { name: /Inpaint a region/ }).click()
+  await expect(page.getByRole('heading', { name: 'Inpaint a region', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Templates', exact: true }).click()
+  await expect(search).toHaveValue('inpaint')
+  await expect(tiles.getByRole('option', { name: /Inpaint a region/ })).toBeFocused()
+  await page.getByRole('button', { name: 'Blank workflow' }).click()
+  await expect(page.getByRole('status').last()).toHaveText('Blank workflow opened')
+})
+
 test('one click selects a template, a double click or Enter opens it, and the arrow keys move across and down', async ({
   page,
 }) => {

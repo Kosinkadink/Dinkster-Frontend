@@ -393,7 +393,6 @@ export function TemplatesPage(props: {
             { label: message('templatesPage.from'), value: message(ref(entry()).kind === 'remote' ? 'templateGallery.source.remote' : 'templateGallery.source.builtIn') },
           ]}
           actions={<>
-            <ProductButton fill="solid" pending={opening()} onClick={() => { void open(entry().id) }}>{message('templatesPage.use')}</ProductButton>
             <Show when={missing(entry()).length > 0}>
               <Show when={progress(entry()) !== undefined} fallback={<Show when={noFolders()} fallback={
                 <ProductButton disabled={opening() || noFolders() === undefined} onClick={() => { void download(entry()) }}>
@@ -413,6 +412,7 @@ export function TemplatesPage(props: {
                 />
               </Show>
             </Show>
+            <ProductButton fill="solid" pending={opening()} onClick={() => { void open(entry().id) }}>{message('templatesPage.use')}</ProductButton>
           </>}
         />}
       </Show>
