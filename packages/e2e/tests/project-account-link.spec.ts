@@ -1,8 +1,14 @@
 import type { Page } from '@playwright/test'
 import { expect, nativeTest as test } from './fixtures.js'
+import { chooseOption } from '../choices.js'
 
 const accountId = '48bb018e-5b17-4e68-bd81-c6412c4bcd72'
 const issuer = 'https://identity.example.test'
+
+async function openProjects(page: Page) {
+  await page.getByRole('button', { name: 'Film', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'All projects', exact: true }).click()
+}
 
 async function accountFixture(page: Page) {
   const state = { available: true, signedIn: true, revision: 7, uid: '7b42c8d9-2f8b-4ce9-9d87-82fc78a31457',
@@ -33,7 +39,7 @@ async function accountFixture(page: Page) {
     return route.fulfill({ json: { project: project() } })
   })
   const open = async () => {
-    if (!await page.getByTestId('projects-dialog').isVisible()) await page.getByTestId('projects-button').click()
+    if (!await page.getByTestId('projects-dialog').isVisible()) await openProjects(page)
     await page.getByTestId('projects-dialog').locator('li[data-project-id="default"]').getByRole('button', { name: 'Account link', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Account link', exact: true })
     await expect(dialog.getByRole('button', { name: 'Refresh', exact: true })).toBeVisible()
@@ -45,13 +51,13 @@ async function accountFixture(page: Page) {
 test('links one library project, keeps unchanged Save disabled and confirms signed-out unlink', async ({ page }, info) => {
   const { state, sibling, open } = await accountFixture(page)
   await page.goto('/?dinksterProject=default')
-  await page.getByTestId('projects-button').click()
+  await openProjects(page)
   await expect(page.getByTestId('projects-dialog')).toContainText('Other project')
   await page.screenshot({ path: info.outputPath('configured-list.png') })
   let dialog = await open()
   await expect(dialog.getByRole('button', { name: 'Save link', exact: true })).toBeDisabled()
   await page.screenshot({ path: info.outputPath('unlinked.png') })
-  await dialog.getByRole('combobox', { name: 'Account project', exact: true }).selectOption(accountId)
+  await chooseOption(dialog.getByRole('combobox', { name: 'Account project', exact: true }), 'Film cloud')
   await dialog.getByRole('button', { name: 'Save link', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   expect(state.link).toEqual({ issuer, id: accountId })
@@ -89,7 +95,7 @@ test('refuses a replaced project and requires fresh review after a save refusal'
   const { state, open } = await accountFixture(page)
   await page.goto('/?dinksterProject=default')
   const dialog = await open()
-  await dialog.getByRole('combobox').selectOption(accountId)
+  await chooseOption(dialog.getByRole('combobox'), 'Film cloud')
   state.uid = 'ffffffff-ffff-4fff-bfff-ffffffffffff'
   await dialog.getByRole('button', { name: 'Save link', exact: true }).click()
   await expect(dialog.getByRole('alert')).toContainText('Refresh to review its current state')
@@ -97,7 +103,7 @@ test('refuses a replaced project and requires fresh review after a save refusal'
   await expect(dialog.getByRole('button', { name: 'Save link', exact: true })).toHaveCount(0)
   await page.screenshot({ path: info.outputPath('refused.png') })
   await dialog.getByRole('button', { name: 'Refresh', exact: true }).click()
-  await dialog.getByRole('combobox').selectOption(accountId)
+  await chooseOption(dialog.getByRole('combobox'), 'Film cloud')
   state.refuse = true
   await dialog.getByRole('button', { name: 'Save link', exact: true }).click()
   await expect(dialog.getByRole('alert')).toContainText('Refresh to review its current state')
@@ -113,12 +119,12 @@ test('retains the editor and prevents duplicate writes while a save is pending',
   state.wait = new Promise<void>((resolve) => { finish = resolve })
   await page.goto('/?dinksterProject=default')
   const dialog = await open()
-  await dialog.getByRole('combobox').selectOption(accountId)
+  await chooseOption(dialog.getByRole('combobox'), 'Film cloud')
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
     app.backendsTick.update((value) => value + 1)
   })
-  await expect(dialog.getByRole('combobox')).toHaveValue(accountId)
+  await expect(dialog.getByRole('combobox')).toHaveText('Film cloud')
   await dialog.getByRole('button', { name: 'Save link', exact: true }).click()
   await expect.poll(() => state.writes).toBe(1)
   await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeDisabled()
@@ -149,7 +155,7 @@ test('hides account controls when account services are unconfigured', async ({ p
   const { state } = await accountFixture(page)
   state.available = false
   await page.goto('/?dinksterProject=default')
-  await page.getByTestId('projects-button').click()
+  await openProjects(page)
   const projects = page.getByTestId('projects-dialog')
   await expect(projects).toContainText('Other project')
   await expect(projects.getByRole('button', { name: 'Account link', exact: true })).toHaveCount(0)

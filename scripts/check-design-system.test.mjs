@@ -28,6 +28,11 @@ test('design check accepts shared classes and geometry but rejects screen-local 
       const shortcut = <ProductShortcut keys={'Ctrl+K'} />
       const conditionalShortcut = <ProductShortcut keys={mac ? 'Cmd+K' : 'Ctrl+K'} />
       const comparison = <span>{binding.combo === 'Ctrl+K' ? 'Search' : 'Changed'}</span>
+      const size = formatByteSize(bytes)
+      const sizeLabel = bytes === undefined ? 'unknown' : formatByteSize(bytes)
+      const unitLabel = 'Budget (MB)'
+      const inputLabel = 'Budget (bytes)'
+      const recording = <span>{formatByteSize(bytes)}</span>
       menu.style.left = anchor.left + 'px'
     `,
     )
@@ -39,6 +44,39 @@ test('design check accepts shared classes and geometry but rejects screen-local 
       ['const view = <select />', 'Raw select'],
       ['const view = <textarea />', 'Raw textarea'],
       ['const view = <dialog />', 'Raw dialog'],
+      [
+        'const units = ["B", "KB", "MB", "GB"]',
+        'Byte sizes must use formatByteSize',
+      ],
+      [
+        'const size = (bytes) => `${(bytes / 1024).toFixed(1)} KB`',
+        'Byte sizes must use formatByteSize',
+      ],
+      [
+        'const size = (bytes) => `${bytes} B`',
+        'Byte sizes must use formatByteSize',
+      ],
+      [
+        'const size = (bytes) => bytes / 1024 + " KB"',
+        'Byte sizes must use formatByteSize',
+      ],
+      [
+        'function formatBytes(bytes) { return String(bytes) }',
+        'Byte sizes must use formatByteSize',
+      ],
+      [
+        'const view = <span>{count} bytes</span>',
+        'Byte sizes must use formatByteSize',
+      ],
+      [
+        'const label = `Recorded ${count} bytes`',
+        'Byte sizes must use formatByteSize',
+      ],
+      ['const label = count + " bytes"', 'Byte sizes must use formatByteSize'],
+      [
+        'const label = "Recorded {count} bytes"',
+        'Byte sizes must use formatByteSize',
+      ],
       [
         'const view = <span>{"Ctrl+K"}</span>',
         'Shortcut text must use ProductShortcut',
@@ -99,6 +137,19 @@ test('design check accepts shared classes and geometry but rejects screen-local 
       assert.match(rejected.stderr, new RegExp(expected), text)
     }
     await writeFile(source, 'const view = <section class="dinkster-stack" />')
+    const catalog = join(directory, 'en.json')
+    await writeFile(
+      catalog,
+      JSON.stringify({ recorded: 'Recorded {count} bytes' }),
+    )
+    const localized = run()
+    assert.equal(localized.status, 1, localized.stderr)
+    assert.match(localized.stderr, /Byte sizes must use formatByteSize/u)
+    await writeFile(
+      catalog,
+      JSON.stringify({ recorded: 'Recorded {size}', field: 'Budget (bytes)' }),
+    )
+    assert.equal(run().status, 0)
     await writeFile(
       join(directory, 'screen.css'),
       '.private { color: red; font-size: 17px }',

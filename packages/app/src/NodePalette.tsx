@@ -208,7 +208,7 @@ export function NodePalette(props: {
     const drop = props.anchor.linkDrop
     const target = drop !== undefined && entry.schema !== undefined ? autoConnectTarget(entry.schema, drop.anchorType, drop.seeking) : undefined
     const detail = entry.install !== undefined ? message('search.notInstalled') :
-      target !== undefined ? message(drop!.seeking === 'in' ? 'palette.connection.into' : 'palette.connection.from', { port: target.port }) :
+      target !== undefined ? message(drop!.seeking === 'in' ? 'palette.connection.into' : 'palette.connection.from', { port: target.label }) :
         paletteEntryIdentity(entry, duplicates()).visible ?? searchPlace(entry.category)
     return {
       key: `entry:${entry.type}`, title: entry.name, detail,

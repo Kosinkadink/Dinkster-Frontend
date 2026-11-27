@@ -1,6 +1,6 @@
 import { For, Show, createSignal, onMount } from 'solid-js'
 import { render } from 'solid-js/web'
-import { uuidv4 } from '@dinkster/core'
+import { formatByteSize, uuidv4 } from '@dinkster/core'
 import {
   ProductButton,
   ProductCheckbox,
@@ -542,12 +542,9 @@ function Environments() {
             {...attrs}
             value={values()[props.field]}
             disabled={busy()}
-            onChange={(event) => change(props.field, event.currentTarget.value)}
-          >
-            <For each={props.options}>
-              {([value, label]) => <option value={value}>{label}</option>}
-            </For>
-          </ProductSelect>
+            onChange={(value) => change(props.field, value)}
+            options={props.options.map(([value, label]) => ({ value, label }))}
+          />
         )}
       </ProductField>
     )
@@ -651,28 +648,15 @@ function Environments() {
                 {...attrs}
                 value={values().selected}
                 disabled={busy()}
-                onChange={(event) =>
+                onChange={(value) =>
                   select(
                     environments().find(
-                      (entry) => entry.id === event.currentTarget.value,
+                      (entry) => entry.id === value,
                     ),
                   )
                 }
-              >
-                <option value="" selected={!values().selected}>
-                  New local environment
-                </option>
-                <For each={environments().filter((entry) => entry.root)}>
-                  {(entry) => (
-                    <option
-                      value={entry.id}
-                      selected={values().selected === entry.id}
-                    >
-                      {entry.name}
-                    </option>
-                  )}
-                </For>
-              </ProductSelect>
+                options={[{ value: '', label: 'New local environment' }, ...environments().filter((entry) => entry.root).map((entry) => ({ value: entry.id, label: entry.name }))]}
+              />
             )}
           </ProductField>
           <Text field="name" label="Environment name" maxLength={128} />
@@ -832,7 +816,7 @@ function Environments() {
                   <ProductNotice>
                     {choice().reason}
                     {choice().downloadBytes !== undefined
-                      ? ` Download: ${choice().downloadBytes!.toLocaleString()} bytes (reported by dinkster-env).`
+                      ? ` Download: ${formatByteSize(choice().downloadBytes!)} (reported by dinkster-env).`
                       : ''}
                   </ProductNotice>
                 )}
@@ -1158,14 +1142,11 @@ function Environments() {
                 {...attrs}
                 value={remote().channel}
                 disabled={busy()}
-                onChange={(event) =>
-                  setRemote({ ...remote(), channel: event.currentTarget.value })
+                onChange={(value) =>
+                  setRemote({ ...remote(), channel: value })
                 }
-              >
-                <For each={channels}>
-                  {([value, label]) => <option value={value}>{label}</option>}
-                </For>
-              </ProductSelect>
+                options={channels.map(([value, label]) => ({ value, label }))}
+              />
             )}
           </ProductField>
           <ProductButton
@@ -1324,7 +1305,7 @@ function environmentDetails(result: EnvironmentResult): string {
   if (result.space) {
     const space = result.space
     const bytes = (value: number | null) =>
-      value === null ? 'unavailable' : `${value.toLocaleString()} bytes`
+      value === null ? 'unavailable' : formatByteSize(value)
     label.push(
       `Environment: ${space.project}`,
       `Shared store: ${space.store ?? 'unavailable'}`,

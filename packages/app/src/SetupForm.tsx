@@ -1,9 +1,8 @@
 import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
-import { activeLocale } from '@dinkster/core'
+import { formatByteSize } from '@dinkster/core'
 import { ProductBrandMark, ProductButton, ProductDialog, ProductField, ProductMenu, ProductNotice, ProductPageLoad, ProductProgress, ProductTextButton, ProductTextInput } from '@dinkster/ui'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { useAppMessage } from './locale.js'
-import { formatBytes } from './projects-page/project-facts.js'
 import { createSetupController, setupJobActive, type SetupJob, type UnusableGraphicsCard } from './setup-job.js'
 import './styles/setup.css'
 
@@ -30,7 +29,6 @@ export function SetupForm(props: {
   const problem = () => (setup.page.error() ? undefined : setup.error()?.message) ?? folderError() ?? setup.job()?.error?.message
   const busy = () => setup.changing() || setup.planning() || setupJobActive(setup.job()) || folderBusy()
   const canChange = () => !setupJobActive(setup.job()) && setup.job()?.state !== 'completed'
-  const bytes = (value: number) => formatBytes(value, activeLocale.get().tag)
   const variant = () => setupJobActive(setup.job()) ? setup.job()!.variant : setup.plan()?.variant
   const choice = () => setup.plan()?.choices?.find((choice) => choice.variant === variant())
   const graphicsVendor = () => setupJobActive(setup.job()) ? choice()?.vendor : setup.plan()?.graphicsVendor
@@ -86,9 +84,9 @@ export function SetupForm(props: {
   }
   const download = () => {
     const plan = setup.plan()!
-    return plan.downloadBytes !== null ? bytes(plan.downloadBytes)
-      : plan.downloadEstimate ? message('setup.estimatedBytes', { size: bytes(plan.downloadEstimate.bytes) })
-      : plan.runtimeDownloadBytes !== null ? message('setup.runtimeBytes', { size: bytes(plan.runtimeDownloadBytes) })
+    return plan.downloadBytes !== null ? formatByteSize(plan.downloadBytes)
+      : plan.downloadEstimate ? message('setup.estimatedBytes', { size: formatByteSize(plan.downloadEstimate.bytes) })
+      : plan.runtimeDownloadBytes !== null ? message('setup.runtimeBytes', { size: formatByteSize(plan.runtimeDownloadBytes) })
       : undefined
   }
   const replanRoot = async (root: string) => {
@@ -123,9 +121,9 @@ export function SetupForm(props: {
     const translated = message(key)
     const stage = translated === key ? message('setup.stage.unknown') : translated
     if (value.unit !== 'bytes') return stage
-    const completed = bytes(value.completed)
+    const completed = formatByteSize(value.completed)
     return value.total === null ? message('setup.progressMeasured', { stage, completed })
-      : message('setup.progressTotal', { stage, completed, total: bytes(value.total) })
+      : message('setup.progressTotal', { stage, completed, total: formatByteSize(value.total) })
   }
   const progressValue = () => {
     const value = setup.job()?.progress
@@ -157,7 +155,7 @@ export function SetupForm(props: {
                 onSelect: () => { void setup.refresh({ root: plan().root, channel: plan().channel, variant: choice.variant }) },
               }))} /></Show>
             </dd></Show>
-            <Show when={download()}>{(size) => <><dt>{message('setup.download')}</dt><dd><span>{message('setup.downloadSpace', { size: size(), free: bytes(plan().freeBytes) })}</span></dd></>}</Show>
+            <Show when={download()}>{(size) => <><dt>{message('setup.download')}</dt><dd><span>{message('setup.downloadSpace', { size: size(), free: formatByteSize(plan().freeBytes) })}</span></dd></>}</Show>
           </dl>
           <Show when={graphicsWarning()}><ProductNotice tone="warning">
             {message(repairable() ? plan().variant ? 'setup.graphics.cpuRepair' : 'setup.graphics.repair' : 'setup.graphics.cpu')}
@@ -174,7 +172,7 @@ export function SetupForm(props: {
             </Show>
           </ProductNotice>}</Show>
           <Show when={!plan().refusal && !setupJobActive(setup.job()) && plan().downloadBytes === null && plan().downloadEstimate && plan().downloadEstimate!.bytes > plan().freeBytes}>
-            <ProductNotice tone="warning">{message('setup.estimatedSpaceWarning', { size: bytes(plan().downloadEstimate!.bytes), free: bytes(plan().freeBytes) })}</ProductNotice>
+            <ProductNotice tone="warning">{message('setup.estimatedSpaceWarning', { size: formatByteSize(plan().downloadEstimate!.bytes), free: formatByteSize(plan().freeBytes) })}</ProductNotice>
           </Show>
           <Show when={problem()}><ProductNotice tone="error">{problem()}</ProductNotice></Show>
           <div class="dinkster-actions setup-actions">

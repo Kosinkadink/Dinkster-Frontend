@@ -13,18 +13,16 @@ export const TAB_DRAG_GHOST_OFFSET_Y = 18
  */
 export function TabDragGhost(props: {
   readonly title: string
-  readonly icon?: Component | undefined
+  readonly icon: Component
   readonly x: number
   readonly y: number
   readonly refused?: boolean | undefined
-  readonly active?: boolean | undefined
 }) {
   return (
     <div
       class="tab-drag-ghost"
       data-testid="tab-drag-ghost"
       data-refused={props.refused === true ? 'true' : 'false'}
-      data-active={props.active === true ? 'true' : 'false'}
       aria-hidden="true"
       style={{
         left: `${props.x + TAB_DRAG_GHOST_OFFSET_X}px`,
