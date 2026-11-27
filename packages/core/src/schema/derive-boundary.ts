@@ -1411,18 +1411,22 @@ export function deriveBoundarySchema(
 
   // A wildcard here is a neutral display pin, never an executable type.
   // Keep the source's type when it is still known (for example a missing member).
+  const declaredRows = derivedItems
   derivedItems = derivedItems.filter((row) => !('id' in row && unavailable.has(row.id)))
   for (const item of everyItem) {
     const problem = unavailable.get(item.id)
     if (problem === undefined) continue
+    const declared = declaredRows.find((row): row is InputSpec | OutputSpec =>
+      (row.kind === 'input' || row.kind === 'output') && row.id === item.id)
     const row = {
+      ...(problem.inactive && declared?.kind === 'input' ? declared : undefined),
       id: item.id,
       ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
       type: knownTypes.get(item.id) ?? { kind: 'wildcard' as const },
       unavailable: problem,
     }
     derivedItems.push(boundaryItems(def.boundary, 'inputs').includes(item)
-      ? { ...row, kind: 'input', optional: true, sent: false }
+      ? { ...row, kind: 'input', optional: true, ...(!problem.inactive ? { sent: false } : {}) }
       : { ...row, kind: 'output' })
   }
 

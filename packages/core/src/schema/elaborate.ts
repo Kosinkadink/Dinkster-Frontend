@@ -1969,8 +1969,12 @@ function elaboratePass(
       if (inactive && !connectivity.isInputConnected(path) && !connectivity.isOutputConnected(path)) return
       problems.add(path)
       diagnostics.push(diag(inactive ? 'info' : 'warning', 'schema', code, message, { refs: [{ portId: path }] }))
-      if (row.kind === 'input') emitInput(row, path, raw)
-      else emitOutput(row, path, raw)
+      if (row.kind === 'input') {
+        // Inert rendering must not edit or evaluate the retained declaration.
+        emitInput({ kind: 'input', id: row.id, type: row.type, optional: true, sent: false,
+          unavailable: row.unavailable, ...(row.displayName !== undefined ? { displayName: row.displayName } : {}),
+        }, path, raw)
+      } else emitOutput(row, path, raw)
       return
     }
     const framed = 'outer' in row && row.outer !== undefined ? { ...raw, formulaFrames: outerFrames(row.outer) } : raw

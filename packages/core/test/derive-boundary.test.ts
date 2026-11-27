@@ -2454,6 +2454,69 @@ describe('Boundary sample acceptance compilation', () => {
     }
   }
 
+  it.each(['STRING', 'IMAGE'] as const)('boundary/standalone-option-rows/containing-level fan-out revives an inactive nested %s primary', (type) => {
+    const document = boundarySample(2)
+    const text = type === 'STRING'
+    const nativePort = text ? 'mode.text' : 'mode.picture'
+    const selected = text ? 'text' : 'image'
+    const inactive = text ? 'image' : 'text'
+    for (const id of ['detail', 'portrait']) Object.assign(document.graphs[id]!, { boundary: {
+      body: document.graphs[id]!.boundary!.body.filter((row) => !('id' in row && row.id === 'mode')),
+    } })
+    Object.assign(document.graphs.portrait!.nodes, { extra: {
+      ...structuredClone(document.graphs.detail!.nodes.sample!), id: 'extra',
+      values: { ...document.graphs.detail!.nodes.sample!.values, strength: 0.53, 'mode.mix': 0.73 },
+      dynamic: { ...document.graphs.detail!.nodes.sample!.dynamic, mode: { selected } },
+    } })
+    Object.assign(document.graphs.root!.nodes, { captionRuntime: { id: 'captionRuntime', type: 'StringSource', values: {} } })
+    const store = storeFor(document)
+    if (!text) edit(store, 'dynamic.selectOption', { graphId: 'detail', nodeId: 'sample', construct: 'mode', option: inactive })
+    edit(store, 'boundary.addItem', { graphId: 'detail', side: 'inputs', itemId: 'leaf',
+      node: 'sample', port: nativePort, ...(text ? { promoted: true } : {}) })
+    edit(store, 'boundary.addItem', { graphId: 'portrait', side: 'inputs', itemId: 'exposed',
+      node: 'detail', port: 'leaf', ...(text ? { promoted: true } : {}) })
+    edit(store, 'boundary.addBinding', { graphId: 'portrait', itemId: 'exposed', node: 'extra', port: nativePort })
+    if (text) {
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'exposed', value: 'outer caption' })
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'second', inputId: 'exposed', value: 'sibling caption' })
+    }
+    const schema = documentResolver(store.doc, resolveBoundarySample)('#portrait')!
+    const row = elabInputsOf(elaborateInterface(schema, store.doc.graphs.root!.nodes.first!))
+      .find((row) => row.spec.id === 'exposed')!
+    expect(row.spec.type).toEqual({ kind: 'concrete', name: type })
+    expect(row.spec.unavailable).toBeUndefined()
+    expect(row.spec.sent).not.toBe(false)
+    expect(row.apiName).toBe('exposed')
+    expect(row.spec.widget).toEqual(text ? { widgetType: 'STRING', options: {}, default: 'dormant inner text' } : undefined)
+    const beforeLink = prompt(store.doc)
+    const source = text ? { node: 'captionRuntime', port: 'text' } : { node: 'imageA', port: 'image' }
+    edit(store, 'link.connect', { graphId: 'root', from: source, to: { node: 'first', port: 'exposed' } })
+    const linked = store.doc
+    const compiled = prompt(linked)
+    const plain = storeFor(boundarySample(0))
+    edit(plain, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {
+      strength: 0.53, 'mode.mix': 0.73, 'mode.text': 'outer caption',
+      'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4,
+    } })
+    if (text) edit(plain, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: selected })
+    const expected = prompt(plain.doc).first!
+    expect(compiled['first.extra']).toEqual({ ...expected, inputs: { ...expected.inputs, [nativePort]: [source.node, 0] } })
+    expect(compiled['first.detail.sample']).toEqual(beforeLink['first.detail.sample'])
+    expect(compiled['second.extra']).toEqual(beforeLink['second.extra'])
+    expect(compiled['second.detail.sample']).toEqual(beforeLink['second.detail.sample'])
+    edit(store, 'dynamic.selectOption', { graphId: 'portrait', nodeId: 'extra', construct: 'mode', option: inactive })
+    const inactiveSchema = documentResolver(store.doc, resolveBoundarySample)('#portrait')!
+    const kept = elabInputsOf(elaborateInterface(inactiveSchema, store.doc.graphs.root!.nodes.first!, {
+      isInputConnected: (id) => id === 'exposed', isOutputConnected: () => false,
+    })).find((row) => row.spec.id === 'exposed')!
+    expect(kept.apiName).toBeUndefined()
+    expect(kept.spec.widget).toBeUndefined()
+    expect(kept.spec.type).toEqual({ kind: 'concrete', name: type })
+    expect(store.doc.graphs.root).toEqual(linked.graphs.root)
+    edit(store, 'dynamic.selectOption', { graphId: 'portrait', nodeId: 'extra', construct: 'mode', option: selected })
+    expect(prompt(store.doc)).toEqual(compiled)
+  })
+
   it('boundary/plain-field/two-instances', () => {
     const store = storeFor(boundarySample(2))
     expect(prompt(store.doc)['first.detail.sample']!.inputs.strength).toBe(0.2)
