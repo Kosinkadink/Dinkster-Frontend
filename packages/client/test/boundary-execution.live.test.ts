@@ -572,7 +572,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
               expect(actual[nodeId], nodeId).toEqual(receipt)
               expect(outputs[nodeId]?.output91?.value).toBe(91)
             }
-            expect(outputs.sink?.received?.value).toBe('91')
+            expect(outputs.sink?.received?.value).toBe('91.0')
             console.info('Boundary standalone option receipt', JSON.stringify({ depth, phase,
               jobId: submitted.execution.prompt, expected: expectedReceivers, actual }))
             return
