@@ -96,6 +96,7 @@ test('drag reorders on release, preserves focus and active tab, and persists', a
 
 test('a dragged workflow tab shows a cursor-following ghost until release', async ({ page }) => {
   const draggedSelect = tab(page, 'Subgraph').locator('.tab-select')
+  const sourceIcon = await draggedSelect.locator('svg').innerHTML()
   const from = await center(draggedSelect)
   const to = await center(tab(page, 'Basic').locator('.tab-select'))
   const ghost = page.getByTestId('tab-drag-ghost')
@@ -109,6 +110,8 @@ test('a dragged workflow tab shows a cursor-following ghost until release', asyn
   await page.mouse.move(to.x - 20, to.y, { steps: 3 })
   await expect(ghost).toBeVisible()
   await expect(ghost.locator('.tab-drag-ghost-title')).toHaveText('Subgraph')
+  await expect(ghost.locator('.tab-drag-ghost-icon svg')).toBeVisible()
+  expect(await ghost.locator('.tab-drag-ghost-icon svg').innerHTML()).toBe(sourceIcon)
   const box = (await ghost.boundingBox())!
   expect(box.x).toBeGreaterThan(to.x - 20)
   expect(box.y).toBeGreaterThan(to.y)

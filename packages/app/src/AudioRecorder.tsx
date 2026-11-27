@@ -1,4 +1,5 @@
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import { formatByteSize } from '@dinkster/core'
 import './audio-controls.css'
 import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
@@ -78,7 +79,7 @@ export function AudioRecorder(props: {
       recorder.ondataavailable = (event) => {
         if (generation !== request) return
         bytes += event.data.size
-        if (bytes > 32 * 1024 * 1024) { cancel(); setMessage('Recording exceeds the 32 MiB limit. No clip saved.'); return }
+        if (bytes > 32 * 1024 * 1024) { cancel(); setMessage('Recording exceeds the 32 MB limit. No clip saved.'); return }
         if (event.data.size) chunks.push(event.data)
         setRecordedBytes(bytes)
       }
@@ -94,7 +95,7 @@ export function AudioRecorder(props: {
         showReadyMessage = true; setState('ready')
       }
       recorder.start(250)
-      setState('recording'); setMessage(`Recording microphone. Stops after ${limit()} seconds or 32 MiB.`)
+      setState('recording'); setMessage(`Recording microphone. Stops after ${limit()} seconds or 32 MB.`)
       timer = setTimeout(() => { stop() }, limit() * 1000)
     } catch (error) {
       if (!live || generation !== request) return
@@ -118,9 +119,9 @@ export function AudioRecorder(props: {
   const idle = () => state() === 'idle' || state() === 'ready'
   return <section class="audio-recorder" aria-label="Record audio">
     <p role="status">{state() === 'ready' && showReadyMessage
-      ? appMessage('audioRecorder.ready', { bytes: recordedBytes() })
+      ? appMessage('audioRecorder.ready', { bytes: formatByteSize(recordedBytes()) })
       : message()}</p>
-    <Show when={state() === 'recording'}><p data-testid="audio-recorded-bytes">Recorded {recordedBytes()} bytes</p></Show>
+    <Show when={state() === 'recording'}><p data-testid="audio-recorded-bytes">{appMessage('audioRecorder.recorded', { bytes: formatByteSize(recordedBytes()) })}</p></Show>
     <Show when={state() !== 'ready' && state() !== 'saving'}>
       <ProductButton type="button" disabled={!provider || !idle() || props.disabled} onClick={() => void discover()}>Find microphones</ProductButton>
       <label>Microphone <ProductSelect

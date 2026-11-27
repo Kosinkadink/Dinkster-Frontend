@@ -1133,8 +1133,7 @@ export function createCanvasGalleryFixture(
       'Long ordinary': [SUBGRAPH_BADGE, DEPRECATED_BADGE],
     }
     fixture.height = 550
-    fixture.scale =
-      page === 'titles-content' ? 0.5 : tokens.mediaControlMinScale
+    fixture.scale = page === 'titles-content' ? 0.5 : 0.75
     fixture.width *= fixture.scale
     fixture.height *= fixture.scale
   } else if (page === 'tabs' || page === 'tabs-content') {
@@ -1201,7 +1200,7 @@ export function createCanvasGalleryFixture(
     fixture.badges = map
     fixture.overlay = { selection: new Set(['Selected']) }
     fixture.height = 1540
-    fixture.scale = page === 'tabs-content' ? 0.5 : tokens.mediaControlMinScale
+    fixture.scale = page === 'tabs-content' ? 0.5 : 0.75
     fixture.width *= fixture.scale
     fixture.height *= fixture.scale
   } else if (page === 'idle-outline') {
@@ -2126,7 +2125,7 @@ export function createCanvasGalleryFixture(
     ) {
       fixture.scale =
         page === 'zoom'
-          ? tokens.mediaControlMinScale
+          ? 0.75
           : page === 'zoom-content'
             ? tokens.detailMinScale
             : tokens.detailMinScale - 0.01

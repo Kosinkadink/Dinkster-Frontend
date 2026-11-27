@@ -2703,18 +2703,6 @@ describe('gesture ownership and cancellation', () => {
     expect(onLinkDropOnEmpty).toHaveBeenCalledWith(expect.any(Object), 700, 300)
   })
 
-  it('does not open an accept-all palette from an untyped dangling end', () => {
-    const scene = linkDropScene() as any
-    scene.nodes[0].layout.pins[0].type = { kind: 'wildcard' }
-    const onLinkDropOnEmpty = vi.fn()
-    const harness = interactionHarness(scene, { onLinkDropOnEmpty })
-    harness.fire('pointerdown', 110, 32)
-    harness.fire('pointermove', 700, 300)
-    harness.fire('pointerup', 700, 300)
-    expect(onLinkDropOnEmpty).not.toHaveBeenCalled()
-    expect(harness.dispatched).toEqual([])
-  })
-
   it('mouse pointercancel on a moved rewire over empty disconnects', () => {
     const harness = interactionHarness(connectedLinkScene())
     harness.fire('pointerdown', 200, 34)

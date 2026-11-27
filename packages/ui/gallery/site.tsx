@@ -178,10 +178,7 @@ export function SiteGallery(props: {
                   </ProductField>
                   <ProductField label="Language">
                     {(attributes) => (
-                      <ProductSelect {...attributes}>
-                        <option>English</option>
-                        <option>Chinese</option>
-                      </ProductSelect>
+                      <ProductSelect {...attributes} options={['English', 'Chinese'].map((label) => ({ value: label, label }))} />
                     )}
                   </ProductField>
                 </ProductPanel>

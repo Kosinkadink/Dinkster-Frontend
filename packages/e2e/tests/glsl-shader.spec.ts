@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, test, type Page } from '../visual.js'
+import { chooseOption } from '../choices.js'
 import { evidencePath, evidenceGroupDir } from './evidence-output.js'
 import { requireBackendNodes } from './required-nodes.js'
 
@@ -228,7 +229,7 @@ test('executes, previews, diagnoses, applies, reloads, undoes, and refuses inval
   const editor = page.getByTestId('glsl-editor')
   await expect(editor).toBeVisible()
   await expect(editor.getByText('u_float0')).toBeVisible()
-  await editor.getByLabel('Preview output').selectOption('2')
+  await chooseOption(editor.getByLabel('Preview output'), 'fragColor2')
   await expect(editor.locator('canvas[aria-label="GLSL browser preview"]')).toBeVisible({ timeout: 15_000 })
   const browserPixel = await editor.locator('canvas').evaluate((canvas) =>
     [...(canvas as HTMLCanvasElement).getContext('2d')!.getImageData(0, 0, 1, 1).data])
