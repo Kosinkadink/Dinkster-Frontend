@@ -66,7 +66,8 @@ test('checkbox, label and node name share one line aligned with the other fields
     const box = (await checkbox.boundingBox())!
     const label = (await row('editable Enabled').getByTestId('app-view-label').boundingBox())!
     const number = (await row('editable Count').locator('.product-number').boundingBox())!
-    expect(Math.abs(box.x - number.x)).toBeLessThanOrEqual(1)
+    const square = (await checkbox.locator('span').boundingBox())!
+    expect(Math.abs(square.x - number.x)).toBeLessThanOrEqual(1)
     expect(label.x).toBeGreaterThanOrEqual(box.x + box.width)
     expect(Math.abs(box.y + box.height / 2 - label.y - label.height / 2)).toBeLessThanOrEqual(3)
     await expect(row('editable Enabled').getByTestId('app-view-label')).toContainText('Controls')
@@ -127,6 +128,7 @@ test('video painting opens its editor by click and keyboard while a connected ro
     const editable = row('editable Video')
     const editor = editable.getByRole('button', { name: 'Edit editable Video video' })
     await expect(editor.locator('canvas')).toHaveCount(1)
+    await expect(editor).toHaveCSS('border-top-width', '0px')
     await expect(editable).not.toContainText('Edit trim/crop')
     for (const method of ['click', 'Enter', 'Space']) {
       if (method === 'click') await editor.click()
