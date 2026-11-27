@@ -141,6 +141,11 @@ export type EdgeVerdict = 'ok' | 'mismatch' | 'unknown'
 /** Key for a named-net sink's verdict: the net id plus sink ordinal. */
 export const netSinkKey = (netId: string, sinkIndex: number): string => `${netId}[${sinkIndex}]`
 
+/** A workflow fact or an estimate; repeated runs never turn an estimate into a fact. */
+export type ListCountFact =
+  | { readonly kind: 'known'; readonly count: number }
+  | { readonly kind: 'estimate'; readonly count: number; readonly sources: readonly ('asset' | 'last-run')[] }
+
 export interface SolveResult {
   /** Resolution of variable `templateId` as it occurs on node `node`. */
   resolutionOf(node: NodeId, templateId: string): VarResolution
@@ -154,6 +159,8 @@ export interface SolveResult {
   itemCountOf(node: NodeId, side: 'input' | 'output', port: string): number | undefined
   /** Exact list length, separate from type; undefined means unknown or not a list. */
   listCountOf(node: NodeId, side: 'input' | 'output', port: string): number | undefined
+  /** Length and provenance, without promoting estimates to exact counts. */
+  listCountFactOf(node: NodeId, side: 'input' | 'output', port: string): ListCountFact | undefined
   /** Verdicts for consumer-delivering links (structural feeds absent). */
   readonly linkVerdicts: ReadonlyMap<LinkId, EdgeVerdict>
   /** Verdicts per named-net sink, keyed by netSinkKey(). */
@@ -305,12 +312,15 @@ export interface SolveOptions extends ElaborateOptions {
   readonly connectivityOf?: (nodeId: NodeId) => Connectivity
   /** Resolve a list output whose producer lives inside a concrete subgraph occurrence. */
   readonly outputListCountOf?: (node: NodeId, port: string) => number | undefined
+  /** Already available metadata only; this lookup must not fetch or inspect payloads. */
+  readonly outputListCountEstimateOf?: (node: NodeId, port: string) => Extract<ListCountFact, { kind: 'estimate' }> | undefined
   /** Producer types projected through a parent occurrence input. */
   readonly projectedInputs?: readonly {
     readonly type: TypeExpr
     readonly to: PortRef
     /** Exact count from this occurrence's producer; absent means unknown. */
     readonly itemCount?: number
+    readonly itemCountEstimate?: Extract<ListCountFact, { kind: 'estimate' }>
     readonly label?: string
     /** Shared identity for multiple edges from one projected producer node. */
     readonly variableSource?: symbol
@@ -1086,16 +1096,27 @@ export function solveGraphTypes(
     const declared = entry ? (side === 'input' ? entry.inputs : entry.outputs).get(port) : undefined
     return declared === undefined ? undefined : substitute(declared, node)
   }
-  const counts = new Map<string, number | undefined>()
-  const projectedCounts = new Map<string, (number | undefined)[]>()
+  const knownCount = (count: number): ListCountFact => ({ kind: 'known', count })
+  const combineCounts = (facts: readonly (ListCountFact | undefined)[]): ListCountFact | undefined => {
+    if (facts.length === 0 || facts.some(fact => fact === undefined)) return undefined
+    const present = facts as readonly ListCountFact[]
+    const known = present.filter(fact => fact.kind === 'known')
+    const candidates = known.length > 0 ? known : present
+    const first = candidates[0]!
+    if (!candidates.every(fact => fact.count === first.count)) return undefined
+    return known.length > 0 ? first : { kind: 'estimate', count: first.count,
+      sources: [...new Set(present.flatMap(fact => fact.kind === 'estimate' ? fact.sources : []))] }
+  }
+  const counts = new Map<string, ListCountFact | undefined>()
+  const projectedCounts = new Map<string, (ListCountFact | undefined)[]>()
   for (const input of options.projectedInputs ?? []) {
     const key = JSON.stringify([input.to.node, input.to.port])
     const arrivals = projectedCounts.get(key) ?? []
-    arrivals.push(input.itemCount)
+    arrivals.push(input.itemCount !== undefined ? knownCount(input.itemCount) : input.itemCountEstimate)
     projectedCounts.set(key, arrivals)
   }
   const reading = new Set<string>()
-  const countOf = (node: NodeId, side: 'input' | 'output', port: string): number | undefined => {
+  const countOf = (node: NodeId, side: 'input' | 'output', port: string): ListCountFact | undefined => {
     const key = JSON.stringify([node, side, port])
     if (reading.has(key)) return undefined
     if (counts.has(key)) return counts.get(key)
@@ -1105,7 +1126,7 @@ export function solveGraphTypes(
     counts.set(key, count)
     return count
   }
-  const readCount = (node: NodeId, side: 'input' | 'output', port: string): number | undefined => {
+  const readCount = (node: NodeId, side: 'input' | 'output', port: string): ListCountFact | undefined => {
     const data = def.nodes[node]
     if (data === undefined || (data.mode !== undefined && data.mode !== 'active')) return undefined
     if (side === 'input') {
@@ -1113,7 +1134,7 @@ export function solveGraphTypes(
       if (input === undefined) return undefined
       const projected = projectedCounts.get(JSON.stringify([node, port])) ?? []
       const traces = traceEndpointAll(def, { node, tap: asPortId(port) }, reroutes)
-      const results = [...projected, ...traces.flatMap((trace): (number | undefined)[] => {
+      const results = [...projected, ...traces.flatMap((trace): (ListCountFact | undefined)[] => {
         if (trace.kind === 'output') return [countOf(trace.ref.node, 'output', trace.ref.port)]
         if (trace.kind === 'undriven' && projected.length > 0) return []
         if (trace.kind !== 'tapValue') return [undefined]
@@ -1124,26 +1145,30 @@ export function solveGraphTypes(
         const value = Object.hasOwn(data.values, port) ? data.values[port] : input.derivedValue ??
           (input.spec.widget === undefined ? input.spec.ext?.['default'] : effectiveWidgetDefault(input.spec.widget))
         if (value === undefined || value === null) return [undefined]
-        if (cardinalityOf(portTypeOf(node, side, port) ?? input.spec.type) === 'list' || input.spec.widget?.widgetType === 'LIST' || input.spec.acceptsList && Array.isArray(value)) return [Array.isArray(value) ? value.length : undefined]
-        return [1]
+        if (cardinalityOf(portTypeOf(node, side, port) ?? input.spec.type) === 'list' || input.spec.widget?.widgetType === 'LIST' || input.spec.acceptsList && Array.isArray(value)) return [Array.isArray(value) ? knownCount(value.length) : undefined]
+        return [knownCount(1)]
       })]
-      const first = results[0]
-      return first !== undefined && results.every((count) => count === first) ? first : undefined
+      return combineCounts(results)
     }
     const output = countOutputs.get(node)?.get(port)
     if (output === undefined || output.optional) return undefined
     const type = portTypeOf(node, side, port)
     if (type === undefined) return undefined
     const cardinality = cardinalityOf(type)
-    if (cardinality === 'scalar') return 1
+    if (cardinality === 'scalar') return knownCount(1)
     if (cardinality !== 'list') return undefined
     const source = output.listCount
-    if (typeof source === 'number') return source
-    if (source === undefined) return options.outputListCountOf?.(node, port)
+    if (typeof source === 'number') return knownCount(source)
+    if (source === undefined) {
+      const exact = options.outputListCountOf?.(node, port)
+      return exact !== undefined ? knownCount(exact) : options.outputListCountEstimateOf?.(node, port)
+    }
     if (source.group === undefined) return countOf(node, 'input', source.input)
     const group = [...scopeRowsOf(schemas.get(node)!.body)].find((row) => row.kind === 'group' && row.id === source.group)
     if (group?.kind !== 'group') return undefined
     let total = 0
+    let estimated = false
+    const sources = new Set<'asset' | 'last-run'>()
     const members = new Set<string>()
     for (const [path, input] of countInputs.get(node) ?? []) {
       const member = input.ancestry?.find((ancestor) => ancestor.construct === source.group)
@@ -1159,17 +1184,27 @@ export function solveGraphTypes(
           input.derivedValue === undefined && input.spec.widget === undefined && input.spec.ext?.['default'] === undefined) continue
       const count = countOf(node, 'input', path)
       if (count === undefined) return undefined
-      total += count
+      total += count.count
+      if (count.kind === 'estimate') {
+        estimated = true
+        for (const source of count.sources) sources.add(source)
+      }
       if (!Number.isSafeInteger(total)) return undefined
     }
-    return members.size < group.minMembers ? undefined : total
+    return members.size < group.minMembers ? undefined : estimated
+      ? { kind: 'estimate', count: total, sources: [...sources] } : knownCount(total)
+  }
+  const exactCountOf = (node: NodeId, side: 'input' | 'output', port: string): number | undefined => {
+    const fact = countOf(node, side, port)
+    return fact?.kind === 'known' ? fact.count : undefined
   }
 
   return {
     resolutionOf: (node, templateId) => vars.resolutionOf(varKeyOf(node, templateId)),
     portTypeOf,
-    itemCountOf: countOf,
-    listCountOf: (node, side, port) => cardinalityOf(portTypeOf(node, side, port) ?? { kind: 'wildcard' }) === 'list' ? countOf(node, side, port) : undefined,
+    itemCountOf: exactCountOf,
+    listCountOf: (node, side, port) => cardinalityOf(portTypeOf(node, side, port) ?? { kind: 'wildcard' }) === 'list' ? exactCountOf(node, side, port) : undefined,
+    listCountFactOf: (node, side, port) => cardinalityOf(portTypeOf(node, side, port) ?? { kind: 'wildcard' }) === 'list' ? countOf(node, side, port) : undefined,
     linkVerdicts,
     netSinkVerdicts,
     // Dependent structured edges can be checked again after tuple substitution.

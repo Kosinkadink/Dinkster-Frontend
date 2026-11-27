@@ -12,8 +12,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import { typesCompatible } from '../src/schema/type-relations.js'
-import { asLinkId, asNodeId, asPortId, asRerouteId } from '../src/ids.js'
-import type { GraphDef } from '../src/format/document.js'
+import { asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, asRerouteId } from '../src/ids.js'
+import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
+import { solveOccurrenceTypes } from '../src/compile/occurrence-solve.js'
 import type { SchemaResolver } from '../src/schema/derive-boundary.js'
 import { type GroupSpec, type InputSpec, type NodeSchema, type OutputSpec, type TypeExpr } from '../src/schema/model.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
@@ -191,6 +192,56 @@ describe('declared list counts', () => {
       connectivityOf: (node) => ({ isInputConnected: (port) => node === to.node && port === to.port, isOutputConnected: () => false }),
     }).listCountOf(n('copy'), 'output', 'out')).toBeUndefined()
     expect(graph.nodes['local']!.values).toEqual({ in: ['default'] })
+  })
+
+  it('keeps metadata counts estimated through joins and pass-throughs without making them exact', () => {
+    const base = defOf({
+      nodes: { estimated: { type: 'Unknown' }, four: { type: 'Four' }, join: { type: 'Join' }, copy: { type: 'Preserve' }, cycle: { type: 'Preserve' } },
+      links: {
+        a: { from: ['estimated', 'out'], to: ['join', 'parts.part0'] },
+        b: { from: ['four', 'out'], to: ['join', 'parts.part1'] },
+        c: { from: ['join', 'out'], to: ['copy', 'in'] },
+        loop: { from: ['cycle', 'out'], to: ['cycle', 'in'] },
+      },
+    })
+    const graph = { ...base, nodes: { ...base.nodes, join: { ...base.nodes['join']!, dynamic: { parts: { members: ['part0', 'part1'] } } } } }
+    for (const count of [0, 7]) {
+      const solved = solveGraphTypes(graph, resolveCounts, {
+        outputListCountEstimateOf: () => ({ kind: 'estimate', count, sources: ['last-run'] }),
+      })
+      expect(solved.listCountFactOf(n('copy'), 'output', 'out')).toEqual({ kind: 'estimate', count: count + 4, sources: ['last-run'] })
+      expect(solved.listCountOf(n('copy'), 'output', 'out')).toBeUndefined()
+      expect(solved.itemCountOf(n('copy'), 'output', 'out')).toBeUndefined()
+      expect(solved.listCountFactOf(n('four'), 'output', 'out')).toEqual({ kind: 'known', count: 4 })
+      expect(solved.listCountFactOf(n('cycle'), 'output', 'out')).toBeUndefined()
+      expect(solved.portTypeOf(n('copy'), 'output', 'out')).toEqual(strings)
+    }
+    const unlinked = defOf({ nodes: { copy: { type: 'Preserve' } } })
+    const projected = (count: number, source: 'asset' | 'last-run') => ({ type: strings,
+      to: { node: n('copy'), port: asPortId('in') }, itemCountEstimate: { kind: 'estimate' as const, count, sources: [source] } })
+    const same = solveGraphTypes(unlinked, resolveCounts, { projectedInputs: [projected(7, 'asset'), projected(7, 'last-run')] })
+    expect(same.listCountFactOf(n('copy'), 'output', 'out')).toEqual({ kind: 'estimate', count: 7, sources: ['asset', 'last-run'] })
+    expect(solveGraphTypes(unlinked, resolveCounts, { projectedInputs: [projected(7, 'asset'), projected(2, 'last-run')] }).listCountFactOf(n('copy'), 'output', 'out')).toBeUndefined()
+    const known = solveGraphTypes(unlinked, resolveCounts, { projectedInputs: [projected(7, 'asset'), { type: strings, to: projected(7, 'asset').to, itemCount: 3 }] })
+    expect(known.listCountFactOf(n('copy'), 'output', 'out')).toEqual({ kind: 'known', count: 3 })
+
+    const root = defOf({ nodes: { aSource: { type: 'Unknown' }, bSource: { type: 'Unknown' }, a: { type: '#body' }, b: { type: '#body' } },
+      links: { a: { from: ['aSource', 'out'], to: ['a', 'in'] }, b: { from: ['bSource', 'out'], to: ['b', 'in'] } } })
+    const body: GraphDef = { ...unlinked, id: asGraphDefId('body'), boundary: { body: [
+      { kind: 'input', id: 'in', binds: { kind: 'port', node: n('copy'), port: asPortId('in') } },
+      { kind: 'output', id: 'out', binds: { kind: 'port', node: n('copy'), port: asPortId('out') } },
+    ] } }
+    const document: WorkflowDocument = { format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('estimated-counts'), root: root.id,
+      graphs: { g0: root, body }, view: { graphs: {} } }
+    const estimateOf = (path: readonly string[], node: string) => path.length === 0 && node.endsWith('Source')
+      ? { kind: 'estimate' as const, count: node === 'aSource' ? 7 : 2, sources: ['last-run' as const] } : undefined
+    const outer = solveOccurrenceTypes(document, resolveCounts, 'g0', [], estimateOf)!
+    for (const [node, count] of [['a', 7], ['b', 2]] as const) {
+      expect(outer.listCountFactOf(n(node), 'output', 'out')).toEqual({ kind: 'estimate', count, sources: ['last-run'] })
+      expect(outer.listCountOf(n(node), 'output', 'out')).toBeUndefined()
+      const inner = solveOccurrenceTypes(document, resolveCounts, 'body', [n(node)], estimateOf)!
+      expect(inner.listCountFactOf(n('copy'), 'output', 'out')).toEqual({ kind: 'estimate', count, sources: ['last-run'] })
+    }
   })
 })
 

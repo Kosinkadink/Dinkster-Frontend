@@ -5,12 +5,15 @@ import { buildRerouteIndex, rerouteInputTargets, traceEndpointAll, type RerouteT
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity } from '../schema/elaborate.js'
 import { cardinalityOf, type TypeExpr } from '../schema/model.js'
-import { solveGraphTypes, type SolveOptions, type SolveResult } from '../schema/solve.js'
+import { solveGraphTypes, type ListCountFact, type SolveOptions, type SolveResult } from '../schema/solve.js'
 import { documentNodeResolver } from './compile.js'
 import { effectiveOccurrenceTopology, resolveOccurrenceLinkEndpoint, type EffectiveLink, type EffectiveOccurrenceTopology } from './effective-topology.js'
 import { occurrenceDynamicView } from './occurrence-view.js'
 
 type ProjectedTypeConstraint = NonNullable<SolveOptions['projectedInputs']>[number]
+
+/** Metadata belongs to a concrete producer occurrence, never its shared definition. */
+export type OccurrenceListCountEstimate = (instancePath: readonly NodeId[], node: NodeId, port: string) => Extract<ListCountFact, { kind: 'estimate' }> | undefined
 
 function projectTypeThroughRegionInputs(
   document: WorkflowDocument,
@@ -42,6 +45,7 @@ function projectTypeThroughRegionInputs(
 function occurrenceTypeSolver(
   document: WorkflowDocument,
   resolve: SchemaResolver,
+  estimateOf?: OccurrenceListCountEstimate,
 ) {
   const resolveDocumentNode = documentNodeResolver(document, resolve)
   type ProjectionSolve = {
@@ -74,19 +78,23 @@ function occurrenceTypeSolver(
       // A region's element is not the list that drives its iterations.
       const itemCount = projectedType === type ? solved.result.itemCountOf(source.node, source.side, source.port)
         : cardinalityOf(projectedType) === 'scalar' ? 1 : undefined
+      const fact = projectedType === type ? solved.result.listCountFactOf(source.node, source.side, source.port) : undefined
       return targets.map((to) => ({
         type: projectedType,
         ...(itemCount !== undefined ? { itemCount } : {}),
+        ...(fact?.kind === 'estimate' ? { itemCountEstimate: fact } : {}),
         to,
         label: `projected ${JSON.stringify(link.identity)}`,
         variableSource: solved.variableSources.get(source.node)!,
       }))
     })
   })
-  const outputListCountOf = (
+  const outputListCountFactOf = (
     graph: GraphDef,
     path: readonly NodeId[],
-  ): NonNullable<SolveOptions['outputListCountOf']> => (nodeId, port) => {
+    nodeId: NodeId,
+    port: string,
+  ): ListCountFact | undefined => {
     const node = graph.nodes[nodeId]
     const childId = node && subgraphDefIdOf(node.type)
     const child = childId === undefined ? undefined : document.graphs[childId]
@@ -101,15 +109,33 @@ function occurrenceTypeSolver(
     const producer = solveProjectionGraph(resolved.graphId, resolved.instancePath)
     if (producer === undefined) return undefined
     if (isWidgetTapRef(resolved.endpoint)) {
-      const count = producer.result.listCountOf(resolved.endpoint.node, 'input', resolved.endpoint.tap)
+      const count = producer.result.listCountFactOf(resolved.endpoint.node, 'input', resolved.endpoint.tap)
       if (count !== undefined) return count
     }
     const counts = traceEndpointAll(producer.graph, resolved.endpoint, buildRerouteIndex(producer.graph)).map((trace) =>
-      trace.kind === 'output' ? producer.result.listCountOf(trace.ref.node, 'output', trace.ref.port)
-        : trace.kind === 'tapValue' ? producer.result.listCountOf(trace.node, 'input', trace.input) : undefined)
-    const first = counts[0]
-    return first !== undefined && counts.every((count) => count === first) ? first : undefined
+      trace.kind === 'output' ? producer.result.listCountFactOf(trace.ref.node, 'output', trace.ref.port)
+        : trace.kind === 'tapValue' ? producer.result.listCountFactOf(trace.node, 'input', trace.input) : undefined)
+    if (counts.some(count => count === undefined)) return undefined
+    const known = counts.filter(count => count?.kind === 'known')
+    const candidates = known.length > 0 ? known : counts
+    const first = candidates[0]
+    if (first === undefined || candidates.some(count => count?.count !== first.count)) return undefined
+    if (known.length > 0) return first
+    const estimates = counts.filter(count => count?.kind === 'estimate')
+    return estimates.length === 0 ? first : { kind: 'estimate', count: first.count,
+      sources: [...new Set(estimates.flatMap(count => count.sources))] }
   }
+  const countOptions = (graph: GraphDef, path: readonly NodeId[]): Pick<SolveOptions, 'outputListCountOf' | 'outputListCountEstimateOf'> => ({
+    outputListCountOf: (node, port) => {
+      const fact = outputListCountFactOf(graph, path, node, port)
+      return fact?.kind === 'known' ? fact.count : undefined
+    },
+    outputListCountEstimateOf: (node, port) => {
+      if (subgraphDefIdOf(graph.nodes[node]?.type ?? '') === undefined) return estimateOf?.(path, node, port)
+      const fact = outputListCountFactOf(graph, path, node, port)
+      return fact?.kind === 'estimate' ? fact : undefined
+    },
+  })
   const solveProjectionGraph = (
     sourceGraphId: string,
     instancePath: readonly NodeId[],
@@ -178,7 +204,7 @@ function occurrenceTypeSolver(
       resolveNode: (node) => resolveDocumentNode(sourceGraphId, node),
       connectivityOf,
       projectedInputs: constraintsOf(effective, solveGraph),
-      outputListCountOf: outputListCountOf(solveGraph, instancePath),
+      ...countOptions(solveGraph, instancePath),
     })
     const variableSources = new Map(
       Object.keys(solveGraph.nodes).map((nodeId) => [asNodeId(nodeId), Symbol(nodeId)]),
@@ -190,7 +216,7 @@ function occurrenceTypeSolver(
   return {
     solve: solveProjectionGraph,
     options: (topology: EffectiveOccurrenceTopology | undefined, graph: GraphDef, instancePath: readonly NodeId[]) => ({
-      projectedInputs: constraintsOf(topology, graph), outputListCountOf: outputListCountOf(graph, instancePath),
+      projectedInputs: constraintsOf(topology, graph), ...countOptions(graph, instancePath),
     }),
   }
 }
@@ -202,8 +228,9 @@ export function occurrenceSolveOptions(
   topology: EffectiveOccurrenceTopology | undefined,
   graph: GraphDef,
   instancePath: readonly NodeId[],
-): Pick<SolveOptions, 'projectedInputs' | 'outputListCountOf'> {
-  return occurrenceTypeSolver(document, resolve).options(topology, graph, instancePath)
+  estimateOf?: OccurrenceListCountEstimate,
+): Pick<SolveOptions, 'projectedInputs' | 'outputListCountOf' | 'outputListCountEstimateOf'> {
+  return occurrenceTypeSolver(document, resolve, estimateOf).options(topology, graph, instancePath)
 }
 
 /** Solve the concrete graph, including its local topology, values and parent arrivals. */
@@ -212,6 +239,7 @@ export function solveOccurrenceTypes(
   resolve: SchemaResolver,
   graphId: string,
   instancePath: readonly NodeId[],
+  estimateOf?: OccurrenceListCountEstimate,
 ): SolveResult | undefined {
-  return occurrenceTypeSolver(document, resolve).solve(graphId, instancePath)?.result
+  return occurrenceTypeSolver(document, resolve, estimateOf).solve(graphId, instancePath)?.result
 }
