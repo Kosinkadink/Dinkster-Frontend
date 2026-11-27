@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import {
   asConnectionId,
+  asNodeId,
   compile,
   createLocalSession,
   coreCommandRegistry,
@@ -34,6 +35,212 @@ const types: Record<string, string> = {
 }
 
 describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
+  for (const depth of [0, 1, 2]) {
+    it(`boundary/group-options/native-depth-${depth}`, async () => {
+      const connection = new DinksterConnection({ id: asConnectionId('group-options-live'),
+        baseUrl: LIVE_URL!, clientId: `group-options-${process.pid}` })
+      const registry = await connection.fetchSchemas()
+      const type = 'boundary-sample.group-picker'
+      const primitive: NodeSchema = {
+        type: 'dinkster.utilities.primitive_choice', displayName: 'Choice', category: 'utilities', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
+            widget: { widgetType: 'COMBO', options: { options: ['red', 'blue', 'gold'] }, default: 'gold' } },
+          { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'COMBO' }, knownValue: { input: 'value' } },
+        ],
+      }
+      const resolve = (id: string) => id === primitive.type ? primitive : registry.resolve(id)
+      const graph = (id: string, nodes: unknown, body?: unknown) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 30,
+        ...(body === undefined ? {} : { boundary: { body } }) })
+      const boundary = (node: string, group: string, pick: string, innerGroup: string, innerPick: string) => [
+        { kind: 'input', id: group, binds: { kind: 'construct', node, port: innerGroup } },
+        { kind: 'input', id: pick, promoted: true, binds: { kind: 'port', node, port: innerPick } },
+      ]
+      const group = depth === 0 ? 'layers' : depth === 1 ? 'stack' : 'list'
+      const pick = depth === 0 ? 'pick' : depth === 1 ? 'selection' : 'chosen'
+      const document = { format: 'dinkster-workflow', formatVersion: 1, lineage: `native-group-options-${depth}`, root: 'root', view: { graphs: {} }, graphs: {
+        root: graph('root', {
+          first: { id: 'first', type: depth === 0 ? type : depth === 1 ? '#detail' : '#portrait',
+            values: { [pick]: 'red', [`${group}.gold`]: 19, [`${group}.red`]: 7 }, dynamic: { [group]: { members: ['gold', 'red'] } } },
+          second: { id: 'second', type: depth === 0 ? type : depth === 1 ? '#detail' : '#portrait',
+            values: { [pick]: 'gold', [`${group}.blue`]: 31 }, dynamic: { [group]: { members: ['blue', 'gold'] } } },
+          literal: { id: 'literal', type: primitive.type, values: { value: 'gold' } },
+          runtime: { id: 'runtime', type: 'boundary-sample.group-choice', values: {} },
+        }),
+        ...(depth > 0 ? { detail: graph('detail', { sample: { id: 'sample', type, values: { pick: 'gold' }, dynamic: { layers: { members: [] } } } },
+          boundary('sample', 'stack', 'selection', 'layers', 'pick')) } : {}),
+        ...(depth === 2 ? { portrait: graph('portrait', { detail: { id: 'detail', type: '#detail', values: { selection: 'blue' } } },
+          boundary('detail', 'list', 'chosen', 'stack', 'selection')) } : {}),
+      } } as unknown as WorkflowDocument
+      const storeFor = (doc: WorkflowDocument) => new DocumentStore(doc, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve) }))
+      const edit = (store: DocumentStore, command: string, params: Record<string, Json>) => {
+        const result = store.dispatch({ command, params })
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+      }
+      type Receipt = { layers: { key: string; value: number }[]; pick: string; order: string }
+      const first = depth === 0 ? 'first' : depth === 1 ? 'first.sample' : 'first.detail.sample'
+      const second = depth === 0 ? 'second' : depth === 1 ? 'second.sample' : 'second.detail.sample'
+      const initial: Receipt = { layers: [{ key: 'gold', value: 19 }, { key: 'red', value: 7 }], pick: 'red', order: 'gold,red' }
+      const sibling: Receipt = { layers: [{ key: 'blue', value: 31 }, { key: 'gold', value: 1 }], pick: 'gold', order: 'blue,gold' }
+      const run = async (phase: string, doc: WorkflowDocument, expected: Record<string, Receipt>, selected: Record<string, number>, runtime = false) => {
+        const loaded = loadDocument(JSON.parse(JSON.stringify(doc)))
+        expect(loaded.document, JSON.stringify(loaded.diagnostics)).toEqual(doc)
+        const compiled = compile({ document: loaded.document!, revision: 1, resolve, scope: { kind: 'full' },
+          connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Group picker workflow did not compile')
+        const prompt: Record<string, unknown> = {}
+        for (const [id, receipt] of Object.entries(expected)) prompt[id] = {
+          class_type: type,
+          inputs: { ...Object.fromEntries(receipt.layers.map(({ key, value }) => [`layers.${key}`, value])),
+            pick: runtime && id === first ? ['runtime', 0] : receipt.pick },
+          outputIds: ['result', 'receipt'], outputMembers: { layers: receipt.layers.map(({ key }) => key) },
+        }
+        if (runtime) prompt.runtime = { class_type: 'boundary-sample.group-choice', inputs: {}, outputIds: ['value'] }
+        expect(compiled.artifact.prompt).toEqual(prompt)
+        const submitted = await connection.submit(compiled.artifact)
+        expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
+        if (!submitted.ok) throw new Error('Group picker workflow was refused')
+        console.info('Boundary group option submission', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt, prompt: compiled.artifact.prompt }))
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline) {
+          const job = await connection.fetchJob(submitted.execution.prompt)
+          if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
+          if (job?.state === 'completed') {
+            const outputs = job.outputs as unknown as Record<string, Record<string, { value: unknown }>>
+            const actual: Record<string, Receipt> = {}
+            for (const [id, receipt] of Object.entries(expected)) {
+              expect(outputs[id]?.result?.value, id).toBe(selected[id])
+              const query = { jobId: submitted.execution.prompt, nodeId: id, outputId: 'receipt' }
+              const peek = await connection.values().peek(query)
+              expect(peek.available, JSON.stringify(peek)).toBe(true)
+              if (!peek.available) throw new Error('Group picker receipt unavailable')
+              const text = await connection.values().rendition(query, 'text', { descriptor: peek.descriptor })
+              expect(text.available, JSON.stringify(text)).toBe(true)
+              if (!text.available) throw new Error('Group picker text unavailable')
+              actual[id] = JSON.parse(new TextDecoder().decode(text.bytes)) as Receipt
+              expect(actual[id], id).toEqual(receipt)
+            }
+            console.info('Boundary group option receipt', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt, expected, actual, selected }))
+            return
+          }
+          await new Promise((done) => setTimeout(done, 50))
+        }
+        throw new Error('Group picker workflow did not complete')
+      }
+      const store = storeFor(document)
+      await run('baseline', store.doc, { [first]: initial, [second]: sibling }, { [first]: 7, [second]: 1 })
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: pick, value: 'gold' })
+      const edited = store.doc
+      expect(edited.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
+      expect(edited.graphs.detail).toEqual(document.graphs.detail)
+      expect(edited.graphs.portrait).toEqual(document.graphs.portrait)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(document)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(edited)
+      const picked = { ...initial, pick: 'gold' }
+      await run('edited', store.doc, { [first]: picked, [second]: sibling }, { [first]: 19, [second]: 1 })
+      edit(store, 'dynamic.moveMember', { graphId: 'root', nodeId: 'first', construct: group, member: 'red', index: 0 })
+      const reordered = store.doc
+      const ordered: Receipt = { layers: [{ key: 'red', value: 7 }, { key: 'gold', value: 19 }], pick: 'gold', order: 'red,gold' }
+      await run('reordered', reordered, { [first]: ordered, [second]: sibling }, { [first]: 19, [second]: 1 })
+      const linked = storeFor(reordered)
+      edit(linked, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: pick, value: 'red' })
+      for (const source of ['literal', 'runtime']) {
+        edit(linked, 'link.connect', { graphId: 'root', from: { node: source, port: 'value' }, to: { node: 'first', port: pick } })
+        await run(source, linked.doc, { [first]: ordered, [second]: sibling }, { [first]: 19, [second]: 1 }, source === 'runtime')
+        const connected = linked.doc
+        edit(linked, 'link.disconnect', { graphId: 'root', linkId: Object.keys(linked.doc.graphs.root!.links)[0]! })
+        const disconnected = linked.doc
+        expect(disconnected.graphs.root!.nodes.first!.values[pick]).toBe('red')
+        expect(linked.undo()).toBe(true)
+        expect(linked.doc).toEqual(connected)
+        expect(linked.redo()).toBe(true)
+        expect(linked.doc).toEqual(disconnected)
+      }
+      await run('disconnected', linked.doc, { [first]: { ...ordered, pick: 'red' }, [second]: sibling }, { [first]: 7, [second]: 1 })
+      if (depth === 0) return
+      const fallback = storeFor({ ...document, graphs: { ...document.graphs, root: { ...document.graphs.root!, nodes: {
+        ...document.graphs.root!.nodes, first: { ...document.graphs.root!.nodes.first!,
+          values: { ...document.graphs.root!.nodes.first!.values, [`${group}.blue`]: 11 },
+          dynamic: { [group]: { members: ['gold', 'red', 'blue'] } } },
+      } } } })
+      const fallbackReceipt: Receipt = { layers: [...initial.layers, { key: 'blue', value: 11 }],
+        pick: depth === 1 ? 'gold' : 'blue', order: 'gold,red,blue' }
+      edit(fallback, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: [pick] })
+      await run('outer-fallback', fallback.doc, { [first]: fallbackReceipt, [second]: sibling }, { [first]: depth === 1 ? 19 : 11, [second]: 1 })
+      if (depth === 2) {
+        edit(fallback, 'node.setValues', { graphId: 'portrait', nodeId: 'detail', values: {}, unset: ['selection'] })
+        await run('middle-fallback', fallback.doc, { [first]: { ...fallbackReceipt, pick: 'gold' }, [second]: sibling }, { [first]: 19, [second]: 1 })
+      }
+      const extra = { id: asNodeId('other'), type, values: { 'layers.gold': 43, 'layers.red': 53 }, dynamic: { layers: { members: ['gold', 'red'] } } }
+      const fanout = storeFor({ ...reordered, graphs: { ...reordered.graphs,
+        detail: { ...reordered.graphs.detail!, nodes: { ...reordered.graphs.detail!.nodes, other: extra } },
+      } })
+      edit(fanout, 'boundary.addBinding', { graphId: 'detail', itemId: 'selection', node: 'other', port: 'pick' })
+      const extraFirst = depth === 1 ? 'first.other' : 'first.detail.other'
+      const extraSecond = depth === 1 ? 'second.other' : 'second.detail.other'
+      const extraReceipt: Receipt = { layers: [{ key: 'gold', value: 43 }, { key: 'red', value: 53 }], pick: 'gold', order: 'gold,red' }
+      await run('fanout', fanout.doc, { [first]: ordered, [second]: sibling, [extraFirst]: extraReceipt, [extraSecond]: extraReceipt },
+        { [first]: 19, [second]: 1, [extraFirst]: 43, [extraSecond]: 43 })
+      const groupFanout = storeFor({ ...reordered, graphs: { ...reordered.graphs, detail: { ...reordered.graphs.detail!, nodes: {
+        ...reordered.graphs.detail!.nodes, other: { id: asNodeId('other'), type, values: {}, dynamic: { layers: { members: [] } } },
+      } } } })
+      edit(groupFanout, 'boundary.addBinding', { graphId: 'detail', itemId: 'selection', node: 'other', port: 'pick' })
+      edit(groupFanout, 'boundary.addBinding', { graphId: 'detail', itemId: 'stack', node: 'other', port: 'layers' })
+      await run('group-fanout', groupFanout.doc, { [first]: ordered, [second]: sibling, [extraFirst]: ordered, [extraSecond]: sibling },
+        { [first]: 19, [second]: 1, [extraFirst]: 19, [extraSecond]: 1 })
+      const detached = storeFor(reordered)
+      edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
+      const privateGraph = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+      edit(detached, 'node.setValue', { graphId: privateGraph, nodeId: depth === 1 ? 'sample' : 'detail', inputId: depth === 1 ? 'pick' : 'selection', value: 'red' })
+      edit(detached, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: [pick] })
+      expect(detached.doc.graphs.detail).toEqual(reordered.graphs.detail)
+      expect(detached.doc.graphs.portrait).toEqual(reordered.graphs.portrait)
+      expect(detached.doc.graphs.root!.nodes.second).toEqual(reordered.graphs.root!.nodes.second)
+      await run('detached', detached.doc, { [first]: { ...ordered, pick: 'red' }, [second]: sibling }, { [first]: 7, [second]: 1 })
+      for (const mode of ['active', 'muted', 'bypassed'] as const) {
+        const doc: WorkflowDocument = { ...reordered, graphs: { ...reordered.graphs, root: { ...reordered.graphs.root!, nodes: {
+          ...reordered.graphs.root!.nodes, first: { ...reordered.graphs.root!.nodes.first!, ...(mode === 'active' ? {} : { mode }) },
+        } } } }
+        const flat = storeFor(doc), root = doc.graphs.root!, node = root.nodes.first!, body = doc.graphs[node.type.slice(1)]!
+        const beforeFlatten = flat.doc
+        const resolver = documentResolver(doc, resolve)
+        const plan = planFlattenBoundaryRoutes(body, resolver, node, root)
+        const topology = planFlattenOccurrenceTopology(doc, resolver, { instancePath: [], node: node.id })
+        const topologyParams = topology.plan === undefined ? {} : { occurrenceTopologyPlan: topology.plan, occurrenceTopologyPlanDigest: lifecycleCanonicalHash(topology.plan) }
+        const fingerprint = lifecycleFlattenFingerprint(doc, 'root', 'first', { boundaryPlan: plan.boundaryPlan,
+          statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest, ...topologyParams })
+        const result = flat.dispatch({ command: 'subgraph.flatten', params: {
+          graphId: 'root', instancePath: [], nodeId: 'first', placementCenter: { x: 100, y: 100 },
+          resolvedGeometry: { occurrence: { id: 'first', kind: 'node', x: 0, y: 0, width: 200, height: 200 },
+            body: Object.keys(body.nodes).map((id) => ({ id, kind: 'node', x: 0, y: 0, width: 200, height: 200 })) },
+          boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaSnapshot: plan.schemaSnapshot,
+          schemaPlanDigest: plan.schemaPlanDigest, selectionFingerprint: fingerprint, ...topologyParams,
+        } } as unknown as CommandInvocation)
+        if (mode === 'bypassed') {
+          expect(result.ok).toBe(false)
+          expect(result.diagnostics.map((item) => item.code)).toContain('subgraph.flatten.modeUnsupported')
+          expect(flat.doc).toBe(beforeFlatten)
+          expect(flat.undo()).toBe(false)
+          continue
+        }
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+        const replacement = Object.values(flat.doc.graphs.root!.nodes).find((item) => root.nodes[item.id] === undefined)!
+        const path = depth === 1 ? replacement.id : `${replacement.id}.sample`
+        const after = flat.doc
+        expect(flat.undo()).toBe(true)
+        expect(flat.doc.graphs).toEqual({ ...doc.graphs, root: { ...root, nextOrdinal: after.graphs.root!.nextOrdinal } })
+        expect(flat.redo()).toBe(true)
+        expect(flat.doc).toEqual(after)
+        await run(`flatten-${mode}`, after, mode === 'muted' ? { [second]: sibling } : { [path]: ordered, [second]: sibling },
+          mode === 'muted' ? { [second]: 1 } : { [path]: 19, [second]: 1 })
+      }
+    }, 120_000)
+  }
+
   for (const calculation of ['formula', 'lookup'] as const) for (const depth of [0, 1, 2]) {
     it(`boundary/${calculation}/native-depth-${depth}`, async () => {
       const connection = new DinksterConnection({ id: asConnectionId('automatic-live'), baseUrl: LIVE_URL!, clientId: `automatic-${process.pid}` })

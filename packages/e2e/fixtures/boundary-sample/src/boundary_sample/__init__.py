@@ -9,6 +9,7 @@ import numpy as np
 from dinkster_api.v1 import (
     Button,
     Choice,
+    ComboWidget,
     Count,
     Described,
     Formula,
@@ -17,6 +18,7 @@ from dinkster_api.v1 import (
     Item,
     Lookup,
     Members,
+    Named,
     Node,
     NodeSchema,
     Numbered,
@@ -391,6 +393,67 @@ class LookupCalculation(Node):
         )
 
 
+class GroupPicker(Node):
+    @classmethod
+    def define_schema(cls) -> NodeSchema:
+        return NodeSchema(
+            "boundary-sample.group-picker",
+            output_node=True,
+            body=(
+                Group(
+                    "layers",
+                    value=Input("weight", INT, default=1, widget=NumberWidget(step=1)),
+                    keys=Named(("red", "blue", "gold")),
+                    grows="button",
+                    reorderable=True,
+                ),
+                Input(
+                    "pick",
+                    TypeExpr.concrete("COMBO"),
+                    default="red",
+                    widget=ComboWidget(options=Formula("keys(layers)")),
+                    label="Selected layer",
+                    tooltip="Choose an existing member",
+                ),
+                Input(
+                    "order",
+                    STRING,
+                    default="unknown",
+                    automatic=Formula('join(",", keys(layers))'),
+                ),
+                Output("result", INT),
+                Output("receipt", STRING),
+            ),
+        )
+
+    @classmethod
+    def execute(cls, *, layers: Members[Item], pick: str, order: str):
+        values = layers.as_dict()
+        return cls.outputs(
+            result=values.get(pick, -1),
+            receipt=json.dumps(
+                {
+                    "layers": [{"key": member.key, "value": member.value} for member in layers],
+                    "pick": pick,
+                    "order": order,
+                },
+            ),
+        )
+
+
+class GroupChoiceSource(Node):
+    @classmethod
+    def define_schema(cls) -> NodeSchema:
+        return NodeSchema(
+            "boundary-sample.group-choice",
+            body=(Output("value", TypeExpr.concrete("COMBO")),),
+        )
+
+    @classmethod
+    def execute(cls):
+        return cls.outputs(value="gold")
+
+
 NODES = [
     BoundarySample,
     ImageSource,
@@ -401,4 +464,6 @@ NODES = [
     ButtonCounter,
     FormulaCalculation,
     LookupCalculation,
+    GroupPicker,
+    GroupChoiceSource,
 ]
