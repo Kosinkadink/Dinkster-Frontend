@@ -917,7 +917,7 @@ test('secret form masks credentials, retains failed edits, and clears them after
   await expect(dialog.getByRole('option', { name: 'Deployment', exact: true })).toHaveCount(0)
   await value.fill('private-gallery-credential')
   await expect(dialog).not.toContainText('private-gallery-credential')
-  await expect(dialog.locator('form').getByRole('button')).toHaveText(['Cancel', 'Save secret'])
+  await expect(dialog.locator('footer').getByRole('button')).toHaveText(['Cancel', 'Save secret'])
   await save.click()
   await expect(dialog.getByRole('button', { name: 'Saving...', exact: true })).toBeDisabled()
   await page.clock.fastForward(601)

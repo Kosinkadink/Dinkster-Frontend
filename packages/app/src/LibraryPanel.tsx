@@ -7,7 +7,7 @@ import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 
-const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows'])
+const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows', 'boards'])
 const ACTIVITY_SOURCES = new Set(['history', 'runs'])
 type LibraryMessage = (key: string, params?: MessageParams) => string
 
@@ -191,6 +191,11 @@ function DirectLibraryState(props: { readonly state: CollectionPanelState; reado
   }
   if (props.state.sourceLabel === 'Templates') {
     return <ProductEmptyState title={props.message('library.state.noTemplates.title')} hint={props.message('library.state.noTemplates.detail', { backend: props.backend.label })} />
+  }
+  if (props.state.sourceLabel === 'Boards') {
+    return props.backend.protocol === 'v1'
+      ? <ProductEmptyState title={props.message('library.state.savedBoardsUnavailable.title')} hint={props.message('library.state.savedBoardsUnavailable.detail')} />
+      : <ProductEmptyState title={props.message('library.state.noSavedBoards.title')} hint={props.message('library.state.noSavedBoards.detail', { backend: props.backend.label })} />
   }
   if (props.backend.protocol === 'v1') {
     return <ProductEmptyState title={props.message('library.state.savedWorkflowsUnavailable.title')} hint={props.message('library.state.savedWorkflowsUnavailable.detail')} />

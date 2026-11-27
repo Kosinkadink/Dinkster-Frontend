@@ -1,4 +1,4 @@
-import { Show, createEffect, createSignal, onCleanup } from 'solid-js'
+import { Show, createEffect, createSignal, createUniqueId, onCleanup } from 'solid-js'
 import { ProductButton, ProductField, ProductSelect, ProductTextInput } from './controls.js'
 import { ProductDialog, ProductErrorBanner } from './messages.js'
 import { useProductStrings } from './strings.js'
@@ -13,6 +13,7 @@ export function ProductSecretDialog(props: {
   onCancel: () => void
 }) {
   const strings = useProductStrings()
+  const formId = createUniqueId()
   const [value, setValue] = createSignal('')
   const [scope, setScope] = createSignal<'account' | 'deployment'>('account')
   const [pending, setPending] = createSignal(false)
@@ -61,8 +62,11 @@ export function ProductSecretDialog(props: {
     }
   }
   return (
-    <ProductDialog title={strings.setSecretTitle.replace('{name}', props.name)} onDismiss={cancel} pending={pending()} size="confirmation">
-      <form class="dinkster-stack" autocomplete="off" noValidate onSubmit={save} aria-busy={pending()}>
+    <ProductDialog title={strings.setSecretTitle.replace('{name}', props.name)} onDismiss={cancel} pending={pending()} size="confirmation"
+      action={<ProductButton type="submit" form={formId} fill="solid" disabled={value().length === 0} pending={pending()}>
+        {pending() ? strings.secretSaving : failed() ? strings.tryAgain : strings.secretSave}
+      </ProductButton>}>
+      <form id={formId} class="dinkster-stack" autocomplete="off" noValidate onSubmit={save} aria-busy={pending()}>
         <Show when={failed()}>
           <ProductErrorBanner onDismiss={() => setFailed(false)}>{strings.secretSaveFailed}</ProductErrorBanner>
         </Show>
@@ -79,12 +83,6 @@ export function ProductSecretDialog(props: {
           {(attributes) => <ProductTextInput {...attributes} ref={input} type="password" autocomplete="off" spellcheck={false}
             value={value()} disabled={pending()} onInput={(event) => setValue(event.currentTarget.value)} />}
         </ProductField>
-        <div class="dinkster-confirmation-actions">
-          <ProductButton disabled={pending()} onClick={cancel}>{strings.cancel}</ProductButton>
-          <ProductButton type="submit" fill="solid" disabled={value().length === 0} pending={pending()}>
-            {pending() ? strings.secretSaving : failed() ? strings.tryAgain : strings.secretSave}
-          </ProductButton>
-        </div>
       </form>
     </ProductDialog>
   )

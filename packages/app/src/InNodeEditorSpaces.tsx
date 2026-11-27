@@ -287,9 +287,6 @@ export function NodeEditorSpaceOverlay(props: {
   )
 }
 
-/** Whether an editor's controls are live at this zoom; below it the canvas draws only its panel. */
-export const editorSpaceInteractive = (scale: number): boolean => scale >= defaultTokens.mediaControlMinScale
-
 /** Save target controls inside the shared fold-out editor space. */
 export function SaveTargetSpace(props: {
   readonly value: Json | undefined

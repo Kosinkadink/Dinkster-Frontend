@@ -25,7 +25,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutLine, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectNodeLayoutWidth, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutLine, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -1060,7 +1060,7 @@ export class CanvasRenderer {
   private reducedMotion = false
   private animationTimeMs = 0
   private previewChecker: CanvasPattern | null | undefined
-  private readonly graphTiles = new Map<string, ImageBitmap>()
+  private readonly graphTiles = new Map<string, ImageBitmap | null>()
   private graphTileTransform = ''
   private graphTileSurface: OffscreenCanvas | undefined
   private canvasLayers: readonly CanvasLayerContribution[] = []
@@ -1609,7 +1609,7 @@ export class CanvasRenderer {
   }
 
   getDetailLevel(): CanvasDetailLevel {
-    return canvasDetailLevel(this.viewport.scale, this.tokens.mediaControlMinScale, this.tokens.detailMinScale)
+    return canvasDetailLevel(this.viewport.scale, this.tokens.detailMinScale)
   }
 
   private badges: BadgeMap = {}
@@ -2113,7 +2113,7 @@ export class CanvasRenderer {
   }
 
   private clearGraphTiles(): void {
-    for (const tile of this.graphTiles.values()) tile.close()
+    for (const tile of this.graphTiles.values()) tile?.close()
     this.graphTiles.clear()
     this.graphTileTransform = ''
   }
@@ -2129,7 +2129,7 @@ export class CanvasRenderer {
       const width = (size + bleed * 2) / (densityX * scale)
       const height = (size + bleed * 2) / (densityY * scale)
       if (bounds.maxX < x || bounds.minX > x + width || bounds.maxY < y || bounds.minY > y + height) continue
-      tile.close()
+      tile?.close()
       this.graphTiles.delete(key)
     }
   }
@@ -2474,11 +2474,19 @@ export class CanvasRenderer {
     densityX: number,
     densityY: number,
   ): void {
-    const { tilePixels: size, bleedPixels: bleed } = canvasPaintTokens.graphCache
+    const cache = canvasPaintTokens.graphCache
+    const { tilePixels: size, bleedPixels: bleed } = cache
     const { x, y, scale } = this.viewport
+    const overlay = this.overlay
+    // Node/link bins prove transparency only when nothing else can paint
+    // between them. Overlay transitions also invalidate cached empty tiles.
+    const skipEmpty = scale >= cache.detailMinScale && scale <= cache.detailMaxScale && this.getDetailLevel() !== 'overview' &&
+      this.scene.groups.length === 0 && this.scene.reroutes.length === 0 && this.scene.netStubs.length === 0 && this.scene.boundaryNodes.length === 0 &&
+      !overlay.selection?.size && !overlay.ghostLink && !overlay.ghostLinks && !overlay.hoveredLine &&
+      !overlay.marquee && !overlay.groupResizeGhost && !overlay.placementGhost
     const pixelX = Math.round(x * densityX)
     const pixelY = Math.round(y * densityY)
-    const transform = `${scale}/${densityX}/${densityY}`
+    const transform = `${scale}/${densityX}/${densityY}/${skipEmpty}`
     if (transform !== this.graphTileTransform) {
       this.clearGraphTiles()
       this.graphTileTransform = transform
@@ -2533,6 +2541,11 @@ export class CanvasRenderer {
               assign(this.linkPaintBounds(link), (scene) => scene.links.push(link))
             }
           }
+          const tileScene = scenes.get(key)!
+          if (skipEmpty && tileScene.nodes.length === 0 && tileScene.links.length === 0) {
+            this.graphTiles.set(key, null)
+            continue
+          }
           const surface = this.graphTileSurface ??= new OffscreenCanvas(size + bleed * 2, size + bleed * 2)
           // Reset paint state as well as pixels before rendering another tile.
           surface.width = surface.height = size + bleed * 2
@@ -2545,17 +2558,17 @@ export class CanvasRenderer {
             y: -originY / (densityY * scale),
             w: (size + bleed * 2) / (densityX * scale),
             h: (size + bleed * 2) / (densityY * scale),
-          }, scale, { ...this.scene, ...scenes.get(key)! })
+          }, scale, { ...this.scene, ...tileScene })
           tile = surface.transferToImageBitmap()
           this.graphTiles.set(key, tile)
         }
-        ctx.drawImage(tile, bleed, bleed, size, size, column * size + pixelX, row * size + pixelY, size, size)
+        if (tile !== null) ctx.drawImage(tile, bleed, bleed, size, size, column * size + pixelX, row * size + pixelY, size, size)
       }
     }
     // Retain only the visible working set, independent of total graph size or pan distance.
     for (const [key, tile] of this.graphTiles) {
       if (used.has(key)) continue
-      tile.close()
+      tile?.close()
       this.graphTiles.delete(key)
     }
   }
@@ -2948,7 +2961,7 @@ export class CanvasRenderer {
       ) {
         continue
       }
-      this.drawNode(ctx, node, detailLevel, o.dx, o.dy)
+      this.drawNode(ctx, node, detailLevel, view, o.dx, o.dy)
     }
 
     // Boundary pseudo-nodes: drawn after regular nodes (they sit at the
@@ -3538,8 +3551,8 @@ export class CanvasRenderer {
     }
   }
 
-  /** Paint-only projection for an in-flight resize; scene and hit geometry stay committed. */
-  private nodeForPaint(node: SceneNode): SceneNode {
+  /** Live geometry shared by canvas paint and host overlays; scene and hit geometry stay committed. */
+  nodeForPaint(node: SceneNode): SceneNode {
     const lines = this.overlay.textBoxLines
     if (lines?.nodeId === node.id) {
       return { ...node, layout: projectTextBoxLines(node.layout, lines.valueKey, lines.lines, this.tokens) }
@@ -3553,16 +3566,7 @@ export class CanvasRenderer {
       ...node,
       x: preview.x,
       y: preview.y,
-      layout: {
-        ...layout,
-        width: preview.width,
-        ...(layout.preview === undefined ? {} : {
-          preview: { ...layout.preview, width: Math.max(0, preview.width - this.tokens.padX * 2) },
-        }),
-        ...(layout.textOutput === undefined ? {} : {
-          textOutput: { ...layout.textOutput, width: Math.max(0, preview.width - this.tokens.padX * 2) },
-        }),
-      },
+      layout: projectNodeLayoutWidth(layout, preview.width),
     }
   }
 
@@ -3700,6 +3704,7 @@ export class CanvasRenderer {
     ctx: CanvasRenderingContext2D,
     sceneNode: SceneNode,
     detailLevel: CanvasDetailLevel,
+    view: Readonly<{ y: number; h: number }>,
     dx = 0,
     dy = 0,
   ): void {
@@ -4102,8 +4107,15 @@ export class CanvasRenderer {
       // A skipped node's fields are quiet; its problem marks keep contrast.
       const skippedRows = progress?.state === 'skipped'
       this.problemMarkAlpha = rowsAlpha
+      const cache = canvasPaintTokens.graphCache
+      const cullFields = scale >= cache.detailMinScale && scale <= cache.detailMaxScale
+      const rowPad = structureCullPad(scale, t.pinRadius, detailLevel)
       for (const row of l.rows) {
         const rowY = node.y + row.y
+        // A field outside this tile cannot contribute pixels; its pins and
+        // enclosing boxes still paint through their independent paths.
+        if (cullFields && row.kind === 'widget' &&
+            (rowY + row.height + rowPad < view.y || rowY - rowPad > view.y + view.h)) continue
         // A member box's header starts where its outline does.
         const rowTop = row.kind === 'member' ? row.top : row.y
         ctx.globalAlpha = dragged !== undefined && rowTop >= dragged.top && rowTop < dragged.bottom
@@ -4263,6 +4275,7 @@ export class CanvasRenderer {
           }
           if (row.output) {
             if (row.output.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
+            if (row.output.inactive) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
             ctx.fillStyle = t.colors.label
             const right = row.crossInset === undefined
               ? node.x + l.width - t.rowGeometry.portLabelInset - (row.nameInset ?? 0)
@@ -4570,6 +4583,7 @@ export class CanvasRenderer {
     }
     for (const pin of l.pins) {
       if (pin.stacked === true || pin.lineHidden === true) continue
+      if (!contentDetail && l.rows.some((row) => row.kind === 'editorSpace' && pin.y >= row.y && pin.y < row.y + row.height)) continue
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? node.x : node.x + l.width, node.y + pin.y)
       const targetKey = dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true)
       const isLegalTarget = this.overlay.dropTargets?.has(targetKey) ?? false
@@ -5355,6 +5369,7 @@ export class CanvasRenderer {
     // Pins. Ghost pins draw hollow; a legal boundary drop target gets the
     // same highlight ring as regular pins.
     for (const pin of l.pins) {
+      if (!contentDetail && l.rows.some((row) => row.kind === 'editorSpace' && pin.y >= row.y && pin.y < row.y + row.height)) continue
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? x : x + l.width, y + pin.y)
       if (this.overlay.dropTargets?.has(boundaryTargetKey(bnode.side, pin.portId))) {
         ctx.beginPath()

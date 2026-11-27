@@ -2,10 +2,11 @@
 import { render } from 'solid-js/web'
 import { createSignal as solidSignal } from 'solid-js'
 import { asPromptId, type Signal } from '@dinkster/core'
-import type { ConnectionStatus, MemoryStatus } from '@dinkster/client'
+import type { ConnectionStatus, MemoryStatus, ModelDownloadJob } from '@dinkster/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AppState } from '../src/app-state.js'
 import { StatusBar } from '../src/StatusBar.js'
+import { installAssetConsent } from '../src/dialog-requests.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 let app: AppState
@@ -24,6 +25,7 @@ it('counts only the focused workflow and opens its explanatory panels without to
   const status = backend.connection.status as Signal<ConnectionStatus>
   status.set('connected')
   const [problem, setProblem] = solidSignal<{ count: number; severity: 'error'; label: string }>()
+  const [setupStatus, setSetupStatus] = solidSignal<'not-set-up' | 'setting-up'>()
   const opened: string[] = []
   const root = document.createElement('div')
   document.body.append(root)
@@ -33,6 +35,7 @@ it('counts only the focused workflow and opens its explanatory panels without to
     vi.spyOn(owner.connection, 'fetchMemoryStatus').mockResolvedValue({ devices: {}, queue: { queued: 0, running: [], maxRunningJobs: 1, paused: false }, memoryGovernor: {}, leases: [] })
   }
   dispose = render(() => <StatusBar app={app} backend={() => backend} tab={() => app.activeTab()} problems={problem}
+    setupStatus={setupStatus}
     context={() => '2 nodes, 1 selected'} visible={() => true} placement={() => undefined} transient={() => undefined}
     extensions={<span>Extension state</span>} openPanel={(id) => opened.push(id)} openRuns={() => opened.push('workflow')}
     openAppLog={() => opened.push('app-log')} />, root)
@@ -60,6 +63,18 @@ it('counts only the focused workflow and opens its explanatory panels without to
   root.querySelector<HTMLButtonElement>('[data-testid="status-problems"]')!.click()
   expect(opened).toEqual(['workflow', 'backends', 'backends', 'problems'])
   expect(root.textContent).toContain('Extension state')
+  backend.supervisor.set({ protocol: 1, state: 'stopped', role: 'home', installations: 0 })
+  setSetupStatus('not-set-up')
+  app.backendsTick.update((value) => value + 1)
+  expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain('not set up')
+  expect(root.textContent).not.toContain('Loading schemas')
+  backend.supervisor.set({ protocol: 1, state: 'stopped', role: 'home', installations: 1 })
+  setSetupStatus('setting-up')
+  app.backendsTick.update((value) => value + 1)
+  expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain('setting up')
+  setSetupStatus(undefined)
+  expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain('No engine is running')
+  backend.supervisor.set(undefined)
   status.set('disconnected')
   app.backendsTick.update((value) => value + 1)
   expect(root.querySelector('[data-testid="status-connection"]')?.textContent).toContain('disconnected')
@@ -107,9 +122,60 @@ it('combines connected backend work, opens App log and withdraws stale work on d
   expect(background()?.getAttribute('aria-label')).toContain('Other backend: composing packs 4/5')
   background()!.click()
   expect(open).toHaveBeenCalledOnce()
+  const requirements = ['first.safetensors', 'second.safetensors'].map((name) => ({ name, kind: 'model/vae' }))
+  const jobs: ModelDownloadJob[] = []
+  const selection = { ...requirements[0]!, project: 'studio', provider: 'huggingface' as const,
+    source: 'https://huggingface.co/example/model', repo: 'example/model', revision: 'a'.repeat(40),
+    file: 'weights.safetensors', sha256: 'b'.repeat(64), size: 311, license: 'test',
+    destination: '/models/vae/first.safetensors', mount: 'models' }
+  vi.mocked(backend.connection.fetchModelDownloads).mockImplementation(async () => ({ instance: 'test', jobs: [...jobs] }))
+  vi.spyOn(backend.connection, 'planModelDownload').mockImplementation(async (requirement) => ({ ...selection,
+    ...requirement, status: 'consent-required', planId: requirement.name }))
+  vi.spyOn(backend.connection, 'startModelDownload').mockImplementation(async () => {
+    const job: ModelDownloadJob = { ...selection, jobId: 'download', status: 'downloading', received: 73 }
+    jobs.push(job)
+    return job
+  })
+  vi.spyOn(backend.connection, 'cancelModelDownload').mockImplementation(async () => {
+    jobs[0] = { ...jobs[0]!, status: 'cancelled' }
+    return jobs[0]
+  })
+  const controller = app.modelDownloadsFor(backend, 'studio')
+  installAssetConsent({ models: requirements, slot: app.assetConsent,
+    modelDownloads: { controller, connection: backend.connection, project: 'studio' } })
+  await app.assetConsent.get()!.reviewModel!(0)
+  await app.assetConsent.get()!.reviewModel!(1)
+  await app.assetConsent.get()!.downloadModels!([0, 1])
+  expect(background()?.textContent).toContain('4 tasks')
+  expect(background()?.getAttribute('aria-label')).toContain('Downloading first.safetensors: 73 B / 311 B')
+  expect(background()?.getAttribute('aria-label')).toContain('Waiting to download second.safetensors')
+  expect(app.assetConsent.get()?.models?.[0]?.job?.received).toBe(73)
+  app.assetConsent.set(undefined)
+  expect(background()?.textContent).toContain('4 tasks')
+  jobs[0] = { ...jobs[0]!, received: 113 }
+  await controller.refresh()
+  expect(background()?.getAttribute('aria-label')).toContain('Downloading first.safetensors: 113 B / 311 B')
+  expect(controller.rows.get()[0]?.job?.received).toBe(113)
+  jobs[0] = { ...jobs[0]!, received: 181 }
+  await app.modelDownloadsFor(backend, 'another-project').refresh()
+  expect(background()?.getAttribute('aria-label')).toContain('Downloading first.safetensors: 181 B / 311 B')
+  await controller.cancel(requirements[1]!)
+  expect(background()?.textContent).toContain('3 tasks')
+  expect(background()?.getAttribute('aria-label')).not.toContain('second.safetensors')
+  jobs.push({ ...selection, name: 'external.safetensors', jobId: 'external', received: 41, status: 'downloading' })
+  await controller.refresh()
+  expect(background()?.getAttribute('aria-label')).toContain('Downloading external.safetensors: 41 B / 311 B')
+  await controller.cancel(requirements[0]!)
+  expect(background()?.textContent).toContain('3 tasks')
+  expect(background()?.getAttribute('aria-label')).not.toContain('first.safetensors')
   ;(other.connection.status as Signal<ConnectionStatus>).set('disconnected')
-  expect(background()?.textContent).toContain('composing packs 2/7')
+  expect(background()?.textContent).toContain('2 tasks')
+  expect(background()?.getAttribute('aria-label')).toContain('composing packs 2/7')
   expect(background()?.getAttribute('aria-label')).not.toContain('Other backend')
+  jobs[1] = { ...jobs[1]!, status: 'completed', received: 311 }
+  await app.modelDownloadsFor(backend, 'another-project').refresh()
+  expect(background()?.getAttribute('aria-label')).not.toContain('external.safetensors')
+  expect(background()?.getAttribute('aria-label')).toContain('composing packs 2/7')
   ;(backend.connection.status as Signal<ConnectionStatus>).set('disconnected')
   expect(background()).toBeNull()
 })
