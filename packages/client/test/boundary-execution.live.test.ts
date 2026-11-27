@@ -34,6 +34,178 @@ const types: Record<string, string> = {
 }
 
 describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
+  for (const calculation of ['formula', 'lookup'] as const) for (const depth of [0, 1, 2]) {
+    it(`boundary/${calculation}/native-depth-${depth}`, async () => {
+      const connection = new DinksterConnection({ id: asConnectionId('automatic-live'), baseUrl: LIVE_URL!, clientId: `automatic-${process.pid}` })
+      const registry = await connection.fetchSchemas()
+      const type = `boundary-sample.${calculation}`
+      const primitive: NodeSchema = {
+        type: 'dinkster.utilities.primitive_int', displayName: 'Int', category: 'utilities', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'INT' }, optional: false,
+            widget: { widgetType: 'INT', options: {}, default: 0 } },
+          { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'INT' }, knownValue: { input: 'value' } },
+        ],
+      }
+      const resolve = (id: string) => id === primitive.type ? primitive : registry.resolve(id)
+      const graph = (id: string, nodes: unknown, body?: unknown) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100,
+        ...(body === undefined ? {} : { boundary: { body } }) })
+      const bind = (id: string, node: string, port: string) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node, port } })
+      const seed = depth === 0 ? 'seed' : depth === 1 ? 'start' : 'control'
+      const total = depth === 0 ? 'total' : depth === 1 ? 'sum' : 'result'
+      const document = { format: 'dinkster-workflow', formatVersion: 1, lineage: `native-${calculation}-${depth}`, root: 'root', view: { graphs: {} }, graphs: {
+        root: graph('root', {
+          first: { id: 'first', type: depth === 0 ? type : depth === 1 ? '#detail' : '#portrait', values: { [seed]: 21 } },
+          second: { id: 'second', type: depth === 0 ? type : depth === 1 ? '#detail' : '#portrait', values: { [seed]: 13 } },
+          literal: { id: 'literal', type: primitive.type, values: { value: 47 } },
+          runtime: { id: 'runtime', type: 'boundary-sample.int', values: {} },
+        }),
+        ...(depth > 0 ? { detail: graph('detail', { sample: { id: 'sample', type, values: { seed: 3 } },
+          other: { id: 'other', type, values: { seed: 17, bias: 13 } } },
+        [bind('start', 'sample', 'seed'), bind('sum', 'sample', 'total'), bind('offset', 'sample', 'bias')]) } : {}),
+        ...(depth === 2 ? { portrait: graph('portrait', { detail: { id: 'detail', type: '#detail', values: { start: 7 } } },
+          [bind('control', 'detail', 'start'), bind('result', 'detail', 'sum'), bind('weight', 'detail', 'offset')]) } : {}),
+      } } as unknown as WorkflowDocument
+      const storeFor = (doc: WorkflowDocument) => new DocumentStore(doc, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve) }))
+      const store = storeFor(document)
+      const edit = (target: DocumentStore, command: string, params: Record<string, Json>) => {
+        const result = target.dispatch({ command, params })
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+      }
+      const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
+      const first = `first${suffix}`, second = `second${suffix}`
+      type Receipt = { seed: number; bias: number; total: number }
+      const run = async (doc: WorkflowDocument, expected: Record<string, Receipt>, absent: readonly string[] = []) => {
+        const compiled = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' },
+          connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Automatic workflow did not compile')
+        const submitted = await connection.submit(compiled.artifact)
+        expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
+        if (!submitted.ok) throw new Error('Automatic workflow was refused')
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline) {
+          const job = await connection.fetchJob(submitted.execution.prompt)
+          if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
+          if (job?.state === 'completed') {
+            const outputs = job.outputs as unknown as Record<string, Record<string, { value: unknown }>>
+            for (const [nodeId, receipt] of Object.entries(expected)) {
+              expect(outputs[nodeId]?.result?.value, nodeId).toBe(receipt.total)
+              const query = { jobId: submitted.execution.prompt, nodeId, outputId: 'receipt' }
+              const peek = await connection.values().peek(query)
+              expect(peek.available, JSON.stringify(peek)).toBe(true)
+              if (!peek.available) throw new Error('Automatic receipt unavailable')
+              const text = await connection.values().rendition(query, 'text', { descriptor: peek.descriptor })
+              expect(text.available, JSON.stringify(text)).toBe(true)
+              if (!text.available) throw new Error('Automatic receipt text unavailable')
+              expect(JSON.parse(new TextDecoder().decode(text.bytes)), nodeId).toEqual(receipt)
+            }
+            for (const nodeId of absent) expect(outputs[nodeId]).toBeUndefined()
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        throw new Error('Automatic workflow did not complete')
+      }
+      const sibling = { seed: 13, bias: 7, total: 33 }
+      await run(store.doc, { [first]: { seed: 21, bias: 7, total: 49 }, [second]: sibling })
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: seed, value: 31 })
+      const edited = store.doc
+      expect(store.doc.graphs.detail).toEqual(document.graphs.detail)
+      expect(store.doc.graphs.portrait).toEqual(document.graphs.portrait)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(document)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(edited)
+      await run(loadDocument(JSON.parse(JSON.stringify(edited))).document!, { [first]: { seed: 31, bias: 7, total: 69 }, [second]: sibling })
+      edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: [seed] })
+      await run(store.doc, { [first]: { seed: depth === 2 ? 7 : 3, bias: 7, total: depth === 2 ? 21 : 13 }, [second]: sibling })
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(edited)
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: total, value: 19 })
+      await run(store.doc, { [first]: { seed: 31, bias: 7, total: 19 }, [second]: sibling })
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(edited)
+      for (const source of ['literal', 'runtime']) for (const target of [seed, total]) {
+        const wired = storeFor(edited)
+        edit(wired, 'link.connect', { graphId: 'root', from: { node: source, port: source === 'literal' ? 'value' : 'number' }, to: { node: 'first', port: target } })
+        const connected = wired.doc
+        const value = source === 'literal' ? 47 : 2
+        const expected = target === seed
+          ? { seed: value, bias: 7, total: source === 'literal' ? 101 : 11 }
+          : { seed: 31, bias: 7, total: value }
+        await run(loadDocument(JSON.parse(JSON.stringify(connected))).document!, { [first]: expected, [second]: sibling })
+        edit(wired, 'link.disconnect', { graphId: 'root', linkId: Object.keys(connected.graphs.root!.links)[0]! })
+        expect(wired.doc.graphs.root!.nodes.first!.values).toEqual({ [seed]: 31 })
+        const disconnected = wired.doc
+        expect(wired.undo()).toBe(true)
+        expect(wired.doc).toEqual(connected)
+        expect(wired.redo()).toBe(true)
+        expect(wired.doc).toEqual(disconnected)
+      }
+      if (depth === 0) return
+      const fanout = storeFor(edited)
+      edit(fanout, 'boundary.addBinding', { graphId: 'detail', itemId: 'start', node: 'other', port: 'seed' })
+      const withFanout = fanout.doc
+      const extraSuffix = depth === 1 ? '.other' : '.detail.other'
+      await run(withFanout, { [first]: { seed: 31, bias: 7, total: 69 }, [second]: sibling,
+        [`first${extraSuffix}`]: { seed: 31, bias: 13, total: 75 }, [`second${extraSuffix}`]: { seed: 13, bias: 13, total: 39 } })
+      const incompatible = fanout.dispatch({ command: 'boundary.addBinding', params: {
+        graphId: 'detail', itemId: 'start', node: 'other', port: 'text',
+      } })
+      expect(incompatible.ok).toBe(false)
+      expect(fanout.doc).toBe(withFanout)
+      const detached = storeFor(edited)
+      edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
+      const privateGraph = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+      edit(detached, 'node.setValue', { graphId: privateGraph, nodeId: depth === 1 ? 'sample' : 'detail', inputId: depth === 1 ? 'bias' : 'offset', value: 19 })
+      expect(detached.doc.graphs.detail).toEqual(edited.graphs.detail)
+      expect(detached.doc.graphs.portrait).toEqual(edited.graphs.portrait)
+      await run(loadDocument(JSON.parse(JSON.stringify(detached.doc))).document!, { [first]: { seed: 31, bias: 19, total: 81 }, [second]: sibling })
+      for (const mode of ['active', 'muted', 'bypassed'] as const) {
+        const doc: WorkflowDocument = { ...edited, graphs: { ...edited.graphs, root: { ...edited.graphs.root!, nodes: {
+          ...edited.graphs.root!.nodes, first: { ...edited.graphs.root!.nodes.first!, ...(mode === 'active' ? {} : { mode }) },
+        } } } }
+        const flattened = storeFor(doc)
+        const root = doc.graphs.root!, node = root.nodes.first!, body = doc.graphs[node.type.slice(1)]!
+        const resolver = documentResolver(doc, resolve)
+        const plan = planFlattenBoundaryRoutes(body, resolver, node, root)
+        const topology = planFlattenOccurrenceTopology(doc, resolver, { instancePath: [], node: node.id })
+        const topologyParams = topology.plan === undefined ? {} : { occurrenceTopologyPlan: topology.plan,
+          occurrenceTopologyPlanDigest: lifecycleCanonicalHash(topology.plan) }
+        const selectionFingerprint = lifecycleFlattenFingerprint(doc, 'root', 'first', {
+          boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest, ...topologyParams,
+        })
+        const outcome = flattened.dispatch({ command: 'subgraph.flatten', params: {
+          graphId: 'root', instancePath: [], nodeId: 'first', placementCenter: { x: 100, y: 100 },
+          resolvedGeometry: { occurrence: { id: 'first', kind: 'node', x: 0, y: 0, width: 200, height: 200 },
+            body: Object.keys(body.nodes).map((id) => ({ id, kind: 'node', x: 0, y: 0, width: 200, height: 200 })) },
+          boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaSnapshot: plan.schemaSnapshot,
+          schemaPlanDigest: plan.schemaPlanDigest, selectionFingerprint, ...topologyParams,
+        } } as unknown as CommandInvocation)
+        if (mode === 'bypassed') {
+          expect(outcome.ok).toBe(false)
+          expect(outcome.diagnostics.map((item) => item.code)).toContain('subgraph.flatten.modeUnsupported')
+          expect(flattened.doc).toBe(doc)
+          continue
+        }
+        expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
+        const replacement = Object.values(flattened.doc.graphs.root!.nodes).find((candidate) =>
+          root.nodes[candidate.id] === undefined && candidate.type === (depth === 1 ? type : '#detail'))!
+        expect(replacement).toBeDefined()
+        const path = depth === 1 ? replacement.id : `${replacement.id}.sample`
+        const result = flattened.doc
+        expect(flattened.undo()).toBe(true)
+        expect(flattened.doc.graphs).toEqual({ ...doc.graphs, root: { ...root, nextOrdinal: result.graphs.root!.nextOrdinal } })
+        expect(flattened.redo()).toBe(true)
+        expect(flattened.doc).toEqual(result)
+        await run(loadDocument(JSON.parse(JSON.stringify(result))).document!, mode === 'muted'
+          ? { [second]: sibling } : { [path]: { seed: 31, bias: 7, total: 69 }, [second]: sibling }, mode === 'muted' ? [path] : [])
+      }
+    }, 120_000)
+  }
+
   for (const depth of [1, 2] as const) {
     it(`boundary/plain-pin/native-depth-${depth}`, async () => {
       const connection = new DinksterConnection({ id: asConnectionId('pin-live'), baseUrl: LIVE_URL!, clientId: `pins-${process.pid}` })

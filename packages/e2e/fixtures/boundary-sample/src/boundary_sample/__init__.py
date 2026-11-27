@@ -15,6 +15,7 @@ from dinkster_api.v1 import (
     Group,
     Input,
     Item,
+    Lookup,
     Members,
     Node,
     NodeSchema,
@@ -34,6 +35,7 @@ from dinkster_api.v1 import (
     encode_image_array,
     image_array_fingerprint,
     image_array_meta,
+    lookup,
     mask_array_meta,
     validate_image_encoded,
 )
@@ -324,6 +326,71 @@ class ButtonCounter(Node):
         return cls.outputs(result=amount, private_delta=delta)
 
 
+@lookup
+def calculate_total(seed: int, bias: int) -> int:
+    return seed * 2 + bias
+
+
+class FormulaCalculation(Node):
+    @classmethod
+    def define_schema(cls) -> NodeSchema:
+        return NodeSchema(
+            "boundary-sample.formula",
+            output_node=True,
+            body=(
+                Input("seed", INT, default=3, widget=NumberWidget(step=1)),
+                Input("bias", INT, default=7, widget=NumberWidget(step=1)),
+                Input("text", STRING, default="", widget=StringWidget()),
+                Input(
+                    "total",
+                    INT,
+                    default=5,
+                    widget=NumberWidget(step=1),
+                    automatic=Formula("seed * 2 + bias"),
+                ),
+                Output("result", INT),
+                Output("receipt", STRING),
+            ),
+        )
+
+    @classmethod
+    def execute(cls, *, seed, bias, text, total):
+        return cls.outputs(
+            result=total,
+            receipt=json.dumps({"seed": seed, "bias": bias, "total": total}),
+        )
+
+
+class LookupCalculation(Node):
+    @classmethod
+    def define_schema(cls) -> NodeSchema:
+        return NodeSchema(
+            "boundary-sample.lookup",
+            output_node=True,
+            body=(
+                Input("seed", INT, default=3, widget=NumberWidget(step=1)),
+                Input("bias", INT, default=7, widget=NumberWidget(step=1)),
+                Input("text", STRING, default="", widget=StringWidget()),
+                Input(
+                    "total",
+                    INT,
+                    default=5,
+                    widget=NumberWidget(step=1),
+                    automatic=Lookup(calculate_total, args=("seed", "bias")),
+                ),
+                Output("result", INT),
+                Output("receipt", STRING),
+            ),
+        )
+
+    @classmethod
+    def execute(cls, *, seed, bias, text, total):
+        return cls.outputs(
+            result=total,
+            receipt=json.dumps({"seed": seed, "bias": bias, "total": total}),
+        )
+
+
 NODES = [
     BoundarySample,
     ImageSource,
@@ -332,4 +399,6 @@ NODES = [
     FloatSource,
     IntSource,
     ButtonCounter,
+    FormulaCalculation,
+    LookupCalculation,
 ]
