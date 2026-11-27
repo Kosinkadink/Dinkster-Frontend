@@ -67,7 +67,9 @@ import type {
   UseSpec,
   WidgetSpec,
 } from './model.js'
-import { isAssetWidgetInput, isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
+import { canonicalTypeIdOf, isAssetWidgetInput, isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
+import { typeExprFromDinksterWire } from './dinkster-wire.js'
+import { recordFieldTypeFits } from './type-relations.js'
 import { isAssetRefValue, readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
 import { normalizeComboOption } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
@@ -2606,6 +2608,37 @@ function elaboratePass(
   }
 
   const project = (type: TypeExpr): TypeExpr => {
+    if (type.kind === 'record_field') {
+      const source = items.find((item) => item.kind === 'input' && item.spec.id === type.input)
+      const selector = items.find((item) => item.kind === 'input' && item.spec.id === type.index)
+      const stored = Object.hasOwn(node.values, type.index) ? node.values[type.index]
+        : selector?.kind === 'input' ? readWhenUnset(selector.spec) : undefined
+      try {
+        if (source?.kind !== 'input' || source.spec.type.kind !== 'record' || typeof stored !== 'string' || linked(type.index)) throw new Error('Record selection requires a declared record and a stored field path.')
+        const selection: unknown = JSON.parse(stored)
+        const saved = typeof selection === 'object' && selection !== null && !Array.isArray(selection)
+          ? selection as Record<string, unknown> : undefined
+        const path = saved === undefined ? selection : saved['path']
+        if (!Array.isArray(path) || path.length === 0 || !path.every((key) => typeof key === 'string' && key !== '')) throw new Error('Record selection requires a nonempty path of stable field IDs.')
+        const oldType = saved === undefined ? undefined : typeExprFromDinksterWire(saved['type'])
+        if (oldType !== undefined && canonicalTypeIdOf(oldType) === undefined) throw new Error('Saved record selection requires a resolved type.')
+        if (saved !== undefined && typeof saved['name'] !== 'string') throw new Error('Saved record selection requires a field name.')
+        let current: TypeExpr | undefined = source.spec.type
+        for (const key of path) current = current?.kind === 'record' ? current.fields.find((field) => field.id === key)?.type : undefined
+        if (current !== undefined && (oldType === undefined || recordFieldTypeFits(current, oldType))) return current
+        if (oldType === undefined) throw new Error('The selected record field is no longer declared.')
+        const message = current === undefined ? `Record field '${saved!['name']}' was removed.`
+          : `Record field '${saved!['name']}' changed type from ${canonicalTypeIdOf(oldType)} to ${canonicalTypeIdOf(current)}.`
+        diagnostics.push(diag('warning', 'schema', 'record-field-removed', message, {
+          ...(options.nodeId === undefined ? {} : { anchor: { port: { node: options.nodeId, port: asPortId(type.index) } } }),
+          data: { oldType, ...(current === undefined ? {} : { newType: current }) },
+        }))
+        return oldType
+      } catch (error) {
+        report('elab.record.selection', error instanceof Error ? error.message : 'Invalid record field selection.', type.index)
+        return type
+      }
+    }
     if (type.kind === 'tuple_element') {
       const input = items.find((item) => item.kind === 'input' && item.spec.id === type.input)
       const element = type.element ?? (input?.kind === 'input' ? input.spec.type : undefined)
@@ -2626,6 +2659,7 @@ function elaboratePass(
   }
   for (const [index, item] of items.entries()) {
     if (item.kind === 'output') items[index] = { ...item, spec: { ...item.spec, type: project(item.spec.type) } }
+    else if (item.kind === 'input' && item.spec.type.kind === 'record_field') items[index] = { ...item, spec: { ...item.spec, type: project(item.spec.type) } }
   }
 
   const chunkSafe = schema.chunkSafe

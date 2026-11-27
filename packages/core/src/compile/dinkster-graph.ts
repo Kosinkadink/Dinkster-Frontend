@@ -241,6 +241,18 @@ export function typeExprToDinksterWire(t: TypeExpr): Json | undefined {
         : undefined
     case 'wildcard':
       return { kind: 'wildcard' }
+    case 'record': {
+      const fields: Json[] = []
+      for (const field of t.fields) {
+        const type = typeExprToDinksterWire(field.type)
+        if (type === undefined) return undefined
+        fields.push({ id: field.id, name: field.name, type, optional: field.optional,
+          ...(field.default !== undefined ? { default: field.default as Json } : {}) })
+      }
+      return { kind: 'record', types: [t.name], fields }
+    }
+    case 'record_field':
+      return { kind: 'record_field', input: t.input, index: t.index }
     case 'tuple_element': {
       const element = t.element === undefined ? undefined : typeExprToDinksterWire(t.element)
       return { kind: 'tuple_element', ...(t.input !== undefined ? { input: t.input } : element !== undefined ? { element } : {}), index: t.index }
@@ -360,6 +372,7 @@ function mayHoldResident(type: TypeExpr, types: readonly string[]): boolean {
     case 'list':
     case 'stream': return mayHoldResident(type.element, types)
     case 'tuple': return type.elements.some((element) => mayHoldResident(element, types))
+    case 'record': return type.fields.some((field) => mayHoldResident(field.type, types))
     case 'variable': return type.allowedTypes?.some((element) => mayHoldResident(element, types)) ?? false
     case 'tuple_element': return type.element !== undefined && mayHoldResident(type.element, types)
     default: return false

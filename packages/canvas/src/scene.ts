@@ -229,6 +229,14 @@ const sameTypeExpr = (left: TypeExpr, right: TypeExpr): boolean => {
   if (left.kind !== right.kind) return false
   switch (left.kind) {
     case 'concrete': return left.name === (right as typeof left).name
+    case 'record': {
+      const other = right as typeof left
+      return left.name === other.name && left.fields.length === other.fields.length && left.fields.every((field, index) => {
+        const found = other.fields[index]!
+        return field.id === found.id && field.name === found.name && field.optional === found.optional && sameTypeExpr(field.type, found.type)
+      })
+    }
+    case 'record_field': return left.input === (right as typeof left).input && left.index === (right as typeof left).index
     case 'union': {
       const names = (right as typeof left).names
       return left.names.length === names.length && left.names.every((name, index) => name === names[index])

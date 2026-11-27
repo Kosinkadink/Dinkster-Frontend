@@ -55,7 +55,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import type { GraphDef, LinkData, NodeData } from '../format/document.js'
 import { asPortId, isPortEndpoint, type LinkId, type NodeId, type PortRef } from '../ids.js'
 import { buildRerouteIndex, traceEndpointAll } from '../reroute.js'
-import { admittedInputType, assetCoercible, atomNamesOf, coercionTargetsOf, typesCompatible } from './type-relations.js'
+import { admittedInputType, assetCoercible, atomNamesOf, coercionTargetsOf, containsRecord, recordConnectionProblem, typesCompatible } from './type-relations.js'
 import type { SchemaResolver } from './derive-boundary.js'
 import {
   buildGraphConnectivity,
@@ -88,6 +88,8 @@ export function typeProblemWords(type: TypeExpr, form: 'value' | 'name' | 'plura
     ? type.allowedTypes.map((allowed) => typeProblemWords(allowed, form)).join(' or ')
     : 'any type'
   if (type.kind === 'wildcard') return 'any type'
+  if (type.kind === 'record') return `record ${type.name}`
+  if (type.kind === 'record_field') return 'a record field'
   if (type.kind === 'tuple_element') return type.element === undefined ? 'a value from a group' : typeProblemWords(type.element, form)
   if (type.kind === 'tuple') return `${form === 'plural' ? 'groups' : form === 'name' ? 'group' : 'a group'} of ${type.elements.length} values`
   if (type.kind === 'asset') {
@@ -182,6 +184,8 @@ interface VarRecord {
   sources: EdgeSource[]
   /** Authoritative stored slot choices constraining this class. */
   slotBindings: SlotBindingSource[]
+  /** Record-bearing producer declarations cannot be rebuilt from runtime IDs. */
+  recordTypes: Map<string, TypeExpr>
 }
 
 const varKeyOf = (node: NodeId, templateId: string): string => `${node.length}:${node}${templateId}`
@@ -201,6 +205,7 @@ class VarStore {
         constrained: false,
         sources: [],
         slotBindings: [],
+        recordTypes: new Map(),
       })
       return
     }
@@ -226,11 +231,13 @@ class VarStore {
     return rec
   }
 
-  constrain(key: VarKey, atoms: readonly string[], source: EdgeSource): void {
+  constrain(key: VarKey, atoms: readonly string[], source: EdgeSource, producer?: TypeExpr): void {
     const root = this.find(key)
     root.domain = intersect(root.domain, atoms)
     root.constrained = true
     root.sources.push(source)
+    const id = producer === undefined ? undefined : canonicalTypeIdOf(producer)
+    if (id !== undefined && containsRecord(producer!) && atoms.includes(id)) root.recordTypes.set(id, producer!)
   }
 
   bind(key: VarKey, atom: string, source: SlotBindingSource): void {
@@ -254,6 +261,7 @@ class VarStore {
     winner.constrained = winner.constrained || loser.constrained
     winner.sources.push(...loser.sources, source)
     winner.slotBindings.push(...loser.slotBindings)
+    for (const [name, type] of loser.recordTypes) winner.recordTypes.set(name, type)
   }
 
   roots(): IterableIterator<VarRecord> {
@@ -492,8 +500,9 @@ export function solveGraphTypes(
     }
     if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: substitute(type.element, node) }
     if (type.kind !== 'variable') return type
-    const resolution = vars.resolutionOf(varKeyOf(node, type.templateId))
-    if (resolution.kind === 'resolved') return resolution.name === '*' ? { kind: 'wildcard' } : typeExprFromTypeId(resolution.name)
+    const key = varKeyOf(node, type.templateId)
+    const resolution = vars.resolutionOf(key)
+    if (resolution.kind === 'resolved') return vars.find(key).recordTypes.get(resolution.name) ?? (resolution.name === '*' ? { kind: 'wildcard' } : typeExprFromTypeId(resolution.name))
     if (resolution.kind === 'ambiguous') return { kind: 'union', names: resolution.names }
     return type
   }
@@ -560,7 +569,7 @@ export function solveGraphTypes(
   ): void => {
     const fromType = typeAt(from, fromSide)
     const toType = admittedTypeAt(fromType, to, typeAt(to, 'input'))
-    if (fromType !== undefined && toType !== undefined && hasTuple(fromType))
+    if (fromType !== undefined && toType !== undefined && (hasTuple(fromType) || [...nestedVariablesOf(fromType)].length > 0))
       dependentEdges.push({ fromType, toType, from, to, source })
     if (fromType === undefined || toType === undefined) {
       setVerdict(source, 'unknown')
@@ -634,6 +643,21 @@ export function solveGraphTypes(
       return
     }
 
+    if (fromType.kind !== 'variable' && toType.kind !== 'variable' && cardinalityOf(fromType) === cardinalityOf(toType)) {
+      const recordProblem = recordConnectionProblem(fromType, toType)
+      if (recordProblem !== undefined && !(allowCoercion && assetCoercible(fromType, toType))) {
+        setVerdict(source, 'mismatch')
+        diagnostics.push(problem('warning', 'solve.recordMismatch', to, 'input', recordProblem, {
+          anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
+        }))
+        return
+      }
+      if (fromType.kind === 'record' && toType.kind === 'record') {
+        setVerdict(source, 'ok')
+        return
+      }
+    }
+
     if (fromType.kind === 'tuple' && toType.kind === 'tuple') {
       if (fromType.elements.length !== toType.elements.length) {
         setVerdict(source, 'mismatch')
@@ -688,6 +712,13 @@ export function solveGraphTypes(
       : undefined
     const toVar = toType.kind === 'variable' ? varKeyOf(to.node, toType.templateId) : undefined
 
+    // A structural consumer does not rename a generic producer's record.
+    // Recheck its complete producer declaration once input bindings resolve.
+    if (fromVar !== undefined && containsRecord(toType)) {
+      setVerdict(source, 'ok')
+      return
+    }
+
     if (fromVar !== undefined && toVar !== undefined) {
       if (source.kind === 'projectedInput' && fromVariableKeys !== undefined) vars.merge(toVar, fromVar, source)
       else vars.merge(fromVar, toVar, source)
@@ -718,7 +749,7 @@ export function solveGraphTypes(
           if (coerced.some((n) => declared.includes(n))) atoms = coerced
         }
       }
-      vars.constrain(varKey, atoms, source)
+      vars.constrain(varKey, atoms, source, toVar === undefined ? undefined : fromType)
       // A type outside the variable's allowlist is an ordinary mismatch: a
       // registered type equivalence may still admit it on the server.
       const allowed = toVar === undefined ? undefined : atomNamesOf(toType)
@@ -736,7 +767,7 @@ export function solveGraphTypes(
     if (fromType.kind === toType.kind && (fromType.kind === 'list' || fromType.kind === 'asset' || fromType.kind === 'stream')) {
       const a = atomNamesOf(fromType)
       const b = atomNamesOf(toType)
-      if (a === undefined || b === undefined) {
+      if (a === undefined || b === undefined || containsRecord(fromType) || containsRecord(toType)) {
         // Shared-constructor peel is free: the coercion budget is inherited
         // (that is the elementwise lift when a list element then decodes).
         // A closed heterogeneous list binds its runtime element marker, not
@@ -1042,7 +1073,7 @@ export function solveGraphTypes(
   // topology tracing policy used by edge checks, including all selector
   // candidates, and abstain for generic or wildcard producers.
   const isKnown = (type: TypeExpr): boolean =>
-    type.kind === 'concrete' || type.kind === 'union' || ((type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') && isKnown(type.element))
+    type.kind === 'concrete' || type.kind === 'record' || type.kind === 'union' || ((type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') && isKnown(type.element))
   const reroutes = buildRerouteIndex(def)
   const checkProducer = (slot: typeof specializedSlots[number], from: Parameters<typeof traceEndpointAll>[1]): void => {
     for (const trace of traceEndpointAll(def, from, reroutes)) {

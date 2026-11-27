@@ -14,6 +14,29 @@ describe('typesCompatible', () => {
     expect(typesCompatible(c('IMAGE'), c('LATENT'))).toBe(false)
   })
 
+  it('matches record fields directionally by stable identity or cross-record name without conversions', () => {
+    const record = (name: string, fields: readonly [string, string, TypeExpr][]): TypeExpr => ({
+      kind: 'record', name, fields: fields.map(([id, name, type]) => ({ id, name, type, optional: false })),
+    })
+    const source = record('producer.settings', [['seed-id', 'seed', c('INT')], ['text-id', 'label', c('STRING')]])
+    const subset = record('consumer.settings', [['other-id', 'seed', c('INT')]])
+    const renamed = record('producer.settings', [['seed-id', 'noise', c('INT')]])
+    expect(typesCompatible(source, subset)).toBe(true)
+    expect(typesCompatible(subset, source)).toBe(false)
+    expect(typesCompatible(source, renamed)).toBe(true)
+    expect(typesCompatible(renamed, subset)).toBe(false)
+    expect(typesCompatible(source, record('producer.settings', [['new-id', 'seed', c('INT')]]))).toBe(false)
+    expect(typesCompatible(source, record('consumer.settings', [['other-id', 'seed', c('FLOAT')]]))).toBe(false)
+    expect(typesCompatible(record('producer.settings', [['seed-id', 'seed', asset(c('INT'))]]), subset)).toBe(false)
+    expect(typesCompatible(list(source), list(subset))).toBe(true)
+    expect(typesCompatible(list(subset), list(source))).toBe(false)
+    expect(typesCompatible(record('producer.outer', [['a', 'settings', list(source)]]), record('consumer.outer', [['b', 'settings', list(subset)]]))).toBe(true)
+    expect(typesCompatible(source, c('producer.settings'))).toBe(false)
+    expect(typesCompatible(c('producer.settings'), source)).toBe(false)
+    expect(typesCompatible(source, { kind: 'variable', templateId: 'T' })).toBe(true)
+    expect(typesCompatible({ kind: 'variable', templateId: 'T' }, source)).toBe(true)
+  })
+
   it('wildcard matches everything on either side', () => {
     expect(typesCompatible(wild, c('IMAGE'))).toBe(true)
     expect(typesCompatible(c('IMAGE'), wild)).toBe(true)

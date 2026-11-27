@@ -7,8 +7,9 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
+import type { Json } from '../format/document.js'
 import { isReplacementRule, type ReplacementRule } from '../replace/model.js'
-import { allRowsOf, inputsOf, KNOWN_VALUE_LIMITS, outputsOf, scopeRowsOf } from './model.js'
+import { allRowsOf, canonicalTypeIdOf, inputsOf, KNOWN_VALUE_LIMITS, outputsOf, scopeRowsOf } from './model.js'
 import { checkBody, formulaTablesOf, isLayoutId, isMemberKey, isOptionKey, isRowId, isVariantKey, MAX_GROUP_MEMBERS } from './body.js'
 import { isCanonicalUnsafeInteger } from './numeric-step.js'
 import { isComboValue } from './combo-options.js'
@@ -353,6 +354,8 @@ export function typeExprFromDinksterWire(wire: unknown): TypeExpr {
       return { kind: w.kind, element: typeExprFromDinksterWire(w.element) }
     case 'tuple':
     case 'tuple_element':
+    case 'record':
+    case 'record_field':
       return wireType(wire, 'type')
     default:
       throw new Error(`unknown type expression kind: ${String(w.kind)}`)
@@ -1501,6 +1504,31 @@ function wireType(value: unknown, where: string): TypeExpr {
       if (!Array.isArray(type['elements'])) throw new Error(`${where}.elements must be an array`)
       return { kind: 'tuple', elements: type['elements'].map((element, index) => wireType(element, `${where}.elements[${index}]`)) }
     }
+    case 'record': {
+      const types = stringList(type['types'], 'types', 1)
+      if (types.length !== 1) throw new Error(`${where}.types must contain exactly one record identity`)
+      if (types[0]!.length > 64 || !/^[a-z][a-z0-9]*(?:[-_.][a-z0-9]+)*$/.test(types[0]!)) throw new Error(`${where} requires a lowercase namespaced record identity`)
+      if (!Array.isArray(type['fields'])) throw new Error(`${where}.fields must be an array`)
+      const ids = new Set<string>()
+      const names = new Set<string>()
+      const fields = type['fields'].map((raw, index) => {
+        const at = `${where}.fields[${index}]`
+        const field = wireObject(raw, at)
+        const id = wireSegment(field['id'], `${at}.id`)
+        const name = wireSegment(field['name'], `${at}.name`)
+        if (ids.has(id) || names.has(name)) throw new Error(`${at} has a duplicate field identity or name`)
+        ids.add(id)
+        names.add(name)
+        const fieldType = wireType(field['type'], `${at}.type`)
+        if (canonicalTypeIdOf(fieldType) === undefined) throw new Error(`${at}.type must be a declared concrete type`)
+        if (field['default'] !== undefined) wireJson(field['default'], `${at}.default`)
+        return { id, name, type: fieldType, optional: wireBoolean(field['optional'], `${at}.optional`, false),
+          ...(field['default'] !== undefined && field['default'] !== null ? { default: field['default'] as Json } : {}) }
+      })
+      return { kind: 'record', name: types[0]!, fields }
+    }
+    case 'record_field':
+      return { kind: 'record_field', input: wireSegment(type['input'], `${where}.input`), index: wireSegment(type['index'], `${where}.index`) }
     case 'tuple_element': {
       const input = type['input'] === undefined ? undefined : wireSegment(type['input'], `${where}.input`)
       const element = type['element'] === undefined ? undefined : wireType(type['element'], `${where}.element`)
@@ -2181,7 +2209,11 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     const decodedInputs = new Map(inputsOf(baseSchema).map((item) => [item.id, item]))
     const decodedOutputs = outputsOf(baseSchema)
     const validateTupleDeclaration = (type: TypeExpr, output: boolean): void => {
-      if (type.kind === 'tuple_element') {
+      if (type.kind === 'record_field') {
+        const source = decodedInputs.get(type.input)
+        const selector = decodedInputs.get(type.index)
+        if (source?.type.kind !== 'record' || selector?.type.kind !== 'concrete' || !['STRING', 'COMBO'].includes(selector.type.name)) throw new Error('record_field requires a record input and a STRING or COMBO selector of the node')
+      } else if (type.kind === 'tuple_element') {
         const source = type.input === undefined ? undefined : decodedInputs.get(type.input)
         const selector = typeof type.index === 'string' ? decodedInputs.get(type.index) : undefined
         if (!output || (type.input !== undefined && source === undefined)) throw new Error('tuple_element requires a tuple input of the node and an output declaration')

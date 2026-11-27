@@ -1248,6 +1248,8 @@ export interface PresentedType {
 const typeExprLabelWith = (type: TypeExpr, aliases: Readonly<Record<string, string>>): string => {
   switch (type.kind) {
     case 'concrete': return aliases[type.name] ?? type.name
+    case 'record': return type.name
+    case 'record_field': return 'Record field'
     case 'union': return type.names.map((name) => aliases[name] ?? name).join(' | ')
     case 'wildcard': return 'Any'
     case 'tuple': return `tuple<${type.elements.map((element, index) => `${index}: ${typeExprLabelWith(element, aliases)}`).join(', ')}>`

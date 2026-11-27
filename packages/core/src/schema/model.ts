@@ -12,6 +12,7 @@
  */
 
 import type { ReplacementRule } from '../replace/model.js'
+import type { Json } from '../format/document.js'
 
 export type SchemaSource = 'v3' | 'v1' | 'subgraph'
 
@@ -54,6 +55,16 @@ export type TypeExpr =
   | { readonly kind: 'stream'; readonly element: TypeExpr }
   | { readonly kind: 'tuple'; readonly elements: readonly TypeExpr[] }
   | { readonly kind: 'tuple_element'; readonly input?: string; readonly element?: TypeExpr; readonly index: string | number }
+  | { readonly kind: 'record'; readonly name: string; readonly fields: readonly RecordField[] }
+  | { readonly kind: 'record_field'; readonly input: string; readonly index: string }
+
+export type RecordField = {
+  readonly id: string
+  readonly name: string
+  readonly type: TypeExpr
+  readonly optional: boolean
+  readonly default?: Json
+}
 
 /** COMBO is a concrete type carrying a string, boolean, or finite number. */
 export const COMBO_TYPE = 'COMBO'
@@ -134,7 +145,7 @@ export const parseTupleTypeId = (typeId: string): readonly string[] | undefined 
  * structured-type identity.
  */
 export const canonicalTypeIdOf = (t: TypeExpr): string | undefined => {
-  if (t.kind === 'concrete') return t.name
+  if (t.kind === 'concrete' || t.kind === 'record') return t.name
   if (t.kind === 'tuple') {
     const elements = t.elements.map(canonicalTypeIdOf)
     return elements.some((element) => element === undefined) ? undefined : `tuple<${elements.join(',')}>`
@@ -252,6 +263,7 @@ export const cardinalityOf = (t: TypeExpr): Cardinality => {
     case 'list':
       return 'list'
     case 'tuple':
+    case 'record':
     case 'stream':
       return 'scalar'
     case 'asset':

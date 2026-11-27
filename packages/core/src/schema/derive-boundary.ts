@@ -107,7 +107,7 @@ const mentionsCombo = (type: TypeExpr): boolean => {
 
 const regionSourceMismatch = (source: TypeExpr, expected: TypeExpr): 'error' | 'warning' | undefined => {
   const runtimeType = canonicalTypeIdOf(source)
-  if (runtimeType === undefined || typesDirectlyCompatible(typeExprFromTypeId(runtimeType), expected)) return undefined
+  if (runtimeType === undefined || typesDirectlyCompatible(source, expected)) return undefined
   return mentionsCombo(source) || mentionsCombo(expected) ? 'error' : 'warning'
 }
 
