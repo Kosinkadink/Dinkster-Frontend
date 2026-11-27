@@ -934,8 +934,10 @@ describe('mount listing decode', () => {
 
   it.each([undefined, 'default', 'film'])('persists the output for project %s without changing another project', async (project) => {
     const requests: { url: string; init?: RequestInit }[] = []
+    let refused = false
     const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', ...(project === undefined ? {} : { project }), webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
       requests.push({ url: String(url), ...(init ? { init } : {}) })
+      if (refused && init?.method === 'PUT') return jsonResponse(409, { error: 'Cannot save here: Permission denied' })
       return jsonResponse(200, { mounts: [{ id: 'renders', mode: 'readwrite', state: 'ready' }], outputMount: null, activeOutputMount: null, restartRequired: true, pendingRemovals: ['old'] })
     } })
     await connection.selectOutputMount('renders')
@@ -950,6 +952,8 @@ describe('mount listing decode', () => {
         init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mounts: ['renders'], outputMount: 'renders' }) },
       },
     ])
+    refused = true
+    await expect(connection.selectOutputMount('renders')).rejects.toMatchObject({ status: 409, serverMessage: 'Cannot save here: Permission denied' })
   })
 
   it('keeps operator configured and active locations distinct across pending changes', async () => {

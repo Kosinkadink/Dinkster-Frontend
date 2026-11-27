@@ -3893,7 +3893,7 @@ export class DinksterConnection {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mounts, outputMount }),
     })
-    if (!res.ok) throw await requestFailure(res)
+    if (!res.ok) throw await requestFailure(res, 'error')
   }
 
   async retryMount(id: string): Promise<void> {
@@ -3938,7 +3938,7 @@ export class DinksterConnection {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id }),
       })
-      if (!res.ok) throw await requestFailure(res)
+      if (!res.ok) throw await requestFailure(res, 'error')
     }
     // Folder ordering can already have pinned the default project's output.
     // Keep that override in sync with the persisted library default.

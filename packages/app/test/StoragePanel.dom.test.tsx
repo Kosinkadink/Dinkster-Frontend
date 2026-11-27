@@ -335,6 +335,11 @@ it('changes mount saving access, requires a usable replacement and preserves a r
     fetchModelSettings: async () => ({ locations: [], settings: { locations: [] }, changesAllowed: true }),
     onMountsChanged: () => () => {},
     selectOutputMount: async (id: string) => { outputMount = id; revision = 'replacement' },
+    retryMount: async (id: string) => { mounts = mounts.map((row) => {
+      if (row.id !== id) return row
+      const { saveError: _saveError, ...recovered } = row
+      return recovered
+    }) },
     updateMountAccess: async (id: string, mode: 'read' | 'readwrite', expected: string) => {
       if (expected !== revision || refused) throw new RequestFailure('PUT', '/api/mounts/access', 409, 'Configuration changed')
       if (id === outputMount && mode === 'read') throw new Error('Choose a replacement first')
@@ -348,21 +353,26 @@ it('changes mount saving access, requires a usable replacement and preserves a r
   const menu = (id: string) => row(id).querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
   const action = (label: string) => [...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent === label)!
   await vi.waitFor(() => expect(row('renders')?.textContent).toContain('New saves go here'))
-  expect(row('offline').textContent).toContain('Cannot save here: Permission denied')
+  expect(row('offline').textContent).toContain('Cannot save here. Dinkster is not allowed to write to this folder.')
+  expect(row('offline').textContent).not.toContain('Permission denied')
   menu('offline')
   expect(action('Save new files here')).toBeUndefined()
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   menu('renders'); action('Stop saving to this folder').click()
   const confirm = () => [...row('renders').querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop saving to this folder')!
   expect(confirm().disabled).toBe(true)
-  row('renders').querySelector<HTMLButtonElement>('[role="combobox"]')!.click()
-  expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).not.toContain('offline')
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  expect(row('renders').textContent).toContain('No other folder allows saving. Allow saving on another folder first.')
+  expect(row('renders').querySelector('[role="combobox"]')).toBeNull()
+  ;[...row('renders').querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Cancel')!.click()
+  menu('renders'); action('Stop using').click()
+  expect(row('renders').textContent).toContain('No other folder allows saving.')
+  expect([...row('renders').querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using')!.disabled).toBe(true)
   ;[...row('renders').querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Cancel')!.click()
   menu('exports'); action('Allow saving to this folder').click()
   await vi.waitFor(() => expect(row('exports').textContent).not.toContain('Read only'))
   menu('renders'); action('Stop saving to this folder').click()
   row('renders').querySelector<HTMLButtonElement>('[role="combobox"]')!.click()
+  expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).not.toContain('offline')
   ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'exports')!.click()
   confirm().click()
   await vi.waitFor(() => expect(row('renders').textContent).toContain('Read only'))
@@ -374,6 +384,10 @@ it('changes mount saving access, requires a usable replacement and preserves a r
   expect(root.textContent).not.toContain('Folder settings saved.')
   expect(row('renders').textContent).toContain('Read only')
   expect(row('exports').textContent).toContain('New saves go here')
+  ;[...row('offline').querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Try again')!.click()
+  await vi.waitFor(() => expect(row('offline').textContent).not.toContain('Cannot save here.'))
+  menu('offline')
+  expect(action('Save new files here')).toBeDefined()
 })
 
 it('selects the default save folder from a writable mount menu', async () => {
