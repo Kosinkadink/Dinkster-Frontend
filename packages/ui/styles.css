@@ -319,7 +319,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-message[data-kind='success'] { color: var(--dinkster-success-foreground); border-color: var(--dinkster-success-quiet-border); background: var(--dinkster-success-quiet-background); }
 .dinkster-message[data-kind='warning'] { color: var(--dinkster-warning-foreground); border-color: var(--dinkster-warning-quiet-border); background: var(--dinkster-warning-quiet-background); }
 .dinkster-message :is(.dinkster-link, .dinkster-text-button) { color: var(--dinkster-text-primary); }
-.dinkster-message > .dinkster-button { color: var(--dinkster-text-secondary); }
+.dinkster-message > .dinkster-button[data-icon-only] { color: var(--dinkster-text-secondary); }
 .dinkster-message[data-recovery] { flex-wrap: wrap; align-items: center; }
 .dinkster-recovery-copy { display: flex; align-items: start; gap: var(--dinkster-space-12); }
 .dinkster-recovery-copy > .dinkster-icon { flex: none; margin-block: calc((var(--dinkster-type-body-line) - var(--dinkster-icon-size)) / 2); }
