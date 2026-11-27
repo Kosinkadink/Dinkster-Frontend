@@ -695,7 +695,7 @@ describe('recorded stream replay', () => {
     expect(after.artifact).toBeDefined()
   })
 
-  it.each(['absent', 'unregistered'] as const)('restores a revalidated completed result without volatile stream state: %s', (mode) => {
+  it.each(['absent', 'unregistered'] as const)('restores a revalidated completed result while retaining received warning logs: %s', (mode) => {
     const store = new ExecutionStore()
     const ref = { connection: asConnectionId('c0'), prompt: asPromptId('restored') }
     const artifact = { prompt: { producer: { class_type: 'Float', inputs: {} } } } as never
@@ -708,6 +708,9 @@ describe('recorded stream replay', () => {
       virtualPath: 'output/value.json',
     }]
     if (mode === 'unregistered') {
+      store.apply({ kind: 'log', execution: ref, timestamp: 15, seq: 1,
+        runtimeNodeId: 'producer', level: 'warning', code: 'unpack_count_mismatch',
+        message: 'Expected 3 items; received 1' })
       store.apply({ kind: 'completed', execution: ref, timestamp: 20 })
     }
     store.restoreCompleted({
@@ -737,7 +740,12 @@ describe('recorded stream replay', () => {
     expect(restored.artifactsHydrated).toBe(true)
     expect(restored.previews).toEqual({})
     expect(restored.activities).toEqual([])
-    expect(restored.logs).toEqual([])
+    expect(restored.logs.map((entry) => entry.message)).toEqual(
+      mode === 'unregistered' ? ['Expected 3 items; received 1'] : [],
+    )
+    expect(restored.warnings?.map((warning) => warning.message) ?? []).toEqual(
+      mode === 'unregistered' ? ['Expected 3 items; received 1'] : [],
+    )
   })
 
   it('hydrateOutputs merges history outputs without overwriting live ones', () => {

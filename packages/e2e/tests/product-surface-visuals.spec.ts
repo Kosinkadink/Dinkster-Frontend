@@ -1004,11 +1004,12 @@ test('Settings and subgraph cleanup empty states remain usable', async ({ page }
 
 test('Collaboration discovery distinguishes unavailable loading empty and failed reads', async ({ page }) => {
   let mode: 'loading' | 'empty' | 'error' | 'ready' = 'loading'
-  let release: (() => void) | undefined
+  let release!: () => void
+  const loaded = new Promise<void>((resolve) => { release = resolve })
   await page.route('**/collab-visual/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/api/sessions')) {
-      if (mode === 'loading') await new Promise<void>((resolve) => { release = resolve })
+      if (mode === 'loading') await loaded
       return mode === 'error'
         ? route.fulfill({ status: 503, body: 'Session fixture unavailable' })
         : route.fulfill({ json: { sessions: mode === 'ready' ? [{
@@ -1069,8 +1070,7 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
   })
   await capture('loading')
   mode = 'empty'
-  await expect.poll(() => release !== undefined).toBe(true)
-  release?.()
+  release()
   await expect(page.getByTestId('collab-empty')).toContainText('No shared sessions')
   await capture('empty')
   mode = 'error'

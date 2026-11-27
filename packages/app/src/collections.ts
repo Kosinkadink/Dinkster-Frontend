@@ -379,6 +379,42 @@ export function workflowsSource(app: AppState): CollectionSource {
   }
 }
 
+export function boardsSource(app: AppState): CollectionSource {
+  return {
+    id: 'boards',
+    label: 'Boards',
+    page: async (req) => {
+      const backend = app.libraryBackend()
+      if (!backend) return { items: [], total: 0 }
+      const cursor = decodeOwnedCursor(backend.id, req.cursor)
+      const page = await backend.connection.listLibrary({
+        scope: LIBRARY_SCOPE,
+        query: req.query,
+        label: 'board',
+        limit: req.limit,
+        ...(cursor !== undefined ? { cursor } : {}),
+      })
+      const nextCursor = encodeOwnedCursor(backend.id, page.cursor)
+      return {
+        owner: backend.id,
+        items: page.records.map((record): CollectionEntry => ({
+          id: record.id,
+          owner: backend.id,
+          title: record.name,
+          subtitle: `Modified ${formatCollectionDate(record.modified * 1000)}`,
+          badges: [...record.labels.filter((label) => label !== 'board'), `rev ${record.revision}`],
+          details: [
+            { label: 'board id', text: record.id },
+            { label: 'backend', text: backend.label },
+            { label: 'revision', text: String(record.revision) },
+          ],
+        })),
+        ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
+      }
+    },
+  }
+}
+
 const timeText = (epoch: number): string => formatCollectionDate(epoch * 1000)
 const localTimeText = (epoch: number): string => formatCollectionDate(epoch)
 const titleCase = (value: string): string => value[0]!.toUpperCase() + value.slice(1)

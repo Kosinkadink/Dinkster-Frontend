@@ -105,6 +105,7 @@ import { ModelDownloadsGallery } from './model-downloads.js'
 import { EngineStatesGallery } from './engine-states.js'
 import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
+import { BoardGallery } from './board.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
 
@@ -115,6 +116,7 @@ const navigation = [
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
+  { label: 'Board', href: '#board', icon: LayoutList },
   {
     label: 'Canvas',
     href: '#canvas',
@@ -211,7 +213,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -234,7 +236,7 @@ function Gallery() {
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#node-search'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#node-search'}
       >
         <Show
           when={!loading()}
@@ -467,6 +469,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#search'}>
               <SearchGallery />
+            </Match>
+            <Match when={route() === '#board'}>
+              <BoardGallery />
             </Match>
             <Match when={route() === '#node-search'}>
               <NodeSearchGallery />

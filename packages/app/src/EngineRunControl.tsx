@@ -1,4 +1,4 @@
-import { Match, Show, Switch, createEffect, createSignal, createUniqueId, onCleanup, onMount } from 'solid-js'
+import { Match, Show, Switch, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, type JSX } from 'solid-js'
 import { fetchSupervisorEngineLog, type SupervisorStatus } from '@dinkster/client'
 import { ProductButton, ProductCodeBlock, ProductDialog, ProductIcon, ProductLoading, ProductSpinner, ProductTextButton } from '@dinkster/ui'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
@@ -10,6 +10,7 @@ export function EngineRunControl(props: {
   readonly status: SupervisorStatus
   readonly baseUrl: string
   readonly onRestart: () => Promise<void>
+  readonly children?: JSX.Element
 }) {
   const message = useAppMessage()
   const [reasonOpen, setReasonOpen] = createSignal(false)
@@ -20,11 +21,15 @@ export function EngineRunControl(props: {
   let trigger: HTMLButtonElement | undefined
   let reason: HTMLElement | undefined
 
-  createEffect(() => {
-    props.baseUrl
-    setLogOpen(false)
-    setReasonOpen(false)
-  })
+  createEffect(on(
+    () => [props.baseUrl, props.status.open?.root, props.status.open?.engine] as const,
+    (installation, previous) => {
+      // Tab replacements can invalidate the getters without changing the installation.
+      if (previous && installation.every((value, index) => value === previous[index])) return
+      setLogOpen(false)
+      setReasonOpen(false)
+    },
+  ))
   createEffect(() => {
     if (props.status.state !== 'failed') setReasonOpen(false)
   })
@@ -73,7 +78,7 @@ export function EngineRunControl(props: {
         }
       }}
     >
-      <Switch>
+      <Switch fallback={props.children}>
         <Match when={props.status.state === 'starting'}>
           <span class="engine-run-starting" role="status" aria-live="polite">
             <ProductSpinner label={message('shell.engine.startingControl')} />
@@ -117,6 +122,7 @@ export function EngineRunControl(props: {
 
 export function EngineLogDialog(props: { readonly baseUrl: string; readonly onDismiss: () => void }) {
   const message = useAppMessage()
+  const baseUrl = createMemo(() => props.baseUrl)
   const [log, setLog] = createSignal<Awaited<ReturnType<typeof fetchSupervisorEngineLog>>>()
   let request = 0
   onCleanup(() => {
@@ -125,7 +131,7 @@ export function EngineLogDialog(props: { readonly baseUrl: string; readonly onDi
   createEffect(() => {
     const current = ++request
     setLog(undefined)
-    void fetchSupervisorEngineLog(props.baseUrl).then((result) => {
+    void fetchSupervisorEngineLog(baseUrl()).then((result) => {
       if (current === request) setLog(result)
     })
   })

@@ -146,6 +146,7 @@ test('a problem outlines its row and the tab opens one box under the node', asyn
 
   // Zoomed out past the tabs, the open box is not drawn; it returns with them.
   const viewport = await page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 50))
   await page.evaluate((v) => window.__dinksterTest!.renderer!.setViewport({ ...v, scale: 0.4 }), viewport)
   await expect(box).toHaveCount(0)
   await page.evaluate((v) => window.__dinksterTest!.renderer!.setViewport(v), viewport)
@@ -212,7 +213,7 @@ test('a missing model opens only its own review and never queues a workflow', as
   })).toBe(true)
   expect(plans).toEqual([])
   await page.screenshot({ path: process.env['DINKSTER_MODEL_BOX_CAPTURE'] ?? test.info().outputPath('missing-model-box.png') })
-  await box.getByRole('button', { name: 'Review download', exact: true }).click()
+  await box.getByRole('button', { name: 'Download models', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Download models', exact: true })
   const row = dialog.locator('.dinkster-model-download-row')
   await expect(row).toHaveCount(1)

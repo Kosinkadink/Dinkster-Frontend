@@ -4,6 +4,7 @@ import { asConnectionId, asGraphDefId, asLinkId, asNodeId, asPortId, compile, do
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, representedPreviewAssetForNode, withRecordedAutomaticValues, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
+import { deriveProblemProjection, executionProblemDiagnostics } from '../src/problem-display.js'
 import type { PreviewLoader, PreviewSource } from '../src/node-previews.js'
 
 // The derivation reads scene.nodes (id/isSubgraph/node.type), execution
@@ -1259,6 +1260,25 @@ describe('deriveSceneOverlays', () => {
       .toEqual(['low vram', 'seed reused', 'loaded'])
     expect(m.runLogsByNode.get('n2')?.map((entry) => entry.message)).toEqual(['decoded'])
     expect(m.runLogsByNode.has('n3')).toBe(false)
+  })
+
+  it('counts a coded warning only on Problems while preserving uncoded and captured warning tabs', () => {
+    const warning = { level: 'warning' as const, code: 'unpack_count_mismatch',
+      message: 'Expected 3 items; received 1', timestamp: 1, runtimeNodeId: 'n1', seq: 1 }
+    for (const other of [undefined, { ...warning, code: undefined, seq: 2 },
+      { ...warning, origin: 'stderr' as const, seq: 2 }]) {
+      const state = exec({
+        warnings: [warning], logs: [warning, ...(other === undefined ? [] : [other])],
+        artifact: { provenance: { toSource: { n1: 'n1' }, fromSource: { n1: ['n1'] } } },
+      })
+      const diagnostics = executionProblemDiagnostics(state)
+      const nodeProblems = deriveProblemProjection({ diagnostics, graphId: 'root', instancePath: [] }).nodes
+      const overlays = deriveSceneOverlays({ ...base, scene: scene([{ id: 'n1' }]), exec: state, nodeProblems })
+      expect(overlays.badges.n1).toEqual([
+        ...(other === undefined ? [] : [logWarningBadge(1)]), PROBLEM_WARNING_BADGE,
+      ])
+      expect(overlays.runLogsByNode.get('n1')).toEqual(state.logs)
+    }
   })
 
   it('projects blocked and expanded runtime facts onto their canvas nodes', () => {
