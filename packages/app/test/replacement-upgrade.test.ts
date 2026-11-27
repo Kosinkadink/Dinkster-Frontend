@@ -383,6 +383,30 @@ describe('native open-time replacement', () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(knownTab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(29)
     expect(app.adjustmentNotices.get().has(knownTab.id)).toBe(false)
+
+    const refreshedPayload = { ...payload, epoch: 2, nodes: {
+      Current: { displayName: 'Numbers', category: 'test', body: [
+        { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: { lookup: 'test.limit', args: [] }, step: 4 } },
+        { kind: 'input', id: 'unrelated', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: 100, step: 4 } },
+      ] },
+      Known: { displayName: 'Known limit', category: 'test', body: [
+        { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: 8, step: 4 } },
+      ] },
+    } }
+    backend.registry.set(buildDinksterRegistry(backend.id, refreshedPayload))
+    await vi.waitFor(() => expect(knownTab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(8))
+    expect(amount()).toBe(29)
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values.unrelated).toBe(29)
+    expect(app.undoAdjustments(knownTab.id)).toBe(true)
+    expect(knownTab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(29)
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...refreshedPayload, epoch: 3 }))
+    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    expect(knownTab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(29)
+    expect(amount()).toBe(29)
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values.unrelated).toBe(29)
   })
 
   it('stores numeric fixes atomically, keeps later field edits on notice Undo, and does not repeat undone causes', async () => {
@@ -434,9 +458,9 @@ describe('native open-time replacement', () => {
       ...numericPayload.nodes.Current, body: numericPayload.nodes.Current.body.map((row) => row.id === 'amount'
         ? { ...row, widget: { ...row.widget, max: 16 } } : row),
     } } }))
-    expect(app.scanTabNumberFixes(tab).map((fix) => [fix.owner.nodeId, fix.before, fix.after])).toEqual([['second', 29, 16]])
-    expect(await app.applyProblemFixes(tab, app.scanTabNumberFixes(tab))).toMatchObject({ kind: 'done' })
-    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
+    await vi.waitFor(() => expect(values()[1]!.amount).toBe(16))
+    expect(app.adjustmentNotices.get().get(tab.id)!.adjustments.map((change) => change.details)).toEqual([['amount: 29 to 16']])
+    app.clearAdjustmentNotice(tab.id)
     expect(tab.store.undo()).toBe(true)
     expect(values()[1]!.amount).toBe(29)
     expect(await app.applyProblemFixes(tab, app.scanTabNumberFixes(tab), true)).toMatchObject({ kind: 'done' })

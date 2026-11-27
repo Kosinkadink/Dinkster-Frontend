@@ -21,6 +21,7 @@ import {
   type PickRequest,
   type PressOutcome,
   type PressTarget,
+  type SchemaResolver,
   type WidgetSpec,
 } from '@dinkster/core'
 import type { LookupCall, LookupEntry } from '@dinkster/client'
@@ -99,8 +100,8 @@ const targetOf = (place: ButtonPlace): PressTarget => ({
 const NO_HOST_EDITOR = new Set(['COMPOSITOR', 'CURVE', 'PAINTER', 'MASK', 'IMAGE_COMPARE'])
 
 /** The shared editor host for declared buttons and stored-value fixes. */
-export function createActionHost(app: AppState, surfaces: ButtonSurfaces | undefined, place: ButtonPlace): ActionHost {
-  const resolverOf = (tab: Tab) => app.registryForTab(tab)?.resolve ?? (() => undefined)
+export function createActionHost(app: AppState, surfaces: ButtonSurfaces | undefined, place: ButtonPlace, resolve?: SchemaResolver): ActionHost {
+  const resolverOf = (tab: Tab) => resolve ?? app.registryForTab(tab)?.resolve ?? (() => undefined)
   const surfacesOf = (): ButtonSurfaces => {
     if (surfaces === undefined) throw new Error('This fix cannot ask a question or open an editor.')
     return surfaces

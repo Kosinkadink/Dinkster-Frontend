@@ -5028,6 +5028,7 @@ export class AppState {
           ])
         })
       }
+      let previousRegistry = registry.get()
       const unsubs = [
         connection.onStreamResumed(() => {
           refreshAfterGap()
@@ -5086,6 +5087,8 @@ export class AppState {
           reconcileConnected()
         }),
         registry.subscribe(() => {
+          const beforeRegistry = previousRegistry
+          previousRegistry = registry.get()
           this.replaceProblems(schemaProblemsOwner, (registry.get()?.diagnostics ?? []).map((problem) => ({
             ...problem, message: `[${label}] ${problem.message}`,
           })))
@@ -5093,6 +5096,12 @@ export class AppState {
             if (tab.execution || this.backendForTab(tab).id !== id || this.schemaDiagnosticsPending.has(tab.id)) continue
             this.reportEnvironmentDrift(tab)
             this.reportUnresolvedTypes(tab)
+            if (beforeRegistry !== undefined) {
+              const before = this.scanTabProblemFixes(tab, tab.store.doc, undefined, beforeRegistry.resolve)
+              const fixes = this.scanTabProblemFixes(tab).filter((fix) => fix.kind === 'number' &&
+                !before.some((old) => problemFixKey(old) === problemFixKey(fix) && old.stamp === fix.stamp))
+              void this.applyProblemFixes(tab, fixes, true)
+            }
           }
           this.backendsTick.update((v) => v + 1)
           this.flushWorkspaceRegistrations(id)
@@ -5744,14 +5753,14 @@ export class AppState {
   }
 
   /** Every occurrence is checked: siblings can store different promoted values. */
-  scanTabProblemFixes(tab: Tab, document = tab.store.doc, lookupAnswers?: ElaborateOptions['lookupAnswers']): readonly StoredProblemFix[] {
+  scanTabProblemFixes(tab: Tab, document = tab.store.doc, lookupAnswers?: ElaborateOptions['lookupAnswers'], resolve?: SchemaResolver): readonly StoredProblemFix[] {
     if (tab.execution || this.registryForTab(tab) === undefined) return []
     const fixes = new Map<string, StoredProblemFix>()
     const visit = (graphId: string, instancePath: readonly string[], ancestors: ReadonlySet<string>): void => {
       if (ancestors.has(graphId)) return
       for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
         const place = { tab, graphId, nodeId: node.id, button: '', instancePath }
-        const host = { ...createActionHost(this, undefined, place), ...(lookupAnswers === undefined ? {} : { lookupAnswers }) }
+        const host = { ...createActionHost(this, undefined, place, resolve), ...(lookupAnswers === undefined ? {} : { lookupAnswers }) }
         for (const fix of [...storedNumberFixes(document, place, host), ...storedRuleFixes(document, place, host)]) {
           const key = problemFixKey(fix)
           if (!fixes.has(key)) fixes.set(key, fix)
