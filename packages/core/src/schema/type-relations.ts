@@ -1,12 +1,40 @@
 /**
- * Native type relations. Advisory, not load-bearing: the UI uses them to
- * highlight legal drop targets and diagnostics use it to warn, but documents
- * are never rejected on type grounds (dynamic types can drift; a stale doc
- * must stay loadable and fixable). Structural invariants (one driver per
- * input, endpoints resolve) are what commands enforce.
+ * Native type relations. Catalog-backed incompatibilities can refuse a run,
+ * but documents stay loadable and fixable. Relations without a catalog stay
+ * advisory; structural invariants are what document commands enforce.
  */
 
 import { cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type Cardinality, type TypeExpr } from './model.js'
+
+/** Incoming atom acceptance and coercion providers from the pinned engine catalog. */
+export interface TypeAcceptance {
+  readonly atoms: Readonly<Record<string, readonly string[]>>
+  readonly assetDecoders: readonly string[]
+  readonly batchMerges: readonly string[]
+}
+
+/** Undefined leaves unresolved type variables to the constraint solver. */
+export function catalogTypesCompatible(from: TypeExpr, to: TypeExpr, facts: TypeAcceptance): boolean | undefined {
+  const hasVariable = (type: TypeExpr): boolean => type.kind === 'variable' || type.kind === 'tuple_element' ||
+    (type.kind === 'tuple' && type.elements.some(hasVariable)) ||
+    ((type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') && hasVariable(type.element))
+  if (hasVariable(from) || hasVariable(to)) return undefined
+  if (typesDirectlyCompatible(from, to)) return true
+  const sources = atomNamesOf(from)
+  if (sources === undefined) return undefined
+  const destinations = atomNamesOf(to)
+  return sources.some((source) => {
+    // Equivalence belongs to the runtime atom, never recursively to wrappers.
+    if (destinations?.some((destination) => Object.hasOwn(facts.atoms, destination) && facts.atoms[destination]!.includes(source))) return true
+    const decoded = parseAssetTypeId(source)
+    if (decoded !== undefined) return facts.assetDecoders.includes(decoded) && typesDirectlyCompatible(typeExprFromTypeId(decoded), to)
+    const element = parseListTypeId(source)
+    const target = element === undefined ? undefined : parseAssetTypeId(element)
+    if (target === undefined || !facts.assetDecoders.includes(target)) return false
+    return typesDirectlyCompatible(typeExprFromTypeId(listTypeId(target)), to) ||
+      (cardinalityOf(to) === 'scalar' && parseListTypeId(target) === undefined && facts.batchMerges.includes(target) && typesDirectlyCompatible(typeExprFromTypeId(target), to))
+  })
+}
 
 /** A whole-list input lifts its declared element type only for a list source. */
 export const admittedInputType = (type: TypeExpr, acceptsList: boolean, sourceCardinality: Cardinality): TypeExpr =>

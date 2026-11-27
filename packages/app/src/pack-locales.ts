@@ -329,6 +329,7 @@ export function overlayPackLocales(
       const resolved = registry.resolve(type)
       return resolved === undefined ? undefined : schemas.get(resolved.type)
     }, {
+      typeAcceptance: () => registry.resolve.typeAcceptance?.(),
       forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
     }),
   }

@@ -15,6 +15,8 @@ import {
   asPortId,
   asPromptId,
   compile,
+  documentResolver,
+  solveGraphTypes,
   importLitegraph,
   resolveImportedNodePacks,
   loadDocument,
@@ -1166,6 +1168,72 @@ function chainArtifact(): CompileArtifact {
 }
 
 describe('promptToDinksterGraph', () => {
+  it.each([
+    ['native.value', 'native.value', [], [], true],
+    ['incoming.value', 'native.value', [], [], true],
+    ['native.value', 'incoming.value', [], [], false],
+    ['other.value', 'native.value', [], [], false],
+    ['list<incoming.value>', 'list<native.value>', [], [], false],
+    ['asset<incoming.value>', 'asset<native.value>', [], [], false],
+    ['asset<native.value>', 'native.value', [], [], false],
+    ['asset<native.value>', 'native.value', ['native.value'], [], true],
+    ['asset<incoming.value>', 'native.value', ['incoming.value'], [], false],
+    ['list<asset<native.value>>', 'native.value', ['native.value'], [], false],
+    ['list<asset<native.value>>', 'native.value', ['native.value'], ['native.value'], true],
+    ['list<asset<native.value>>', 'list<native.value>', ['native.value'], [], true],
+  ] as const)('uses catalog acceptance for %s -> %s and refuses only affected runs', async (source, destination, assetDecoders, batchMerges, accepted) => {
+    const payload = {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      dinkster: { typeAcceptance: {
+        atoms: { 'native.value': ['native.value', 'incoming.value'], 'incoming.value': ['incoming.value'], 'other.value': ['other.value'] },
+        assetDecoders, batchMerges,
+      } },
+      nodes: {
+        Source: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'Source', body: [
+          { kind: 'output', id: 'value', type: concrete(source) },
+        ] },
+        Sink: { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType: 'Sink', body: [
+          { kind: 'input', id: 'value', required: true, type: concrete(destination) },
+        ] },
+      },
+    }
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'catalog-acceptance',
+      fetchFn: async (url) => {
+        if (url !== '/selected/api/nodes') throw new Error(`Unexpected request ${url}`)
+        return jsonResponse(200, payload)
+      },
+    })
+    const effective = await connection.fetchSchemas()
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'catalog-acceptance', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        source: { id: 'source', type: 'Source', values: {} },
+        sink: { id: 'sink', type: 'Sink', values: {} },
+        independent: { id: 'independent', type: 'Source', values: {} },
+      }, links: { wire: { id: 'wire', from: { node: 'source', port: 'value' }, to: { node: 'sink', port: 'value' } } },
+      nets: {}, reroutes: {}, nextOrdinal: 3 } }, view: { graphs: { g0: { nodes: {} } } },
+    })
+    expect(loaded.document).toBeDefined()
+    const document = loaded.document!
+    const resolve = documentResolver(document, effective.resolve)
+    const solved = solveGraphTypes(document.graphs[document.root]!, resolve)
+    expect([...solved.linkVerdicts.values()]).toEqual([accepted ? 'ok' : 'mismatch'])
+    expect(solved.diagnostics.filter((problem) => problem.code === 'solve.linkMismatch').map((problem) => problem.severity)).toEqual(accepted ? [] : ['error'])
+    for (const graphFeatures of [[], ['regions']]) {
+      const run = (target: string) => compile({
+        document, revision: 1, resolve, connection: C0, schemaHash: effective.hash,
+        scope: { kind: 'partial', targets: [{ instancePath: [], node: asNodeId(target) }] },
+        graphFeatures,
+      })
+      const affected = run('sink')
+      expect(affected.ok, JSON.stringify(affected)).toBe(accepted)
+      if (!affected.ok) expect(affected.diagnostics.some((problem) => problem.code === 'compile.inputTypeMismatch')).toBe(true)
+      expect(run('independent').ok).toBe(true)
+      expect(compile({ document, revision: 1, resolve, connection: C0, schemaHash: effective.hash,
+        scope: { kind: 'full' }, graphFeatures }).ok).toBe(accepted)
+    }
+  })
+
   it('lowers heterogeneous compiler outputs without reconstructing the static catalog order', () => {
     const output = (id: string, type: string) => ({
       kind: 'output', id, type: { kind: 'concrete', types: [type] },

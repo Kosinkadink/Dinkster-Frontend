@@ -4850,7 +4850,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         : undefined
       const built = valuesUpdated ?? repositioned ?? (() => {
         props.app.extensionRevision.get()
-        const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? shown?.resolve(type))
+        const resolve = documentResolver(doc, Object.assign(
+          (type: string) => props.app.virtualNodeSchema(type) ?? shown?.resolve(type),
+          { typeAcceptance: () => shown?.resolve.typeAcceptance?.() },
+        ))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
         const valueRegistry = widgetRegistry()
         const listCountEstimateOf = recordedListCountEstimates({ execution: countExecution, frozen: tab.execution !== undefined, live: liveCountArtifact })

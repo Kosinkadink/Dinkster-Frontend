@@ -51,6 +51,7 @@ import {
   sha256Hex,
   graphFeaturesFromDinksterWire,
   mergeableTypesFromDinksterWire,
+  typeAcceptanceFromDinksterWire,
   serverInfoFromDinksterWire,
   parseOccurrenceKey,
   schemaForEditorRole,
@@ -4742,12 +4743,14 @@ export function buildDinksterRegistry(
   const server = serverInfoFromDinksterWire(raw)
   const graphFeatures = graphFeaturesFromDinksterWire(raw)
   const mergeableTypes = mergeableTypesFromDinksterWire(raw)
+  const typeAcceptance = typeAcceptanceFromDinksterWire(raw)
   // Additive fields, absent on older backends: epoch is a positive int
   // (surface generation), composing is present-only-when-true.
   const epoch =
     typeof raw.epoch === 'number' && Number.isInteger(raw.epoch) && raw.epoch > 0 ? raw.epoch : undefined
   const resolve: SchemaResolver = Object.assign((type: string) => schemas.get(type), {
     forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+    ...(typeAcceptance === undefined ? {} : { typeAcceptance: () => typeAcceptance }),
   })
   return {
     connection,

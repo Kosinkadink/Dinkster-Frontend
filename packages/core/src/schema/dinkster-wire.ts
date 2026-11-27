@@ -12,6 +12,7 @@ import { allRowsOf, inputsOf, KNOWN_VALUE_LIMITS, outputsOf, scopeRowsOf } from 
 import { checkBody, formulaTablesOf, isLayoutId, isMemberKey, isOptionKey, isRowId, isVariantKey, MAX_GROUP_MEMBERS } from './body.js'
 import { isCanonicalUnsafeInteger } from './numeric-step.js'
 import { isComboValue } from './combo-options.js'
+import type { TypeAcceptance } from './type-relations.js'
 import type {
   AbsentPolicy,
   AlphaPolicy,
@@ -2854,4 +2855,19 @@ export function mergeableTypesFromDinksterWire(payload: DinksterNodesPayload): r
   const raw = (d as { mergeableTypes?: unknown }).mergeableTypes
   if (!Array.isArray(raw)) return undefined
   return raw.filter((f): f is string => typeof f === 'string')
+}
+
+/** Reject an incomplete authority rather than turning missing facts into refusals. */
+export function typeAcceptanceFromDinksterWire(payload: DinksterNodesPayload): TypeAcceptance | undefined {
+  const header = payload.dinkster
+  if (typeof header !== 'object' || header === null || Array.isArray(header)) return undefined
+  const raw = (header as { typeAcceptance?: unknown }).typeAcceptance
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
+  const { atoms, assetDecoders, batchMerges } = raw as Record<string, unknown>
+  const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string')
+  if (typeof atoms !== 'object' || atoms === null || Array.isArray(atoms) || !Object.values(atoms).every(strings) || !strings(assetDecoders) || !strings(batchMerges)) return undefined
+  return {
+    atoms: Object.fromEntries(Object.entries(atoms).map(([name, sources]) => [name, [...sources as string[]]])),
+    assetDecoders: [...assetDecoders], batchMerges: [...batchMerges],
+  }
 }

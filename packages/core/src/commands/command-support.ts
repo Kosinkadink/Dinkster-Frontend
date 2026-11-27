@@ -41,7 +41,10 @@ export const schemaResolverForCommand = (
   if (live === undefined) return resolve
   if (resolve === undefined) return live
   const forEditorRole = live.forEditorRole ?? resolve.forEditorRole
-  return Object.assign((nodeType: string) => live(nodeType) ?? resolve(nodeType), forEditorRole === undefined ? {} : { forEditorRole })
+  return Object.assign((nodeType: string) => live(nodeType) ?? resolve(nodeType), {
+    typeAcceptance: () => live.typeAcceptance?.(),
+    ...(forEditorRole === undefined ? {} : { forEditorRole }),
+  })
 }
 
 export const commandSchemaOf = (

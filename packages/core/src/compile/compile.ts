@@ -160,6 +160,7 @@ export function documentResolver(doc: WorkflowDocument, base: SchemaResolver): S
       return derived.schema
     },
     {
+      ...(base.typeAcceptance === undefined ? {} : { typeAcceptance: base.typeAcceptance }),
       ...(base.forEditorRole === undefined ? {} : { forEditorRole: base.forEditorRole })
     }
   )
@@ -3143,21 +3144,23 @@ function compileImpl(
     return { nodes }
   }
   const dinksterGraph = emitRegions && included.size > 0 ? buildNativeGraph() : undefined
-  if (dinksterGraph !== undefined) {
-    diags.push(...validateDinksterGraph(dinksterGraph, validationContext, options?.placement))
-    // The engine refuses a node whose inputs bring types its one type
-    // variable cannot match; refuse it here before anything is submitted. A
-    // Switch whose pick compiled to a stored value is lowered away by the
-    // server, so only a linked pick counts.
-    for (const fn of flat.values()) {
-      if (!included.has(fn.runtimeId) || regions.has(fn.runtimeId)) continue
-      if (fn.selector !== undefined && !Array.isArray(fn.inputs[fn.selectorInputKey!])) continue
-      for (const conflict of solvedTypes.get(fn.graphId)?.diagnostics ?? []) {
-        if (conflict.code !== 'solve.varConflict' || conflict.severity !== 'error' || conflict.data?.['node'] !== fn.node.id) continue
-        diags.push(diag('error', 'compile', 'compile.typeVariableConflict', conflict.message, {
-          anchor: { occurrence: fn.occ, ...(conflict.anchor?.port !== undefined ? { port: conflict.anchor.port } : {}) },
+  if (dinksterGraph !== undefined) diags.push(...validateDinksterGraph(dinksterGraph, validationContext, options?.placement))
+  // A stored Switch pick is lowered away by the server, so only a linked
+  // pick counts. Refuse incompatible inputs only on included occurrences.
+  for (const fn of flat.values()) {
+    if (!included.has(fn.runtimeId) || regions.has(fn.runtimeId)) continue
+    if (fn.selector !== undefined && !Array.isArray(fn.inputs[fn.selectorInputKey!])) continue
+    for (const conflict of solvedTypes.get(fn.graphId)?.diagnostics ?? []) {
+      if (conflict.code === 'solve.linkMismatch' && conflict.severity === 'error' && conflict.anchor?.port?.node === fn.node.id) {
+        diags.push(diag('error', 'compile', 'compile.inputTypeMismatch', conflict.message, {
+          anchor: { occurrence: fn.occ, port: conflict.anchor.port },
         }))
+        continue
       }
+      if (dinksterGraph === undefined || conflict.code !== 'solve.varConflict' || conflict.severity !== 'error' || conflict.data?.['node'] !== fn.node.id) continue
+      diags.push(diag('error', 'compile', 'compile.typeVariableConflict', conflict.message, {
+        anchor: { occurrence: fn.occ, ...(conflict.anchor?.port !== undefined ? { port: conflict.anchor.port } : {}) },
+      }))
     }
   }
   if (diags.some((diagnostic) => diagnostic.severity === 'error')) {

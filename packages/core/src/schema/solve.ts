@@ -55,7 +55,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import type { GraphDef, LinkData, NodeData } from '../format/document.js'
 import { asPortId, isPortEndpoint, type LinkId, type NodeId, type PortRef } from '../ids.js'
 import { buildRerouteIndex, traceEndpointAll } from '../reroute.js'
-import { admittedInputType, assetCoercible, atomNamesOf, coercionTargetsOf, typesCompatible } from './type-relations.js'
+import { admittedInputType, assetCoercible, atomNamesOf, catalogTypesCompatible, coercionTargetsOf, typesCompatible } from './type-relations.js'
 import type { SchemaResolver } from './derive-boundary.js'
 import {
   buildGraphConnectivity,
@@ -358,6 +358,7 @@ export function solveGraphTypes(
   const linkVerdicts = new Map<LinkId, EdgeVerdict>()
   const netSinkVerdicts = new Map<string, EdgeVerdict>()
   const vars = new VarStore()
+  const typeAcceptance = resolve.typeAcceptance?.()
 
   // -- 1. Elaborate every resolvable node once; index port types by flattened id.
   // Absence metadata rides along: which outputs may deliberately emit no
@@ -665,6 +666,20 @@ export function solveGraphTypes(
     options.onWork?.('constraint')
     const origin = typeEdges.get(sourceKey(source))?.find((edge) => edge.from.node === from.node && edge.from.port === from.port)
     const producer = source.kind === 'projectedInput' ? 'the outer input' : sourceName(from, origin?.fromSide)
+    // Consult the whole runtime type before peeling any constructor. An
+    // atom counterpart does not imply list/asset/tuple equivalence.
+    const accepted = allowCoercion && typeAcceptance !== undefined
+      ? catalogTypesCompatible(fromType, toType, typeAcceptance) : undefined
+    if (accepted !== undefined) {
+      setVerdict(source, accepted ? 'ok' : 'mismatch')
+      if (!accepted) diagnostics.push(
+        problem('error', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${typeProblemWords(origin?.toType ?? toType)}, but ${producer} sends ${typeProblemWords(origin?.fromType ?? fromType)}.`, {
+          anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
+          data: { sourceNode: from.node, sourcePort: from.port },
+        }),
+      )
+      return
+    }
     if (fromType.kind === 'wildcard' || toType.kind === 'wildcard') {
       setVerdict(source, 'ok') // no constraint, no capture
       return

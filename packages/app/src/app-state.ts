@@ -2796,6 +2796,7 @@ export class AppState {
       resolver = Object.assign(
         (type: string) => this.virtualNodeSchema(type) ?? fallback(type),
         {
+          typeAcceptance: () => fallback.typeAcceptance?.(),
           forEditorRole: (role: string) =>
             schemaForEditorRole(
               [...this.virtualNodeKinds.values()].map((kind) => kind.schema),
@@ -4287,6 +4288,7 @@ export class AppState {
     }
     const resolve = this.resolverWithVirtualNodes(
       Object.assign((type: string) => registry()?.resolve(type), {
+        typeAcceptance: () => registry()?.resolve.typeAcceptance?.(),
         forEditorRole: (role: string) => registry()?.resolve.forEditorRole?.(role),
       }),
     )
@@ -6526,7 +6528,7 @@ export class AppState {
       const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab), () =>
         tab !== undefined && this.backendForTab(tab).protocol !== 'dinkster')
       const path = tab?.graphStack.get().at(-1) === graphId ? tab.instancePath.get() : []
-      const resolver = documentResolver(document, (type) => this.virtualNodeSchema(type) ?? resolve(type))
+      const resolver = documentResolver(document, this.resolverWithVirtualNodes(resolve))
       return {
         document, graphId, resolve: resolver,
         tokens: defaultTokens, ...measurements,
@@ -6573,6 +6575,7 @@ export class AppState {
     }
     const resolve = this.resolverWithVirtualNodes(
       Object.assign((type: string) => registry()?.resolve(type), {
+        typeAcceptance: () => registry()?.resolve.typeAcceptance?.(),
         forEditorRole: (role: string) => registry()?.resolve.forEditorRole?.(role),
       }),
     )
@@ -7145,6 +7148,7 @@ export class AppState {
     }
     const sessionResolver = this.resolverWithVirtualNodes(
       Object.assign((type: string) => sessionRegistry()?.resolve(type), {
+        typeAcceptance: () => sessionRegistry()?.resolve.typeAcceptance?.(),
         forEditorRole: (role: string) => sessionRegistry()?.resolve.forEditorRole?.(role),
       }),
     )
@@ -8670,6 +8674,7 @@ export class AppState {
     const extras = new Map(this.extraSchemas)
     const schemas = new Map([...reg.schemas, ...extras])
     const resolve = Object.assign((type: string) => extras.get(type) ?? reg.resolve(type), {
+      typeAcceptance: () => reg.resolve.typeAcceptance?.(),
       forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
     })
     return {

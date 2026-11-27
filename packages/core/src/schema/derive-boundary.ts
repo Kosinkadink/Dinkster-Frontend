@@ -63,6 +63,7 @@ import { boundaryItems, type BoundaryEntry } from '../format/document.js'
 export interface SchemaResolver {
   (nodeType: string): NodeSchema | undefined
   readonly forEditorRole?: (role: string) => NodeSchema | undefined
+  readonly typeAcceptance?: () => import('./type-relations.js').TypeAcceptance | undefined
 }
 
 export interface DeriveResult {
