@@ -92,10 +92,10 @@
 .app-view-rename { flex: 1; min-width: 0; }
 .app-view-row-tools { display: flex; gap: 2px; }
 .app-view-widget-preview { display: block; width: 100%; }
-.app-view-widget-action { width: 100%; padding: 0; }
+.app-view-widget-action { width: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .app-view-color { justify-content: flex-start; }
 .app-view-control { width: 100%; }
-.app-view-control.product-checkbox { width: auto; flex: none; padding: 0; }
+.app-view-control.product-checkbox { width: var(--dinkster-space-16); min-width: var(--dinkster-space-16); flex: none; padding: 0; }
 .app-view-control.multiline { min-height: 72px; }
 .app-view-readonly { margin: 0; color: var(--dinkster-text-secondary); display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .app-view-hint { color: var(--dinkster-text-secondary); font-size: 11px; }
