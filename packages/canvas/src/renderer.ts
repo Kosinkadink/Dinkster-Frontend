@@ -2162,6 +2162,7 @@ export class CanvasRenderer {
     this.dirty = true
     for (const cb of this.viewportListeners) cb(viewport)
     clearTimeout(this.detailSettleTimer)
+    this.detailSettleTimer = undefined
     if (this.automaticDetails && !this.viewportGesture) {
       this.detailSettleTimer = setTimeout(() => {
         this.detailSettleTimer = undefined
