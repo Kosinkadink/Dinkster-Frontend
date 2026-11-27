@@ -3697,14 +3697,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onLinkDropOnEmpty: (context, worldX, worldY) => {
         if (refuseFrozenEdit()) return // read-only view: no node adds
-        // A wire dragged off a field makes the primitive for that field,
-        // starting with the field's value, instead of opening the search.
-        const tab = activeTab()
-        const fieldPrimitive = tab && fieldDropPrimitive(tab, context)
-        if (tab && fieldPrimitive) {
-          void commitPaletteEntry(fieldPrimitive.entry, { x: 0, y: 0, worldX, worldY, linkDrop: context }, undefined, fieldPrimitive.values)
-          return
-        }
         openPaletteAt(worldX, worldY, context)
         // Keep the dropped noodle visible while the palette is browsed:
         // fixed anchor to drop point, oriented by what the drag was seeking.
@@ -4010,6 +4002,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     function openPaletteAt(worldX: number, worldY: number, linkDrop?: LinkDropContext): void {
       const vp = renderer.getViewport()
+      const tab = activeTab()
+      const suggestedNode = tab && linkDrop && fieldDropPrimitive(tab, linkDrop)
       // A fresh anchor object every open: NodePalette resets its per-open
       // state (query, highlight, filters) on anchor identity change.
       setPalette({
@@ -4018,6 +4012,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         worldX,
         worldY,
         ...(linkDrop !== undefined ? { linkDrop } : {}),
+        ...(suggestedNode !== undefined ? { suggestedNode } : {}),
       })
     }
     openSplicePalette = (context): void => {
@@ -4375,7 +4370,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     clearPaletteGhost = () => controller.setPaletteGhost(undefined)
 
-    const fieldDropPrimitive = (tab: Tab, context: LinkDropContext): { entry: PaletteEntry; values: Record<string, Json> } | undefined => {
+    const fieldDropPrimitive = (tab: Tab, context: LinkDropContext): PaletteAnchor['suggestedNode'] => {
       const into = context.fixedInto
       const reg = registry()
       if (context.seeking !== 'out' || reg === undefined || into === undefined ||
@@ -4390,7 +4385,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (!primitive || !shape) return undefined
       const value = node.values[valueKeyOf(field)] ?? effectiveWidgetDefault(field.spec.widget)
       return {
-        entry: { type: primitive.type, name: primitive.displayName, category: primitive.category, kind: 'node', schema: primitive, fields: [] },
+        type: primitive.type,
         values: value === undefined ? {} : { [shape.value.id]: value },
       }
     }
@@ -4485,7 +4480,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         armPaletteEntry(entry)
         return
       }
-      void commitPaletteEntry(entry, p)
+      void commitPaletteEntry(entry, p, undefined,
+        p.linkDrop !== undefined && p.suggestedNode?.type === entry.type ? p.suggestedNode.values : undefined)
     }
 
     // Test bridge: perf/interaction specs drive the focused pane directly.

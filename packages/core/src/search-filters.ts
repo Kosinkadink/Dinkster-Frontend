@@ -203,13 +203,7 @@ export function hintsMatchPortFilters(
 // Link-drop compatibility
 // ---------------------------------------------------------------------------
 
-/**
- * Link-drop insertion requires a proven ANCHOR type. The ordinary advisory
- * compatibility contract deliberately treats wildcards and unconstrained
- * variables as "possibly compatible" so stale documents remain editable.
- * A generic candidate input/output may intentionally accept that known
- * anchor, but an untyped dangling end cannot open an accept-all palette.
- */
+/** Whether a link-drop anchor can narrow the search by type rather than side. */
 export const hasKnownLinkDropAnchorType = (type: TypeExpr): boolean => {
   switch (type.kind) {
     case 'tuple':
@@ -239,8 +233,8 @@ export const hasKnownLinkDropAnchorType = (type: TypeExpr): boolean => {
  * as the canvas drag gesture names it: seeking 'in' means the anchor is a
  * source and the schema must ACCEPT the anchor type at some input;
  * seeking 'out' means the anchor is an input and some output must FEED
- * it. The dangling anchor must prove a closed type domain. Matching then
- * resolves the same fresh elaborated surface used by target selection,
+ * it. Unknown anchors filter only by side. Matching resolves the same
+ * fresh elaborated surface used by target selection,
  * including initial autogrow members and active dynamic forms. Explicitly
  * generic candidate ports remain valid fallbacks, after any compatible
  * closed-domain port. The COMBO participates as an ordinary concrete
@@ -252,7 +246,7 @@ export function schemaMatchesLinkDrop(
   anchorType: TypeExpr,
   seeking: 'in' | 'out',
 ): boolean {
-  return autoConnectTarget(schema, anchorType, seeking) !== undefined
+  return autoConnectTarget(schema, hasKnownLinkDropAnchorType(anchorType) ? anchorType : { kind: 'wildcard' }, seeking) !== undefined
 }
 
 /**
@@ -278,7 +272,7 @@ export function autoConnectTarget(
   anchorType: TypeExpr,
   seeking: 'in' | 'out',
 ): AutoConnectTarget | undefined {
-  if (!hasKnownLinkDropAnchorType(anchorType)) return undefined
+  const knownAnchor = hasKnownLinkDropAnchorType(anchorType)
   const values = defaultValuesOf(schema) as Record<string, Json>
   const { items, diagnostics } = elaborateInterface(schema, {
     values,
@@ -302,7 +296,7 @@ export function autoConnectTarget(
       port: item.address.port,
       ...(frames !== undefined ? { materialize: frames } : {}),
     }
-    if (hasKnownLinkDropAnchorType(item.spec.type)) return target
+    if (!knownAnchor || hasKnownLinkDropAnchorType(item.spec.type)) return target
     genericFallback ??= target
   }
   return genericFallback
@@ -330,7 +324,7 @@ export function hintsMatchLinkDrop(
 ): boolean {
   const declared = seeking === 'in' ? hints.inputs : hints.outputs
   if (declared === undefined || declared.length === 0) return false
-  if (!hasKnownLinkDropAnchorType(anchorType)) return false
+  if (!hasKnownLinkDropAnchorType(anchorType)) return true
   const atoms = atomNamesOf(anchorType)
   if (atoms === undefined) return false
   return declared.some((h) =>
