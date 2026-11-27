@@ -683,7 +683,7 @@ describe('ASSET widget modal integration', () => {
 
     // Model kinds show no upload-limit copy: the generic 16 MiB enforcement
     // bound is not an authoritative model limit.
-    expect(mounted.root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).not.toContain('per file')
+    expect(mounted.root.textContent).not.toContain('per file')
     expect(mounted.root.querySelectorAll('[data-testid="logical-model-conflict"]')).toHaveLength(0)
     expect(mounted.root.querySelector('input[aria-label="Search models"]')).not.toBeNull()
     expect(mounted.root.querySelector('[data-testid="asset-upload-trigger"]')).toBeNull()
@@ -1173,7 +1173,7 @@ describe('ASSET widget modal integration', () => {
     ), root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
 
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('16 MB per file')
+    expect(root.querySelector('.asset-import-line')?.textContent).toContain('16 MB per file')
     const bytes = new Uint8Array([0, 1, 2, 3, 0, 255, 17])
     const file = new File([bytes], 'byte-proof.bin', { type: 'application/octet-stream' })
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
@@ -1306,8 +1306,7 @@ describe('ASSET widget modal integration', () => {
 
     const dialog = root.querySelector<HTMLDialogElement>('[data-modal="widget-asset"]')!
     expect(dialog.getAttribute('aria-label')).toBe('Edit Samples latent asset')
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('Single latent')
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GB per file')
+    expect(root.querySelector('.asset-import-line')?.textContent).toContain('1 GB per file')
     expect(root.querySelector('.asset-browser-section')?.getAttribute('aria-label')).toBe('Latents')
     expect(root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')?.getAttribute('aria-label')).toBe('Search latents')
     expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')?.textContent).toBe('Add a file from this computer')
@@ -1526,9 +1525,9 @@ describe('ASSET widget modal integration', () => {
     } as unknown as AppState
     const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
-    const metadata = root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent
-    if (label !== undefined) expect(metadata).toContain(label)
-    else expect(metadata).not.toContain('per file')
+    const importLine = root.querySelector('.asset-import-line')?.textContent
+    if (label !== undefined) expect(importLine).toContain(label)
+    else expect(importLine).not.toContain('per file')
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
     expect(input.accept).toBe('video/*')
 

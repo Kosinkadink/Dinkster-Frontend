@@ -719,14 +719,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               }
             }}>
             <div class="asset-editor-scroll" ref={assetScroll}>
-            <div class="asset-editor-context" data-testid="asset-schema-metadata" aria-label="Asset requirements">
-              <strong>{assetMulti ? `Multiple ${assetVocabulary().plural}` : `Single ${assetVocabulary().singular}`}</strong>
-              <Show when={assetBrowseKind()}>{(kind) => <span>{kind()}</span>}</Show>
-              <Show when={assetAccept().length > 0}>
-                <span>{assetAccept().join(', ')}</span>
-              </Show>
-              <Show when={assetUploadLimitLabel}>{(label) => <span>{label()}</span>}</Show>
-            </div>
             <Show when={unresolvedAsset !== undefined}>
               <section class="asset-unresolved-import" data-testid="asset-unresolved-import" aria-label="Missing model resolution">
                 <header class="asset-section-heading">
