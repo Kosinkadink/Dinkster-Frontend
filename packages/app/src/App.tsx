@@ -1960,7 +1960,7 @@ export function App(props: {
     component: (context) => {
       const backend = app.backends.get().find((candidate) => candidate.id === context.tab.parameters)
       if (backend?.protocol !== 'dinkster') return undefined
-      return <TemplatesPage app={app} backend={backend} drawing={() => undefined}
+      return <TemplatesPage app={app} backend={backend}
         onOpen={(entry) => {
           const ref = entry.ref as TemplateCollectionRef
           return ref.kind === 'remote'

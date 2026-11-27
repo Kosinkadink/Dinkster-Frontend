@@ -234,6 +234,14 @@ describe('addBackend / removeBackend', () => {
         path: selection.destination, reused: false, renamed: false }]
       await app.modelDownloadsFor(backend).refresh()
       expect(state.get()?.job?.status).toBe('completed')
+      jobs = [{ ...selection, jobId: 'another-window', status: 'downloading', received: 6053 }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.received).toBe(6053)
+      jobs = [{ ...jobs[0]!, status: 'completed', received: 8192, asset,
+        path: selection.destination, reused: false, renamed: false }]
+      await app.modelDownloadsFor(backend).refresh()
+      expect(state.get()?.job?.jobId).toBe('another-window')
+      expect(state.get()?.job?.status).toBe('completed')
       app.removeBackend(backend.id)
       expect(app.assetConsent.get()).toBeUndefined()
       expect(state.get()).toBeUndefined()

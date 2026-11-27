@@ -1,5 +1,5 @@
-import { createEffect, createMemo, createSignal, onCleanup, Show, type JSX } from 'solid-js'
-import type { CollectionEntry } from '@dinkster/core'
+import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
+import type { CollectionEntry, WorkflowDocument } from '@dinkster/core'
 import type { ModelDownloadRequirement } from '@dinkster/client'
 import {
   ProductButton,
@@ -16,6 +16,7 @@ import { lookupAnswersOf } from './lookup-demand.js'
 import { useAppMessage } from './locale.js'
 import type { ModelDownloadState } from './model-downloads.js'
 import { activeProjectId } from './projects.js'
+import { WorkflowPicture } from './projects-page/workflow-picture.js'
 import { useSignal } from './solid-adapter.js'
 import { RemoteTemplateCatalog } from './template-catalog.js'
 import { workflowModelOccurrences } from './workflow-asset-locations.js'
@@ -26,7 +27,6 @@ const makes = ['image', 'video', 'audio', '3d', 'tool'] as const
 export function TemplatesPage(props: {
   readonly app: AppState
   readonly backend?: Extract<Backend, { protocol: 'dinkster' }>
-  readonly drawing: (entry: CollectionEntry) => JSX.Element
   readonly onOpen: (entry: CollectionEntry) => Promise<boolean>
   readonly onBlank: () => void
   readonly onOpenStorage: () => void
@@ -49,6 +49,8 @@ export function TemplatesPage(props: {
   const [opening, setOpening] = createSignal(false)
   const [noFolders, setNoFolders] = createSignal<boolean>()
   const [pictures, setPictures] = createSignal<ReadonlyMap<string, string>>(new Map())
+  const [documents, setDocuments] = createSignal<ReadonlyMap<string, WorkflowDocument>>(new Map())
+  const bodies = new Map<CollectionEntry, Promise<WorkflowDocument | undefined>>()
   const [requirements, setRequirements] = createSignal<ReadonlyMap<string, readonly ModelDownloadRequirement[]>>(new Map())
   const [states, setStates] = createSignal<ReadonlyMap<string, readonly ModelDownloadState[]>>(new Map())
   const [stopping, setStopping] = createSignal(false)
@@ -213,13 +215,34 @@ export function TemplatesPage(props: {
     })
   })
   const current = () => shown().find((entry) => entry.id === selected()) ?? shown()[0]
+  const templateDocument = (entry: CollectionEntry, owner: Extract<Backend, { protocol: 'dinkster' }>): Promise<WorkflowDocument | undefined> => {
+    const cached = bodies.get(entry)
+    if (cached) return cached
+    const source = ref(entry)
+    const body = source.kind === 'remote'
+      ? new RemoteTemplateCatalog(props.app.settings.get<string>('templates.registryUrl')).fetchBody(source.template)
+      : owner.connection.fetchTemplateBody(source.pack, source.id)
+    bodies.set(entry, body)
+    return body
+  }
+  createEffect(() => {
+    const all = entries()
+    const owner = backend()
+    let live = true
+    onCleanup(() => { live = false })
+    bodies.clear()
+    setDocuments(new Map())
+    if (!owner || !available()) return
+    for (const entry of all) {
+      void templateDocument(entry, owner).then((document) => {
+        if (live && document) setDocuments((previous) => new Map([...previous, [entry.id, document]]))
+      }).catch(() => { /* An unavailable workflow keeps its picture area empty. */ })
+    }
+  })
   const modelRequirements = async (entry: CollectionEntry, owner: Extract<Backend, { protocol: 'dinkster' }>): Promise<readonly ModelDownloadRequirement[]> => {
     const registry = owner.registry.get()
     if (!registry) return []
-    const source = ref(entry)
-    const document = source.kind === 'remote'
-      ? await new RemoteTemplateCatalog(props.app.settings.get<string>('templates.registryUrl')).fetchBody(source.template)
-      : await owner.connection.fetchTemplateBody(source.pack, source.id)
+    const document = await templateDocument(entry, owner)
     if (!document) throw new Error('Template unavailable')
     return [...new Map(workflowModelOccurrences(document, registry.resolve, lookupAnswersOf(owner.lookups))
       .filter((model) => model.valid).map(({ name, kind, asset }) => [JSON.stringify([name, kind, asset?.digest]),
@@ -254,8 +277,9 @@ export function TemplatesPage(props: {
     missing: missing(entry).length === 0 ? undefined : amount(entry) ?? message('templatesPage.missingCount', { count: missing(entry).length }),
   })
   const drawing = (entry: ProductTemplateEntry) => {
-    const source = entries().find((candidate) => candidate.id === entry.id)
-    return source === undefined ? undefined : props.drawing(source)
+    return <Show when={documents().get(entry.id)} keyed>{(document) =>
+      <WorkflowPicture document={document} resolve={backend()?.registry.get()?.resolve ?? (() => undefined)} widgets={props.app.widgetRegistry} />
+    }</Show>
   }
   let live = true
   let review: AbortController | undefined
