@@ -1,9 +1,10 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
-import { serializeSelection, type CommandOutcome, type DinksterNodesPayload, type JsonObject } from '@dinkster/core'
+import { storedSaveTargetFixes, serializeSelection, type CommandOutcome, type DinksterNodesPayload, type JsonObject } from '@dinkster/core'
 import { pasteClipboardIntoTab } from '../src/clipboard-paste.js'
 import { AppState } from '../src/app-state.js'
+import { createActionHost } from '../src/button-presses.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -443,6 +444,28 @@ describe('native open-time replacement', () => {
     expect(tab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(undone ? 14 : 12)
     tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'second', inputId: 'amount', value: 4 } })
     await vi.waitFor(() => expect(app.adjustmentNotices.get().has(tab.id)).toBe(false))
+  })
+
+  it('stores a save-target-only fix and undoes it without an automatic-adjustment notice', async () => {
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...payload, nodes: { Current: {
+      body: [{ kind: 'input', id: 'target', type: { kind: 'concrete', types: ['dinkster.save_target'] },
+        required: false, widget: { type: 'SAVE_TARGET', suffix: '.png' } }],
+    } } }))
+    const source = document()
+    await app.openDocument({ ...source, graphs: { g0: { ...source.graphs.g0, links: {}, nodes: {
+      first: { id: 'first', type: 'Current', values: { target: { mount: 'absent', prefix: 'renders/portrait' } } },
+    } } } }, 'Save target')
+    const tab = app.activeTab()!
+    const original = tab.store.doc
+    const place = { tab, graphId: 'g0', nodeId: 'first', button: '' }
+    const readyMounts = () => new Set(['ready'])
+    const fixes = storedSaveTargetFixes(original, place, createActionHost(app, undefined, place), readyMounts())
+    expect(await app.applyProblemFixes(tab, [], false, { saveTargets: { fixes, readyMounts } })).toMatchObject({ kind: 'done' })
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values.target).toEqual({ prefix: 'renders/portrait' })
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc).toEqual(original)
   })
 
   it('stores numeric fixes atomically, keeps later field edits on notice Undo, and does not repeat undone causes', async () => {

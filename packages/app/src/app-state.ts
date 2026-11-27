@@ -5794,9 +5794,10 @@ export class AppState {
   }
 
   /** Offered corrections are rechecked and stored as one operation. */
-  applyProblemFixes(tab: Tab, fixes: readonly StoredProblemFix[], automatic = false, options: PressOptions = {}): Promise<PressOutcome> {
+  applyProblemFixes(tab: Tab, fixes: readonly StoredProblemFix[], automatic = false,
+    options: Parameters<typeof applyStoredProblemFixes>[3] = {}): Promise<PressOutcome> {
     const store = tab.store
-    const first = fixes[0]
+    const first = fixes[0] ?? options.saveTargets?.fixes[0]
     if (tab.execution || first === undefined || !this.tabs.get().includes(tab))
       return Promise.resolve({ kind: 'cancelled', skipped: [], notes: [] })
     const place = { tab, ...first.part, button: '' }
