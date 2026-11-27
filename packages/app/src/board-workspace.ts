@@ -1,5 +1,5 @@
 import {
-  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, boardMediaKindOf, connectSharedBoardSession, createLocalBoardSession, createSignal, jsonSameValue, loadBoard, planBoardCommand, t,
+  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, boardMediaKindOf, connectSharedBoardSession, createLocalBoardSession, createSignal, isValidCollabTitle, jsonSameValue, loadBoard, planBoardCommand, t,
   type BoardAsset, type BoardDocument, type BoardItemInput, type BoardSession, type CollabSessionDescriptor, type Json, type SharedBoardSession,
 } from '@dinkster/core'
 import type { AssetUploadDestination, DinksterConnection, LibraryRecord } from '@dinkster/client'
@@ -18,6 +18,7 @@ export interface BoardMediaFile {
 export interface BoardEntry {
   readonly id: string
   readonly title: string
+  readonly name: string | undefined
   readonly baseUrl: string
   readonly session: BoardSession
   readonly shared?: {
@@ -58,7 +59,18 @@ export class BoardWorkspace {
         if (!entries.includes(entry)) { unsubscribe(); subscriptions.delete(entry) }
       }
       for (const entry of entries) {
-        if (!subscriptions.has(entry)) subscriptions.set(entry, entry.session.document.subscribe(() => this.changed.update((value) => value + 1)))
+        if (subscriptions.has(entry)) continue
+        const stops = [entry.session.document.subscribe(() => this.changed.update((value) => value + 1))]
+        if (entry.shared) {
+          const session = entry.shared.session
+          const update = () => {
+            const title = session.title.get()
+            if (title !== undefined) this.titles.set(JSON.stringify([entry.baseUrl, entry.id]), title)
+            this.entries.update((entries) => [...entries])
+          }
+          stops.push(session.title.subscribe(update), session.canEdit.subscribe(update))
+        }
+        subscriptions.set(entry, () => { for (const stop of stops) stop() })
       }
       this.changed.update((value) => value + 1)
     })
@@ -68,6 +80,7 @@ export class BoardWorkspace {
     const entry = this.entries.get().find((candidate) => candidate.id === id)
     const saved = this.saved.get(id)
     return entry !== undefined && (saved === undefined || saved.connection !== this.options.mediaConnection(entry.baseUrl) ||
+      saved.record.name !== entry.title ||
       !jsonSameValue(entry.session.doc as unknown as Json, saved.snapshot as unknown as Json))
   }
 
@@ -86,16 +99,17 @@ export class BoardWorkspace {
     const current = () => !this.disposed && this.entries.get().includes(entry) && this.options.mediaConnection(entry.baseUrl) === connection
     if (!current()) throw new Error('Board changed before saving')
     const snapshot = entry.session.doc
+    const title = entry.title
     const link = this.saved.get(entry.id)
     const digest = await connection.uploadAsset(JSON.stringify(snapshot))
     if (!current()) throw new Error('Board changed while saving')
     let record: LibraryRecord
     if (link?.connection === connection) {
-      const patched = await connection.patchLibraryRecord(link.record.id, { scope: 'local', revision: link.record.revision, digest })
+      const patched = await connection.patchLibraryRecord(link.record.id, { scope: 'local', revision: link.record.revision, digest, name: title })
       if (!patched.ok) throw new Error('Saved Board changed elsewhere; close and reopen it before saving again')
       record = patched.record
     } else {
-      record = await connection.createLibraryRecord({ scope: 'local', name: entry.title, digest, mediaType: BOARD_MEDIA_TYPE, labels: ['board'] })
+      record = await connection.createLibraryRecord({ scope: 'local', name: title, digest, mediaType: BOARD_MEDIA_TYPE, labels: ['board'] })
     }
     if (!current()) throw new Error('Board was saved, but its original document is no longer active')
     this.saved.set(entry.id, { connection, record, snapshot })
@@ -139,18 +153,42 @@ export class BoardWorkspace {
     } finally { if (this.opening.get(key) === token) this.opening.delete(key) }
   }
 
-  open(document: BoardDocument, title: string, baseUrl: string): BoardEntry {
+  open(document: BoardDocument, title: string | undefined, baseUrl: string): BoardEntry {
     if (this.disposed) throw new Error('Board workspace is closed')
     const existing = this.entries.get().find((entry) => entry.id === document.lineage)
     if (existing) return existing
-    this.titles.set(JSON.stringify([baseUrl, document.lineage]), title)
-    const entry = { id: document.lineage, title, baseUrl, session: createLocalBoardSession(document) }
+    const key = JSON.stringify([baseUrl, document.lineage])
+    if (title !== undefined) this.titles.set(key, title)
+    const titles = this.titles
+    const entry: BoardEntry = {
+      id: document.lineage, baseUrl, session: createLocalBoardSession(document),
+      get name() { return titles.get(key) },
+      get title() { return this.name ?? t('board.title') },
+    }
     this.entries.update((entries) => [...entries, entry])
     return entry
   }
 
   displayTitle(id: string, baseUrl: string): string {
     return this.titles.get(JSON.stringify([baseUrl, id])) ?? t('board.title')
+  }
+
+  canRename(id: string): boolean {
+    const entry = this.entries.get().find((candidate) => candidate.id === id)
+    return entry !== undefined && (!entry.shared ||
+      (this.options.transport.rename !== undefined && entry.shared.session.canEdit.get()))
+  }
+
+  async rename(id: string, title: string): Promise<void> {
+    const entry = this.mediaEntry(id)
+    if (!this.canRename(id)) throw new Error('This Board cannot be renamed')
+    if (!isValidCollabTitle(title)) throw new Error('Board names must be non-blank and at most 200 characters')
+    if (entry.shared) {
+      await this.options.transport.rename!(entry.baseUrl, entry.shared.descriptor.sessionId, title)
+    } else {
+      this.titles.set(JSON.stringify([entry.baseUrl, id]), title)
+      this.entries.update((entries) => [...entries])
+    }
   }
 
   /** Refuse mismatched source context and missing bytes before placing recorded Assets. */
@@ -272,13 +310,15 @@ export class BoardWorkspace {
     this.pending.add(id)
     const revision = entry.session.revision
     const snapshot = entry.session.doc
+    const name = entry.name
     try {
       const descriptor = await this.options.transport.create(entry.baseUrl, {
         scope: this.scope, documentKind: 'board', documentId: entry.id, snapshot,
+        ...(name !== undefined ? { title: name } : {}),
       })
       try {
-        return await this.adopt(descriptor, entry.baseUrl, entry.title, () =>
-          this.entries.get().includes(entry) && entry.session.revision === revision && entry.session.doc === snapshot)
+        return await this.adopt(descriptor, entry.baseUrl, () =>
+          this.entries.get().includes(entry) && entry.session.revision === revision && entry.session.doc === snapshot && entry.name === name)
       } catch (error) {
         void this.options.transport.end(entry.baseUrl, descriptor.sessionId).catch(() => undefined)
         throw error
@@ -302,14 +342,14 @@ export class BoardWorkspace {
       if (!descriptor) throw new Error('That Board session no longer exists')
       if (this.entries.get().some((entry) => entry.id === descriptor.documentId))
         throw new Error('This Board is already open; close it before joining another session')
-      return await this.adopt(descriptor, baseUrl, this.displayTitle(descriptor.documentId, baseUrl), () =>
+      return await this.adopt(descriptor, baseUrl, () =>
         stillWanted() && (this.cancellations.get(descriptor.documentId) ?? 0) <= epoch &&
         this.options.backend() === baseUrl && !this.entries.get().some((entry) => entry.id === descriptor.documentId))
     } finally { this.pending.delete(key) }
   }
 
   private async adopt(
-    descriptor: CollabSessionDescriptor, baseUrl: string, title: string, current: () => boolean,
+    descriptor: CollabSessionDescriptor, baseUrl: string, current: () => boolean,
   ): Promise<BoardEntry> {
     if (descriptor.documentKind !== 'board' || descriptor.scope !== this.scope)
       throw new Error('That session does not belong to this project\'s Boards')
@@ -333,7 +373,15 @@ export class BoardWorkspace {
       assertCurrent()
       if (session.status.get() === 'closed' || session.status.get() === 'error')
         throw new Error('The shared Board could not be opened')
-      const entry: BoardEntry = { id: descriptor.documentId, title, baseUrl, session, shared: { descriptor, session } }
+      const key = JSON.stringify([baseUrl, descriptor.documentId])
+      if (session.title.get() !== undefined) this.titles.set(key, session.title.get()!)
+      const titles = this.titles
+      const sharedSession = session
+      const entry: BoardEntry = {
+        id: descriptor.documentId, baseUrl, session, shared: { descriptor, session },
+        get name() { return sharedSession.title.get() ?? titles.get(key) },
+        get title() { return this.name ?? t('board.title') },
+      }
       this.cancelImports(entry.id)
       this.entries.update((entries) => entries.some((candidate) => candidate.id === entry.id)
         ? entries.map((candidate) => candidate.id === entry.id ? entry : candidate) : [...entries, entry])
@@ -347,7 +395,14 @@ export class BoardWorkspace {
   leave(id: string): void {
     const entry = this.entries.get().find((entry) => entry.id === id)
     if (!entry?.shared) return
-    const local: BoardEntry = { id, title: entry.title, baseUrl: entry.baseUrl, session: createLocalBoardSession(entry.session.doc) }
+    const key = JSON.stringify([entry.baseUrl, id])
+    if (entry.name !== undefined) this.titles.set(key, entry.name)
+    const titles = this.titles
+    const local: BoardEntry = {
+      id, baseUrl: entry.baseUrl, session: createLocalBoardSession(entry.session.doc),
+      get name() { return titles.get(key) },
+      get title() { return this.name ?? t('board.title') },
+    }
     this.cancelImports(id)
     entry.shared.session.close()
     this.entries.update((entries) => entries.map((candidate) => candidate === entry ? local : candidate))
