@@ -1179,7 +1179,7 @@ export function solveGraphTypes(
         const value = Object.hasOwn(data.values, port) ? data.values[port] : input.derivedValue ??
           (input.spec.widget === undefined ? input.spec.ext?.['default'] : effectiveWidgetDefault(input.spec.widget))
         if (value === undefined || value === null) return [undefined]
-        if (cardinalityOf(portTypeOf(node, side, port) ?? input.spec.type) === 'list' || input.spec.widget?.widgetType === 'LIST' || input.spec.acceptsList && Array.isArray(value)) return [Array.isArray(value) ? knownCount(value.length) : undefined]
+        if (cardinalityOf(portTypeOf(node, side, port) ?? input.spec.type) === 'list' || input.spec.acceptsList && Array.isArray(value)) return [Array.isArray(value) ? knownCount(value.length) : undefined]
         return [knownCount(1)]
       })]
       return combineListCountFacts(results)
