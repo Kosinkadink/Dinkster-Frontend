@@ -2156,7 +2156,7 @@ function elaboratePass(
     }
     // The census reads stored later members; the interface keeps only rows
     // whose output still has a wire. Neither changes the live member list.
-    if (typeof grows === 'object' && 'count' in grows) {
+    if (typeof grows === 'object' && 'count' in grows && (census || holdsOutput)) {
       const later = new Map<number, string>()
       const addresses = census
         ? [...Object.keys(node.values), ...Object.keys(node.dynamic ?? {})]
