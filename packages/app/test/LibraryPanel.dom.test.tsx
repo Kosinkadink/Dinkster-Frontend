@@ -3,8 +3,8 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { asConnectionId, registerCatalog, setLocale, type CollectionEntry, type CollectionSource } from '@dinkster/core'
-import { DinksterConnection } from '@dinkster/client'
+import { asConnectionId, createSignal as createCoreSignal, registerCatalog, setLocale, type CollectionEntry, type CollectionSource } from '@dinkster/core'
+import { DinksterConnection, type ModelDownloadJob } from '@dinkster/client'
 import { LibraryPanel } from '../src/LibraryPanel.js'
 import { LibraryModels } from '../src/LibraryModels.js'
 import '../src/locale.js'
@@ -26,6 +26,67 @@ afterEach(() => {
 })
 
 describe('LibraryPanel', () => {
+  it('unites folder models with exact job versions and removes stopped lines when their records disappear', async () => {
+    vi.useFakeTimers()
+    const digest = `blake3:${'a'.repeat(64)}`
+    let published = false
+    const locations = ['studio', 'archive'].map((id) => ({ id, path: `/${id}`, mode: 'read', visibility: 'default-on', mounts: [id], enabled: true, active: true }))
+    const connection = new DinksterConnection({ id: asConnectionId('jobs'), baseUrl: '', clientId: 'human', project: 'studio', fetchFn: async (input) => {
+      const path = new URL(String(input), 'http://example.test').pathname
+      if (path === '/api/models/settings') return Response.json({ settings: { version: 1, downloadLocation: null, locations }, locations, revision: 'one', project: 'studio', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
+      if (path === '/api/mounts') return Response.json({ mounts: locations.map((location) => ({ id: location.id, mode: 'read', state: 'ready', kind: 'model/checkpoint' })) })
+      if (path.endsWith('/entries')) return Response.json({ entries: path.includes('/studio/') || published ? [{ name: 'alpha.safetensors', virtualPath: 'alpha.safetensors', digest: path.includes('/studio/') ? digest : `blake3:${'b'.repeat(64)}`, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] : [] })
+      throw new Error(`Unexpected route ${path}`)
+    } })
+    const selection = { project: 'studio', provider: 'huggingface' as const, source: 'https://huggingface.co/example/model/resolve/main/alpha.safetensors',
+      repo: 'example/model', revision: 'c'.repeat(40), file: 'alpha.safetensors', sha256: 'd'.repeat(64), size: 8192,
+      license: 'apache-2.0', destination: '/archive/alpha.safetensors', mount: 'archive', kind: 'model/checkpoint' }
+    const downloading: ModelDownloadJob = { ...selection, name: 'alpha.safetensors', digest: `blake3:${'b'.repeat(64)}`, jobId: 'active', status: 'downloading', received: 3072 }
+    const stopped: ModelDownloadJob = { ...selection, name: 'beta.safetensors', file: 'beta.safetensors', jobId: 'stopped', status: 'failed', received: 1536 }
+    const checking: ModelDownloadJob = { ...selection, name: 'gamma.safetensors', file: 'gamma.safetensors', mount: 'studio', jobId: 'checking', status: 'verifying', received: 8192 }
+    const jobs = createCoreSignal<readonly ModelDownloadJob[]>([downloading, stopped, checking])
+    const opened: ModelDownloadJob[] = []
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <LibraryModels connection={connection} downloadJobs={jobs} onDownload={(job) => opened.push(job)} onOpenStorage={() => {}} onAddModelFolder={() => {}} />, root)
+    try {
+      await vi.advanceTimersByTimeAsync(0)
+      expect(root.textContent).toContain('3 models in 2 folders')
+      const row = (name: string) => [...root.querySelectorAll<HTMLButtonElement>('.dinkster-row-main')].find((button) => button.textContent?.includes(name))!
+      row('alpha.safetensors').click()
+      expect(root.querySelectorAll('[data-state="installed"]')).toHaveLength(1)
+      expect(root.querySelector('[data-state="downloading"]')).not.toBeNull()
+      expect(root.querySelector('[role="progressbar"][aria-valuenow="0.375"]')).not.toBeNull()
+      expect(root.querySelector('[data-state="checking"]')).not.toBeNull()
+      expect(root.textContent).toContain('Not downloaded')
+      root.querySelector<HTMLButtonElement>('[aria-label="Download: beta.safetensors"]')!.click()
+      expect(opened).toEqual([stopped])
+      root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()
+      ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'archive')!.click()
+      expect(root.textContent).toContain('2 models in 1 folder')
+      expect(root.querySelector('[data-state="installed"]')).toBeNull()
+      expect(root.textContent).not.toContain('gamma.safetensors')
+      jobs.set([{ ...downloading, status: 'cancelled' }, stopped, checking])
+      expect(root.querySelector('[data-state="downloading"]')).toBeNull()
+      root.querySelector<HTMLButtonElement>('[aria-label="Download: alpha.safetensors"]')!.click()
+      expect(opened.at(-1)?.digest).toBe(downloading.digest)
+      jobs.set([{ ...downloading, status: 'completed', indexingPending: true }, checking])
+      expect(root.textContent).toContain('1 model in 1 folder')
+      expect(root.querySelector('[data-state="checking"]')).not.toBeNull()
+      expect(root.textContent).not.toContain('beta.safetensors')
+      expect(root.textContent).not.toContain('Not downloaded')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(root.textContent).toContain('1 model in 1 folder')
+      published = true
+      jobs.set([{ ...downloading, status: 'completed', indexingPending: false }, checking])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(root.textContent).toContain('1 model in 1 folder')
+      expect(root.querySelector('[data-state="installed"]')).not.toBeNull()
+      jobs.set([checking])
+      expect(root.textContent).toContain('1 model in 1 folder')
+    } finally { dispose(); root.remove() }
+  })
+
   it('cancels hide questions on selection and backend changes and ignores obsolete hide completions', async () => {
     vi.useFakeTimers()
     for (const failed of [false, true]) {

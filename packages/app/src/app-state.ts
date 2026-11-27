@@ -3047,6 +3047,18 @@ export class AppState {
     return controller
   }
 
+  /** Project inventory comes only from engine job records, not workflow requirements. */
+  modelDownloadJobsFor(backend: Backend, project = activeProjectId()): ReadonlySignal<readonly ModelDownloadJob[]> {
+    const get = (): readonly ModelDownloadJob[] => (this.observedModelDownloads.get(backend) ?? [])
+      .filter((job) => job.project === project)
+    return { get, subscribe: (listener) => {
+      const unsubscribe = this.modelDownloadsChanged.subscribe(() => listener(get()))
+      const stop = !this.disposed && this.backends.get().includes(backend)
+        ? this.modelDownloadsFor(backend, project).observe() : () => {}
+      return () => { unsubscribe(); stop() }
+    } }
+  }
+
   /** Exact per-variant state, including transfers discovered outside this window. */
   modelDownloadStateFor(backend: Backend, requirement: ModelDownloadRequirement, project = activeProjectId()): ReadonlySignal<ModelDownloadState | undefined> {
     const get = (): ModelDownloadState | undefined => {

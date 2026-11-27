@@ -1426,8 +1426,22 @@ export function App(props: {
     if (focus && !backends().includes(focus.backend)) setLibraryModelsFocus(undefined)
   })
   const LibraryModelsBody = () => <Show when={libraryModelsBackend()} keyed>
-    {(backend) => backend.protocol === 'dinkster' ? <LibraryModels
+    {(backend) => {
+      const project = activeProjectId()
+      const downloadJobs = app.modelDownloadJobsFor(backend, project)
+      return backend.protocol === 'dinkster' ? <LibraryModels
       connection={backend.connection}
+      downloadJobs={downloadJobs}
+      onDownload={(job) => {
+        const requirement = { name: job.name, kind: job.kind,
+          ...(job.digest === undefined ? {} : { asset: { digest: job.digest, name: job.name,
+            size: job.size, mediaType: 'application/octet-stream', virtualPath: job.file } }),
+        }
+        app.openModelDownloads(backend, [{ ...requirement, source: job.source }], {
+          focusedModel: requirement,
+          stillCurrent: () => libraryModelsBackend() === backend && activeProjectId() === project,
+        })
+      }}
       focus={libraryModelsFocus()}
       onOpenStorage={(modelLocationId) => {
         openStorage(backend)
@@ -1437,7 +1451,7 @@ export function App(props: {
         openStorage(backend)
         setStorageFocus({ id: backend.id, addModelFolder: true })
       }}
-    /> : undefined}
+    /> : undefined}}
   </Show>
   const LibraryBody = () => (
     <BackendMetadataState backend={libraryModelsBackend}>

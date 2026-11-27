@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
-import type { DinksterConnection, ModelSettingsState, MountDescriptor } from '@dinkster/client'
-import { formatByteSize } from '@dinkster/core'
+import type { DinksterConnection, ModelDownloadJob, ModelSettingsState, MountDescriptor } from '@dinkster/client'
+import { formatByteSize, type ReadonlySignal } from '@dinkster/core'
 import { ProductButton, ProductConfirmation, ProductErrorBanner, ProductModelList, ProductProgress, type ProductModel } from '@dinkster/ui'
 import { ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
@@ -16,6 +16,8 @@ import type { AssetBrowserItem } from './asset-browser/types.js'
 
 export function LibraryModels(props: {
   readonly connection: DinksterConnection
+  readonly downloadJobs?: ReadonlySignal<readonly ModelDownloadJob[]>
+  readonly onDownload?: (job: ModelDownloadJob) => void
   readonly focus?: { readonly modelLocationId: string } | undefined
   readonly onOpenStorage: (locationId?: string) => void
   readonly onAddModelFolder: () => void
@@ -24,6 +26,7 @@ export function LibraryModels(props: {
   const [settings, setSettings] = createSignal<ModelSettingsState>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
   const [models, setModels] = createSignal<readonly LogicalModel[]>([])
+  const [jobs, setJobs] = createSignal<readonly ModelDownloadJob[]>([])
   const [observed, setObserved] = createSignal<readonly AssetBrowserItem[]>([])
   const [query, setQuery] = createSignal('')
   const [kind, setKind] = createSignal('')
@@ -48,6 +51,12 @@ export function LibraryModels(props: {
   let request = 0
   let controller: AbortController | undefined
   let appliedFocus: typeof props.focus
+
+  createEffect(() => {
+    const inventory = props.downloadJobs
+    setJobs(inventory?.get() ?? [])
+    if (inventory) onCleanup(inventory.subscribe(setJobs))
+  })
 
   const load = async (connection: DinksterConnection): Promise<void> => {
     const owner = generation
@@ -112,7 +121,22 @@ export function LibraryModels(props: {
     onCleanup(() => { generation++; controller?.abort() })
     untrack(() => { void load(connection) })
   })
-  const locations = () => settings()?.locations.filter((location) => location.enabled) ?? []
+  const completedJobs = createMemo(() => JSON.stringify(jobs().filter((job) => job.status === 'completed')
+    .map((job) => [job.jobId, job.indexingPending ?? false])))
+  createEffect(() => {
+    const completed = completedJobs()
+    const connection = props.connection
+    if (completed !== '[]') untrack(() => { void load(connection) })
+  })
+  const locations = createMemo(() => {
+    const configured = settings()?.locations ?? []
+    const destinations = new Map(jobs().filter((job) => job.status !== 'completed' || job.indexingPending).map((job) => [job.mount, job]))
+    return [
+      ...configured.filter((location) => location.enabled || location.mounts.some((mount) => destinations.has(mount))),
+      ...[...destinations.values()].filter((job) => !configured.some((location) => location.mounts.includes(job.mount)))
+        .map((job) => ({ id: job.mount, mounts: [job.mount], path: job.destination.replace(/[\\/][^\\/]*$/, '') })),
+    ]
+  })
   const providersFor = (variant: LogicalModelVariant) => locations().filter((location) =>
     (folder() === '' || location.id === folder()) && variant.providers.some((provider) => location.mounts.some((mount) => provider.sourceId === `mount:${mount}`)))
   createEffect(() => {
@@ -131,7 +155,39 @@ export function LibraryModels(props: {
     const item = observed().find((candidate) => candidate.kind === model.kind && candidate.digest === variant.digest && providers.has(candidate.source.id))
     return item ? committableAssetRef(item) : undefined
   }
-  const visible = createMemo(() => models().flatMap((model) => {
+  const currentJobs = createMemo(() => [...new Map(jobs().map((job) => [
+    JSON.stringify([job.kind, job.name, job.digest ?? null, job.mount]), job,
+  ])).values()].filter((job) => job.status !== 'completed' || job.indexingPending))
+  const inventory = createMemo<readonly LogicalModel[]>(() => {
+    const result = models().map((model) => ({ ...model, variants: [...model.variants] }))
+    for (const job of currentJobs()) {
+      if (!locations().some((location) => location.mounts.includes(job.mount))) continue
+      let model = result.find((candidate) => candidate.kind === job.kind &&
+        (candidate.displayName === job.name || candidate.aliases.includes(job.name)))
+      if (!model) {
+        model = { logicalId: `local-name:${job.name}`, displayName: job.name, kind: job.kind,
+          aliases: [job.name], variants: [] }
+        result.push(model)
+      }
+      const variantId = job.digest ?? `download:${job.name}`
+      const index = model.variants.findIndex((variant) => variant.variantId === variantId && variant.digest === job.digest)
+      const previous = model.variants[index]
+      const provider = { sourceId: `mount:${job.mount}`, sourceKind: 'resolver' as const, label: job.mount }
+      const variant: LogicalModelVariant = previous ? { ...previous,
+        providers: [...previous.providers.filter((entry) => entry.sourceId !== provider.sourceId), provider],
+      } : { variantId, logicalId: model.logicalId, size: job.size,
+        ...(job.digest === undefined ? {} : { digest: job.digest }),
+        providers: [provider], availability: 'downloadable', compatibility: { status: 'unknown' }, conflicts: [] }
+      if (index < 0) model.variants.push(variant)
+      else model.variants[index] = variant
+    }
+    return result
+  })
+  const jobFor = (model: LogicalModel, variant: LogicalModelVariant) => [...currentJobs()].reverse().find((job) =>
+    job.kind === model.kind && job.digest === variant.digest &&
+    (model.displayName === job.name || model.aliases.includes(job.name)) &&
+    providersFor(variant).some((location) => location.mounts.includes(job.mount)))
+  const visible = createMemo(() => inventory().flatMap((model) => {
     if (kind() !== '' && model.kind !== kind()) return []
     const search = query().trim().toLocaleLowerCase()
     if (search && ![model.displayName, ...model.aliases].some((name) => name.toLocaleLowerCase().includes(search))) return []
@@ -141,17 +197,23 @@ export function LibraryModels(props: {
   const versionKey = (variant: LogicalModelVariant) => JSON.stringify([variant.variantId, variant.digest ?? null])
   const rows = createMemo<readonly ProductModel[]>(() => visible().map((model) => ({
     id: JSON.stringify([model.kind, model.logicalId]), name: model.displayName, kind: model.kind.split('/').at(-1)!,
-    versions: model.variants.map((variant) => ({
-      id: versionKey(variant), name: logicalModelVariantName(variant),
-      ...(variant.size !== undefined ? { size: formatByteSize(variant.size) } : {}),
-      ...(variant.precision ? { precision: variant.precision } : {}),
-      state: 'installed',
-      facts: [
-        { label: message('library.models.file'), value: localRef(model, variant)?.virtualPath || logicalModelVariantName(variant), monospace: true },
-        { label: message('library.models.folder'), value: providersFor(variant).map((location) => location.path).join('\n'), monospace: true },
-        { label: message('library.models.aliases'), value: model.aliases.join(', ') },
-      ],
-    })),
+    versions: model.variants.map((variant) => {
+      const job = jobFor(model, variant)
+      const installed = localRef(model, variant) !== undefined
+      return {
+        id: versionKey(variant), name: installed ? logicalModelVariantName(variant) : job?.name ?? logicalModelVariantName(variant),
+        ...(variant.size !== undefined ? { size: formatByteSize(variant.size) } : {}),
+        ...(variant.precision ? { precision: variant.precision } : {}),
+        state: installed ? 'installed' : job?.status === 'failed' || job?.status === 'cancelled'
+          ? 'not-downloaded' : job?.status === 'downloading' ? 'downloading' : 'checking',
+        ...(!installed && job?.status === 'downloading' && job.size > 0 ? { progress: job.received / job.size } : {}),
+        facts: [
+          { label: message('library.models.file'), value: localRef(model, variant)?.virtualPath || job?.file || logicalModelVariantName(variant), monospace: true },
+          { label: message('library.models.folder'), value: providersFor(variant).map((location) => location.path).join('\n'), monospace: true },
+          { label: message('library.models.aliases'), value: model.aliases.join(', ') },
+        ],
+      }
+    }),
   })))
   const resolve = (modelId: string, versionId: string) => {
     const model = visible().find((candidate) => JSON.stringify([candidate.kind, candidate.logicalId]) === modelId)
@@ -208,7 +270,7 @@ export function LibraryModels(props: {
           <ProductTextInput type="search" aria-label={message('library.search', { source: message('library.models.title').toLocaleLowerCase() })} value={query()} onInput={(event) => setQuery(event.currentTarget.value)} />
           <ProductSelect ariaLabel={message('library.models.kind')} selectedId={kind()} options={[
             { id: '', label: message('library.models.allKinds'), value: '' },
-            ...[...new Set(models().map((model) => model.kind))].sort().map((value) => ({ id: value, label: value.split('/').at(-1)!, value })),
+            ...[...new Set(inventory().map((model) => model.kind))].sort().map((value) => ({ id: value, label: value.split('/').at(-1)!, value })),
           ]} onSelect={(option) => setKind(option.value)} />
           <ProductSelect ariaLabel={message('library.models.folder')} selectedId={folder()} options={[
             { id: '', label: message('library.models.allFolders'), value: '' },
@@ -227,6 +289,11 @@ export function LibraryModels(props: {
         <div class="library-model-items">
           <Show when={rows().length > 0} fallback={<ProductEmptyState title={message('library.models.noMatch')} />}>
             <ProductModelList label={message('library.models.title')} models={rows()}
+              onDownload={(modelId, versionId) => {
+                const selected = resolve(modelId, versionId)
+                const job = selected && jobFor(selected.model, selected.variant)
+                if (job && (job.status === 'failed' || job.status === 'cancelled')) props.onDownload?.(job)
+              }}
               onSelect={(modelId, versionId) => {
                 const current = confirmation()
                 if (current && (current.modelId !== modelId || current.versionId !== versionId)) cancelHide()
