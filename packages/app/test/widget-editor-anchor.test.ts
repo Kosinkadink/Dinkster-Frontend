@@ -66,6 +66,10 @@ describe('tabDocumentUnchanged', () => {
 })
 
 describe('widgetEditorAnchorAlive', () => {
+  it.each(['readOnly', 'disabled'] as const)('discards an unfinished asset picker when its row becomes %s', (flag) => {
+    expect(widgetEditorAnchorAlive(editorState(), [node([widgetRow({ [flag]: true })])], 't0', 'g0', undefined, true)).toBe(false)
+  })
+
   it('keeps the editor when the same static row survives the rebuild', () => {
     expect(widgetEditorAnchorAlive(editorState(), [node([widgetRow()])], 't0', 'g0', undefined)).toBe(true)
   })

@@ -179,8 +179,8 @@ test('ordinary Text uses a compact editor and switches views only from its conte
   const palette = page.getByTestId('node-palette')
   await expect(palette).toBeVisible()
   await page.getByTestId('palette-search').fill('Text')
-  await expect(palette.locator('[data-node-type="dinkster.string"]')).toHaveCount(1)
-  await expect(palette.locator('[data-node-type="dinkster.string_multiline"]')).toHaveCount(0)
+  await expect(palette.locator('[data-key="entry:dinkster.string"]')).toHaveCount(1)
+  await expect(palette.locator('[data-key="entry:dinkster.string_multiline"]')).toHaveCount(0)
   await page.screenshot({
     path: `${TEXT_WIDGET_PROOF_DIR}/01-consolidated-text-picker.png`,
     animations: 'disabled',

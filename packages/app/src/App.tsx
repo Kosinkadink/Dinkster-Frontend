@@ -4,6 +4,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
+import { widgetValueText } from '@dinkster/canvas'
 import { BrandMark } from './BrandMark.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
@@ -18,6 +19,12 @@ import BookOpen from 'lucide-solid/icons/book-open'
 import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
 import Users from 'lucide-solid/icons/users'
+import AudioLines from 'lucide-solid/icons/audio-lines'
+import Box from 'lucide-solid/icons/box'
+import FileIcon from 'lucide-solid/icons/file'
+import FileText from 'lucide-solid/icons/file-text'
+import Film from 'lucide-solid/icons/film'
+import type { LucideIcon } from 'lucide-solid'
 import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
@@ -25,7 +32,7 @@ import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, coreOccurrencePlanner } from './CanvasHost.js'
 import { CanvasViewControls } from './CanvasChrome.js'
 import { ContextMenu } from './ContextMenu.js'
-import { blueprintsSource, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
+import { blueprintsSource, formatCollectionDate, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard, ExecutionOpenButton, executionStatusLabel } from './ExecutionActivityCard.js'
 import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
@@ -38,11 +45,12 @@ import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostCo
 import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
-import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
+import { ProductConfirmation, ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
+import type { ShellNavigation } from './Shell.js'
 import { AccountControl, createAccountSession } from './AccountControl.js'
 import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
@@ -91,6 +99,7 @@ import {
   FloatingPanelHost,
   IconBar,
   PanelIndicatorBadge,
+  positionResizeGrip,
   ShellRegionIcon,
   ShellResizeHandle,
   ShellTooltip,
@@ -109,13 +118,17 @@ import {
   panelDragReleaseAction,
   rollbackPanelDragModel,
   type PanelDragModel,
+  type PanelDragTabFit,
   type PanelDragRect,
   type PanelDragSectionGeometry,
   type PanelDragVisibleZoneGeometry,
 } from './panel-drag.js'
 import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
+import { isPageTab, PageTabPanel } from './page-tabs.js'
+import type { AppTab } from './app-page-tabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
-import { RunActivityControl, RunRow, RunSection, placeInLine, runAge, runIsPending, useNow } from './RunControls.js'
+import { EngineRunControl } from './EngineRunControl.js'
+import { ChosenRun, RunActivityControl, RunRow, tookText, type ChosenRunFact, RunSection, placeInLine, runAge, runIsPending, useNow } from './RunControls.js'
 import { ExecutedImageFacts, ExecutedImageViewer, SavedOutputFiles, ViewerImage, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { executedImageInventory, executedImageLabel, executionThumbnail, type ExecutedImage } from './executed-image-inventory.js'
 import { RunThumbnail } from './RunThumbnail.js'
@@ -241,11 +254,11 @@ export function DinksterAppMenu(props: {
   const groups = (): readonly ResolvedMenuGroup[] => [...accountGroup(), ...APP_MENU_COMMAND_GROUPS.flatMap(({ group, ids }): ResolvedMenuGroup[] => {
     const items = ids.flatMap((id): MenuItem[] => {
       const command = props.commands.get(id)
-      const hint = props.keybindings.combo(id)
+      const shortcut = props.keybindings.combo(id)
       return command ? [{
         id,
         label: command.label,
-        ...(hint ? { hint } : {}),
+        ...(shortcut ? { shortcut } : {}),
         action: { kind: 'host', action: id },
         ...(command.enabled?.() === false ? { disabled: true } : {}),
       }] : []
@@ -366,7 +379,10 @@ export function dispatchAppCommandKey(
 
 export function App(props: {
   app: AppState
+  initialProjectName?: string | undefined
   desktopWindow?: { readonly context: DesktopWindowContext; readonly layout: DesktopWindowLayout }
+  /** Under the always-on process: the projects page and project switches stay in this page. */
+  shell?: Pick<ShellNavigation, 'openProject' | 'showProjects'>
 }) {
   useFieldFocus()
   const app = props.app
@@ -449,7 +465,7 @@ export function App(props: {
   let shellEl!: HTMLElement
   tooltips.register({ id: 'core.dom', resolve: (target, opts) => {
     const dom = target as Partial<DomTooltipTarget>
-    return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
+    return dom.kind === 'dom' && dom.label ? { lines: [dom.label], ...(dom.shortcut ? { shortcut: dom.shortcut } : {}), ...(opts.detailed && dom.detail ? { detail: dom.detail } : {}) } : undefined
   } })
   tooltips.register({ id: 'core.canvas', resolve: (target, opts) => {
     const tab = app.activeTab()
@@ -457,9 +473,25 @@ export function App(props: {
     const resolveSchema = registry
       ? (tab ? documentResolver(tab.store.doc, registry.resolve) : registry.resolve)
       : () => undefined
+    const widgets = app.widgetRegistryForTab(tab)
     return resolveCanvasTooltip(target, opts, {
       resolveSchema,
       resolvePack: (id) => registry?.packs?.get(id),
+      // Reading a value never edits it; a value the view cannot read falls
+      // back to its plain text.
+      widgetReadout: (row, value) => {
+        try {
+          const readout = widgets.viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.readout?.(value, row.spec)
+          if (readout !== undefined) return readout
+          const summary = widgetValueText(widgets, row.viewId, value, row.spec)
+          return summary === null ? [] : summary === undefined ? undefined : [summary]
+        } catch {
+          return undefined
+        }
+      },
+      // The tooltip's 12px/1.4 lines fit between 8px window margins, after
+      // its padding, border and title gap.
+      tooltipLines: Math.floor((window.innerHeight - 16 - 21) / 16.8),
     })
   } })
   onMount(() => {
@@ -468,6 +500,7 @@ export function App(props: {
     onCleanup(() => { detach(); unsubscribe() })
   })
   const tabs = useSignal(app.tabs)
+  const shellTabs = useSignal(app.pages.changed)
   const activeTabId = useSignal(app.activeTabId)
   const dirtyTabs = useSignal(app.dirtyTabs)
   const tabResultClears = useSignal(app.clearedTabResults)
@@ -476,7 +509,6 @@ export function App(props: {
   const problems = useSignal(app.problems)
   const queueRefusal = useSignal(app.queueRefusal)
   const solveDiagnostics = useSignal(app.solveDiagnostics)
-  const migrationNotices = useSignal(app.migrationNotices)
   const logs = useSignal(app.logs)
   const overlayPins = useSignal(app.overlayPins)
   const lenses = useSignal(app.lenses)
@@ -510,12 +542,12 @@ export function App(props: {
     entry.kind === 'workflow' ? [entry.workflowId] : []))
   const detachedPanelIds = (): ReadonlySet<string> => new Set(managedLayout().windows.flatMap((entry) =>
     entry.kind === 'panel' ? [entry.panelId] : []))
-  const windowTabs = (): readonly Tab[] => {
+  const windowTabs = (): readonly AppTab[] => {
     const context = managedContext()
     if (context.kind === 'workflow') return tabs().filter((tab) => tab.id === context.workflowId)
-    if (context.kind === 'panel') return tabs()
+    if (context.kind === 'panel') return shellTabs()
     const detached = detachedWorkflowIds()
-    return tabs().filter((tab) => !detached.has(tab.id))
+    return shellTabs().filter((tab) => !detached.has(tab.id))
   }
   createEffect(() => {
     const visible = windowTabs()
@@ -661,37 +693,19 @@ export function App(props: {
     }
     if (sourceId !== 'runs' || entry.owner === undefined) return
     const runId = runIdOfEntry(entry)
-    if (actionId === 'delete') void app.deleteHistoryRun(runId, entry.owner)
+    if (actionId === 'delete') {
+      // AppState reports deletion failures in Problems before rejecting.
+      void app.deleteHistoryRun(runId, entry.owner).catch(() => {})
+    }
     if (actionId === 'open') void app.openRunWorkflow(runId, entry.owner)
     if (actionId === 'resubmit') void app.resubmitRunWorkflow(runId, entry.owner)
   }
-  // Clearing the whole runs scope is destructive: the button arms on the
-  // first click ("Confirm clear") and executes only on a second click
-  // within the arming window - no native dialogs, no accidental wipes.
-  // Both clicks act on the COMMITTED page's owner (the backend whose runs
-  // are actually on screen, handed over by CollectionPanel) - never on
-  // whatever backend is current when the click lands. While a replacement
-  // page is in flight the panel disables the button AND reports no owner,
-  // so old items lingering during a backend switch can never route a
-  // clear to the incoming backend; if the page owner changes between arm
-  // and confirm, the confirm re-arms instead of clearing a scope the user
-  // never looked at.
-  const [clearArmed, setClearArmed] = createSolidSignal(false)
-  let clearArmTimer: ReturnType<typeof setTimeout> | undefined
-  let clearArmOwner: string | undefined
+  const [clearing, setClearing] = createSolidSignal(false)
   const librarySourceAction = (sourceId: string, actionId: string, owner?: string): void => {
-    if (sourceId !== 'runs' || actionId !== 'clear') return
-    if (owner === undefined) return
-    if (!clearArmed() || clearArmOwner !== owner) {
-      clearArmOwner = owner
-      setClearArmed(true)
-      if (clearArmTimer !== undefined) clearTimeout(clearArmTimer)
-      clearArmTimer = setTimeout(() => setClearArmed(false), 4000)
-      return
-    }
-    if (clearArmTimer !== undefined) clearTimeout(clearArmTimer)
-    setClearArmed(false)
-    void app.clearRunHistory(owner)
+    if (sourceId !== 'runs' || actionId !== 'clear' || owner === undefined || clearing()) return
+    setClearing(true)
+    // The committed page supplies its owner; AppState reports failures in Problems.
+    void app.clearRunHistory(owner).catch(() => {}).finally(() => setClearing(false))
   }
   const multiBackend = () => backends().length > 1
 
@@ -699,9 +713,13 @@ export function App(props: {
   // replacement (import or collaboration adoption) installs a new session,
   // invalidating the user's discard decision, while editor-kind switches
   // replace the Tab object but keep the session and must not dismiss it.
-  const [pendingClose, setPendingClose] = createSolidSignal<Tab>()
-  const pendingCloseStillCurrent = (pending: Tab): boolean =>
-    tabs().some((tab) => tab.id === pending.id && tab.store === pending.store)
+  const [pendingClose, setPendingClose] = createSolidSignal<AppTab>()
+  const pendingCloseStillCurrent = (pending: AppTab): boolean =>
+    isPageTab(pending) ? shellTabs().includes(pending) :
+      tabs().some((tab) => tab.id === pending.id && tab.store === pending.store)
+  const isDirty = (tab: AppTab): boolean => isPageTab(tab)
+    ? app.pages.descriptor(tab.pageId)?.dirty?.() === true
+    : dirtyTabs().has(tab.id)
   createEffect(() => {
     const pending = pendingClose()
     if (pending && !pendingCloseStillCurrent(pending)) setPendingClose(undefined)
@@ -717,7 +735,7 @@ export function App(props: {
     }
     return undefined
   }
-  const requestTabClose = (tab: Tab, restoreFocus: boolean): void => {
+  const requestTabClose = (tab: AppTab, restoreFocus: boolean): void => {
     const strip = stripContaining(document.activeElement)
     // Closing the global active tab: activate the successor the repaired
     // split layout keeps (next tab in the closing group, else the active
@@ -725,7 +743,8 @@ export function App(props: {
     // split-blind remaining[0] fallback never moves focus to another group.
     const successor = tab.id === activeTabId() ? closeSuccessor(tab.id) : undefined
     if (successor !== undefined) app.activeTabId.set(successor)
-    app.requestCloseTab(tab.id, () => true)
+    if (isPageTab(tab)) app.pages.close(tab.id)
+    else app.requestCloseTab(tab.id, () => true)
     if (restoreFocus || strip !== undefined) {
       queueMicrotask(() => {
         const target = strip?.isConnected
@@ -735,8 +754,8 @@ export function App(props: {
       })
     }
   }
-  const closeTab = (tab: Tab): void => {
-    if (!app.isTabDirty(tab.id)) {
+  const closeTab = (tab: AppTab): void => {
+    if (!isDirty(tab)) {
       requestTabClose(tab, false)
       return
     }
@@ -750,10 +769,10 @@ export function App(props: {
     requestTabClose(pending, true)
   }
 
-  const [pendingCloseOthers, setPendingCloseOthers] = createSolidSignal<readonly Tab[]>()
-  const closeOthers = (tab: Tab, groupTabs: readonly Tab[]): void => {
+  const [pendingCloseOthers, setPendingCloseOthers] = createSolidSignal<readonly AppTab[]>()
+  const closeOthers = (tab: AppTab, groupTabs: readonly AppTab[]): void => {
     const others = groupTabs.filter((candidate) => candidate.id !== tab.id)
-    if (others.some((candidate) => app.isTabDirty(candidate.id))) {
+    if (others.some(isDirty)) {
       setPendingCloseOthers(others)
       return
     }
@@ -770,7 +789,7 @@ export function App(props: {
     if (pending && !pending.every(pendingCloseStillCurrent)) setPendingCloseOthers(undefined)
   })
 
-  const activeTab = () => windowTabs().find((t) => t.id === activeTabId())
+  const activeTab = () => windowTabs().find((t): t is Tab => !isPageTab(t) && t.id === activeTabId())
   const [boundaryStateTick, setBoundaryStateTick] = createSolidSignal(0)
   createEffect(() => {
     const tab = activeTab()
@@ -861,6 +880,7 @@ export function App(props: {
     readonly sourceGroupId: string
     readonly x: number
     readonly y: number
+    readonly width: number
     /** Reorder preview; set only while the pointer rides the source strip. */
     readonly order: readonly string[] | undefined
     readonly insertionIndex: number | undefined
@@ -868,6 +888,7 @@ export function App(props: {
     readonly dropTarget: SplitDropTarget | undefined
     /** Another group's strip the pointer is over. */
     readonly targetStripId: string | undefined
+    readonly targetStripIndex: number | undefined
     /** True when releasing here would do nothing (refused split, pop-out unavailable). */
     readonly refused: boolean
   } | undefined>(undefined)
@@ -955,9 +976,11 @@ export function App(props: {
     paneEntriesPrev = next
     return next
   })
-  const beginDividerDrag = (divider: SplitDividerRect, down: PointerEvent): void => {
+  const beginDividerDrag = (divider: SplitDividerRect, down: PointerEvent & { currentTarget: HTMLDivElement }): void => {
     if (down.button !== 0 || regionElement === undefined) return
     down.preventDefault()
+    positionResizeGrip(down)
+    down.currentTarget.setPointerCapture(down.pointerId)
     const region = regionElement.getBoundingClientRect()
     // The divider's area (its split node's box) is fixed for the whole
     // drag: only this split's own ratio changes.
@@ -994,8 +1017,9 @@ export function App(props: {
     const delta = event.key === increase ? 0.02 : -0.02
     updateSplitLayout((layout) => setSplitRatioAt(layout, divider.path, divider.ratio + delta))
   }
-  const beginTabDrag = (tab: Tab, down: PointerEvent, groupId: string): void => {
+  const beginTabDrag = (tab: AppTab, down: PointerEvent, groupId: string): void => {
     if (down.button !== 0) return
+    tooltips.hide()
     const strip = stripElements.get(groupId)
     if (strip === undefined) return
     const pointerId = down.pointerId
@@ -1005,6 +1029,24 @@ export function App(props: {
       return
     }
     if ((down.target as Element | null)?.closest('.tab-close')) return
+    // Feedback parts the row. Hit-testing uses the unshifted centers, adjusted
+    // for scrolling, rather than measuring its own insertion gap.
+    const stripSlots = new Map([...stripElements.values()].map((element) => {
+      const row = element.querySelector<HTMLElement>('.workflow-tablist')!
+      const left = element.getBoundingClientRect().left
+      const slots = [...element.querySelectorAll<HTMLElement>('.tab')].map((item) => {
+        const rect = item.getBoundingClientRect()
+        return { id: item.dataset['tabId']!, left: rect.left - left + row.scrollLeft, right: rect.right - left + row.scrollLeft }
+      })
+      return [element, { row, slots }] as const
+    }))
+    const sourceSlot = stripSlots.get(strip)!.slots.find((slot) => slot.id === tab.id)!
+    const width = sourceSlot.right - sourceSlot.left
+    const slotsFor = (element: HTMLElement): readonly TabDragSlot[] => {
+      const snapshot = stripSlots.get(element)!
+      const offset = element.getBoundingClientRect().left - snapshot.row.scrollLeft
+      return snapshot.slots.map((slot) => ({ id: slot.id, left: slot.left + offset, right: slot.right + offset }))
+    }
     tabDragPointerId = pointerId
     let drag = beginTabDragModel(pointerId, tab.id, down.clientX)
     let captured = false
@@ -1015,10 +1057,7 @@ export function App(props: {
     const within = (rect: DOMRect, x: number, y: number, pad = 0): boolean =>
       x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad
     const stripInsertionIndex = (element: HTMLElement, clientX: number): number =>
-      Array.from(element.querySelectorAll<HTMLElement>('.tab')).filter((el) => {
-        const rect = el.getBoundingClientRect()
-        return clientX >= (rect.left + rect.right) / 2
-      }).length
+      slotsFor(element).filter((slot) => clientX >= (slot.left + slot.right) / 2).length
     const dispose = (): void => {
       if (disposed) return
       disposed = true
@@ -1035,11 +1074,7 @@ export function App(props: {
       const wasStarted = drag.started
       const elements = Array.from(strip.querySelectorAll<HTMLElement>('.tab'))
       const currentOrder = elements.map((element) => element.dataset['tabId']!)
-      const slots: readonly TabDragSlot[] = elements.map((element) => {
-        const rect = element.getBoundingClientRect()
-        return { id: element.dataset['tabId']!, left: rect.left, right: rect.right }
-      })
-      drag = moveTabDragModel(drag, event.pointerId, event.clientX, currentOrder, slots)
+      drag = moveTabDragModel(drag, event.pointerId, event.clientX, currentOrder, slotsFor(strip))
       if (!drag.started) return
       if (!wasStarted && !captured) {
         try {
@@ -1061,7 +1096,7 @@ export function App(props: {
       overSourceStrip = within(strip.getBoundingClientRect(), event.clientX, event.clientY, 24)
       if (!overSourceStrip) {
         for (const [gid, element] of stripElements) {
-          if (gid === groupId || !element.isConnected) continue
+          if (gid === groupId || !element.isConnected || !stripSlots.has(element)) continue
           if (within(element.getBoundingClientRect(), event.clientX, event.clientY, 8)) {
             stripTarget = { groupId: gid, index: stripInsertionIndex(element, event.clientX) }
             break
@@ -1090,10 +1125,12 @@ export function App(props: {
         sourceGroupId: groupId,
         x: event.clientX,
         y: event.clientY,
+        width,
         order: overSourceStrip ? preview.order : undefined,
         insertionIndex: overSourceStrip ? preview.insertionIndex : undefined,
         dropTarget: paneTarget,
         targetStripId: stripTarget?.groupId,
+        targetStripIndex: stripTarget?.index,
         refused,
       }))
     }
@@ -1114,10 +1151,10 @@ export function App(props: {
           updateSplitLayout((layout) => moveTabToGroup(layout, tab.id, stripDrop.groupId, stripDrop.index))
         } else if (action === 'commit' && pane !== undefined) {
           updateSplitLayout((layout) => splitDropNextLayout(layout, pane, tab.id))
-        } else if (started && outsideRegion && !overSource && managedContext().kind === 'primary') {
+        } else if (started && outsideRegion && !overSource && managedContext().kind === 'primary' && !isPageTab(tab)) {
           popOutWorkflow(tab, event.screenX, event.screenY)
         } else if (action === 'commit' && overSource && preview !== undefined) {
-          app.tabs.set(applySubsetOrder(tabs(), preview.order))
+          app.pages.setTabs(applySubsetOrder(shellTabs(), preview.order))
           updateSplitLayout((layout) => setGroupTabOrder(layout, groupId, preview.order))
         }
       })
@@ -1229,17 +1266,9 @@ export function App(props: {
     backendsTick()
     return b.registry.get()?.schemas.size
   }
-  /** Last /supervisor/status answer (native backends behind a supervisor). */
-  const supervisorOf = (b: Backend) => {
+  const engineGate = (tab: Tab) => {
     backendsTick()
-    return b.supervisor.get()
-  }
-  /**
-   * Supervisor state that gates the active backend (anything but ready):
-   * rendered as "Dinkster is starting", never a connection failure (Ask 1).
-   */
-  const engineGate = () => {
-    const sup = supervisorOf(activeBackend())
+    const sup = app.backendForTab(tab).supervisor.get()
     return sup && sup.state !== 'ready' ? sup : undefined
   }
 
@@ -1268,14 +1297,39 @@ export function App(props: {
   </Show>
 
   const cancelling = useSignal(app.cancellingExecutions)
+  // A run is named by the workflow it was queued under, so renaming its tab later leaves the run's row alone.
+  const runName = (execution: ExecutionState): string => execution.workflowName ?? app.tabTitleFor(execution.ref)
   const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
     const live = () => liveTabOf(p.exec)
+    const pending = createMemo(() => runIsPending(p.exec))
     // A finished run shows its outputs while it is the chosen run; a running or
     // queued one only once its name is pressed, so the list stays one line each.
     const selected = () => selectedRunKey() === p.exec.key ||
       (selectedRunKey() === undefined && !runIsPending(p.exec) && selectedRun()?.key === p.exec.key)
     const thumbnail = () => runIsPending(p.exec) ? undefined : executionThumbnail(p.exec)
-    return <RunRow entry={p.exec} name={app.tabTitleFor(p.exec.ref)} workflow={app.tabTitleFor(p.exec.ref)}
+    // A finished run reads as it does under All workflows; its inspection, opened
+    // from the menu, keeps the activity card with the overlay pin and errors. One
+    // open state serves both, so a run inspected while it ran stays inspected.
+    const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
+    const [inspectOpen, setInspectOpen] = createSolidSignal(false)
+    // No button goes beside a finished run's menu here, so the menu sits at the end of the title line.
+    const [menuMount, setMenuMount] = createSolidSignal<HTMLElement>()
+    const reason = (): string | undefined => p.exec.status === 'error'
+      ? p.exec.errors.map((error) => error.message).join(' ') || undefined : undefined
+    const facts = (): ChosenRunFact[] => {
+      const nodes = Object.values(p.exec.nodes)
+      const backend = app.backendFor(p.exec.ref.connection)
+      return [
+        { label: message('runs.chosen.workflow'), text: p.exec.workflowName ?? message('runs.chosen.workflowUnknown') },
+        ...(p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.finished'), text: formatCollectionDate(p.exec.endedAt) }]),
+        ...(p.exec.startedAt === undefined || p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText((p.exec.endedAt - p.exec.startedAt) / 1000) }]),
+        { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', {
+          ran: nodes.filter((node) => node.state === 'done').length, cached: nodes.filter((node) => node.state === 'cached').length,
+        }) },
+        ...(backend === undefined ? [] : [{ label: message('runs.chosen.ranOn'), text: backend.label }]),
+      ]
+    }
+    return <RunRow entry={p.exec} name={runName(p.exec)} workflow={runName(p.exec)}
       statusInNote all={p.all} testId="execution-row" nodeTitle={runtimeNodeTitle}
       cancelling={cancelling().has(executionKey(p.exec.ref))}
       onCancel={() => { void app.cancelExecution(p.exec.ref) }}
@@ -1283,11 +1337,12 @@ export function App(props: {
       thumbnail={<Show when={thumbnail()}>{(asset) => <RunThumbnail
         url={app.assetUrlForExecution(p.exec.ref, asset().digest)} mediaType={asset().mediaType} />}</Show>}
       selected={selected()}
+      lineEnd={<Show when={selected() && !runIsPending(p.exec)}><span class="run-row-menu" ref={setMenuMount} /></Show>}
       onSelect={() => setSelectedRunKey(selected() && selectedRunKey() === p.exec.key ? undefined : p.exec.key)}>
       <Show when={selected()}>
         <Outputs app={app} execution={p.exec} details={<ExecutionActivityCard
             entry={p.exec}
-            title={app.tabTitleFor(p.exec.ref)}
+            title={runName(p.exec)}
             testId="run-details"
             relation={overlayRoleOf(p.exec)}
             hideOpen
@@ -1297,7 +1352,10 @@ export function App(props: {
               if (overlayRoleOf(p.exec) === 'pinned') app.followLatestExecution(tab.id)
               else app.pinExecutionOverlay(tab.id, p.exec.ref)
             } : undefined}
-          />} />
+          />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
+          {...(pending() ? {} : { chosen: <ChosenRun name={runName(p.exec)} reason={reason()} facts={facts()}
+            detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
+            menuMount={menuMount()} onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
       </Show>
     </RunRow>
   }
@@ -1351,12 +1409,23 @@ export function App(props: {
     />
     </BackendMetadataState>
   )
-  const [storageFocus, setStorageFocus] = createSolidSignal<{ readonly id: string }>()
+  const [storageFocus, setStorageFocus] = createSolidSignal<{ readonly id: string; readonly hiddenModels?: boolean }>()
   const openStorage = (backend = activeBackend()): void => {
     setStorageFocus({ id: backend.id })
     app.modalPanel.set('')
     setPanelOpen(app.panels, app.dock, 'storage', 'left', true)
   }
+  const storageRequest = useSignal(app.storageOpenRequest)
+  createEffect(() => {
+    const request = storageRequest()
+    if (request === undefined) return
+    const backend = backends().find((backend) => backend.id === request.id)
+    if (backend !== undefined) {
+      openStorage(backend)
+      setStorageFocus(request)
+    }
+    app.storageOpenRequest.set(undefined)
+  })
   const openBackendSettings = (backend: Backend): void => {
     app.settingsOpenRequest.set({ category: `backend:${backend.id}`, id: '' })
     app.modalPanel.set('settings')
@@ -1451,7 +1520,7 @@ export function App(props: {
       ? execution.key === entry.id
       : execution.ref.connection === entry.owner && execution.jobRef === runIdOfEntry(entry))
   }
-  const StoredRun = (p: { entry: CollectionEntry; selected: () => boolean; actions: JSX.Element }) => {
+  const StoredRun = (p: { entry: CollectionEntry; selected: () => boolean }) => {
     const [loaded, setLoaded] = createSolidSignal<{ execution: ExecutionState; values: DinksterValuesClient }>()
     const [loadError, setLoadError] = createSolidSignal<string>()
     const [loading, setLoading] = createSolidSignal(false)
@@ -1479,7 +1548,11 @@ export function App(props: {
         if (run === undefined || run.scope !== LIBRARY_SCOPE || (run.jobRef ?? run.runId) !== runId) throw new Error('Stored run is no longer available')
         const job = await backend.connection.fetchHistoryJob(run)
         if (!current()) return
-        if (job === undefined) throw new Error('Retained outputs are no longer available')
+        if (job === undefined) {
+          // An interrupted run never finished, so the engine kept no outputs to load; its reason line says so.
+          if (run.state === 'interrupted') return
+          throw new Error('Retained outputs are no longer available')
+        }
         if (job.state === 'queued' || job.state === 'running') throw new Error('Stored run is no longer terminal')
         const rawOutputs = job.outputs
         if (rawOutputs !== undefined && (typeof rawOutputs !== 'object' || rawOutputs === null || Array.isArray(rawOutputs) ||
@@ -1520,9 +1593,8 @@ export function App(props: {
       return asset !== undefined && backend?.protocol === 'dinkster'
         ? { url: backend.connection.assetUrl(asset.digest), mediaType: asset.mediaType } : undefined
     }
-    const Facts = () => <>
-      <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
-    </>
+    // The record's own facts (ids, client, source and each node's receipt), shown when the run is inspected.
+    const Facts = () => <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
     const known = () => storedExecution(p.entry)
     const record = () => historyRunOfEntry(p.entry)
     const now = useNow()
@@ -1541,13 +1613,41 @@ export function App(props: {
       ]
       return parts.join(', ')
     }
+    const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
+    const [inspectOpen, setInspectOpen] = createSolidSignal(false)
+    const facts = (): ChosenRunFact[] => {
+      const run = record()
+      if (run === undefined) return []
+      backendsTick()
+      const backend = app.backends.get().find((candidate) => candidate.id === p.entry.owner)
+      return [
+        { label: message('runs.chosen.workflow'), text: run.workflowName ?? message('runs.chosen.workflowUnknown') },
+        { label: message('runs.chosen.finished'), text: formatCollectionDate(run.finishedAt * 1000) },
+        ...(run.startedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText(run.finishedAt - run.startedAt) }]),
+        { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', { ran: run.executed, cached: run.cached }) },
+        ...(backend === undefined ? [] : [{ label: message('runs.chosen.ranOn'), text: backend.label }]),
+      ]
+    }
+    // An interrupted run says when the engine stopped; a failed one says why.
+    const reason = (): string | undefined => {
+      const run = record()
+      if (run?.state === 'interrupted') return message(run.error?.['phase'] === 'running' ? 'runs.chosen.wasRunning' : 'runs.chosen.neverStarted')
+      return run?.state === 'failed' ? run.error?.message : undefined
+    }
+    const act = (actionId: 'resubmit' | 'open' | 'delete') => () => libraryEntryAction('runs', p.entry, actionId)
+    const chosen = () => <ChosenRun name={known() ? runName(known()!) : p.entry.title} reason={reason()} facts={facts()}
+      detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
+      onRunAgain={record()?.state === 'interrupted' && record()?.sourceDocument !== undefined ? act('resubmit') : undefined}
+      onOpenWorkflow={record()?.sourceDocument !== undefined ? act('open') : undefined}
+      onCopyJobId={() => { const jobId = record()?.jobId; if (jobId !== undefined) void navigator.clipboard?.writeText(jobId) }}
+      onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
       <div class="run-row-line">
         <span class="run-row-thumbnail" aria-hidden="true">
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
         </span>
         <span class="run-row-text">
-          <span class="run-row-name">{known() ? app.tabTitleFor(known()!.ref) : p.entry.title}</span>
+          <span class="run-row-name">{known() ? runName(known()!) : p.entry.title}</span>
           <span class="run-row-note">{note()}</span>
         </span>
         <Show when={known()?.artifact && known()}>{(execution) =>
@@ -1555,16 +1655,16 @@ export function App(props: {
         }</Show>
       </div>
       <Show when={p.selected()}>
-        <p>{p.entry.subtitle}</p>
-        <div class="collection-badges"><For each={p.entry.badges}>{(badge) => <span class="collection-badge">{badge}</span>}</For></div>
         <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
         <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
-        <Show when={known()} fallback={<Show when={loaded()} fallback={<details class="runs-details" onClick={(event) => event.stopPropagation()}>
-          <summary>{message('runs.details')}</summary><Facts />
-        </details>}>{(source) => <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} />}</Show>}>
-          {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} />}
+        <Show when={known()} fallback={<Show when={loaded()} fallback={<>
+          {chosen()}
+          <Show when={inspectOpen()}><div class="run-chosen-inspection" data-testid="run-inspection"><Facts /></div></Show>
+        </>}>{(source) =>
+          <Outputs app={app} execution={source().execution} source={source()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />
+        }</Show>}>
+          {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />}
         </Show>
-        {p.actions}
       </Show>
     </div>
   }
@@ -1572,10 +1672,16 @@ export function App(props: {
     executions()
     return executionActivity(app.executionList())
   }
+  /**
+   * A page in front is not a workflow, so the panel shows every workflow's
+   * runs then, and keeps the person's own choice for when a workflow is back.
+   */
+  const pageInFront = () => windowTabs().some((tab) => isPageTab(tab) && tab.id === activeTabId())
+  const shownRunScope = () => pageInFront() ? 'all' : runScope()
   /** The runs the panel's scope covers: this workflow's, or every workflow's. */
   const scopedRuns = (): readonly ExecutionState[] => {
     executions()
-    return runScope() === 'all' ? app.executionList() : workflowExecutions()
+    return shownRunScope() === 'all' ? app.executionList() : workflowExecutions()
   }
   const runningRuns = () => scopedRuns().filter((execution) => execution.status === 'running')
   const queuedRuns = () => {
@@ -1585,9 +1691,13 @@ export function App(props: {
   }
   const RunsPanel = () => (
     <div class="rail-panel-body runs-panel" data-testid="runs-panel">
-      <div class="runs-scope" data-testid="runs-scope" data-selected-id={runScope()}>
-        <ProductSegmented label={message('runs.scope')} value={runScope()}
-          options={(['workflow', 'all'] as const).map((scope) => ({ value: scope, label: message(`runs.scope.${scope}`) }))}
+      <div class="runs-scope" data-testid="runs-scope" data-selected-id={shownRunScope()}>
+        <ProductSegmented label={message('runs.scope')} value={shownRunScope()}
+          options={(['workflow', 'all'] as const).map((scope) => ({
+            value: scope,
+            label: message(`runs.scope.${scope}`),
+            disabled: scope === 'workflow' && pageInFront() ? message('runs.scope.workflowUnavailable') : undefined,
+          }))}
           onChange={(scope) => setRunScope(scope)} />
       </div>
       <Show when={runningRuns().length > 0}>
@@ -1600,18 +1710,15 @@ export function App(props: {
           <RunList runs={queuedRuns()} all={app.executionList()} />
         </RunSection>
       </Show>
-      <Show when={runScope() === 'workflow'} fallback={<>
-        <Show when={clearArmed() && clearArmOwner === activeBackend().id}>
-          <ProductNotice tone="info" testId="runs-clear-confirmation">{message('runs.clear.confirmation')}</ProductNotice>
-        </Show>
+      <Show when={shownRunScope() === 'workflow'} fallback={<>
         <h3 class="run-section-title">{message('runs.section.finished')}</h3>
         <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
             ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
-          entryContent={(entry, selected, actions) => <StoredRun entry={entry()} selected={selected} actions={actions} />}
+          entryContent={(entry, selected) => <StoredRun entry={entry()} selected={selected} />}
           onAction={libraryEntryAction}
-          sourceActions={[{ sourceId: 'runs', id: 'clear', label: message(clearArmed() ? 'runs.clear.confirm' : 'runs.clear.action') }]}
+          sourceActions={[{ sourceId: 'runs', id: 'clear', label: message('runs.clear.action') }]}
           onSourceAction={librarySourceAction} />
       </>}>
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>
@@ -1661,13 +1768,12 @@ export function App(props: {
   }
   const problemsIndicator = (): PanelIndicator | undefined => {
     const list = problemDiagnostics()
-    const notice = migrationNotices().get(activeTabId())
     const missingPackCount = new Set(importedNodes().filter((node) => node.status === 'installable').map((node) => node.pack)).size
-    if (list.length === 0 && notice === undefined && missingPackCount === 0) return undefined
+    if (list.length === 0 && missingPackCount === 0) return undefined
     const severity = list.some((d) => d.severity === 'error')
       ? 'error'
-      : missingPackCount > 0 || list.some((d) => d.severity === 'warning') || notice?.entries.some((d) => d.severity === 'warning') ? 'warning' : 'info'
-    const count = list.length + (notice === undefined ? 0 : 1) + missingPackCount
+      : missingPackCount > 0 || list.some((d) => d.severity === 'warning') ? 'warning' : 'info'
+    const count = list.length + missingPackCount
     return {
       count,
       severity,
@@ -1694,7 +1800,6 @@ export function App(props: {
       id: 'learn', get title() { return message('learn.panel.title') }, icon: BookOpen,
       get description() { return message('learn.panel.description') }, get ariaLabel() { return message('learn.panel.ariaLabel') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 25,
-      when: () => learnBackend() !== undefined,
       toggleTestId: 'learn-toggle', component: () => {
         return <LearnPanel
           backend={learnBackend()}
@@ -1779,7 +1884,6 @@ export function App(props: {
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
         importedNodes={importedNodes}
-        migrationNotice={() => migrationNotices().get(activeTabId())}
         compatSkips={() => activeBackend().compatSkips.get()}
         packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
         selection={selectionContext} />,
@@ -2079,8 +2183,9 @@ export function App(props: {
       const style = getComputedStyle(bodyElement)
       const gap = Number.parseFloat(style.columnGap) || 0
       const sidebarWidth = sidebar.getBoundingClientRect().width
+      const sidebarShare = sidebarWidth > 0 ? sidebarWidth + gap + Number.parseFloat(getComputedStyle(sidebar).marginRight) : 0
       const available = bodyElement.clientWidth - Number.parseFloat(style.paddingLeft)
-        - Number.parseFloat(style.paddingRight) - sidebarWidth - (sidebarWidth > 0 ? gap : 0) - 320
+        - Number.parseFloat(style.paddingRight) - sidebarShare - 320
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
         : { single: Math.max(0, available - gap), both: Math.max(0, available - 2 * gap) })
@@ -2106,11 +2211,17 @@ export function App(props: {
     }
   })
   const [panelDrag, setPanelDrag] = createSolidSignal<PanelDragModel>()
+  let panelDragWidth = 0
   let panelDragPointerId: number | undefined
   let disposePanelDrag: (() => void) | undefined
+  let updatePanelDragTabFit: ((fit: PanelDragTabFit | undefined) => void) | undefined
   const publishPanelDrag = (drag: PanelDragModel | undefined): void => {
-    setPanelDrag(drag)
     const active = drag?.started === true && !drag.rolledBack
+    if (active) {
+      tooltips.hide()
+      bodyElement.style.setProperty('--tab-drag-width', `${panelDragWidth}px`)
+    } else bodyElement.style.removeProperty('--tab-drag-width')
+    setPanelDrag(drag)
     document.body.classList.toggle('panel-drag-active', active)
     document.body.classList.toggle('panel-drag-not-allowed', active && drag.preview?.allowed === false)
   }
@@ -2185,6 +2296,18 @@ export function App(props: {
     if (panelId === undefined || originZone === undefined || descriptor === undefined || snapshot === undefined) return
 
     disposePanelDrag?.()
+    const tab = target.matches('[data-panel-title]')
+      ? target.closest('.dock-zone-section')!.querySelector<HTMLElement>(`.product-tab[data-tab-id="${CSS.escape(panelId)}"]`)!
+      : target
+    const tablist = tab.closest<HTMLElement>('.product-tablist')!
+    const display = tablist.style.display
+    const tabDisplay = tab.style.display
+    // Title-only headers stretch, but their mounted tab has the landing-row size.
+    tablist.style.display = 'flex'
+    tab.style.display = 'block'
+    panelDragWidth = tab.getBoundingClientRect().width
+    tab.style.display = tabDisplay
+    tablist.style.display = display
     panelDragPointerId = pointerId
     let drag = beginPanelDragModel(
       pointerId,
@@ -2196,6 +2319,11 @@ export function App(props: {
         floating: descriptor.allowedPlacements.includes('floating'),
       },
     )
+    updatePanelDragTabFit = (tabFit) => {
+      if (panelDrag() === undefined || drag.rolledBack) return
+      drag = movePanelDragModel({ ...drag, tabFit }, pointerId, drag.point)
+      publishPanelDrag(drag)
+    }
     let captured = false
     let disposed = false
     let clickCleanupTimer: ReturnType<typeof setTimeout> | undefined
@@ -2226,6 +2354,7 @@ export function App(props: {
       target.removeEventListener('lostpointercapture', lostCapture)
       if (captured && target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
       if (panelDragPointerId === pointerId) panelDragPointerId = undefined
+      updatePanelDragTabFit = undefined
       if (disposePanelDrag === dispose) disposePanelDrag = undefined
     }
     const rollback = (): void => {
@@ -2291,6 +2420,8 @@ export function App(props: {
     }
     const finish = (event: PointerEvent): void => {
       if (event.pointerId !== pointerId) return
+      // Restore the unshifted row before the release-time geometry check.
+      publishPanelDrag(undefined)
       const currentSnapshot = drag.started ? capturePanelDragSnapshot() : undefined
       const action = panelDragReleaseAction(drag, currentSnapshot === undefined ? undefined : {
         snapshot: currentSnapshot,
@@ -2428,14 +2559,10 @@ export function App(props: {
     })
     observer.observe(trigger, { attributes: true, attributeFilter: ['aria-expanded'] })
   }), { defer: true }))
-  const [projectName, setProjectName] = createSolidSignal<string>()
-  const primaryConnected = createMemo(() => {
-    const backend = backends()[0]
-    return backend !== undefined && statusOf(backend) === 'connected' ? backend : undefined
-  })
+  const [projectName, setProjectName] = createSolidSignal(props.initialProjectName)
   // The name is read again when a modal closes, since the Projects dialog renames projects.
   createEffect(() => {
-    const backend = primaryConnected()
+    const backend = backends()[0]
     if (backend === undefined || modalPanel() !== '') return
     const controller = new AbortController()
     backend.connection.getProject(activeProjectId(), controller.signal)
@@ -2451,7 +2578,7 @@ export function App(props: {
   const readProjectList = (): void => {
     projectListRead?.abort()
     setProjectListFailed(false)
-    const backend = primaryConnected()
+    const backend = backends()[0]
     if (backend === undefined) {
       setProjectListFailed(true)
       return
@@ -2544,6 +2671,7 @@ export function App(props: {
   const switchProject = (projectId: string): void => {
     if (projectId === activeProjectId()) return
     app.flushPersistTabs()
+    if (props.shell) return props.shell.openProject(projectId)
     const desktop = desktopBridge()
     if (desktop) {
       // The shell rolls the binding back on failure; the window stays on the
@@ -2584,7 +2712,7 @@ export function App(props: {
     const paneFocused = (): boolean => displayLayout().focusedGroupId === p.groupId
     const soleGroup = (): boolean => layoutGroups(displayLayout().root).length === 1
     const paneRect = (): SplitRect | undefined => regionRects().groups.find((entry) => entry.id === p.groupId)?.rect
-    const groupTabs = (): readonly Tab[] => {
+    const groupTabs = (): readonly AppTab[] => {
       const byId = new Map(windowTabs().map((tab) => [tab.id, tab] as const))
       const drag = tabDrag()
       const ids = drag !== undefined && drag.sourceGroupId === p.groupId && drag.order !== undefined
@@ -2595,7 +2723,15 @@ export function App(props: {
         return tab !== undefined ? [tab] : []
       })
     }
-    const paneActiveTab = (): Tab | undefined => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const paneTab = () => windowTabs().find((tab) => tab.id === group().activeTabId)
+    const paneActiveTab = (): Tab | undefined => {
+      const tab = paneTab()
+      return tab && !isPageTab(tab) ? tab : undefined
+    }
+    const panePage = () => {
+      const tab = paneTab()
+      return tab && isPageTab(tab) ? tab : undefined
+    }
     const paneTarget = (): Backend | undefined => {
       backendsTick()
       tabTargets()
@@ -2685,25 +2821,30 @@ export function App(props: {
         data-testid="editor-group"
         data-group-id={p.groupId}
         data-focused={paneFocused() ? 'true' : 'false'}
-        style={paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }}
+        style={{
+          ...(paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }),
+          '--tab-drag-width': tabDrag() !== undefined ? `${tabDrag()!.width}px` : undefined,
+        }}
         onFocusIn={focusPane}
         ref={sectionElement}
       >
         <div class="tab-strip">
           <WorkflowTabs
             tabs={groupTabs()}
+            {...(shellTabs().some(isPageTab) ? { label: message('shell.pageTabs.open') } : {})}
             activeId={group().activeTabId}
             draggedId={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.tabId : undefined}
             insertionIndex={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.insertionIndex : undefined}
+            dropIndex={tabDrag()?.targetStripId === p.groupId ? tabDrag()?.targetStripIndex : undefined}
             runState={(tab) => {
               executions()
               tabResultClears()
-              return app.tabRunState(tab)
+              return isPageTab(tab) ? 'idle' : app.tabRunState(tab)
             }}
-            isDirty={(tab) => dirtyTabs().has(tab.id)}
-            isFrozen={(tab) => tab.execution !== undefined}
+            isDirty={isDirty}
+            isFrozen={(tab) => !isPageTab(tab) && tab.execution !== undefined}
             tooltip={(tab) => {
-              if (tab.execution === undefined) return undefined
+              if (isPageTab(tab) || tab.execution === undefined) return undefined
               executions()
               const status = app.store.get(tab.execution)?.status
               return message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
@@ -2725,6 +2866,7 @@ export function App(props: {
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
             onRename={(tab, title) => app.renameTab(tab.id, title)}
             onDuplicate={(tab) => {
+              if (isPageTab(tab)) return
               void app.duplicateTab(tab.id).then((copy) => {
                 if (!copy) return
                 updateSplitLayout((layout) => {
@@ -2736,7 +2878,7 @@ export function App(props: {
             onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
-            canShare={(tab) => tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
+            canShare={(tab) => !isPageTab(tab) && tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
             onShare={(tab) => {
               app.activeTabId.set(tab.id)
               app.showTransientStatus(message('shell.share.sharing', { title: tab.title }))
@@ -2746,7 +2888,7 @@ export function App(props: {
                   : message('shell.share.failed', { error }))
               })
             }}
-            onPopOut={managedContext().kind === 'primary' ? popOutWorkflow : undefined}
+            onPopOut={managedContext().kind === 'primary' ? (tab) => { if (!isPageTab(tab)) popOutWorkflow(tab) } : undefined}
             showNew={paneFocused() && managedContext().kind === 'primary'}
             panelId={splitPanelDomId(p.groupId)}
             onSplitRight={managedContext().kind === 'primary'
@@ -2755,20 +2897,20 @@ export function App(props: {
             onSplitDown={managedContext().kind === 'primary'
               ? (tab) => updateSplitLayout((layout) => splitGroup(layout, p.groupId, 'column', tab.id))
               : undefined}
-            canSplit={managedContext().kind === 'primary' ? canSplitTab : undefined}
+            canSplit={managedContext().kind === 'primary' ? (tab) => !isPageTab(tab) && canSplitTab(tab) : undefined}
             onUnsplit={soleGroup() ? undefined : () => updateSplitLayout((layout) => dissolveGroup(layout, p.groupId))}
             targets={backends()}
             targetId={(tab) => {
               tabTargets()
-              return app.backendForTab(tab).id
+              return isPageTab(tab) ? '' : app.backendForTab(tab).id
             }}
             onSetTarget={(tab, id) => {
               const backend = backends().find((candidate) => candidate.id === id)
               if (backend) app.setTabTarget(tab.id, backend.id)
             }}
-            previews={(tab) => tab.store.doc.previews}
+            previews={(tab) => isPageTab(tab) ? undefined : tab.store.doc.previews}
             onSetPreviews={(tab, mode) => {
-              if (tab.execution !== undefined) return
+              if (isPageTab(tab) || tab.execution !== undefined) return
               app.dispatchTo(tab, { command: 'workflow.setPreviews', params: { previews: mode } })
             }}
           />
@@ -2793,10 +2935,11 @@ export function App(props: {
           id={splitPanelDomId(p.groupId)}
           class="canvas-stage"
           role="tabpanel"
-          aria-label={paneActiveTab() ? undefined : message('shell.workflow.editor')}
-          aria-labelledby={paneActiveTab() ? workflowTabDomId(paneActiveTab()!.id) : undefined}
+          aria-label={paneTab() ? undefined : message('shell.workflow.editor')}
+          aria-labelledby={paneTab() ? workflowTabDomId(paneTab()!.id) : undefined}
           tabindex="0"
         >
+          <Show when={panePage()} fallback={<>
           <Show when={managedContext().kind === 'primary' && !paneActiveTab() && detachedWorkflowIds().size > 0}>
             <div class="detached-workspace-state" data-testid="detached-workspace-state">
               <h2>{message('shell.workflow.detached.title')}</h2>
@@ -2888,6 +3031,11 @@ export function App(props: {
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), app.registryForTab(tab()) !== undefined)}
                       blockedReason={(backendsTick(), app.engineOffReason(tab(), message))}
+                      runControl={<Show when={tab().execution === undefined ? engineGate(tab()) : undefined}>
+                        {(status) => <EngineRunControl status={status()} baseUrl={app.backendForTab(tab()).baseUrl}
+                          onRestart={() => app.restartEngine(app.backendForTab(tab()))} />}
+                      </Show>}
+                      hideRunList={engineGate(tab())?.state === 'failed'}
                       onQueue={tab().execution === undefined ? () => { void app.queue(tab()) } : undefined}
                       onOpenExecution={(ref) => { void app.openExecutionView(ref) }}
                     />
@@ -2907,6 +3055,9 @@ export function App(props: {
             }
           >
             {(editor) => editor.component(host)}
+          </Show>
+          </>}>
+            {(page) => <PageTabPanel host={app.pages} tab={page()} />}
           </Show>
         </div>
       </section>
@@ -2973,42 +3124,30 @@ export function App(props: {
       <ImportAssetResolutionDialog app={app} />
       <Show when={pendingClose()} keyed>
         {(pending) => (
-          <ModalSurface
+          <ProductConfirmationDialog
             title={message('shell.close.title', { title: pending.title })}
-            ariaLabel={message('shell.close.confirm', { title: pending.title })}
+            consequence={message('shell.close.consequence')}
             modalId="close-tab"
             testId="close-tab-dialog"
-            closeLabel={message('shell.close.cancel')}
-            onRequestClose={() => setPendingClose(undefined)}
-          >
-            <div class="close-tab-confirm">
-              <p>{message('shell.close.confirm', { title: pending.title })}</p>
-              <ProductActionFooter>
-                <ProductButton type="button" autofocus onClick={() => setPendingClose(undefined)}>{message('shell.action.cancel')}</ProductButton>
-                <SharedProductButton intent="remove" fill="solid" onClick={confirmPendingClose}>{message('shell.close.discard')}</SharedProductButton>
-              </ProductActionFooter>
-            </div>
-          </ModalSurface>
+            intent="remove"
+            actionLabel={message('shell.close.discard')}
+            onCancel={() => setPendingClose(undefined)}
+            onConfirm={confirmPendingClose}
+          />
         )}
       </Show>
       <Show when={pendingCloseOthers()} keyed>{(pending) => (
-        <ModalSurface
-          title={message('shell.workflowTabs.closeOthers')}
-          ariaLabel={message('shell.workflowTabs.closeOthers')}
+        <ProductConfirmationDialog
+          title={message('shell.close.othersTitle', { count: pending.length })}
+          consequence={message('shell.close.othersConsequence', { count: pending.filter(isDirty).length })}
           modalId="close-other-tabs"
           testId="close-other-tabs-dialog"
-          closeLabel={message('shell.close.cancel')}
-          onRequestClose={() => setPendingCloseOthers(undefined)}
-        >
-          <div class="close-tab-confirm">
-            <p>{message('shell.close.othersConfirm')}</p>
-            <ul><For each={pending.filter((tab) => dirtyTabs().has(tab.id))}>{(tab) => <li>{tab.title}</li>}</For></ul>
-            <ProductActionFooter>
-              <ProductButton type="button" autofocus onClick={() => setPendingCloseOthers(undefined)}>{message('shell.action.cancel')}</ProductButton>
-              <SharedProductButton intent="remove" fill="solid" onClick={confirmCloseOthers}>{message('shell.close.discard')}</SharedProductButton>
-            </ProductActionFooter>
-          </div>
-        </ModalSurface>
+          items={pending.filter(isDirty).map((tab) => ({ name: tab.title, outcome: message('shell.close.unsaved') }))}
+          intent="remove"
+          actionLabel={message('shell.close.discard')}
+          onCancel={() => setPendingCloseOthers(undefined)}
+          onConfirm={confirmCloseOthers}
+        />
       )}</Show>
       <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
       <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}
@@ -3027,8 +3166,8 @@ export function App(props: {
                 onOpen={readProjectList}
                 onSwitch={switchProject}
                 onOpenWindow={openProjectWindow}
-                onAllProjects={() => openProjects(false)}
-                onNewProject={() => openProjects(true)}
+                onAllProjects={() => props.shell ? props.shell.showProjects() : openProjects(false)}
+                onNewProject={() => props.shell ? props.shell.showProjects({ newProject: true }) : openProjects(true)}
               />
             )}</Show>
           </Show>
@@ -3114,32 +3253,6 @@ export function App(props: {
         }}
       </Show>
 
-      <Show when={engineGate()}>
-        {(sup) => (
-          <div class="engine-banner" data-testid="engine-banner" data-state={sup().state} role="status" aria-live="polite">
-            <Show when={sup().state === 'starting'}>
-              <span class="engine-spinner" />
-            </Show>
-            <span class="engine-banner-text">
-              {sup().state === 'starting'
-                ? message('shell.engine.starting')
-                : sup().state === 'failed'
-                  ? message('shell.engine.failed')
-                  : message('shell.engine.stopped')}
-              {sup().detail ? ` - ${sup().detail}` : ''}
-            </span>
-            <Show when={sup().state === 'failed' || sup().state === 'stopped'}>
-              <ProductButton size="compact"
-                data-testid="engine-restart"
-                onClick={() => void app.restartEngine(activeBackend())}
-              >
-                {message('shell.engine.restart')}
-              </ProductButton>
-            </Show>
-          </div>
-        )}
-      </Show>
-
       <Show when={problems().find((problem) => problem.code === 'workspace.recovery.storageFailed')} keyed>
         {(problem) => (
           <div class="dinkster-root" data-testid="recovery-storage-error">
@@ -3185,6 +3298,8 @@ export function App(props: {
           >
             <DockZoneHost
               zone="left"
+              drag={panelDrag()}
+              onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
               titleOnly={activityBarVisible()}
               ariaLabel={message('shell.primaryDockPanels')}
               sections={zoneSections('left')}
@@ -3222,7 +3337,7 @@ export function App(props: {
             <Index each={regionRects().dividers}>
               {(divider) => (
                 <div
-                  class="editor-split-divider"
+                  class="editor-split-divider panel-resize-handle"
                   data-testid="editor-split-divider"
                   role="separator"
                   tabindex="0"
@@ -3233,6 +3348,7 @@ export function App(props: {
                   aria-valuenow={Math.round(divider().ratio * 100)}
                   data-direction={divider().direction}
                   style={rectStyle(divider().rect)}
+                  onPointerMove={positionResizeGrip}
                   onPointerDown={(event) => beginDividerDrag(divider(), event)}
                   onKeyDown={(event) => onDividerKeyDown(divider(), event)}
                 />
@@ -3263,6 +3379,8 @@ export function App(props: {
               />
               <DockZoneHost
                 zone="bottom"
+                drag={panelDrag()}
+                onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
                 ariaLabel={message('shell.bottomPanels')}
                 sections={zoneSections('bottom')}
                 split={zoneSplit('bottom')}
@@ -3292,6 +3410,8 @@ export function App(props: {
               must not reopen the zone. */}
           <DockZoneHost
             zone="right"
+            drag={panelDrag()}
+            onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
             ariaLabel={message('shell.inspectorPanels')}
             sections={zoneSections('right')}
             split={zoneSplit('right')}
@@ -3311,14 +3431,16 @@ export function App(props: {
             drag={drag()}
             ghostTitle={descriptor()?.title ?? drag().panelId}
             ghostIcon={descriptor()?.icon}
+            ghostActive={DOCK_ZONE_IDS.some((zone) => zoneSections(zone).some((section) => section.activeId === drag().panelId))}
           />
         )
       }}</Show>
       <Show when={tabDrag()}>{(drag) => (
-        <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused} />
+        <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused}
+          active={findGroup(displayLayout(), drag().sourceGroupId)?.activeTabId === drag().tabId} />
       )}</Show>
 
-      <Show when={tooltip()}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
+      <Show when={!panelDrag()?.started && tabDrag() === undefined ? tooltip() : undefined}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
       <Show when={queueRefusal() !== undefined && queueRefusal() === activeTab() && problemsIndicator()}>{(summary) => (
         <ProductEmptyState
           class="queue-refusal-toast"
@@ -3423,14 +3545,64 @@ function outputIterationGroup(runtimeId: string, workflowLabel: string): { reado
   }
 }
 
+/**
+ * Opens a saved file in a new browser tab, where the browser plays audio and
+ * video and shows text. The engine serves assets as plain bytes, so the file
+ * is read and handed to the tab typed by its recorded media type.
+ */
+async function openSavedFile(url: string, mediaType: string): Promise<void> {
+  // Opened before the read, while the click still allows a new tab.
+  const tab = window.open('', '_blank')
+  if (tab === null) return
+  tab.opener = null
+  try {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const blob = new Blob([await response.arrayBuffer()], { type: mediaType })
+    const objectUrl = URL.createObjectURL(blob)
+    tab.location.href = objectUrl
+    // The tab plays from the object URL, so it is released only once the tab closes.
+    const watch = setInterval(() => {
+      if (!tab.closed) return
+      clearInterval(watch)
+      URL.revokeObjectURL(objectUrl)
+    }, 5000)
+  } catch {
+    tab.location.href = url
+  }
+}
+
+/** The kind of a saved file, as its tile's icon. */
+const fileIcon = (mediaType: string): LucideIcon => {
+  const [kind, subtype = ''] = mediaType.split('/')
+  if (kind === 'audio') return AudioLines
+  if (kind === 'video') return Film
+  if (kind === 'model' || /gltf|glb|obj|stl|ply|fbx|usd/.test(subtype)) return Box
+  if (kind === 'text' || subtype === 'json') return FileText
+  return FileIcon
+}
+/** A saved file's short kind, as its tile's label: "WAV", "MP4". */
+const fileExtension = (file: { readonly name: string; readonly virtualPath: string; readonly mediaType: string }): string => {
+  const name = file.name || file.virtualPath
+  const dot = name.lastIndexOf('.')
+  return (dot > 0 ? name.slice(dot + 1) : file.mediaType.split('/').at(-1) ?? '').slice(0, 5).toUpperCase()
+}
+
+/**
+ * A run's pictures and, behind a Details fold, what else it made and where.
+ * Given `chosen`, it is a chosen finished run instead: four pictures and a
+ * tile for each other saved file, then `chosen` (its actions and plain
+ * facts), then the same inspection while `inspectOpen`.
+ */
 function Outputs(props: { app: AppState; execution: ExecutionState; details?: JSX.Element; source?: {
   values: DinksterValuesClient
-} }) {
+}; chosen?: JSX.Element; inspectOpen?: boolean; onInspect?: (open: boolean) => void }) {
   const message = useAppMessage()
   const backendTick = useSignal(props.app.backendsTick)
   const [viewerIndex, setViewerIndex] = createSolidSignal<number>()
   const [viewerGrid, setViewerGrid] = createSolidSignal(false)
-  const [detailsOpen, setDetailsOpen] = createSolidSignal(false)
+  const [localOpen, setLocalOpen] = createSolidSignal(false)
+  const detailsOpen = (): boolean => props.inspectOpen ?? localOpen()
   const [failed, setFailed] = createSolidSignal<ReadonlySet<string>>(new Set())
   const [loaded, setLoaded] = createSolidSignal<ReadonlySet<string>>(new Set())
   const currentExecutionKey = createMemo(() => props.execution.key)
@@ -3475,9 +3647,10 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
     assetUrlForExecution: (ref, digest) => props.app.assetUrlForExecution(ref, digest),
     values: values(),
   }))
+  const shown = (): number => props.chosen === undefined ? 3 : 4
   const imageGroups = createMemo(() => {
     const groups = new Map<string, { readonly label: string; readonly images: { readonly image: ExecutedImage; readonly index: number }[] }>()
-    for (const [index, image] of images().slice(0, 3).entries()) {
+    for (const [index, image] of images().slice(0, shown()).entries()) {
       const { key, label } = outputIterationGroup(image.runtimeId, 'Workflow outputs')
       const group = groups.get(key) ?? { label, images: [] }
       group.images.push({ image, index })
@@ -3520,12 +3693,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
       detail: 'This execution completed without inspectable image descriptors or assets.',
     }
   }
-  return (
-    <>
-      <details class="runs-details" onClick={(event) => event.stopPropagation()}
-        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
-        <summary>{message('runs.details')}</summary>
-        <Show when={detailsOpen()}>
+  const Inspection = () => <>
         {props.details}
       <section class="output-execution-provenance output-rail-provenance" aria-label="Execution provenance">
         <div><span>Backend</span><strong>{provenance().backendLabel}</strong></div>
@@ -3551,12 +3719,30 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
         </section>
       )}</For>
       <For each={images()}>{(image) => <ExecutedImageFacts image={image} availability={availability(image.key)} />}</For>
-        </Show>
+  </>
+  // A finished run's saved files that are not pictures, each opened in a new browser tab.
+  const files = createMemo(() => {
+    if (props.chosen === undefined) return []
+    const seen = new Set<string>()
+    return props.execution.artifacts.filter((artifact) => {
+      if (artifact.mediaType.startsWith('image/') || seen.has(artifact.digest)) return false
+      seen.add(artifact.digest)
+      return true
+    })
+  })
+  return (
+    <>
+      <Show when={props.chosen === undefined}>
+      <details class="runs-details" open={detailsOpen()} onClick={(event) => event.stopPropagation()}
+        onToggle={(event) => { const open = event.currentTarget.open; if (open !== detailsOpen()) { setLocalOpen(open); props.onInspect?.(open) } }}>
+        <summary>{message('runs.details')}</summary>
+        <Show when={detailsOpen()}><Inspection /></Show>
       </details>
-      <div class="outputs runs-output-thumbnails" aria-label={`${images().length} execution images`}>
-        <For each={imageGroups()} fallback={
+      </Show>
+      <div class="outputs runs-output-thumbnails" data-chosen={props.chosen !== undefined} aria-label={`${images().length} execution images`}>
+        <For each={imageGroups()} fallback={<Show when={props.chosen === undefined || (emptyState().state !== 'empty' && emptyState().state !== 'error')}>
           <span data-state={emptyState().state} role="status" title={emptyState().detail}>{emptyState().title}</span>
-        }>
+        </Show>}>
           {(group) => (
             <section class="output-iteration-group" aria-label={group.label}>
               <h3>{group.label}</h3>
@@ -3582,11 +3768,26 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
             </section>
           )}
         </For>
-        <Show when={images().length > 3}>
+        <Show when={images().length > shown()}>
           <ProductButton size="compact" aria-label={message('runs.outputs.all', { count: images().length })}
-            onClick={(event) => { event.stopPropagation(); setViewerGrid(true); setViewerIndex(0) }}>+{images().length - 3}</ProductButton>
+            onClick={(event) => { event.stopPropagation(); setViewerGrid(true); setViewerIndex(0) }}>+{images().length - shown()}</ProductButton>
         </Show>
+        <For each={files()}>{(file) => (
+          <ProductButton type="button" class="output-file-tile" data-kind={file.mediaType.split('/')[0]}
+            aria-label={message('runs.chosen.openFile', { name: file.name || file.virtualPath })} data-tooltip-label={file.name || file.virtualPath}
+            onClick={(event) => {
+              event.stopPropagation()
+              void openSavedFile(props.app.assetUrlForExecution(props.execution.ref, file.digest), file.mediaType)
+            }}>
+            <ProductIcon icon={fileIcon(file.mediaType)} />
+            <span>{fileExtension(file)}</span>
+          </ProductButton>
+        )}</For>
       </div>
+      {props.chosen}
+      <Show when={props.chosen !== undefined && detailsOpen()}>
+        <div class="run-chosen-inspection" data-testid="run-inspection" onClick={(event) => event.stopPropagation()}><Inspection /></div>
+      </Show>
       <Show when={viewerIndex() !== undefined}>
         <ExecutedImageViewer images={images()} initialIndex={viewerIndex()!} initialMode={viewerGrid() ? 'grid' : 'single'} provenance={provenance()} backendUrl={props.app.backendFor(props.execution.ref.connection)?.baseUrl} onRequestClose={() => setViewerIndex(undefined)} />
       </Show>

@@ -10,7 +10,9 @@ import {
   effectiveWidgetDefault,
   formatWidgetValue,
   numericStepConstraints,
+  widgetRepresentationChoices,
   type Json,
+  type NodeSchema,
   type WidgetRegistry,
   type WidgetSpec,
 } from '@dinkster/core'
@@ -21,6 +23,8 @@ import {
   canvasTypePaintForTheme,
   createRegistryPainter,
   defaultTokens,
+  rowSideEdges,
+  widgetValueText,
   type DesignTokens,
   type LayoutRow,
   type Scene,
@@ -64,6 +68,8 @@ export interface RowExample {
   readonly open?: string
   /** The row the keyboard is on while nothing is open, on the keyboard node. */
   readonly focus?: string
+  /** The keyboard node's schema, when not the row-editing page's. */
+  readonly schema?: NodeSchema
   readonly drag?: { readonly valueKey: string; readonly value: Json }
   /** Shows the node whose number has a special value instead of the shared sample node. */
   readonly special?: boolean
@@ -72,6 +78,21 @@ export interface RowExample {
    * it. Otherwise the example grows to show the whole side part.
    */
   readonly edge?: boolean
+  /** The node to draw instead of the page's own, and the schema its help comes from. */
+  readonly build?: {
+    readonly scene: (
+      tokens: DesignTokens,
+      measure: TextMeasurer,
+      widgetMeasure: WidgetMeasure,
+      position: { x: number; y: number },
+      width: number,
+    ) => Scene
+    readonly schema: NodeSchema
+  }
+  /** The side part ends in the Representation control, its list shown open when expanded. */
+  readonly representation?: 'closed' | 'expanded'
+  /** Room below the side part for the shared list's ordinary placement. */
+  readonly listRoom?: number
 }
 
 export const NODE_WIDTH = 280
@@ -323,6 +344,8 @@ export function RowEditingExample(props: {
   registry: WidgetRegistry
   /** Token overrides, such as a node look's. */
   look?: Partial<DesignTokens>
+  /** Writes the side part's default as plain JSON, for a Before card. */
+  jsonDefault?: boolean
   testIdPrefix?: string
 }) {
   let canvas!: HTMLCanvasElement
@@ -371,22 +394,47 @@ export function RowEditingExample(props: {
             ? { viewId: view.id, rows: view.measure(spec).rows }
             : undefined
         }
-        const built = (
-          example.special === true
-            ? createRowSpecialScene
-            : example.focus === undefined
-              ? createRowEditingScene
-              : createRowFocusScene
-        )(
-          tokens,
-          measure,
-          widgetMeasure,
-          example.node,
-          example.nodeWidth ?? NODE_WIDTH,
-        )
+        widgetMeasure.representations = (spec) =>
+          props.registry.kind(spec.widgetType)?.representations?.(spec)
+        const width = example.nodeWidth ?? NODE_WIDTH
+        const built =
+          example.build !== undefined
+            ? example.build.scene(
+                tokens,
+                measure,
+                widgetMeasure,
+                example.node,
+                width,
+              )
+            : example.special === true
+              ? createRowSpecialScene(
+                  tokens,
+                  measure,
+                  widgetMeasure,
+                  example.node,
+                  width,
+                )
+              : example.focus === undefined
+                ? createRowEditingScene(
+                    tokens,
+                    measure,
+                    widgetMeasure,
+                    example.node,
+                    width,
+                  )
+                : createRowFocusScene(
+                    tokens,
+                    measure,
+                    widgetMeasure,
+                    example.node,
+                    width,
+                    example.schema,
+                  )
         const node = built.nodes[0]!
-        const height =
-          (example.node.y + node.layout.height + MARGIN) * example.scale
+        const bottom = Math.max(
+          ...built.nodes.map((drawn) => drawn.y + drawn.layout.height),
+        )
+        const height = (bottom + MARGIN) * example.scale
         canvas.style.width = `${example.width}px`
         canvas.style.height = `${height}px`
         renderer = new CanvasRenderer(
@@ -427,11 +475,13 @@ export function RowEditingExample(props: {
     )
     if (!row) return undefined
     const schema =
-      props.example.special === true
+      props.example.build?.schema ??
+      props.example.schema ??
+      (props.example.special === true
         ? rowSpecialSchema
         : props.example.focus === undefined
           ? rowEditingSchema
-          : rowFocusSchema
+          : rowFocusSchema)
     const item = schema.body.find(
       (item) => item.kind === 'input' && item.id === row.inputId,
     )
@@ -447,28 +497,48 @@ export function RowEditingExample(props: {
     const target = openRow()
     if (!target) return undefined
     const { row, help, facts } = target
+    const looks =
+      props.example.representation === undefined
+        ? undefined
+        : widgetRepresentationChoices(row.spec, row.representationId)
+    const representation =
+      looks === undefined
+        ? {}
+        : {
+            representation: {
+              ...looks,
+              expanded: props.example.representation === 'expanded',
+              onChoose: () => undefined,
+            },
+          }
     if (props.example.focus !== undefined) {
+      // The default reads as the closed row would read it, in full.
       const declared = effectiveWidgetDefault(row.spec)
-      if (declared === undefined && help === undefined) return undefined
+      let defaultText =
+        declared === undefined
+          ? undefined
+          : props.jsonDefault === true
+            ? formatWidgetValue(declared, row.spec)
+            : widgetValueText(props.registry, row.viewId, declared, row.spec)
+      if (defaultText === undefined && declared !== undefined)
+        defaultText = formatWidgetValue(declared, row.spec)
+      if (defaultText == null && help === undefined && looks === undefined)
+        return undefined
       return (
         <CanvasSidePart
+          {...representation}
           facts={
-            declared === undefined
-              ? []
-              : [
-                  {
-                    key: 'default',
-                    value: formatWidgetValue(declared, row.spec),
-                  },
-                ]
+            defaultText == null ? [] : [{ key: 'default', value: defaultText }]
           }
           {...(help !== undefined ? { help: help! } : {})}
         />
       )
     }
-    if (facts.length === 0 && help === undefined) return undefined
+    if (facts.length === 0 && help === undefined && looks === undefined)
+      return undefined
     return (
       <CanvasSidePart
+        {...representation}
         {...(row.controllerMode !== undefined
           ? {
               children: (
@@ -526,6 +596,7 @@ export function RowEditingExample(props: {
       scale,
       ((node.y + node.layout.height) * scale - screen.y) / zoom + MARGIN / 2,
       (screen.y - node.y * scale) / zoom + MARGIN / 2,
+      rowSideEdges(node.layout.rows, row),
     )
     const value = node.node.values[row.valueKey]
     return { row, numeric, screen, width, value, help, facts, ...layout }
@@ -540,7 +611,7 @@ export function RowEditingExample(props: {
       current.screen.height,
       (current.sideTop + (current.sideMaxHeight ?? sideSize().height)) * zoom,
     )
-    stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + sideBottom + MARGIN)}px`
+    stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + sideBottom + MARGIN) + (props.example.listRoom ?? 0)}px`
   })
   return (
     <figure class="dinkster-canvas-example">

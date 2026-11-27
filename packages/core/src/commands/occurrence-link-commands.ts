@@ -10,6 +10,7 @@ import type { SchemaResolver } from '../schema/derive-boundary.js'
 import type { NodeSchema } from '../schema/model.js'
 import { elaborateInterface, elabInputsOf, elabOutputsOf, materializeFramesOf, type MaterializeFrame } from '../schema/elaborate.js'
 import { createTransactionBuilder, type CommandDefinition, type CommandInvocation, type TransactionBuilder } from './contract.js'
+import { boundaryItems as itemsOf } from '../format/document.js'
 
 const PLAN_VERSION = 'occurrence-link-plan-v1'
 const DIGEST_VERSION = 'occurrence-link-plan-digest-v1'
@@ -262,7 +263,7 @@ function occurrenceTopologyProjection(
     [delivery.from.authored, delivery.to.authored].flatMap((endpoint) => endpoint.kind === 'boundary'
       ? endpoint.route.map((leg) => {
           const definition = doc.graphs[leg.graph]
-          const item = [...(definition?.boundary?.inputs ?? []), ...(definition?.boundary?.outputs ?? [])]
+          const item = [...itemsOf(definition?.boundary, 'inputs'), ...itemsOf(definition?.boundary, 'outputs')]
             .find((candidate) => candidate.id === leg.boundaryId)
           return { graph: leg.graph, boundaryId: leg.boundaryId, item: item ?? null }
         })
@@ -362,12 +363,7 @@ function buildPlan(
       const current = byIdentity.get(identityKey(identity))
       if (!current) return undefined
       if (identity.kind === 'parent' || identity.kind === 'parentNetSink') return undefined
-      if (identity.kind === 'parentLeg') {
-        const legCount = effective.projectedParentLinks.filter((link) =>
-          link.identity.kind === 'parentLeg' && canonicalJson(link.identity.delivery) === canonicalJson(identity.delivery),
-        ).length
-        if (legCount <= 1 || intent.command !== 'occurrence.link.disconnect') return undefined
-      }
+      if (identity.kind === 'parentLeg' && intent.command !== 'occurrence.link.disconnect') return undefined
       if ((identity.kind === 'definition' || identity.kind === 'definitionNetSink') &&
           ((intent.command === 'occurrence.link.rewire' && intent.to?.kind === 'body') ||
            (intent.command === 'occurrence.link.rewireSource' && intent.from?.kind === 'body'))) return undefined

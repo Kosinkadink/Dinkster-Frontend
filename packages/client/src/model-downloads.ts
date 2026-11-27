@@ -5,6 +5,12 @@ export interface ModelRequirement {
   readonly kind: string
 }
 
+export type ModelPresence = ModelRequirement & (
+  | { readonly status: 'local' | 'model-hidden' | 'duplicate' }
+  | { readonly status: 'folder-disabled'; readonly disabledLocations: readonly string[] }
+  | { readonly status: 'missing'; readonly plannable: boolean }
+)
+
 export interface ModelDownloadSelection extends ModelRequirement {
   readonly project: string
   readonly provider: 'huggingface' | 'civitai'
@@ -25,7 +31,7 @@ export type ModelDownloadPlan =
   | { readonly status: 'folder-disabled'; readonly disabledLocations: readonly string[]; readonly detail: string }
   | { readonly status: 'picker-required'; readonly sources: readonly string[] }
   | { readonly status: 'destination-required' }
-  | { readonly status: 'credential-required' | 'provider-grant-required' | 'civitai-access-required' | 'model-hidden' }
+  | { readonly status: 'credential-required' | 'provider-grant-required' | 'civitai-access-required' | 'model-hidden' | 'duplicate' }
 
 export type ModelDownloadPhase = 'starting' | 'checking-existing' | 'downloading' | 'verifying' |
   'publishing' | 'indexing' | 'cancelling' | 'cancelled' | 'completed' | 'failed'
@@ -65,6 +71,25 @@ function strings(row: Record<string, unknown>, key: string): readonly string[] {
   return value as string[]
 }
 
+export function decodeModelPresence(raw: unknown, requested: readonly ModelRequirement[]): readonly ModelPresence[] {
+  const rows = record(raw)['models']
+  if (!Array.isArray(rows) || rows.length !== requested.length) throw new Error('Malformed model presence response')
+  return requested.map((requirement, index) => {
+    const row = record(rows[index])
+    if (row['name'] !== requirement.name || row['kind'] !== requirement.kind) throw new Error('Mismatched model presence response')
+    switch (row['status']) {
+      case 'local':
+      case 'model-hidden':
+      case 'duplicate': return { ...requirement, status: row['status'] }
+      case 'folder-disabled': return { ...requirement, status: 'folder-disabled', disabledLocations: strings(row, 'disabledLocations') }
+      case 'missing':
+        if (typeof row['plannable'] === 'boolean') return { ...requirement, status: 'missing', plannable: row['plannable'] }
+        break
+    }
+    throw new Error('Malformed model presence status')
+  })
+}
+
 function selection(row: Record<string, unknown>): ModelDownloadSelection {
   const provider = row['provider']
   if ((provider !== 'huggingface' && provider !== 'civitai') || !/^[a-f0-9]{64}$/.test(text(row, 'sha256')) ||
@@ -89,7 +114,8 @@ export function decodeModelDownloadPlan(raw: unknown): ModelDownloadPlan {
     case 'credential-required':
     case 'provider-grant-required':
     case 'civitai-access-required':
-    case 'model-hidden': return { status: row['status'] }
+    case 'model-hidden':
+    case 'duplicate': return { status: row['status'] }
     default: throw new Error('Unknown model download plan state')
   }
 }

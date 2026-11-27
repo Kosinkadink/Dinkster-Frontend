@@ -196,11 +196,11 @@ describe('static schemas', () => {
     // option and goes to its own start key.
     const removed = (format: string, codec: string) => census(format, codec).diagnostics
       .map((diagnostic) => [diagnostic.code, diagnostic.severity, diagnostic.data])
-    expect(removed('webm', 'h264')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto' }]])
+    expect(removed('webm', 'h264')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto', removed: 'h264', row: 'codec' }]])
     // A key no option declares is reported once, not once per place, with
     // the chosen place's start key whichever place is read first.
-    expect(removed('mp4', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'h264' }]])
-    expect(removed('webm', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto' }]])
+    expect(removed('mp4', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'h264', removed: 'vp9', row: 'codec' }]])
+    expect(removed('webm', 'vp9')).toEqual([['elab.combo.removedOption', 'warning', { construct: 'format.codec', selected: 'auto', removed: 'vp9', row: 'codec' }]])
   })
 })
 
@@ -542,13 +542,13 @@ describe('choices', () => {
   it('a stored option the pack no longer has is no pick: a required choice shows its start option', () => {
     const e = elaborateInterface(schemaOf([modes]), { values: { 'mode.mask': 4 }, dynamic: { mode: { selected: 'gone' } } })
     expect(e.diagnostics.map((d) => [d.code, d.severity, d.data])).toEqual([
-      ['elab.combo.removedOption', 'warning', { construct: 'mode', selected: 'simple' }],
+      ['elab.combo.removedOption', 'warning', { construct: 'mode', selected: 'simple', removed: 'gone', row: 'mode' }],
     ])
     expect(elabInputsOf(e).map((input) => input.address.port)).toEqual(['mode', 'mode.strength'])
     expect(e.choices).toEqual({ mode: 'simple' })
     const optional = choiceOf('mode', [{ key: 'on', rows: [intInput('value')] }], { required: false })
     const none = elaborateInterface(schemaOf([optional]), { values: {}, dynamic: { mode: { selected: 'gone' } } })
-    expect(none.diagnostics.map((d) => [d.code, d.data])).toEqual([['elab.combo.removedOption', { construct: 'mode', selected: null }]])
+    expect(none.diagnostics.map((d) => [d.code, d.data])).toEqual([['elab.combo.removedOption', { construct: 'mode', selected: null, removed: 'gone', row: 'mode' }]])
     expect(none.diagnostics[0]!.message).toContain("option 'gone' of 'mode' is no longer in the pack. It is now none.")
     expect(elabInputsOf(none).map((input) => input.address.port)).toEqual(['mode'])
   })
@@ -713,13 +713,28 @@ describe('type choices', () => {
     expect(elabInputsOf(hidden)).toHaveLength(1)
   })
 
-  it('the chosen variant adds its rows at <slot>.<row>', () => {
+  it('the chosen variant adds its rows at <slot>.<row> only while connected or valued', () => {
     const e = elaborateInterface(schemaOf([specialized()]), { values: {}, dynamic: { model: { selected: 'lora' } } }, connectedInputs('model'))
     expect(elabInputsOf(e).map((i) => [i.address.port, i.apiName])).toEqual([
       ['model', 'model'], ['model.shared', 'model.shared'], ['model.weight', 'model.weight'],
     ])
     expect(elabInputsOf(e)[2]!.origin).toEqual({ kind: 'dependent', construct: 'model', variant: 'lora' })
     expect(e.choices).toEqual({ model: 'lora' })
+    const schema = schemaOf([specialized()])
+    const node = { values: { 'model.shared': 3, 'model.weight': 7 }, dynamic: { model: { selected: 'lora' } } }
+    const disconnected = elaborateInterface(schema, node)
+    expect(elabInputsOf(disconnected).map((input) => [input.address.port, input.spec.optional])).toEqual([['model', true]])
+    expect(disconnected.choices).toBeUndefined()
+    const run = elaborateInterface(schema, node, EMPTY_CONNECTIVITY, { promoteGhosts: false })
+    expect(elabInputsOf(run)).toEqual([])
+    expect(run.choices).toBeUndefined()
+    const reconnected = elaborateInterface(schema, node, connectedInputs('model'))
+    expect(elabInputsOf(reconnected).map((input) => input.address.port)).toEqual(['model', 'model.shared', 'model.weight'])
+    expect(reconnected.choices).toEqual({ model: 'lora' })
+    expect(node).toEqual({ values: { 'model.shared': 3, 'model.weight': 7 }, dynamic: { model: { selected: 'lora' } } })
+    const valued = elaborateInterface(schema, { ...node, values: { ...node.values, model: 0 } })
+    expect(elabInputsOf(valued).map((input) => input.address.port)).toEqual(['model', 'model.shared', 'model.weight'])
+    expect(valued.choices).toEqual({ model: 'lora' })
   })
 
   it('surfaces the per-variant widget spec', () => {
@@ -730,7 +745,7 @@ describe('type choices', () => {
   it('a stored variant the pack no longer has is no pick', () => {
     const e = elaborateInterface(schemaOf([specialized()]), { values: {}, dynamic: { model: { selected: 'gone' } } }, connectedInputs('model'))
     expect(e.diagnostics.map((d) => [d.code, d.severity, d.data])).toEqual([
-      ['elab.slot.removedVariant', 'warning', { construct: 'model', selected: null }],
+      ['elab.slot.removedVariant', 'warning', { construct: 'model', selected: null, removed: 'gone', row: 'model' }],
     ])
     expect(e.choices?.model).toBeUndefined()
     expect(elabInputsOf(e).map((input) => input.address.port)).not.toContain('model.weight')
@@ -1435,10 +1450,45 @@ describe('formula properties', () => {
     expect(suffix({ formula: 'str(1 // 0)' })).toBeUndefined()
   })
 
+  it('works out input access without changing sent values, and allows editing while a flag is unknown or failed', () => {
+    const body = [
+      field('mode', { pin: false, sent: false }),
+      field('fixed', { readOnly: true }),
+      field('both', { readOnly: true, disabled: true, disabledReason: 'Preset controls this field' }),
+      field('limited', { readOnly: { formula: 'mode > 5' }, disabled: { formula: 'mode < 2' }, disabledReason: { formula: '"Preset " + str(mode)' } }),
+      field('failed', { readOnly: { formula: '1 // 0 > 0' }, disabled: { formula: '1 // 0 > 0' } }),
+      pick,
+      field('unknown', { readOnly: { formula: 'pick.under > 0' }, disabled: { formula: 'pick.under > 0' } }),
+    ]
+    const access = (value: number) => elabInputsOf(elaborate(body, { mode: value, limited: 24 }, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } }))
+    const high = access(9)
+    expect(high.find((row) => row.spec.id === 'fixed')).toMatchObject({ readOnly: true, apiName: 'fixed' })
+    expect(high.find((row) => row.spec.id === 'both')).toMatchObject({ readOnly: true, disabled: true, disabledReason: 'Preset controls this field', apiName: 'both' })
+    expect(high.find((row) => row.spec.id === 'limited')).toMatchObject({ readOnly: true, apiName: 'limited' })
+    expect(high.find((row) => row.spec.id === 'limited')).not.toHaveProperty('disabled')
+    const low = access(1).find((row) => row.spec.id === 'limited')!
+    expect(low).toMatchObject({ disabled: true, disabledReason: 'Preset 1', apiName: 'limited' })
+    expect(low).not.toHaveProperty('readOnly')
+    for (const row of high.filter((item) => item.spec.id === 'failed' || item.spec.id === 'unknown')) {
+      expect(row).not.toHaveProperty('readOnly')
+      expect(row).not.toHaveProperty('disabled')
+      expect(row).not.toHaveProperty('disabledReason')
+    }
+    expect(high.find((row) => row.spec.id === 'mode')).not.toHaveProperty('apiName')
+    expect(high.map((row) => row.apiName)).toEqual(access(1).map((row) => row.apiName))
+    expect(body[3]).toMatchObject({ readOnly: { formula: 'mode > 5' }, disabled: { formula: 'mode < 2' } })
+  })
+
   it("works out a button's enabled, reason and tooltip, and leaves it enabled while unknown or failed", () => {
     const body = (enabled: string) => [field('w'), pick, { kind: 'button', id: 'go', label: 'Go', steps: [],
       enabled: { formula: enabled }, disabledReason: { formula: '"needs " + str(w) + " more"' }, tooltip: { formula: '"Go " + str(w)' } }]
-    const button = (elaborated: ReturnType<typeof elaborate>) => elaborated.items.find((item) => item.kind === 'button')
+    // What elaboration works out; the declaration it carries is the body's own.
+    const button = (elaborated: ReturnType<typeof elaborate>) => {
+      const found = elaborated.items.find((item) => item.kind === 'button')
+      if (found?.kind !== 'button') return found
+      const { spec: _spec, ...rest } = found
+      return rest
+    }
     expect(button(elaborate(body('w > 5'), { w: 2 }))).toEqual({ kind: 'button', id: 'go', label: 'Go', enabled: false, disabledReason: 'needs 2 more', tooltip: 'Go 2' })
     expect(button(elaborate(body('w > 5'), { w: 9 }))).toEqual({ kind: 'button', id: 'go', label: 'Go', tooltip: 'Go 9' })
     expect(button(elaborate(body('pick.under > 5'), { w: 2 }, EMPTY_CONNECTIVITY, { pick: { selected: 'b' } })))
@@ -1555,10 +1605,16 @@ describe('rows kept for a wire on their output', () => {
         { key: 'latent', type: { kind: 'concrete', name: 'LATENT' }, rows: [intInput('scale')] },
       ],
     }])
-    expect(shown(schema, { values: {}, dynamic: { model: { selected: 'image' } } }, taps('model.scale'))).toEqual([
+    const node = { values: {}, dynamic: { model: { selected: 'image' } } }
+    expect(shown(schema, node, { ...taps('model.scale'), isInputConnected: (port) => port === 'model' })).toEqual([
       ['model', undefined, true],
       ['model.width', undefined, true],
       ['model.scale', 'Not used while Model is image. Its wire gives nothing.', false],
+    ])
+    expect(shown(schema, node, taps('model.width', 'model.scale'))).toEqual([
+      ['model', undefined, false],
+      ['model.width', 'Not used while Model has no wire. Its wire gives nothing.', false],
+      ['model.scale', 'Not used while Model has no wire. Its wire gives nothing.', false],
     ])
   })
 

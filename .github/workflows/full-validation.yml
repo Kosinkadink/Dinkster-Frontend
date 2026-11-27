@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: f3381e91461cf17a620facce2665a4f7a675740f
+  DINKSTER_REF: 79c638e6db5b0d8803f98a7365ebd43ecbef5fc9
 
 jobs:
   validation-plan:
@@ -167,6 +167,8 @@ jobs:
           NODE_OPTIONS: --max-semi-space-size=64
       - run: pnpm --filter @dinkster/app build
       - run: pnpm --filter @dinkster/e2e exec playwright install chromium
+      - name: Validate canvas retained-frame equivalence
+        run: pnpm --filter @dinkster/ui exec playwright test --config=playwright.full.config.ts
       # Host interface changes must not invalidate Chromium's loopback requests.
       - run: pnpm --filter @dinkster/e2e exec playwright test --config=playwright.audit-assets.config.ts
         env:

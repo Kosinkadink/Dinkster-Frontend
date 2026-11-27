@@ -11,6 +11,7 @@ import { SUBGRAPH_ICON } from '@dinkster/canvas'
 import { BlueprintIcon } from '@dinkster/ui'
 import { placeFloatingSurface, type FloatingSurfacePlacement } from '@dinkster/core/floating-surface'
 import { Icon } from './Icon.js'
+import { ProductShortcut } from '@dinkster/ui'
 import { menuFlat, type MenuAnchor } from './menu-target.js'
 
 type MenuEntries = ReturnType<typeof menuFlat>
@@ -450,7 +451,7 @@ export function ContextMenu(props: {
                         </Show>
                         <span class="menu-label">{entry.item.label}</span>
                         <Show when={entry.item.shortcut}>
-                          <span class="menu-shortcut" data-testid="menu-shortcut">{entry.item.shortcut}</span>
+                          <span class="menu-shortcut" data-testid="menu-shortcut"><ProductShortcut keys={entry.item.shortcut!} /></span>
                         </Show>
                         <Show when={entry.item.hint}>
                           <span class="menu-hint">{entry.item.hint}</span>

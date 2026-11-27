@@ -73,24 +73,25 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   })).toBe(true)
 })
 
-test('ASSET values preserve the placeholder before the label and ellipsize long names', async ({ page }) => {
+test('ASSET empty rows preserve the label before the placeholder and ellipsize long values', async ({ page }) => {
   const natural = await paintNode(page)
-  // A checkpoint asks for a model when the catalog declares its kind, else for a file.
-  const emptyText = /^Choose (model|file)$/
-  expect(natural.calls.some((call) => emptyText.test(call))).toBe(true)
+  expect(natural.calls).toContain('ckpt_name')
+  expect(natural.calls.some((call) => /^Cho[a-z ]*\.\.\.$/.test(call))).toBe(true)
   await test.info().attach('asset-placeholder-default-width', {
     body: await page.screenshot({ clip: natural.clip, animations: 'disabled' }),
     contentType: 'image/png',
   })
 
-  // Narrower than its label and value together, the row gives the empty
-  // text its whole width before any of the label. At 160 px the field
-  // between the opener's icon and chevron holds "Choose model" whole; at
-  // 140 px it cannot.
+  const wide = await paintNode(page, 320)
+  expect(wide.calls).toContain('ckpt_name')
+  expect(wide.calls).toContain('Choose model')
+
+  // The label keeps its room; fewer than three placeholder letters fit,
+  // so the empty text disappears instead of drawing a lone ellipsis.
   const narrow = await paintNode(page, 160)
   expect(narrow.nodeWidth).toBe(160)
-  expect(narrow.calls.some((call) => emptyText.test(call))).toBe(true)
-  expect(narrow.calls.some((call) => call.startsWith('Choose') && call.endsWith('...'))).toBe(false)
+  expect(narrow.calls).toContain('ckpt_name')
+  expect(narrow.calls.some((call) => call.startsWith('Cho') || call === '...')).toBe(false)
   await test.info().attach('asset-placeholder-narrow-width', {
     body: await page.screenshot({ clip: narrow.clip, animations: 'disabled' }),
     contentType: 'image/png',

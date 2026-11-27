@@ -18,6 +18,7 @@ import { constructsAround } from '../schema/derive-boundary.js'
 import { boundaryFieldState } from '../commands/boundary-commands.js'
 import { t } from '../i18n/index.js'
 import type { MenuContribution, MenuContext, MenuItem } from './contract.js'
+import { boundaryItems } from '../format/document.js'
 
 /** Menu-target port -> command PortRef params: the node and flattened port id. */
 const portParams = (p: { node: string; port: string }): { node: string; port: string } => ({
@@ -899,6 +900,25 @@ const groupDelete: MenuContribution = {
   },
 }
 
+const lineToggle: MenuContribution = {
+  id: 'core.line.toggle',
+  targets: ['widget', 'line'],
+  group: '30-layout',
+  resolve(ctx) {
+    const target = ctx.target
+    const line = target.kind === 'line' ? target : target.kind === 'widget' ? target.line : undefined
+    if (line === undefined || !('nodeId' in target)) return []
+    return [{
+      id: 'core.line.toggle',
+      label: line.folded ? 'Unfold line' : 'Fold line',
+      action: { kind: 'command', invocation: {
+        command: 'view.setLineFolded',
+        params: { graphId: ctx.graphId, nodeId: target.nodeId, lineKey: line.key, folded: !line.folded },
+      } },
+    }]
+  },
+}
+
 const sectionToggle: MenuContribution = {
   id: 'core.section.toggle',
   targets: ['section'],
@@ -979,7 +999,7 @@ const widgetSubgraphNode: MenuContribution = {
     if (def?.nodes[t.nodeId] === undefined) return []
     const target = portParams({ node: t.nodeId, port: t.address.port })
     // A row of a construct shown whole is that construct's.
-    const wholly = [...(def.boundary?.inputs ?? []), ...(def.boundary?.outputs ?? [])]
+    const wholly = [...(boundaryItems(def.boundary, 'inputs') ?? []), ...(boundaryItems(def.boundary, 'outputs') ?? [])]
       .flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])])
       .some((binding) => binding.kind === 'construct' && binding.node === target.node && target.port.startsWith(`${binding.port}.`))
     if (wholly) return []
@@ -1051,7 +1071,7 @@ const showConstructOnSubgraphNode: MenuContribution = {
     const schema = ctx.resolve?.(node.type)
     if (schema === undefined) return []
     const port = target.kind === 'widget' ? target.inputId : target.kind === 'pin' ? target.portId : target.construct
-    const shown = (['inputs', 'outputs'] as const).flatMap((side) => (def.boundary?.[side] ?? [])
+    const shown = (['inputs', 'outputs'] as const).flatMap((side) => boundaryItems(def.boundary, side)
       .flatMap((item) => [item.binds, ...(item.alsoBinds ?? [])].map((binding) => ({ item: item.id, side, binding }))))
       .filter(({ binding }) => (binding.kind === 'port' || binding.kind === 'construct') && binding.node === node.id)
       .map(({ item, side, binding }) => ({ item, side, port: (binding as { port: string }).port, whole: binding.kind === 'construct' }))
@@ -1123,6 +1143,7 @@ export function coreMenuContributions(): readonly MenuContribution[] {
     groupColor,
     groupDelete,
     sectionToggle,
+    lineToggle,
     widgetExpose,
     widgetSubgraphNode,
     nodePreviewExpose,

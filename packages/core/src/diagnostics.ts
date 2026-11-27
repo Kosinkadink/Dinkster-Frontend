@@ -91,6 +91,8 @@ export interface Diagnostic {
   readonly blocksExecution?: true
   /** Ephemeral presentation hints; never part of the workflow document. */
   readonly refs?: readonly DiagnosticRef[]
+  /** Label for a required field the node hides; not diagnostic detail data. */
+  readonly hiddenRequiredField?: string
   readonly anchor?: DiagnosticAnchor
   readonly runtime?: RuntimeErrorDetail
   /** Extra structured data for tooling; must be JSON-serializable. */
@@ -102,7 +104,7 @@ export const diag = (
   origin: DiagnosticOrigin,
   code: string,
   message: string,
-  rest?: Partial<Pick<Diagnostic, 'blocksExecution' | 'refs' | 'anchor' | 'runtime' | 'data'>>,
+  rest?: Partial<Pick<Diagnostic, 'blocksExecution' | 'refs' | 'hiddenRequiredField' | 'anchor' | 'runtime' | 'data'>>,
 ): Diagnostic => ({ severity, origin, code, message, ...rest })
 
 /** Error severity always blocks; selected non-errors opt in explicitly. */

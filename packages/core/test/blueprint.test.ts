@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { blueprintFromSubgraph, materializeBlueprint } from '../src/blueprint.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
+import { boundaryOf } from '../src/format/document.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 
@@ -36,7 +37,7 @@ function doc(graphs: Record<string, GraphDef>, root = 'g0'): WorkflowDocument {
 
 const node = (id: string, type = 'KSampler') => ({ id: asNodeId(id), type, values: {} })
 
-const boundary = { inputs: [], outputs: [] }
+const boundary = boundaryOf([], [])
 
 /** A blueprint body: root gA (boundary) instantiates nested gB (boundary). */
 function blueprintDoc(): WorkflowDocument {
@@ -208,10 +209,9 @@ describe('subgraph.import', () => {
 })
 
 describe('blueprintFromSubgraph', () => {
-  const promoted = {
-    inputs: [{ id: 'steps', binds: { kind: 'port' as const, node: asNodeId('k'), port: 'steps' as never }, promoted: true }],
-    outputs: [],
-  }
+  const promoted = boundaryOf([
+    { id: 'steps', binds: { kind: 'port', node: asNodeId('k'), port: 'steps' as never }, promoted: true },
+  ], [])
   const source = (): WorkflowDocument => ({
     ...doc({
       g0: graph({ id: 'g0', nodes: { n5: { id: asNodeId('n5'), type: '#gA', values: { steps: 30 } } } }),

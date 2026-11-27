@@ -6,6 +6,7 @@
  */
 
 import { desktopSaveBridge } from './desktop-bridge.js'
+import { createAppPageTabs } from './app-page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
 import {
   CORE_VIRTUAL_NODE_KINDS,
@@ -26,15 +27,20 @@ import {
   coreCommandRegistry,
   initializeBoundaryViews,
   type BoundaryPositionResolver,
+  type NodeHeightResolver,
+  type GroupGeometryResolver,
   coreMenuContributions,
   createMenuRegistry,
   createReplacementRegistry,
   createSearchRegistry,
   createSignal,
   effectiveOccurrenceTopology,
+  resolveOccurrenceLinkEndpoint,
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
   elaborateInterface,
+  elabInputsOf,
+  elabOutputsOf,
   buildGraphConnectivity,
   documentNodeResolver,
   detectFormat,
@@ -43,6 +49,11 @@ import {
   connectSharedSession,
   type HistorySnapshot,
   type HistorySnapshotRecord,
+  type LinkEndpoint,
+  type PatchOp,
+  replayHistoryOps,
+  jsonSameValue,
+  invertOps,
   type DocumentSession,
   type SharedDocumentSession,
   type CollabSessionDescriptor,
@@ -187,7 +198,7 @@ import {
   webcamKind,
   type TextWidgetEditorExtension,
 } from '@dinkster/widgets'
-import { BYPASSED_BADGE, boundaryPositions, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Model3dCameraState, type Model3dTransform, type Viewport } from '@dinkster/canvas'
+import { BYPASSED_BADGE, boundaryPositions, buildScene, groupItemGeometry, canvasGridLayer, defaultTokens, MAX_SCALE, MIN_SCALE, MUTED_BADGE, type Model3dCameraState, type Model3dTransform, type Viewport } from '@dinkster/canvas'
 import { canvasMeasures } from './canvas-measures.js'
 import { batch, createComponent } from 'solid-js'
 import { layoutGroups, moveTabToGroup, repairEditorLayout } from './editor-layout.js'
@@ -224,7 +235,7 @@ import {
 import { createCoreLensRegistry } from './lenses.js'
 import { APP_EDITOR_KIND, EditorBindingRegistry, EditorRegistry, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorBindingContext, type EditorKindDescriptor } from './editors.js'
 import { validFile3dAsset } from './file3d-preview.js'
-import { isAssetRef, savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, type AssetLocationHint } from './workflow-asset-locations.js'
+import { isAssetRef, savedAssetLocation, stampAssetLocations, workflowAssetOccurrences, workflowModelOccurrences, type AssetLocationHint, type WorkflowModelOccurrence } from './workflow-asset-locations.js'
 import { DockLayout } from './dock-layout.js'
 import { EditorSplitStore } from './editor-split-store.js'
 import { setPanelOpen } from './panel-location.js'
@@ -267,6 +278,7 @@ import type {
   WorkspaceTabRecord,
   WorkspaceTabSnapshot,
 } from './workspace-worker-authority.js'
+import { boundaryItems, boundaryOf } from '@dinkster/core'
 
 export type RegionKind = 'map' | 'fold' | 'while'
 
@@ -287,6 +299,7 @@ type WorkspaceExecutionMessage =
       readonly timestamp?: number
       readonly jobRef?: string
       readonly sourceDocument?: string
+      readonly workflowName?: string
     }
 
 interface WorkspaceRegistration {
@@ -300,6 +313,7 @@ interface WorkspaceRegistration {
   readonly timestamp?: number
   readonly jobRef?: string
   readonly sourceDocument?: string
+  readonly workflowName?: string
 }
 
 const workspaceRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {
@@ -404,10 +418,12 @@ const decodeWorkspaceRegistration = (
   const timestamp = value['timestamp']
   const jobRef = value['jobRef']
   const sourceDocument = value['sourceDocument']
+  const workflowName = value['workflowName']
   if (ref === undefined || rawArtifact === undefined ||
     (timestamp !== undefined && !workspaceNumber(timestamp)) ||
     (jobRef !== undefined && !workspaceString(jobRef)) ||
     (sourceDocument !== undefined && !workspaceString(sourceDocument)) ||
+    (workflowName !== undefined && !workspaceString(workflowName)) ||
     !workspaceInteger(rawArtifact['revision']) ||
     !workspaceString(rawArtifact['connection']) || rawArtifact['connection'] !== ref.connection ||
     !workspaceString(rawArtifact['schemaHash']) || !workspaceString(rawArtifact['semanticHash']) ||
@@ -430,6 +446,7 @@ const decodeWorkspaceRegistration = (
     ...(timestamp === undefined ? {} : { timestamp }),
     ...(jobRef === undefined ? {} : { jobRef }),
     ...(sourceDocument === undefined ? {} : { sourceDocument }),
+    ...(workflowName === undefined ? {} : { workflowName }),
   }
 }
 
@@ -746,10 +763,10 @@ const REGION_DEFINITIONS: Readonly<Record<RegionKind, FreshDefinitionInitializer
   map: {
     nodes: { n0: { id: 'n0' as never, type: 'dinkster.utilities.primitive_float', values: {} } },
     links: {}, nets: {}, reroutes: {},
-    boundary: {
-      inputs: [{ id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
-      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'FLOAT' as never } }],
-    },
+    boundary: boundaryOf(
+      [{ id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
+      [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'FLOAT' as never } }],
+    ),
     nextOrdinal: 1,
   },
   fold: {
@@ -763,13 +780,13 @@ const REGION_DEFINITIONS: Readonly<Record<RegionKind, FreshDefinitionInitializer
       l3: { id: 'l3' as never, from: { node: 'n1' as never, port: 'INT' as never }, to: { node: 'n0' as never, port: 'values.a' as never } },
       l4: { id: 'l4' as never, from: { node: 'n2' as never, port: 'INT' as never }, to: { node: 'n0' as never, port: 'values.b' as never } },
     }, nets: {}, reroutes: {},
-    boundary: {
-      inputs: [
+    boundary: boundaryOf(
+      [
         { id: 'item' as never, displayName: 'Item', binds: { kind: 'port', node: 'n1' as never, port: 'value' as never } },
         { id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n2' as never, port: 'value' as never } },
       ],
-      outputs: [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'INT' as never } }],
-    },
+      [{ id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'INT' as never } }],
+    ),
     nextOrdinal: 5,
   },
   while: {
@@ -778,13 +795,13 @@ const REGION_DEFINITIONS: Readonly<Record<RegionKind, FreshDefinitionInitializer
       n1: { id: 'n1' as never, type: 'dinkster.utilities.primitive_boolean', values: { value: false } },
     },
     links: {}, nets: {}, reroutes: {},
-    boundary: {
-      inputs: [{ id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
-      outputs: [
+    boundary: boundaryOf(
+      [{ id: 'state' as never, displayName: 'State', binds: { kind: 'port', node: 'n0' as never, port: 'value' as never } }],
+      [
         { id: 'result' as never, displayName: 'Result', binds: { kind: 'port', node: 'n0' as never, port: 'FLOAT' as never } },
         { id: 'continue' as never, displayName: 'Continue', binds: { kind: 'port', node: 'n1' as never, port: 'BOOLEAN' as never } },
       ],
-    },
+    ),
     nextOrdinal: 2,
   },
 }
@@ -1223,6 +1240,8 @@ export interface WidgetFocus {
 export interface DiagnosticFocusRequest {
   readonly tab: Tab
   readonly anchor: DiagnosticAnchor
+  /** Mark this field without opening its editor. */
+  readonly focusRow?: string
   readonly openAssetInput?: string
   readonly missingAssetDigest?: string
   /** The problem Show on canvas picked; the node's box opens on its line. */
@@ -1371,10 +1390,138 @@ export type ProblemOwner = string | symbol
 /** A Problems entry: the diagnostic plus the owner it belongs to. */
 export type OwnedDiagnostic = Diagnostic & { readonly owner: ProblemOwner }
 
-export interface MigrationNotice {
+/** A change the editor made by itself, reported in its tab's notice. */
+export interface Adjustment {
+  /** `replaced`: a node replaced by a newer one; `removedChoice`: a choice its pack removed, replaced. */
+  readonly kind: 'replaced' | 'removedChoice'
+  readonly graphId: string
+  readonly nodeId: string
+  /** Where choosing the change in Review takes the canvas. */
+  readonly anchor?: DiagnosticAnchor
+  /** The single changed field, when the entry identifies one. */
+  readonly rowValueKey?: string
+  /** The node's name when the change was made. */
+  readonly node: string
+  /** What changed, worded by whoever made the change. */
+  readonly details: readonly string[]
+  /** Changed rows, outputs or replaced nodes this change counts as. */
+  readonly count: number
+}
+
+/** Each workflow tab's report of the editor's own changes, kept until it is saved or closed. */
+export interface AdjustmentNotice {
   readonly owner: string
-  readonly entries: readonly OwnedDiagnostic[]
-  readonly undoRecord: HistorySnapshotRecord
+  readonly adjustments: readonly Adjustment[]
+  /** The recorded patches of every batch that made them, oldest first. */
+  readonly records: readonly (HistorySnapshotRecord & { readonly before: WorkflowDocument })[]
+  /** The kind of adjustment each record made, in the order of `records`. */
+  readonly recordKinds: readonly Adjustment['kind'][]
+  /** Dismissed by its cross: only the status bar count remains. */
+  readonly dismissed: boolean
+  /** Brought back by the status bar count, which opens it with Review. */
+  readonly reopened?: boolean
+  /** The tab's revision at which Undo or Redo was refused, until the document changes. */
+  readonly refusedAt?: number
+  /** The last Undo: what Redo puts back, and how many adjustments the user had changed since and Undo kept. */
+  readonly undone?: { readonly redo: readonly PatchOp[]; readonly kept: number }
+}
+
+/** `ready`: Undo takes everything back; `undone`: Redo puts it back; `refused`: something changed since. */
+export type AdjustmentNoticeState = 'ready' | 'undone' | 'refused'
+
+/** Each graph's instance path through its first reachable occurrence. */
+const firstOccurrencePaths = (document: WorkflowDocument): Map<string, readonly NodeId[]> => {
+  const paths = new Map<string, readonly NodeId[]>([[document.root, []]])
+  for (const [graphId, path] of paths) for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
+    const child = subgraphDefIdOf(node.type)
+    if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
+  }
+  return paths
+}
+
+const holdsRecorded = (document: WorkflowDocument, ops: readonly PatchOp[]): boolean => {
+  try {
+    return replayHistoryOps(document, ops, { requireRecordedValues: true }).stale === undefined
+  } catch {
+    return false
+  }
+}
+
+const pathsOverlap = (a: readonly (string | number)[], b: readonly (string | number)[]): boolean =>
+  a.slice(0, Math.min(a.length, b.length)).every((segment, index) => segment === b[index])
+
+/** The nodes a recorded op belongs to: the node itself, its view entry, or both ends of a link. */
+const opNodeKeys = (op: PatchOp): readonly string[] => {
+  const path = op.path
+  if (path[0] === 'graphs' && path[2] === 'nodes' && path.length >= 4) return [`${path[1]}/${path[3]}`]
+  if (path[0] === 'view' && path[1] === 'graphs' && path[3] === 'nodes' && path.length >= 5) return [`${path[2]}/${path[4]}`]
+  if (path[0] !== 'graphs' || path[2] !== 'links' || path.length < 4) return []
+  const ends = new Set<string>()
+  const collect = (value: Json | undefined): void => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return
+    const object = value as JsonObject
+    if (typeof object['node'] === 'string') ends.add(`${path[1]}/${object['node']}`)
+    collect(object['from'])
+    collect(object['to'])
+  }
+  if (op.op !== 'remove') collect(op.value)
+  if (op.op !== 'add') collect(op.oldValue)
+  return [...ends]
+}
+
+/** A replace of a node's whole `dynamic` split into one op per construct, so each removed choice can be put back alone. */
+const splitDynamicOps = (ops: readonly PatchOp[]): readonly PatchOp[] => ops.flatMap((op): readonly PatchOp[] => {
+  const path = op.path
+  if (op.op !== 'replace' || path.length !== 5 || path[0] !== 'graphs' || path[2] !== 'nodes' || path[4] !== 'dynamic') return [op]
+  const isObject = (value: Json): value is JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value)
+  const before = op.oldValue
+  const after = op.value
+  if (!isObject(before) || !isObject(after)) return [op]
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].flatMap((key): readonly PatchOp[] => {
+    const old = before[key]
+    const value = after[key]
+    const at = [...path, key]
+    if (jsonSameValue(old, value)) return []
+    if (old === undefined) return [{ op: 'add', path: at, value: value! }]
+    if (value === undefined) return [{ op: 'remove', path: at, oldValue: old }]
+    return [{ op: 'replace', path: at, value, oldValue: old }]
+  })
+})
+
+/** One removed choice replaced is put back on its own; anything else goes with its nodes. */
+const adjustmentKeys = (op: PatchOp, kind: Adjustment['kind']): readonly string[] => {
+  const path = op.path
+  if (kind === 'removedChoice' && path[0] === 'graphs' && path[2] === 'nodes' && path[4] === 'dynamic' && path.length >= 6)
+    return [`${path[1]}/${path[3]}#${path[5]}`]
+  return opNodeKeys(op)
+}
+
+/** Connected addresses, keeping input ports, output ports and widget taps distinct. */
+const graphAttachments = (graph: GraphDef): ReadonlyMap<string, readonly [NodeId, string, 'input' | 'output' | 'tap' | 'construct']> => {
+  const ends = new Map<string, readonly [NodeId, string, 'input' | 'output' | 'tap' | 'construct']>()
+  const add = (node: NodeId, port: string, kind: 'input' | 'output' | 'tap' | 'construct'): void => {
+    const end = [node, port, kind] as const
+    ends.set(JSON.stringify(end), end)
+  }
+  const endpoint = (end: LinkEndpoint, side: 'input' | 'output'): void => {
+    if ('node' in end) add(end.node, 'tap' in end ? end.tap : end.port, 'tap' in end ? 'tap' : side)
+  }
+  for (const link of Object.values(graph.links)) {
+    endpoint(link.from, 'output')
+    endpoint(link.to, 'input')
+  }
+  for (const net of Object.values(graph.nets)) {
+    endpoint(net.source, 'output')
+    for (const sink of net.sinks) endpoint(sink, 'input')
+  }
+  for (const side of ['inputs', 'outputs'] as const) for (const item of boundaryItems(graph.boundary, side)) {
+    for (const binding of [item.binds, ...item.alsoBinds ?? []]) {
+      if (binding.kind === 'widgetTap') add(binding.node, binding.tap, 'tap')
+      else if (binding.kind === 'construct') add(binding.node, binding.port, 'construct')
+      else if (binding.kind === 'port') add(binding.node, binding.port, side === 'inputs' ? 'input' : 'output')
+    }
+  }
+  return ends
 }
 
 const sameProblemIdentity = (a: OwnedDiagnostic, b: OwnedDiagnostic): boolean =>
@@ -2506,6 +2653,7 @@ export class AppState {
   /** Incremented to open the top bar's layout menu from a command. */
   readonly layoutMenuRequests = createSignal(0)
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
+  readonly searchCatalogRequests = createSignal(0)
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
   readonly successNotification = createSignal<{ readonly message: string } | undefined>(undefined)
@@ -2844,8 +2992,9 @@ export class AppState {
    */
   readonly widgetFocus: Signal<WidgetFocus | undefined> = createSignal<WidgetFocus | undefined>(undefined)
   /**
-   * The boundary input the Boundary panel shows selected, set by a click on
-   * a field's subgraph mark. Session state, never serialized.
+   * The boundary row selected in the Boundary panel: one item of the
+   * definition `graphId` in tab `tabId`. Session state; the panel shows it
+   * only while the same tab and definition are in view.
    */
   readonly boundaryFocus: Signal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined> =
     createSignal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined>(undefined)
@@ -2854,6 +3003,7 @@ export class AppState {
   readonly registry: Signal<SchemaRegistry | undefined>
   readonly tabs: Signal<readonly Tab[]> = createSignal<readonly Tab[]>([])
   readonly activeTabId: Signal<string> = createSignal('')
+  readonly pages: ReturnType<typeof createAppPageTabs>
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
   /**
@@ -2864,12 +3014,14 @@ export class AppState {
   readonly dirtyTabs: Signal<ReadonlySet<string>> = createSignal<ReadonlySet<string>>(new Set())
   readonly clearedTabResults = createSignal<ReadonlyMap<string, string>>(new Map())
   readonly problems: Signal<readonly OwnedDiagnostic[]> = createSignal<readonly OwnedDiagnostic[]>([])
-  /** Session-only open-time migration summaries; never stored in documents. */
-  readonly migrationNotices = createSignal<ReadonlyMap<string, MigrationNotice>>(new Map())
+  /** Session-only reports of the editor's own changes, per tab; never stored in documents. */
+  readonly adjustmentNotices = createSignal<ReadonlyMap<string, AdjustmentNotice>>(new Map())
   readonly queueRefusal = createSignal<Tab | undefined>(undefined)
   readonly frozenEditRefusal = createSignal<{ readonly tabId: string } | undefined>(undefined)
   readonly cancellingExecutions = createSignal<ReadonlySet<string>>(new Set())
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
+  readonly storageOpenRequest = createSignal<{ readonly id: string; readonly hiddenModels: boolean } | undefined>(undefined)
+  private modelReview: AbortController | undefined
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
   /**
    * Live solver diagnostics for the graph currently on the canvas (type
@@ -3059,6 +3211,16 @@ export class AppState {
     ;(this.workspaceEvents as WorkspaceEventChannel & { unref?: () => void } | undefined)?.unref?.()
     this.workspaceEvents?.addEventListener('message', this.receiveWorkspaceEvent)
     this.settings.register({ id: 'canvas.grid.visible', get name() { return t('settings.canvas.grid.visible') }, type: 'boolean', defaultValue: true })
+    this.settings.register({
+      id: 'canvas.detailMinPercent',
+      get name() { return t('settings.canvas.detailMinPercent.name') },
+      get description() { return t('settings.canvas.detailMinPercent.description') },
+      type: 'number',
+      defaultValue: defaultTokens.detailMinScale * 100,
+      min: 10,
+      max: 75,
+      step: 1,
+    })
     registerLocaleSetting(this.settings)
     registerThemeSetting(this.settings)
     this.settings.register({
@@ -3163,6 +3325,7 @@ export class AppState {
       this.panels.all().map(({ id, placement, allowedPlacements, order }) =>
         ({ id, placement, allowedPlacements, order })))
     this.editorSplits = new EditorSplitStore(this.settings)
+    this.pages = createAppPageTabs(this)
     // Stale-modal guard (see modalPanel above): registry churn that removes
     // the open modal's panel - or moves it off 'modal' - closes the modal
     // state itself, so a later re-register can never resurrect the dialog.
@@ -3570,6 +3733,7 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.pages.dispose()
     for (const request of this.pendingComparisonCompiles.values()) {
       if (request.frame !== undefined) cancelAnimationFrame(request.frame)
       if (request.timer !== undefined) clearTimeout(request.timer)
@@ -3595,6 +3759,9 @@ export class AppState {
     this.persistWatchers.clear()
     for (const check of this.workflowAssetChecks.values()) check.controller.abort()
     this.workflowAssetChecks.clear()
+    for (const check of this.workflowModelChecks.values()) check.controller.abort()
+    this.workflowModelChecks.clear()
+    this.modelReview?.abort()
     this.workspaceEvents?.removeEventListener?.('message', this.receiveWorkspaceEvent)
     this.workspaceEvents?.close?.()
     globalThis.removeEventListener?.('storage', this.receiveStorage)
@@ -3867,8 +4034,8 @@ export class AppState {
       const nextTabs = [...nextLive, ...frozen]
       this.tabs.set(nextTabs)
       const localFrozenActive = frozen.some((tab) => tab.id === this.activeTabId.get())
-      if (opening && this.activeTabId.get() === active && !localFrozenActive && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
-      else if (!nextTabs.some((tab) => tab.id === this.activeTabId.get())) this.activeTabId.set(nextLive[0]?.id ?? '')
+      if (opening && this.activeTabId.get() === active && !localFrozenActive && !this.pages.tabs().some((tab) => tab.editorKind === 'page' && tab.id === active) && nextLive.some((tab) => tab.id === snapshot.active)) this.activeTabId.set(snapshot.active)
+      else if (!this.pages.tabs().some((tab) => tab.id === this.activeTabId.get())) this.activeTabId.set(nextLive[0]?.id ?? '')
       publicationChangedTabs = this.tabs.get() !== nextTabs
     } finally {
       this.applyingWorkspaceTabs = false
@@ -4008,7 +4175,7 @@ export class AppState {
         {
           actorId: this.workspaceActorId,
           schemaResolverFor: (document) => documentResolver(document, resolve),
-          boundaryPositionsFor: this.boundaryPositionResolver(resolve),
+          ...this.geometryResolvers(resolve),
           onConflict: (conflict) => this.reportProblems(tab.id, conflict.diagnostics),
           onError: (message) => this.reportProblems(tab.id, [
             diag('error', 'command', 'workspace.authority.failed', message),
@@ -4130,8 +4297,113 @@ export class AppState {
   private readonly workflowAssetLocations = new WeakMap<DocumentSession, Map<string, AssetLocationHint>>()
   private workflowOpenIntent = 0
 
+  private readonly workflowModelChecks = new Map<DocumentSession, {
+    readonly backend: Backend
+    readonly registry: SchemaRegistry | undefined
+    readonly document: WorkflowDocument
+    readonly signature: string
+    readonly status: ConnectionStatus
+    readonly controller: AbortController
+  }>()
+
+  private refreshWorkflowModels(tab: Tab): void {
+    const backend = this.backendForTab(tab)
+    const registry = this.registryForTab(tab)
+    const document = tab.store.doc
+    const occurrences = registry === undefined || backend.protocol !== 'dinkster' ? [] : workflowModelOccurrences(document, registry.resolve, lookupAnswersOf(backend.lookups))
+    const signature = JSON.stringify(occurrences)
+    const status = backend.connection.status.get()
+    const previous = this.workflowModelChecks.get(tab.store)
+    if (previous?.backend === backend && previous.registry === registry && previous.document === document &&
+        previous.signature === signature && previous.status === status) return
+    previous?.controller.abort()
+    const check = { backend, registry, document, signature, status, controller: new AbortController() }
+    this.workflowModelChecks.set(tab.store, check)
+    const isCurrent = (): boolean => !this.disposed && !check.controller.signal.aborted &&
+      this.workflowModelChecks.get(tab.store) === check && this.tabs.get().includes(tab) &&
+      tab.store.doc === document && this.backendForTab(tab) === backend && this.registryForTab(tab) === registry
+    const publish = (diagnostics: readonly Diagnostic[]): void => {
+      if (!isCurrent()) return
+      this.problems.update((problems) => [
+        ...problems.filter((problem) => problem.owner !== tab.id || !problem.code.startsWith('model.availability.')),
+        ...diagnostics.map((diagnostic) => ({ ...diagnostic, owner: tab.id })),
+      ])
+    }
+    const problem = (occurrence: WorkflowModelOccurrence, state: string, params: Record<string, string> = {}, plannable = false): Diagnostic =>
+      diag('error', 'validation', `model.availability.${state}`, t(`modelPresence.${state}`, { name: occurrence.name, backend: backend.label, ...params }), {
+        refs: [{ graphId: occurrence.graph, nodeId: occurrence.node, valueKey: occurrence.input, direction: 'input' }],
+        ...(occurrence.instancePath === undefined ? {} : { anchor: {
+          occurrence: { instancePath: occurrence.instancePath.map(asNodeId), node: asNodeId(occurrence.node) },
+        } }),
+        data: { name: occurrence.name, kind: occurrence.kind, graph: occurrence.graph, node: occurrence.node,
+          input: occurrence.input, backend: backend.id, plannable },
+      })
+    const invalid = occurrences.filter((occurrence) => !occurrence.valid).map((occurrence) => problem(occurrence, 'invalid'))
+    const wanted = occurrences.filter((occurrence) => occurrence.valid)
+    // Keep an open problem box stable during a fresh read, but never retain another binding's result.
+    publish([...invalid, ...this.problems.get().filter((entry) => entry.owner === tab.id &&
+      entry.code.startsWith('model.availability.') && entry.code !== 'model.availability.invalid' &&
+      entry.data?.['backend'] === backend.id && wanted.some((item) =>
+        item.graph === entry.data?.['graph'] && item.node === entry.data['node'] && item.input === entry.data['input'] &&
+        item.name === entry.data['name'] && item.kind === entry.data['kind'] &&
+        JSON.stringify(item.instancePath) === JSON.stringify(entry.anchor?.occurrence?.instancePath)))])
+    if (backend.protocol !== 'dinkster' || wanted.length === 0) return
+    const unchecked = (): void => publish([...invalid, diag('warning', 'validation', 'model.availability.unchecked',
+      t('modelPresence.unchecked', { backend: backend.label }))])
+    if (status !== 'connected') return unchecked()
+    const signal = AbortSignal.any([check.controller.signal, AbortSignal.timeout(5000)])
+    void backend.connection.checkModelPresence(wanted.map(({ name, kind }) => ({ name, kind })), signal).then((rows) => {
+      if (!isCurrent()) return
+      if (signal.aborted) return unchecked()
+      publish([...invalid, ...rows.flatMap((row, index) => {
+        if (row.status === 'local') return []
+        const locations = row.status === 'folder-disabled' ? row.disabledLocations : []
+        const folder = locations[0] ?? ''
+        return [problem(wanted[index]!, row.status, { folder: locations.length > 1
+          ? t('modelPresence.moreFolders', { folder, count: locations.length - 1 }) : folder },
+          row.status === 'missing' && row.plannable)]
+      })])
+    }).catch(unchecked)
+  }
+
+  /** Open a row's model review only while that row still belongs to this document and backend. */
+  reviewModelDownload(tab: Tab, diagnostic: Diagnostic): void {
+    const check = this.workflowModelChecks.get(tab.store)
+    const backend = this.backendForTab(tab)
+    const current = (): boolean => !this.disposed && this.tabs.get().includes(tab) &&
+      check?.document === tab.store.doc && check.backend === this.backendForTab(tab) && check.registry === this.registryForTab(tab)
+    const data = diagnostic.data
+    if (!current() || backend.protocol !== 'dinkster' || diagnostic.code !== 'model.availability.missing' ||
+        data?.['plannable'] !== true || typeof data['name'] !== 'string' || typeof data['kind'] !== 'string' ||
+        !this.problems.get().some((entry) => entry === diagnostic && entry.owner === tab.id)) return
+    this.modelReview?.abort()
+    const controller = new AbortController()
+    this.modelReview = controller
+    const project = activeProjectId()
+    const invalidate = (): void => { if (!current() || activeProjectId() !== project) controller.abort() }
+    const unsubscribe = [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate), this.backendsTick.subscribe(invalidate)]
+    installAssetConsent({
+      models: [{ name: data['name'], kind: data['kind'] }], slot: this.assetConsent, signal: controller.signal,
+      modelDownloads: { connection: backend.connection, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+      enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+      onSettled: () => {
+        unsubscribe.forEach((dispose) => dispose())
+        if (this.modelReview === controller) this.modelReview = undefined
+      },
+    })
+  }
+
+  openModelStorage(tab: Tab, diagnostic: Diagnostic): void {
+    if (!this.tabs.get().includes(tab) || !this.problems.get().some((entry) => entry === diagnostic && entry.owner === tab.id) ||
+        (diagnostic.code !== 'model.availability.model-hidden' && diagnostic.code !== 'model.availability.folder-disabled')) return
+    const backend = this.backendForTab(tab)
+    if (diagnostic.data?.['backend'] !== backend.id) return
+    this.storageOpenRequest.set({ id: backend.id, hiddenModels: diagnostic.code === 'model.availability.model-hidden' })
+  }
+
   private refreshWorkflowAssets(tab: Tab): void {
     if (this.disposed || tab.execution) return
+    this.refreshWorkflowModels(tab)
     const backend = this.backendForTab(tab)
     const occurrences = workflowAssetOccurrences(tab.store.doc)
     const signature = JSON.stringify(occurrences)
@@ -4202,6 +4474,8 @@ export class AppState {
       watcher.unsubscribe()
       this.workflowAssetChecks.get(watcher.tab.store)?.controller.abort()
       this.workflowAssetChecks.delete(watcher.tab.store)
+      this.workflowModelChecks.get(watcher.tab.store)?.controller.abort()
+      this.workflowModelChecks.delete(watcher.tab.store)
       this.persistWatchers.delete(id)
     }
     for (const [id, tab] of live) {
@@ -4264,7 +4538,8 @@ export class AppState {
     }
     const state: PersistedTabs = {
       v: 1,
-      active: this.workspaceAuthorityEnabled ? this.workspaceActiveBaseline : this.activeTabId.get(),
+      active: this.workspaceAuthorityEnabled ? this.workspaceActiveBaseline
+        : this.tabs.get().some((tab) => tab.id === this.activeTabId.get()) ? this.activeTabId.get() : this.tabs.get()[0]?.id ?? '',
       workspaceRevision: this.workspacePersistedRevision,
       workspaceOperationWatermarks: this.workspaceOperationWatermarks,
       tabs: this.tabs.get()
@@ -4446,6 +4721,9 @@ export class AppState {
       queueMicrotask(() => {
         lookupBump = false
         lookupGeneration.update((value) => value + 1)
+        for (const tab of this.tabs.get()) {
+          if (this.backendForTab(tab).id === id) this.refreshWorkflowAssets(tab)
+        }
       })
     })
     const schemaProblemsOwner = Symbol(`schema-problems:${id}`)
@@ -4572,6 +4850,11 @@ export class AppState {
           this.replaceProblems(schemaProblemsOwner, (registry.get()?.diagnostics ?? []).map((problem) => ({
             ...problem, message: `[${label}] ${problem.message}`,
           })))
+          for (const tab of this.tabs.get()) {
+            if (tab.execution || this.backendForTab(tab).id !== id || this.schemaDiagnosticsPending.has(tab.id)) continue
+            this.reportEnvironmentDrift(tab)
+            this.reportUnresolvedTypes(tab)
+          }
           this.backendsTick.update((v) => v + 1)
           this.flushWorkspaceRegistrations(id)
           // Schema refresh can invalidate an in-flight reconnect read. The
@@ -4811,12 +5094,22 @@ export class AppState {
       const disposeMountHealth = connection.mountError.subscribe(() => this.backendsTick.update((v) => v + 1))
       const disposeLookupChanges = connection.onLookupsChanged((functions) => lookups.invalidate(functions))
       // A mount's scan commits as a mount ping; a local file a lookup waited on may be checked now.
-      const disposeLookupFiles = connection.onMountsChanged(() => lookups.filesChanged())
+      const disposeLookupFiles = connection.onMountsChanged(() => {
+        lookups.filesChanged()
+        for (const tab of this.tabs.get()) {
+          if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
+          this.workflowModelChecks.get(tab.store)?.controller.abort()
+          this.workflowModelChecks.delete(tab.store)
+        }
+        this.backendsTick.update((value) => value + 1)
+      })
       const disposeLibraryChanges = connection.onLibraryChanged(() => {
         for (const tab of this.tabs.get()) {
           if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
           this.workflowAssetChecks.get(tab.store)?.controller.abort()
           this.workflowAssetChecks.delete(tab.store)
+          this.workflowModelChecks.get(tab.store)?.controller.abort()
+          this.workflowModelChecks.delete(tab.store)
         }
         this.backendsTick.update((v) => v + 1)
       })
@@ -5145,7 +5438,10 @@ export class AppState {
   /** Why what the engine answers is off for this tab: no engine is open, or its real node table has not arrived. */
   engineOffReason(tab: Tab, message: (key: string) => string): string | undefined {
     const backend = this.backendForTab(tab)
-    if (noEngineOpen(backend.supervisor.get())) return message('shell.engine.notRunning')
+    const supervisor = backend.supervisor.get()
+    if (supervisor?.state === 'failed') return message('shell.engine.failed')
+    if (noEngineOpen(supervisor) || supervisor?.state === 'stopped') return message('shell.engine.notRunning')
+    if (supervisor?.state === 'starting') return message('shell.engine.stillStarting')
     if (tab.execution || this.registryForTab(tab) !== undefined) return undefined
     return message(backend.schemaState.get().status === 'error' ? 'shell.engine.notAnswering' : 'shell.engine.stillStarting')
   }
@@ -5199,47 +5495,254 @@ export class AppState {
     return invocation !== undefined && (await this.dispatchTo(tab, invocation)).ok
   }
 
-  canUndoMigrationNotice(tabId: string): boolean {
-    const notice = this.migrationNotices.get().get(tabId)
-    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
-    if (notice === undefined || tab === undefined || !tab.store.canUndo) return false
-    return canonicalJson(tab.store.historySnapshot().undo.at(-1)) === canonicalJson(notice.undoRecord)
+  /**
+   * Adds the changes the editor made by itself in one stored batch to the
+   * tab's notice; an open Review keeps its place and selection. `record` is
+   * the batch's own patches, which the notice's Undo and Redo replay.
+   */
+  reportAdjustments(tab: Tab, record: HistorySnapshotRecord, adjustments: readonly Adjustment[]): void {
+    if (adjustments.length === 0 || !this.tabs.get().includes(tab)) return
+    const before = replayHistoryOps(tab.store.doc, record.inverse).doc
+    this.adjustmentNotices.update((current) => {
+      const notice = current.get(tab.id)
+      return new Map(current).set(tab.id, {
+        owner: tab.id,
+        adjustments: [...notice?.adjustments ?? [], ...adjustments],
+        records: [...notice?.records ?? [], { ...record, before }],
+        recordKinds: [...notice?.recordKinds ?? [], adjustments[0]!.kind],
+        dismissed: notice?.dismissed ?? false,
+      })
+    })
   }
 
-  undoMigrationNotice(tabId: string): boolean {
-    if (!this.canUndoMigrationNotice(tabId)) return false
-    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)!
-    if (!tab.store.undo()) return false
-    reconcileGraphNavigation(tab)
-    this.dismissMigrationNotice(tabId)
+  /** Whether the document still holds the notice's changes, holds what they replaced, or neither. */
+  adjustmentNoticeState(tabId: string): AdjustmentNoticeState | undefined {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (notice === undefined || tab === undefined) return undefined
+    if (notice.refusedAt === tab.store.revision) return 'refused'
+    if (holdsRecorded(tab.store.doc, this.adjustmentRedoOps(notice))) return 'undone'
+    return this.adjustmentUndoPlan(tab, notice) === undefined ? 'refused' : 'ready'
+  }
+
+  private adjustmentRedoOps(notice: AdjustmentNotice): readonly PatchOp[] {
+    return notice.undone?.redo ?? notice.records.flatMap((record) => record.forward)
+  }
+
+  /**
+   * What the notice's Undo puts back. An adjustment the user changed since,
+   * in an edit still on their undo history, is left as it is and counted as
+   * kept: a replaced node with its values and wires, or one removed choice.
+   * Any other changed value, such as one another person changed in a shared
+   * session, refuses the whole Undo (undefined).
+   */
+  private adjustmentUndoPlan(tab: Tab, notice: AdjustmentNotice): { readonly ops: readonly PatchOp[]; readonly kept: number } | undefined {
+    // Each op with the adjustments it belongs to: a replaced node with its values and wires, or one removed choice.
+    const split = (ops: readonly PatchOp[], index: number) => notice.recordKinds[index] === 'removedChoice' ? splitDynamicOps(ops) : ops
+    const inverse = notice.records.map((record, index) => split(record.inverse, index).map((op) => ({ op, keys: adjustmentKeys(op, notice.recordKinds[index]!) })))
+      .reverse().flat()
+    const recorded = notice.records.flatMap((record, index) =>
+      [...record.forward, ...record.inverse, ...split(record.forward, index), ...split(record.inverse, index)])
+    // The user's own edits: their undo history without the notice's batches or its own Undo and Redo.
+    const own = tab.store.historySnapshot().undo.flatMap((record) => record.forward)
+      .filter((op) => !recorded.some((candidate) => jsonSameValue(op as unknown as Json, candidate as unknown as Json)))
+    const kept = new Set<string>()
+    for (;;) {
+      const ops = inverse.filter((entry) => !entry.keys.some((key) => kept.has(key))).map((entry) => entry.op)
+      let stale: PatchOp | undefined
+      try {
+        const replay = replayHistoryOps(tab.store.doc, ops, { requireRecordedValues: true })
+        stale = replay.stale
+        if (stale === undefined && !this.adjustmentWiresSurvive(tab, notice, replay.doc)) return undefined
+      } catch {
+        return undefined
+      }
+      if (stale === undefined) return ops.length === 0 && kept.size === 0 ? undefined : { ops, kept: [...kept].filter((key) => notice.adjustments.some((adjustment) =>
+        key === `${adjustment.graphId}/${adjustment.nodeId}` ? adjustment.kind === 'replaced' : key.startsWith(`${adjustment.graphId}/${adjustment.nodeId}#`))).length }
+      const keys = inverse.find((entry) => entry.op === stale)?.keys ?? []
+      if (keys.length === 0 || keys.every((key) => kept.has(key)) || !own.some((op) => pathsOverlap(op.path, stale.path))) return undefined
+      for (const key of keys) kept.add(key)
+    }
+  }
+
+  /** A new connection must still have its address after restoring the old node. */
+  private adjustmentWiresSurvive(tab: Tab, notice: AdjustmentNotice, restored: WorkflowDocument): boolean {
+    const registry = this.registryForTab(tab)
+    const resolve = registry === undefined ? undefined : documentNodeResolver(restored, this.resolverWithVirtualNodes(registry.resolve))
+    for (const graph of Object.values(restored.graphs)) {
+      const current = tab.store.doc.graphs[graph.id]
+      if (current === undefined || current === graph) continue
+      const currentEnds = graphAttachments(current)
+      const connected = buildGraphConnectivity(graph)
+      for (const [key, [id, port, kind]] of graphAttachments(graph)) {
+        const node = graph.nodes[id]
+        if (node === current.nodes[id] || !currentEnds.has(key)) continue
+        if (node === undefined) return false
+        const schema = resolve?.(graph.id, node)
+        if (schema === undefined) {
+          // An unavailable old schema can only vouch for addresses already
+          // connected before the first adjustment to this node.
+          const before = notice.records.find((record) => record.forward.some((op) =>
+            op.path[0] === 'graphs' && op.path[1] === graph.id && op.path[2] === 'nodes' && op.path[3] === id))?.before.graphs[graph.id]
+          if (before === undefined || !graphAttachments(before).has(key)) return false
+          continue
+        }
+        const elaborated = elaborateInterface(schema, node, connected(id))
+        const supported = kind === 'construct' ? elaborated.constructs.includes(port)
+          : kind === 'output' ? elabOutputsOf(elaborated).some((row) => row.address.port === port)
+          : elabInputsOf(elaborated).some((row) => row.address.port === port && (kind !== 'tap' || row.spec.widget !== undefined))
+        if (!supported) return false
+      }
+    }
+    for (const [key, topology] of Object.entries(restored.occurrenceTopologies ?? {})) {
+      const current = tab.store.doc.occurrenceTopologies?.[key]
+      if (current === undefined) continue
+      const rawResolve = this.resolverWithVirtualNodes(registry?.resolve ?? (() => undefined))
+      const effective = effectiveOccurrenceTopology(restored, rawResolve, topology.owner)
+      for (const [id, link] of Object.entries(topology.links)) for (const side of ['from', 'to'] as const) {
+        const previous = current.links[id]?.[side]
+        if (previous === undefined || !jsonSameValue(previous as unknown as Json, link[side] as unknown as Json)) continue
+        const oldEnd = resolveOccurrenceLinkEndpoint(tab.store.doc, current.owner, previous, side).endpoint
+        if (oldEnd === undefined) continue
+        const end = resolveOccurrenceLinkEndpoint(restored, topology.owner, link[side], side).endpoint
+        // A surviving authored route must still reach the same address.
+        if (end === undefined || end.graphId !== oldEnd.graphId ||
+          JSON.stringify(end.instancePath) !== JSON.stringify(oldEnd.instancePath) ||
+          !jsonSameValue(end.endpoint as unknown as Json, oldEnd.endpoint as unknown as Json)) return false
+        if (!('node' in end.endpoint)) continue
+        const graph = restored.graphs[end.graphId]
+        const node = graph?.nodes[end.endpoint.node]
+        if (node === undefined && tab.store.doc.graphs[end.graphId]?.nodes[end.endpoint.node] === undefined) continue
+        if (graph === undefined || node === undefined) return false
+        const view = occurrenceDynamicView(restored, rawResolve, end.instancePath)
+        const oldView = occurrenceDynamicView(tab.store.doc, rawResolve, oldEnd.instancePath)
+        if (node === tab.store.doc.graphs[graph.id]?.nodes[node.id] &&
+          jsonSameValue((view.dynamic.get(node.id) ?? node.dynamic ?? {}) as Json,
+            (oldView.dynamic.get(node.id) ?? node.dynamic ?? {}) as Json) &&
+          jsonSameValue((view.values.get(node.id) ?? node.values) as Json,
+            (oldView.values.get(node.id) ?? node.values) as Json)) continue
+        const schema = resolve?.(graph.id, node)
+        if (schema === undefined) {
+          const before = notice.records.find((record) => record.forward.some((op) =>
+            op.path[0] === 'graphs' && op.path[1] === graph.id && op.path[2] === 'nodes' && op.path[3] === node.id))?.before
+          const original = before && Object.values(before.occurrenceTopologies?.[key]?.links ?? {}).some((candidate) => {
+            const originalEnd = resolveOccurrenceLinkEndpoint(before, topology.owner, candidate[side], side).endpoint
+            return originalEnd !== undefined && originalEnd.graphId === end.graphId &&
+              JSON.stringify(originalEnd.instancePath) === JSON.stringify(end.instancePath) &&
+              jsonSameValue(originalEnd.endpoint as unknown as Json, end.endpoint as unknown as Json)
+          })
+          if (!original) return false
+          continue
+        }
+        const inputs = new Set(view.inputPorts.get(node.id) ?? [])
+        const outputs = new Set<string>()
+        for (const candidate of [...effective.links, ...effective.projectedParentLinks]) {
+          if (candidate.to.graphId === graph.id && isPortEndpoint(candidate.to.endpoint) && candidate.to.endpoint.node === node.id)
+            inputs.add(candidate.to.endpoint.port)
+          if (candidate.from.graphId === graph.id && 'node' in candidate.from.endpoint && candidate.from.endpoint.node === node.id)
+            outputs.add('tap' in candidate.from.endpoint ? candidate.from.endpoint.tap : candidate.from.endpoint.port)
+        }
+        const elaborated = elaborateInterface(schema, { ...node,
+          ...(view.dynamic.has(node.id) ? { dynamic: view.dynamic.get(node.id)! } : {}),
+          values: view.values.get(node.id) ?? node.values,
+        }, { isInputConnected: (port) => inputs.has(port), isOutputConnected: (port) => outputs.has(port),
+          inputPorts: () => [...inputs], outputPorts: () => [...outputs] }, { promoteGhosts: false, nodeId: node.id })
+        const endpoint = end.endpoint
+        const supported = 'tap' in endpoint
+          ? elabInputsOf(elaborated).some((row) => row.address.port === endpoint.tap && row.spec.widget !== undefined)
+          : side === 'from' ? elabOutputsOf(elaborated).some((row) => row.address.port === endpoint.port)
+          : elabInputsOf(elaborated).some((row) => row.address.port === endpoint.port && row.spec.socketless !== true)
+        if (!supported) return false
+      }
+    }
     return true
   }
 
-  dismissMigrationNotice(tabId: string): void {
-    if (!this.migrationNotices.get().has(tabId)) return
-    this.migrationNotices.update((current) => {
+  /**
+   * Takes back every change the notice lists in one undo step, leaving every
+   * other edit alone, and the adjustments the user changed since.
+   */
+  undoAdjustments(tabId: string): boolean {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (notice === undefined || tab === undefined || this.adjustmentNoticeState(tabId) !== 'ready') return false
+    const plan = this.adjustmentUndoPlan(tab, notice)!
+    // When the user changed every adjustment since, nothing is put back and all are reported kept.
+    if (plan.ops.length > 0 && !this.replayAdjustments(tab, notice, plan.ops)) return false
+    const undone = { redo: invertOps(plan.ops), kept: plan.kept }
+    this.adjustmentNotices.update((current) => new Map(current).set(tabId, { ...notice, undone }))
+    return true
+  }
+
+  /** Puts back what the notice's Undo took back, in one undo step. */
+  redoAdjustments(tabId: string): boolean {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
+    if (notice === undefined || tab === undefined || this.adjustmentNoticeState(tabId) !== 'undone') return false
+    const redo = this.adjustmentRedoOps(notice)
+    if (redo.length > 0 && !this.replayAdjustments(tab, notice, redo)) return false
+    const { undone: _, ...rest } = notice
+    this.adjustmentNotices.update((current) => new Map(current).set(tabId, rest))
+    return true
+  }
+
+  private replayAdjustments(tab: Tab, notice: AdjustmentNotice, ops: readonly PatchOp[]): boolean {
+    if (tab.store.replayRecorded(ops)) {
+      reconcileGraphNavigation(tab)
+      return true
+    }
+    const refusedAt = tab.store.revision
+    this.adjustmentNotices.update((current) => new Map(current).set(tab.id, { ...notice, refusedAt }))
+    return false
+  }
+
+  /** The cross: the notice leaves the canvas and its count stays in the status bar. */
+  dismissAdjustmentNotice(tabId: string): void {
+    // Once everything was taken back nothing stays adjusted, so no count remains.
+    if (this.adjustmentNoticeState(tabId) === 'undone') this.clearAdjustmentNotice(tabId)
+    else this.setAdjustmentNoticeDismissed(tabId, true)
+  }
+
+  /** The status bar count brings the notice back. */
+  reopenAdjustmentNotice(tabId: string): void {
+    this.setAdjustmentNoticeDismissed(tabId, false)
+  }
+
+  private setAdjustmentNoticeDismissed(tabId: string, dismissed: boolean): void {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    if (notice === undefined || notice.dismissed === dismissed) return
+    this.adjustmentNotices.update((current) => new Map(current).set(tabId, { ...notice, dismissed, reopened: !dismissed }))
+  }
+
+  /** Saving, closing or replacing the tab clears its notice and count; the changed values stay. */
+  clearAdjustmentNotice(tabId: string): void {
+    if (!this.adjustmentNotices.get().has(tabId)) return
+    this.adjustmentNotices.update((current) => {
       const next = new Map(current)
       next.delete(tabId)
       return next
     })
   }
 
+  /**
+   * On open, wires from a member that is no longer part of its node are
+   * removed and stay problems, in one batch. Then a choice or variant whose
+   * pack removed it is replaced, in its own batch reported in the tab's
+   * notice, so the notice's Undo puts back only what it lists. A state the
+   * editor cannot replace stays a problem.
+   */
   private adjustRemovedPartsOnOpen(tab: Tab): Promise<void> | undefined {
     const registry = this.registryForTab(tab)
     if (registry === undefined) return
     const document = tab.store.doc
     const resolve = documentNodeResolver(document, this.resolverWithVirtualNodes(registry.resolve))
-    const paths = new Map<string, readonly NodeId[]>([[document.root, []]])
-    for (const [graphId, path] of paths) for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
-      const child = subgraphDefIdOf(node.type)
-      if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
-    }
-    const invocations: CommandInvocation[] = []
-    const entries: Diagnostic[] = []
+    const paths = firstOccurrencePaths(document)
     const anchorOf = (graphId: string, nodeId: NodeId) => {
       const instancePath = paths.get(graphId)
-      return instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: nodeId } } }
+      return instancePath === undefined ? undefined : { occurrence: { instancePath, node: nodeId } }
     }
+    const wireInvocations: CommandInvocation[] = []
+    const wireProblems: Diagnostic[] = []
     // The members a node has are the ones its elaboration gives on open: a
     // wire, named net or subgraph output forward from any other member goes.
     const what = { link: 'the wire', net: 'the named net', forward: 'the subgraph output' } as const
@@ -5251,19 +5754,23 @@ export class AppState {
       const gone = wires.filter((wire) => inGoneMember(elaborated, wire.address))
       if (gone.length === 0) continue
       for (const wire of gone) {
-        if (wire.kind === 'link') invocations.push({ command: 'link.disconnect', params: { graphId: graph.id, linkId: wire.id } })
-        else if (wire.kind === 'net') invocations.push({ command: 'net.remove', params: { graphId: graph.id, netId: wire.id } })
+        if (wire.kind === 'link') wireInvocations.push({ command: 'link.disconnect', params: { graphId: graph.id, linkId: wire.id } })
+        else if (wire.kind === 'net') wireInvocations.push({ command: 'net.remove', params: { graphId: graph.id, netId: wire.id } })
         else {
-          const binds = graph.boundary?.outputs.find((item) => item.id === wire.id)?.binds
-          invocations.push({ command: 'boundary.unbind', params: { graphId: graph.id, side: 'outputs', itemId: wire.id, node: node.id,
+          const binds = boundaryItems(graph.boundary, 'outputs').find((item) => item.id === wire.id)?.binds
+          wireInvocations.push({ command: 'boundary.unbind', params: { graphId: graph.id, side: 'outputs', itemId: wire.id, node: node.id,
             ...(binds?.kind === 'widgetTap' ? { tap: wire.address } : { port: wire.address }) } })
         }
       }
-      entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
+      const anchor = anchorOf(graph.id, node.id)
+      wireProblems.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
         `${node.title ?? schema.displayName}: ${gone.map((wire) =>
           `${what[wire.kind]} from '${wire.address}' is removed, because its member is no longer part of the node.`).join(' ')}`,
-        { refs: [{ graphId: graph.id, nodeId: node.id }], ...anchorOf(graph.id, node.id) }))
+        { refs: [{ graphId: graph.id, nodeId: node.id }], ...(anchor === undefined ? {} : { anchor }) }))
     }
+    const invocations: CommandInvocation[] = []
+    const adjustments: Adjustment[] = []
+    const problems: Diagnostic[] = []
     for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
       const schema = resolve(graph.id, node)
       if (schema === undefined || node.dynamic === undefined) continue
@@ -5275,61 +5782,111 @@ export class AppState {
       const changes = [...new Map(diagnostics.filter((entry) => ['elab.combo.removedOption', 'elab.combo.unknownOption',
         'elab.slot.removedVariant', 'elab.dynamic.unknownState'].includes(entry.code))
         .map((entry) => [JSON.stringify([entry.code, entry.data]), entry])).values()]
-      if (changes.length === 0) continue
+      const fixed: Diagnostic[] = []
+      const name = node.title ?? schema.displayName
+      const anchor = anchorOf(graph.id, node.id)
       for (const entry of changes) {
-        if (entry.code === 'elab.dynamic.unknownState' || entry.data === undefined) continue
-        const { construct, selected } = entry.data
-        if (typeof selected !== 'string' && selected !== null) continue
+        const selected = entry.data?.['selected']
+        if (entry.code === 'elab.dynamic.unknownState' || entry.data === undefined || (typeof selected !== 'string' && selected !== null)) {
+          problems.push(diag('warning', 'import', 'upgrade.removedDynamicParts', `${name}: ${entry.message}`, {
+            refs: [{ graphId: graph.id, nodeId: node.id }],
+            ...(anchor === undefined ? {} : { anchor }),
+          }))
+          continue
+        }
+        fixed.push(entry)
         invocations.push({ command: selected === null ? 'dynamic.specializeSlot' : 'dynamic.selectOption', params: {
-          graphId: graph.id, nodeId: node.id, construct,
+          graphId: graph.id, nodeId: node.id, construct: entry.data['construct'],
           ...(selected === null ? { variant: null } : { option: selected }),
         } as Json })
       }
-      entries.push(diag('warning', 'import', 'upgrade.removedDynamicParts',
-        `${node.title ?? schema.displayName}: ${[...new Set(changes.map((entry) => entry.message))].join(' ')}`, {
-          refs: [{ graphId: graph.id, nodeId: node.id }],
-          ...anchorOf(graph.id, node.id),
-        }))
-    }
-    if (invocations.length > 0) return Promise.resolve(this.dispatchTo(tab,
-      { command: 'batch', params: { invocations } as unknown as Json })).then((outcome) => {
-        if (outcome.ok && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+      if (fixed.length > 0) adjustments.push({
+        kind: 'removedChoice', graphId: graph.id, nodeId: node.id, node: name, count: fixed.length,
+        ...(fixed.length === 1 && typeof fixed[0]!.data?.['construct'] === 'string'
+          ? { rowValueKey: fixed[0]!.data['construct'] } : {}),
+        details: [...new Set(fixed.map((entry) => {
+          const { row, removed, selected } = entry.data as { row: string; removed: string; selected: string | null }
+          return selected === null
+            ? t('fixesNotice.change.removedChoiceNone', { row, removed })
+            : t('fixesNotice.change.removedChoice', { row, removed, selected })
+        }))],
+        ...(anchor === undefined ? {} : { anchor }),
       })
-    if (entries.length > 0 && this.tabs.get().includes(tab)) this.reportProblems(tab.id, entries)
+    }
+    if (problems.length > 0) this.reportProblems(tab.id, problems)
+    if (wireInvocations.length === 0 && invocations.length === 0) return
+    const store = tab.store
+    const batch = (list: readonly CommandInvocation[]) =>
+      Promise.resolve(this.dispatchTo(tab, { command: 'batch', params: { invocations: list } as unknown as Json }))
+    const wiresRemoved = wireInvocations.length === 0 ? Promise.resolve(true) : batch(wireInvocations).then((outcome) => {
+      if (outcome.ok && this.tabs.get().includes(tab)) this.reportProblems(tab.id, wireProblems)
+      return outcome.ok
+    })
+    return wiresRemoved.then((ok) => {
+      if (!ok || invocations.length === 0 || tab.store !== store) return
+      return batch(invocations).then((outcome) => {
+        if (outcome.ok && tab.store === store) this.reportAdjustments(tab, outcome, adjustments)
+      })
+    })
   }
 
+  /** Node replacements found on open are applied in one batch and reported in the tab's notice. */
   private upgradeOnOpen(tab: Tab): Promise<void> | undefined {
     if (this.settings.get<boolean>('execution.reviewUpgrades')) return
+    const registry = this.registryForTab(tab)
     const items = this.scanTabReplacements(tab).filter((item) => item.hops.length > 0)
-    if (items.length === 0) return
+    const invocation = registry === undefined || items.length === 0 ? undefined : replacementInvocation(items, tab.store.doc, registry.resolve)
+    if (registry === undefined || invocation === undefined) return
     const store = tab.store
-    const revision = store.revision
-    return this.applyReplacements(tab, items).then((accepted) => {
-      // A notice must identify this batch, never a later edit's undo record.
-      if (!accepted || !this.tabs.get().includes(tab) || tab.store !== store || store.revision !== revision + 1) return
-      // A shared definition has one notice line; navigate through its first
-      // reachable occurrence, not an arbitrary sibling's instance path.
-      const paths = new Map<string, readonly NodeId[]>([[tab.store.doc.root, []]])
-      for (const [graphId, path] of paths) {
-        for (const node of Object.values(tab.store.doc.graphs[graphId]?.nodes ?? {})) {
-          const child = subgraphDefIdOf(node.type)
-          if (child !== undefined && !paths.has(child)) paths.set(child, [...path, node.id])
-        }
-      }
-      const entries = items.map((item): OwnedDiagnostic => {
+    const document = store.doc
+    return Promise.resolve(this.dispatchTo(tab, invocation)).then((outcome) => {
+      if (!outcome.ok || tab.store !== store) return
+      // A shared definition has one line; it goes to its first reachable
+      // occurrence, not an arbitrary sibling's instance path.
+      const paths = firstOccurrencePaths(tab.store.doc)
+      this.reportAdjustments(tab, outcome, items.map((item): Adjustment => {
         const instancePath = paths.get(item.graphId)
-        return {
-          ...diag(item.diagnostics.some((entry) => entry.severity === 'warning') ? 'warning' : 'info',
-            'command', 'replace.applied', `${item.nodeId}: ${item.sourceType} -> ${item.terminalType}`, {
-              refs: [{ graphId: item.graphId, nodeId: item.nodeId }],
-              ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
-              data: { warnings: item.diagnostics.map((entry) => entry.message) },
-            }),
-          owner: tab.id,
+        const node = tab.store.doc.graphs[item.graphId]?.nodes[item.nodeId]
+        const graph = document.graphs[item.graphId]!
+        const source = graph.nodes[item.nodeId]!
+        const schema = registry.resolve(source.type)
+        const elaborated = schema === undefined ? undefined : elaborateInterface(schema, source, buildGraphConnectivity(graph)(source.id))
+        const details = new Set<string>()
+        const sinkPorts = new Map<string, string>()
+        const wire = (side: 'input' | 'output', port: string, tap = false) => {
+          const row = elaborated === undefined ? undefined : (side === 'input' || tap ? elabInputsOf(elaborated) : elabOutputsOf(elaborated))
+            .find((row) => row.address.port === port)
+          details.add(t(side === 'input' ? 'fixesNotice.change.wireIntoRemoved' : 'fixesNotice.change.wireFromRemoved', {
+            row: row?.spec.displayName ?? port,
+          }))
         }
-      })
-      const undoRecord = tab.store.historySnapshot().undo.at(-1)!
-      this.migrationNotices.update((current) => new Map(current).set(tab.id, { owner: tab.id, entries, undoRecord }))
+        for (const { plan } of item.hops) {
+          for (const id of plan.dropLinks) {
+            const link = graph.links[id]
+            if (link === undefined) continue
+            if ('node' in link.from && link.from.node === item.nodeId)
+              wire('output', 'port' in link.from ? link.from.port : link.from.tap, 'tap' in link.from)
+            if ('node' in link.to && link.to.node === item.nodeId && 'port' in link.to)
+              wire('input', link.to.port)
+          }
+          for (const id of plan.dropNets) {
+            const net = graph.nets[id]
+            if (net?.source.node === item.nodeId) wire('output', net.source.port)
+          }
+          for (const edit of plan.netSinkEdits ?? []) {
+            if (edit.from.node !== item.nodeId) continue
+            const port = sinkPorts.get(JSON.stringify([edit.net, edit.from.port])) ?? edit.from.port
+            if (edit.to === undefined) wire('input', port)
+            else sinkPorts.set(JSON.stringify([edit.net, edit.to.port]), port)
+          }
+        }
+        return {
+          kind: 'replaced', graphId: item.graphId, nodeId: item.nodeId, count: 1,
+          node: node?.title ?? registry.resolve(item.terminalType)?.displayName ?? item.nodeId,
+          details: [...details],
+          ...(instancePath === undefined ? {} : { anchor: { occurrence: { instancePath, node: asNodeId(item.nodeId) } } }),
+        }
+      }))
     })
   }
 
@@ -5402,7 +5959,7 @@ export class AppState {
    * A node type the target backend cannot resolve renders as a red error
    * shell - correct on canvas, but silently: nothing else says WHY a
    * workflow is dead or that queueing will refuse. Report every unresolved
-   * type once when schemas arrive, so "all my nodes
+   * type when schemas arrive or change, so "all my nodes
    * are red" always has a matching Problems entry naming the types and the
    * backend that lacks them. Subgraph-derived '#' types resolve locally and
    * are never reported.
@@ -5423,18 +5980,21 @@ export class AppState {
         continue
       missing.set(node.type, (missing.get(node.type) ?? 0) + 1)
     }
-    if (missing.size === 0) return
     const backend = this.backendForTab(tab)
-    this.reportProblems(tab.id,
-      [...missing].map(([type, count]) =>
-        diag(
-          'warning',
-          'schema',
-          'schema.unresolvedType',
-          `${type}${count > 1 ? ` (${count})` : ''}: not available on backend ${backend.label}`,
+    batch(() => {
+      this.problems.update((problems) => problems.filter((entry) =>
+        entry.owner !== tab.id || entry.origin !== 'schema' || entry.code !== 'schema.unresolvedType'))
+      this.reportProblems(tab.id,
+        [...missing].map(([type, count]) =>
+          diag(
+            'warning',
+            'schema',
+            'schema.unresolvedType',
+            `${type}${count > 1 ? ` (${count})` : ''}: not available on backend ${backend.label}`,
+          ),
         ),
-      ),
-    )
+      )
+    })
   }
 
   /**
@@ -5733,13 +6293,14 @@ export class AppState {
     return editorKind === APP_EDITOR_KIND && !this.appViewEnabled ? GRAPH_EDITOR_KIND : editorKind
   }
 
-  private boundaryPositionResolver(resolve: SchemaResolver): BoundaryPositionResolver {
-    return (document, graphId) => {
+  private geometryResolvers(resolve: SchemaResolver): { boundaryPositionsFor: BoundaryPositionResolver; nodeHeightFor: NodeHeightResolver; groupGeometryFor: GroupGeometryResolver } {
+    const input = (document: WorkflowDocument, graphId: string): Parameters<typeof buildScene>[0] => {
       const tab = this.tabs.get().find((candidate) => !candidate.execution && candidate.store.doc.lineage === document.lineage)
-      const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab))
+      const measurements = canvasMeasures(() => this.widgetRegistryForTab(tab), () =>
+        tab !== undefined && this.backendForTab(tab).protocol !== 'dinkster')
       const path = tab?.graphStack.get().at(-1) === graphId ? tab.instancePath.get() : []
       const resolver = documentResolver(document, (type) => this.virtualNodeSchema(type) ?? resolve(type))
-      return boundaryPositions({
+      return {
         document, graphId, resolve: resolver,
         tokens: defaultTokens, ...measurements,
         seedControllerEnabled: this.settings.get<boolean>('features.seedController.enabled'),
@@ -5749,7 +6310,22 @@ export class AppState {
           owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path[path.length - 1]!) },
           plannerAvailable: false,
         } } : {}),
-      })
+      }
+    }
+    return {
+      boundaryPositionsFor: (document, graphId) => boundaryPositions(input(document, graphId)),
+      groupGeometryFor: (document, graphId) => groupItemGeometry(buildScene(input(document, graphId))),
+      nodeHeightFor: (document, graphId, nodeId) => {
+        const graph = document.view.graphs[graphId]
+        const view = graph?.nodes[nodeId]
+        // Measure the expanded body even when the whole node is minimized.
+        const expanded = view?.collapsed ? {
+          ...document, view: { ...document.view, graphs: { ...document.view.graphs,
+            [graphId]: { ...graph!, nodes: { ...graph!.nodes, [nodeId]: { ...view, collapsed: false } } },
+          } },
+        } : document
+        return buildScene(input(expanded, graphId)).nodes.find((node) => node.id === nodeId)?.layout.minHeight
+      },
     }
   }
 
@@ -5780,7 +6356,7 @@ export class AppState {
       // A caller-provided store (shared session) replaces the local default.
       store: store ?? createLocalSession(document, coreCommandRegistry([], resolve), {
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, resolve),
-        boundaryPositionsFor: this.boundaryPositionResolver(resolve),
+        ...this.geometryResolvers(resolve),
       }),
       graphStack: createSignal<readonly string[]>([document.root]),
       instancePath: createSignal<readonly string[]>([]),
@@ -5886,7 +6462,7 @@ export class AppState {
     }
     return [
       'node.move', 'selection.move', 'reroute.move',
-      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed', 'view.setEditorUnfolded',
+      'view.setNodeCollapsed', 'view.setNodeSize', 'view.setSectionCollapsed', 'view.setLineFolded', 'view.setEditorUnfolded',
       'view.moveBoundaryNode', 'view.moveGroup', 'view.setGroupBounds',
       'view.setNetCollapsed', 'view.setNetDisplay', 'view.setAllNetsDisplay',
       'view.setNodeVideo', 'view.setNodeColor', 'view.setGroupColor', 'view.setWidgetRepresentation',
@@ -6013,7 +6589,7 @@ export class AppState {
   }
 
   private cleanupClosedTab(id: string): void {
-    this.dismissMigrationNotice(id)
+    this.clearAdjustmentNotice(id)
     if (this.glslEditorTarget.get()?.tabId === id) this.glslEditorTarget.set(undefined)
     this.dropCollabFor(id) // leave the shared session; the server session survives
     this.dropProblems(id) // its diagnostics may not outlive the tab
@@ -6268,7 +6844,7 @@ export class AppState {
       session = await connectSharedSession(connection, coreCommandRegistry([], sessionResolver), {
         actorId,
         schemaResolverFor: (currentDoc) => documentResolver(currentDoc, sessionResolver),
-        boundaryPositionsFor: this.boundaryPositionResolver(sessionResolver),
+        ...this.geometryResolvers(sessionResolver),
         onConflict: (conflict: SessionConflict) =>
           report(conflict.during === 'refused'
             ? conflict.diagnostics[0]!
@@ -6664,7 +7240,7 @@ export class AppState {
         tab.instancePath.set(replaceFrozen.instancePath.get())
       }
       if (replacesExisting) this.workspaceReplacements.add(tab)
-      this.dismissMigrationNotice(tab.id)
+      this.clearAdjustmentNotice(tab.id)
       // Load/translation warnings belong to the tab they describe: a
       // same-lineage replacement swaps them out; other tabs keep theirs.
       this.replaceProblems(tab.id, loaded.diagnostics)
@@ -7109,7 +7685,7 @@ export class AppState {
           this.showTransientStatus(`Save closed: ${filename}`)
           return false
         }
-        this.dismissMigrationNotice(tab.id)
+        this.clearAdjustmentNotice(tab.id)
         this.dismissImportProblems(tabId)
         this.showTransientStatus(`Saved: ${result.name}`)
         return true
@@ -7124,7 +7700,7 @@ export class AppState {
       anchor.hidden = true
       document.body.append(anchor)
       anchor.click()
-      this.dismissMigrationNotice(tab.id)
+      this.clearAdjustmentNotice(tab.id)
       this.dismissImportProblems(tabId)
       this.showTransientStatus(`Download started: ${filename}`)
       return true
@@ -7426,7 +8002,7 @@ export class AppState {
       const unchanged = tab.store.revision === revision && current.title === tab.title
       if (unchanged) {
         this.markTabClean(tab.id)
-        this.dismissMigrationNotice(tab.id)
+        this.clearAdjustmentNotice(tab.id)
       }
       const background = this.activeTab()?.id === tab.id ? '' : ` ${tab.title}`
       this.showTransientStatus(unchanged
@@ -7717,7 +8293,7 @@ export class AppState {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'history.deleteFailed', `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`),
       ])
-      return false
+      throw e
     } finally {
       await this.confirmRemovedHistoryExecutions(backend, runId)
       this.backendsTick.update((v) => v + 1)
@@ -7725,13 +8301,12 @@ export class AppState {
   }
 
   /**
-   * Clear the ENTIRE durable history scope. Destructive by design -
-   * callers gate this behind an explicit confirmation affordance; asset
-   * bytes and library records survive by contract.
+   * Clear finished records across the durable history scope immediately;
+   * pending runs, asset bytes and library records survive by contract.
    */
   async clearRunHistory(owner: string): Promise<number> {
     const backend = this.ownedLibraryBackend(owner)
-    if (!backend) return 0
+    if (!backend) throw new Error('The backend is no longer available.')
     try {
       const deleted = await backend.connection.clearHistory({ scope: LIBRARY_SCOPE })
       clearExecutionResults(backend.id)
@@ -7740,7 +8315,7 @@ export class AppState {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
       ])
-      return 0
+      throw e
     } finally {
       await this.confirmRemovedHistoryExecutions(backend)
       this.backendsTick.update((v) => v + 1)
@@ -7784,7 +8359,7 @@ export class AppState {
   }
 
   /**
-   * Advisory load-time drift check: compare the document's environment
+   * Advisory drift check: compare the document's environment
    * stamp (if any) against the tab's live registry and surface findings
    * in Problems. Never blocks anything - stamps are records, not identity.
    */
@@ -7797,7 +8372,12 @@ export class AppState {
       resolve: reg.resolve,
       ...(reg.packs !== undefined ? { packs: reg.packs } : {}),
     })
-    this.reportProblems(tab.id, drift)
+    batch(() => {
+      this.problems.update((problems) => problems.filter((entry) =>
+        entry.owner !== tab.id || entry.origin !== 'environment' ||
+        !['env.node-missing', 'env.node-drift', 'env.pack-updated'].includes(entry.code)))
+      this.reportProblems(tab.id, drift)
+    })
   }
 
   private importLegacy(json: unknown, registry: SchemaRegistry | undefined, translations: readonly ComfyTranslation[] = [], unavailable = false): {
@@ -7830,7 +8410,7 @@ export class AppState {
     ], registry.schemas.values())
     const imported = result.document === undefined ? result : {
       ...result,
-      document: initializeBoundaryViews(result.document, this.boundaryPositionResolver(registry.resolve)).doc,
+      document: initializeBoundaryViews(result.document, this.geometryResolvers(registry.resolve).boundaryPositionsFor).doc,
     }
     if (!unavailable) return imported
     return { ...imported, diagnostics: result.diagnostics.map((entry) => entry.code === 'import.schema.missing'
@@ -8074,6 +8654,7 @@ export class AppState {
       automaticValues: automaticValuesOfJob(job),
       jobRef: result.jobRef,
       sourceDocument: result.sourceDocument,
+      ...(history.workflowName === undefined ? {} : { workflowName: history.workflowName }),
       queuedAt: result.queuedAt,
       endedAt: result.endedAt,
     }
@@ -8624,7 +9205,7 @@ export class AppState {
         const child = tab.store.doc.graphs[childId]
         if (!child) return
         const childPath = [...path, asNodeId(id)]
-        const childTargets = new Set(outputsOnly ? [] : child.boundary?.outputs.flatMap((item) => item.binds.kind === 'unbound' ? [] : [item.binds.node]) ?? [])
+        const childTargets = new Set(outputsOnly ? [] : boundaryItems(child.boundary, 'outputs').flatMap((item) => item.binds.kind === 'unbound' ? [] : [item.binds.node]) ?? [])
         for (const inner of Object.values(child.nodes)) if (resolve(inner.type)?.isOutputNode) childTargets.add(inner.id)
         for (const childTarget of [...childTargets].sort()) visit(childId, childPath, childTarget)
       }
@@ -8900,7 +9481,7 @@ export class AppState {
     artifact: CompileArtifact,
     plan: AdvancementPlan | undefined,
     timestamp?: number,
-    identity?: { readonly jobRef?: string; readonly sourceDocument?: string },
+    identity?: { readonly jobRef?: string; readonly sourceDocument?: string; readonly workflowName?: string },
   ): void {
     if (plan) this.advancementPlans.set(executionKey(ref), plan)
     // Belt-and-braces retention for artifacts that did not come through
@@ -8921,6 +9502,7 @@ export class AppState {
       ...(timestamp === undefined ? {} : { timestamp }),
       ...(identity?.jobRef === undefined ? {} : { jobRef: identity.jobRef }),
       ...(identity?.sourceDocument === undefined ? {} : { sourceDocument: identity.sourceDocument }),
+      ...(identity?.workflowName === undefined ? {} : { workflowName: identity.workflowName }),
     } satisfies WorkspaceExecutionMessage)
   }
 
@@ -8983,6 +9565,7 @@ export class AppState {
       this.store.register(registration.ref, registered, registration.timestamp, {
         ...(registration.jobRef === undefined ? {} : { jobRef: registration.jobRef }),
         ...(registration.sourceDocument === undefined ? {} : { sourceDocument: registration.sourceDocument }),
+        ...(registration.workflowName === undefined ? {} : { workflowName: registration.workflowName }),
       })
       this.pendingWorkspaceRegistrations.delete(key)
     }
@@ -9413,6 +9996,8 @@ export class AppState {
         ...(hasWorkflow ? { extraPnginfo: { workflow: originalWorkflow } as JsonObject } : {}),
       } : undefined
       const sourceDocument = await this.sourceDocumentFor(tab, backend)
+      // The name the run is recorded under, as the tab read when it was sent.
+      const workflowName = tab.title
       if (lease.signal.aborted) return
       // Shared authority can adopt this editing session after queue entry.
       // Independent replacements do not have a recorded continuation.
@@ -9428,6 +10013,7 @@ export class AppState {
       lease.markPosted()
       const submitted = await backend.connection.submit(result.artifact, {
         ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+        workflowName,
         ...(exportSnapshot !== undefined ? { exportSnapshot } : {}),
         // Overrides come from the artifact snapshot (the exact document
         // that compiled), layered global < workflow < node.
@@ -9454,6 +10040,7 @@ export class AppState {
             compiledDocument,
             backend,
             sourceDocument,
+            workflowName,
             lease,
           )
           consentOwnsLease = true
@@ -9470,6 +10057,7 @@ export class AppState {
       this.installRun(submitted.execution, result.artifact, plan, undefined, {
         ...(submitted.jobRef === undefined ? {} : { jobRef: submitted.jobRef }),
         ...(sourceDocument?.sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+        workflowName,
       })
       this.log('info', backend.label, `job submitted: ${submitted.execution.prompt}`)
     } catch (e) {
@@ -9526,6 +10114,7 @@ export class AppState {
     compiledDocument: WorkflowDocument,
     backend: Backend,
     sourceDocument: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
+    workflowName: string,
     lease: { readonly signal: AbortSignal; readonly release: () => void },
   ): void {
     // Problems callbacks re-prove exact-object tab liveness at fire time: a
@@ -9557,6 +10146,7 @@ export class AppState {
         this.installRun(ok.execution, artifact, plan, undefined, {
           ...(ok.jobRef === undefined ? {} : { jobRef: ok.jobRef }),
           ...(sourceDocument === undefined ? {} : { sourceDocument: sourceDocument.sourceDocument }),
+          workflowName,
         })
         this.log(
           'info',

@@ -14,6 +14,7 @@ import {
 } from '@dinkster/core'
 import { canvasPaintTokens, defaultTokens } from '@dinkster/canvas'
 import { Check, X } from 'lucide-solid'
+import { ProductShortcutText } from '@dinkster/ui'
 import { floatKind, floatSliderView, intKind } from '@dinkster/widgets'
 import { ProductSlider } from '../ProductSlider.js'
 import { ColorWidgetEditor } from './ColorWidgetEditor.js'
@@ -58,7 +59,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
   /** Resolves true once the editor is closed, false while it stays open. */
   const commitTarget = (value: Json): Promise<boolean> => {
     if (!live || props.commitPending()) return Promise.resolve(false)
-    if (text && typeof value === 'string') {
+    if (text && typeof value === 'string' && ed.target.kind === 'input') {
       const graphId = ed.target.familyOwner?.graphId ?? ed.graphId
       const nodeId = ed.target.familyOwner?.nodeId ?? ed.target.nodeId
       const inputId = ed.target.familyOwner?.valueKey ?? ed.target.valueKey
@@ -145,7 +146,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
     }
     if (completionKeyDown(event)) return
     const moveRow = host.moveRow
-    if (event.isComposing || event.key !== 'Tab' || moveRow === undefined) return
+    if (event.isComposing || event.key !== 'Tab' || moveRow === undefined || ed.target.kind !== 'input') return
     event.preventDefault()
     const from = { nodeId: ed.target.nodeId, valueKey: ed.target.valueKey }
     const direction = event.shiftKey ? -1 : 1
@@ -252,7 +253,7 @@ const ScalarImplementation: Component<WidgetEditorImplementationProps> = (props)
       </Show>
     </ProductField>
     <Suggestions />
-    <div class="widget-editor-meta" data-testid="widget-editor-meta"><Show when={numeric}><dl class="widget-numeric-constraints" data-testid="widget-numeric-constraints" aria-label="Numeric constraints"><dt>Minimum</dt><dd>{Number.isFinite(ed.spec!.options['min']) || isCanonicalUnsafeInteger(ed.spec!.options['min']) ? String(ed.spec!.options['min']) : 'unbounded'}</dd><dt>Maximum</dt><dd>{Number.isFinite(ed.spec!.options['max']) || isCanonicalUnsafeInteger(ed.spec!.options['max']) ? String(ed.spec!.options['max']) : 'unbounded'}</dd><dt>Step</dt><dd>{(Number.isFinite(ed.spec!.options['step']) && Number(ed.spec!.options['step']) > 0) || isCanonicalUnsafeInteger(ed.spec!.options['step']) ? String(ed.spec!.options['step']) : `${numericStepConstraints(ed.spec!).step} (default)`}</dd></dl></Show><Show when={ed.multiline}>{ed.spec ? 'Ctrl+Enter to commit' : 'JSON'}</Show></div>
+    <div class="widget-editor-meta" data-testid="widget-editor-meta"><Show when={numeric}><dl class="widget-numeric-constraints" data-testid="widget-numeric-constraints" aria-label="Numeric constraints"><dt>Minimum</dt><dd>{Number.isFinite(ed.spec!.options['min']) || isCanonicalUnsafeInteger(ed.spec!.options['min']) ? String(ed.spec!.options['min']) : 'unbounded'}</dd><dt>Maximum</dt><dd>{Number.isFinite(ed.spec!.options['max']) || isCanonicalUnsafeInteger(ed.spec!.options['max']) ? String(ed.spec!.options['max']) : 'unbounded'}</dd><dt>Step</dt><dd>{(Number.isFinite(ed.spec!.options['step']) && Number(ed.spec!.options['step']) > 0) || isCanonicalUnsafeInteger(ed.spec!.options['step']) ? String(ed.spec!.options['step']) : `${numericStepConstraints(ed.spec!).step} (default)`}</dd></dl></Show><Show when={ed.multiline}><ProductShortcutText text={ed.spec ? '`Ctrl+Enter` to commit' : 'JSON'} /></Show></div>
     <ProductActionFooter><button type="button" data-testid="widget-editor-cancel" onPointerDown={(event) => event.preventDefault()} onClick={props.close}><Icon icon={X} /> Cancel</button><button type="button" class="primary" data-testid="widget-editor-commit" onPointerDown={(event) => event.preventDefault()} onClick={(event) => { const field = event.currentTarget.closest('.widget-editor')?.querySelector<TextControl>('input, textarea'); if (field) commit(field) }}><Icon icon={Check} /> Commit</button></ProductActionFooter>
   </div>
 }

@@ -221,7 +221,8 @@ describe('UniversalSearch', () => {
     key(root, 'Enter')
     expect(app.settings.get('demo.flag')).toBe(false)
     expect(root.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false')
-    expect([...root.querySelectorAll('[data-group="core.commands"] kbd')].map((chip) => chip.textContent)).toEqual(['Ctrl', 'Shift', 'S'])
+    expect([...root.querySelectorAll('[data-group="core.commands"] kbd')].map((chip) => chip.textContent)).toEqual(['Ctrl+Shift+S'])
+    expect([...root.querySelectorAll('.dinkster-search-hints kbd')].map((box) => box.textContent)).toEqual(['Up', 'Down', 'Enter', 'Tab', 'Esc'])
     expect(shortcutKeys('ctrl+enter')).toEqual(['Ctrl', 'Enter'])
     dispose()
   })
@@ -369,9 +370,9 @@ describe('UniversalSearch', () => {
     </>, root)
 
     const trigger = root.querySelector('[data-testid="topbar-search"]') as HTMLButtonElement
-    expect(trigger.querySelector('kbd')?.textContent).toBe('alt+k')
+    expect([...trigger.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Alt+K'])
     expect(trigger.getAttribute('aria-label')).toBe('Search Dinkster')
-    expect(trigger.title).toBe('Search Dinkster (alt+k)')
+    expect(trigger.getAttribute('aria-description')).toBe('Alt+K')
     trigger.click()
     await settle()
     expect(document.activeElement).toBe(input(root))

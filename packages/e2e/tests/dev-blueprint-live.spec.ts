@@ -17,7 +17,7 @@ test('served dev blueprint copies its graph independently and undoes as one inse
   await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 0.5 }))
   await page.getByTestId('graph-canvas').dblclick({ position: { x: 600, y: 500 } })
   await page.getByTestId('palette-search').fill('Node Feature Examples')
-  await page.getByTestId('palette-item').filter({ hasText: 'Node Feature Examples' }).click()
+  await page.locator('.dinkster-search-row').filter({ hasText: 'Node Feature Examples' }).click()
   await page.getByTestId('graph-canvas').click({ position: { x: 600, y: 500 } })
   await expect.poll(async () => Object.keys((await document()).graphs).length).toBe(2)
   const inserted = await document()
@@ -25,7 +25,7 @@ test('served dev blueprint copies its graph independently and undoes as one inse
   const copy = inserted.graphs[id]!
   expect(Object.keys(inserted.graphs.root!.nodes)).toHaveLength(9)
   expect(Object.keys(copy.nodes)).toHaveLength(8)
-  expect(copy.boundary).toEqual({ inputs: [], outputs: [] })
+  expect(copy.boundary).toEqual({ body: [] })
   expect(copy.nodes).toEqual(before.graphs.root!.nodes)
   expect(copy.links.image).toEqual({
     id: 'image', from: { node: 'source', port: 'image' }, to: { node: 'mirror', port: 'image' },
@@ -78,7 +78,7 @@ test('a saved blueprint is detached, placeable, renameable and removable without
       ...doc, root, lineage: `saved-${name}`,
       graphs: {
         ...doc.graphs,
-        [body]: { ...doc.graphs[body]!, name, boundary: { inputs: [], outputs: [] } },
+        [body]: { ...doc.graphs[body]!, name, boundary: { body: [] } },
         [root]: {
           id: root, name: 'Blueprint independence', nodes: { source: { id: 'source', type: `#${body}`, values: {} } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,

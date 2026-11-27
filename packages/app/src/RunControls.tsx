@@ -1,7 +1,9 @@
-import { Show, createSignal, onCleanup, type JSX } from 'solid-js'
+import { For, Show, createSignal, onCleanup, type JSX } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import type { ExecutionState } from '@dinkster/client'
-import { executionKey, formatRelativeTime, t } from '@dinkster/core'
-import { ProductCancelButton, ProductRunActivity } from '@dinkster/ui'
+import { executionKey, formatNumber, formatRelativeTime, t } from '@dinkster/core'
+import { ProductCancelButton, ProductMenu, ProductRunActivity } from '@dinkster/ui'
+import Ellipsis from 'lucide-solid/icons/ellipsis'
 import LoaderCircle from 'lucide-solid/icons/loader-circle'
 import Clock from 'lucide-solid/icons/clock'
 import { executionActivity } from './execution-activity.js'
@@ -41,6 +43,16 @@ export function runAge(endedAt: number, now: number): string {
   return formatRelativeTime(-Math.floor(hours / 24), 'day')
 }
 
+/** How long a run took, to the second: "12s", "3m 4s", "1h 2m". */
+export function tookText(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds))
+  const unit = (value: number, name: 'hour' | 'minute' | 'second') => formatNumber(value, { style: 'unit', unit: name, unitDisplay: 'narrow' })
+  if (seconds < 60) return unit(seconds, 'second')
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${unit(minutes, 'minute')} ${unit(seconds % 60, 'second')}`
+  return `${unit(Math.floor(minutes / 60), 'hour')} ${unit(minutes % 60, 'minute')}`
+}
+
 /** A clock for the ages in a list of finished runs, read again every half minute. */
 export function useNow(): () => number {
   const [now, setNow] = createSignal(Date.now())
@@ -73,6 +85,8 @@ export function RunRow(props: {
   readonly onSelect?: (() => void) | undefined
   /** Shown under the line, such as the outputs of the chosen run. */
   readonly children?: JSX.Element
+  /** At the line's end, after the snowflake, such as a chosen run's menu. */
+  readonly lineEnd?: JSX.Element
 }) {
   const message = useAppMessage()
   const now = useNow()
@@ -133,6 +147,7 @@ export function RunRow(props: {
         </span>
         <Show when={detail()}>{(text) => <span class="run-row-detail">{text()}</span>}</Show>
         <ExecutionOpenButton entry={props.entry} title={props.workflow} onOpen={props.onOpen} />
+        {props.lineEnd}
         <Show when={runIsPending(props.entry)}>
           <ProductCancelButton
             label={message('runs.cancel.named', { name: props.workflow })}
@@ -220,5 +235,77 @@ export function RunActivityControl(props: {
         </Show>
       </span>
     </Show>
+  )
+}
+
+/** One plain line of a chosen run's details: "Took", "12 s". */
+export interface ChosenRunFact {
+  readonly label: string
+  readonly text: string
+}
+
+/**
+ * Under a chosen finished run's pictures: why it stopped when it was
+ * interrupted or failed, then Run again, Open workflow and a menu holding
+ * Details, Inspect run, Copy job ID and Delete record. Details opens a few
+ * plain lines; the job ID is copied from the menu, never shown in them.
+ * Inspect run asks the owner to show the run's full inspection.
+ */
+export function ChosenRun(props: {
+  /** The workflow's name, which the menu's label carries. */
+  readonly name: string
+  /** Why an interrupted run stopped, in one line. */
+  readonly reason?: string | undefined
+  readonly facts: readonly ChosenRunFact[]
+  readonly detailsOpen: boolean
+  readonly onDetails: (open: boolean) => void
+  /** Whether the owner shows the run's full inspection; absent when the run has none. */
+  readonly inspectOpen?: boolean | undefined
+  readonly onInspect?: ((open: boolean) => void) | undefined
+  readonly onRunAgain?: (() => void) | undefined
+  readonly onOpenWorkflow?: (() => void) | undefined
+  readonly onCopyJobId: () => void
+  readonly onDelete?: (() => void) | undefined
+  /**
+   * Where the menu goes when the run has no buttons beside it, such as the
+   * end of its row's title line, so it takes no line of its own.
+   */
+  readonly menuMount?: HTMLElement | undefined
+}) {
+  const message = useAppMessage()
+  const hasButtons = () => props.onRunAgain !== undefined || props.onOpenWorkflow !== undefined
+  const menu = () => (
+    <ProductMenu icon={Ellipsis} iconOnly label={message('runs.chosen.actions', { name: props.name })} items={[
+      { label: message(props.detailsOpen ? 'runs.chosen.hideDetails' : 'runs.details'), onSelect: () => props.onDetails(!props.detailsOpen) },
+      ...(props.onInspect === undefined ? [] : [{
+        label: message(props.inspectOpen === true ? 'runs.chosen.hideInspect' : 'runs.chosen.inspect'),
+        onSelect: () => props.onInspect?.(props.inspectOpen !== true),
+      }]),
+      { label: message('runs.chosen.copyJob'), onSelect: () => props.onCopyJobId() },
+      ...(props.onDelete === undefined ? [] : [
+        'separator' as const,
+        { label: message('runs.chosen.delete'), intent: 'remove' as const, onSelect: () => props.onDelete?.() },
+      ]),
+    ]} />
+  )
+  return (
+    <div class="run-chosen" data-testid="chosen-run" onClick={(event) => event.stopPropagation()}>
+      <Show when={props.reason}>{(reason) => <p class="run-chosen-reason" role="status">{reason()}</p>}</Show>
+      <Show when={props.menuMount === undefined || hasButtons()}><div class="run-chosen-actions">
+        <Show when={props.onRunAgain}>{(runAgain) =>
+          <ProductButton type="button" size="compact" data-testid="chosen-run-again" onClick={() => runAgain()()}>{message('runs.chosen.runAgain')}</ProductButton>
+        }</Show>
+        <Show when={props.onOpenWorkflow}>{(open) =>
+          <ProductButton type="button" size="compact" data-testid="chosen-run-open" onClick={() => open()()}>{message('runs.chosen.openWorkflow')}</ProductButton>
+        }</Show>
+        <span class="run-chosen-menu">{menu()}</span>
+      </div></Show>
+      <Show when={!hasButtons() && props.menuMount}>{(mount) => <Portal mount={mount()}>{menu()}</Portal>}</Show>
+      <Show when={props.detailsOpen}>
+        <dl class="run-chosen-facts" data-testid="chosen-run-details">
+          <For each={props.facts}>{(fact) => <div><dt>{fact.label}</dt><dd>{fact.text}</dd></div>}</For>
+        </dl>
+      </Show>
+    </div>
   )
 }

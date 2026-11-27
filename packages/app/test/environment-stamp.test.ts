@@ -269,6 +269,55 @@ describe('workflow-open requirements', () => {
     expect(savedExtra).toEqual(['other-window-choice'])
   })
 
+  it('clears resolved catalog problems after enabling a pack while preserving missing types and unrelated drift', async () => {
+    app = prepareWorkflowApp(new AppState())
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      ...nodesPayload, nodes: { 'std.a': { displayName: 'A', pack: 'core', signature: 'sig-a-1', body: [] } },
+    }))
+    vi.spyOn(backend.connection.status, 'get').mockReturnValue('connected')
+    vi.spyOn(backend.connection, 'planWorkflowRequirements').mockResolvedValue({ packs: [], assets: [], errors: [] })
+    const project = { id: 'default', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Film', created: '2026-11-18T12:00:00Z', revision: 7, deleted: false }
+    vi.spyOn(backend.connection, 'getProject').mockResolvedValue(project)
+    vi.spyOn(backend.connection, 'projectNeeds').mockResolvedValue({
+      packs: [], extra: [], unknown: [], installed: [{ pack: 'vhs.video', version: '3.1.4' }],
+    })
+    vi.spyOn(backend.connection, 'setProjectExtraPacks').mockResolvedValue({ ...project, revision: 8 })
+    vi.spyOn(backend.connection, 'fetchSchemas').mockResolvedValue(buildDinksterRegistry(backend.id, nodesPayload))
+    vi.spyOn(backend.connection, 'fetchComfyTranslations').mockResolvedValue([])
+    const tab = await open(docJson('enable-diagnostics', ['std.a', 'std.b', 'std.missing'], {
+      packs: { core: { version: '1.2.0' }, 'vhs.video': { version: '3.1.4' } },
+      nodes: {
+        'std.a': { pack: 'core', signature: 'sig-a-old' },
+        'std.b': { pack: 'vhs.video', signature: 'sig-b-1' },
+        'std.missing': { pack: 'vhs.video', signature: 'sig-missing' },
+      },
+    }))
+    const unrelated = { severity: 'warning', origin: 'import', code: 'import.kept', message: 'Keep this import warning' } as const
+    app.reportProblems(tab.id, [unrelated])
+    const otherOwner = Symbol('other document')
+    app.reportProblems(otherOwner, [{ severity: 'warning', origin: 'schema', code: 'schema.unresolvedType', message: 'Other document stays missing' }])
+    await vi.waitFor(() => expect(app.problems.get()).toContainEqual(expect.objectContaining({
+      owner: tab.id, code: 'schema.unresolvedType', message: expect.stringContaining('std.b'),
+    })))
+    expect(app.problems.get()).toContainEqual(expect.objectContaining({ owner: tab.id, code: 'env.node-missing', message: expect.stringContaining('std.b') }))
+    const document = structuredClone(tab.store.doc)
+    await app.checkProjectNeeds(backend)
+    const review = app.projectNeedsReview.get()!
+    expect(review.enable).toEqual(['vhs.video'])
+    await app.enableReviewedProjectPacks(review)
+    expect(app.registryForTab(tab)?.resolve('std.b')).toBeDefined()
+    expect(app.problems.get().filter((entry) => entry.owner === tab.id && entry.code === 'schema.unresolvedType').map((entry) => entry.message))
+      .toEqual([expect.stringContaining('std.missing')])
+    expect(app.problems.get().filter((entry) => entry.owner === tab.id && entry.code === 'env.node-missing').map((entry) => entry.message))
+      .toEqual([expect.stringContaining('std.missing')])
+    expect(app.problems.get()).toContainEqual(expect.objectContaining({ owner: tab.id, code: 'env.node-drift', message: expect.stringContaining('std.a') }))
+    expect(app.problems.get()).toContainEqual({ ...unrelated, owner: tab.id })
+    expect(app.problems.get()).toContainEqual(expect.objectContaining({ owner: otherOwner, code: 'schema.unresolvedType' }))
+    expect(tab.store.doc).toEqual(document)
+    expect(tab.store.canUndo).toBe(false)
+  })
+
   it('retains an explicitly selected catalog pack without registering its preview or changing other project extras', async () => {
     app = prepareWorkflowApp(new AppState())
     loadDinksterSchemas()

@@ -50,7 +50,7 @@
 }
 
 .sidebar-button:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: -1px;
 }
 
@@ -67,9 +67,13 @@
 
 .shell-region-icon-panel[data-active='true'] { fill: currentColor; }
 
+/* The bar is the whole frame strip left of the first panel: it takes the row's
+   6px gap into itself, so its buttons are centred in that strip. Its width is
+   the iconBarWidth token the top bar centres the logo on. */
 .left-sidebar {
-  width: 48px;
-  flex: 0 0 48px;
+  width: 54px;
+  flex: 0 0 54px;
+  margin-right: -6px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -90,7 +94,7 @@
 }
 
 .sidebar-toggle-stack::-webkit-scrollbar { display: none; }
-.sidebar-toggle-group { display: flex; flex-direction: column; gap: var(--dinkster-space-4); width: 100%; }
+.sidebar-toggle-group { display: flex; flex-direction: column; align-items: center; gap: var(--dinkster-space-4); width: 100%; }
 
 .sidebar-button {
   position: relative;
@@ -198,7 +202,7 @@
 .shell-panel-close:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
 .dock-close:focus-visible,
 .shell-panel-header-action:not(.product-button):focus-visible,
-.shell-panel-close:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: -1px; }
+.shell-panel-close:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: -1px; }
 
 .rail-panel-body { min-height: 0; padding: var(--dinkster-space-12); }
 
@@ -278,7 +282,7 @@
 .learn-back:focus-visible,
 .learn-load-more:focus-visible,
 .dinkster-markdown-template button:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: 1px;
 }
 
@@ -393,28 +397,35 @@
 .rail-resize { left: -6px; }
 .bottom-resize { top: -6px; left: 0; width: 100%; height: 6px; cursor: row-resize; }
 
-.dock-resize::after,
-.rail-resize::after,
-.bottom-resize::after { position: absolute; background: transparent; content: ''; }
-.dock-resize::after,
-.rail-resize::after { top: 0; bottom: 0; left: 2px; width: 3px; }
-.bottom-resize::after { right: 0; bottom: 2px; left: 0; height: 3px; }
-.dock-resize:hover::after,
-.rail-resize:hover::after,
-.bottom-resize:hover::after,
-.dock-resize:focus-visible::after,
-.rail-resize:focus-visible::after,
-.bottom-resize:focus-visible::after { background: var(--dinkster-border-focus); }
-.dock-resize:focus-visible,
-.rail-resize:focus-visible,
-.bottom-resize:focus-visible { outline: none; }
+.panel-resize-handle { --dinkster-resize-grip-position: 50%; touch-action: none; }
+.panel-resize-handle::before,
+.panel-resize-handle::after { position: absolute; pointer-events: none; background: transparent; content: ''; }
+.panel-resize-handle::after { top: 0; bottom: 0; left: 2px; width: var(--dinkster-border-width); }
+.panel-resize-handle::before {
+  z-index: 1;
+  top: clamp(var(--dinkster-space-24), var(--dinkster-resize-grip-position, 50%), calc(100% - var(--dinkster-space-24)));
+  left: var(--dinkster-border-width);
+  width: calc(var(--dinkster-border-width) * 3);
+  height: calc(var(--dinkster-space-32) + var(--dinkster-space-8));
+  border-radius: var(--dinkster-radius-small);
+  transform: translateY(-50%);
+}
+.panel-resize-handle[aria-orientation='horizontal']::after { top: 2px; right: 0; bottom: auto; left: 0; width: auto; height: var(--dinkster-border-width); }
+.panel-resize-handle[aria-orientation='horizontal']::before {
+  top: var(--dinkster-border-width);
+  left: clamp(var(--dinkster-space-24), var(--dinkster-resize-grip-position, 50%), calc(100% - var(--dinkster-space-24)));
+  width: calc(var(--dinkster-space-32) + var(--dinkster-space-8));
+  height: calc(var(--dinkster-border-width) * 3);
+  transform: translateX(-50%);
+}
+.panel-resize-handle:is(:hover, :active, :focus-visible)::after { background: var(--dinkster-border-hover); }
+.panel-resize-handle:is(:hover, :active, :focus-visible)::before { background: var(--dinkster-text-secondary); }
+.panel-resize-handle:focus-visible { outline: none; }
 
 /* Tabbed dock zone host (#105): one tab row with host-owned actions, one
    visible body. Hidden bodies stay mounted, so the panels keep state.
-   Tab overflow strategy (#121): tabs shrink to an ellipsis floor (full
-   title via product tooltip) and the actions keep their size; the strip
-   never scrolls, so no native scrollbar can render inside the row. Tabs
-   beyond the last complete floor are hidden and remain in the all-tabs menu. */
+   Complete titles and badges fit together or move to the all-tabs menu;
+   the active tab stays visible. The strip never scrolls. */
 .dock-zone { display: flex; flex: 1; min-height: 0; flex-direction: column; border-radius: inherit; background: var(--dinkster-surface-frame); }
 .dock-zone[data-zone='bottom'] { flex-direction: row; }
 .dock-zone-section { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; border-radius: 8px; background: var(--dinkster-surface-panel); }
@@ -432,12 +443,6 @@
   height: auto;
   cursor: col-resize;
 }
-.dock-section-divider::after { position: absolute; background: transparent; content: ''; }
-.dock-section-divider::after { top: 2px; right: 0; left: 0; height: 3px; }
-.dock-zone[data-zone='bottom'] .dock-section-divider::after { top: 0; bottom: 0; left: 2px; width: 3px; height: auto; }
-.dock-section-divider:hover::after,
-.dock-section-divider:focus-visible::after { background: var(--dinkster-border-focus); }
-.dock-section-divider:focus-visible { outline: none; }
 .dock-zone-tabs { display: flex; flex: 1; min-height: 0; flex-direction: column; }
 .dock-zone-tabs .product-tabs-header {
   display: flex;
@@ -447,17 +452,20 @@
 .dock-zone-tabs .product-tabs-header .product-tablist {
   flex: 1;
   min-width: 0;
+  padding: var(--dinkster-space-4);
   overflow: hidden;
   border-bottom: 0;
 }
-.dock-zone-tabs .product-tab { position: relative; min-width: 64px; border-radius: var(--dinkster-radius-control); background: transparent; border-color: transparent; }
+.dock-zone-tabs .product-tab { position: relative; flex: none; min-width: 64px; border-radius: var(--dinkster-radius-control); background: transparent; border-color: transparent; }
 .dock-zone-tabs .product-tab[aria-selected='true'] { color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); }
 .dock-zone-tabs .product-tab[aria-selected='true']::after { content: ''; position: absolute; right: 10px; bottom: -2px; left: 10px; height: 3px; border-radius: 3px; background: var(--dinkster-accent-foreground); pointer-events: none; }
-.dock-zone-tabs .product-tab:disabled { display: none; }
-/* Centre a label narrower than its tab, together with its badge; truncate the
-   title text, never the attention badge beside it. */
+.dock-zone-tabs .product-tab:disabled,
+.dock-zone-tabs .product-tab[hidden] { display: none; }
+.dock-zone-tabs .product-tab[data-dragged='true'] { display: none; }
+.panel-tab-drop-slot { flex: none; width: var(--tab-drag-width); min-height: var(--dinkster-control-compact-height); }
+/* Keep the whole title and its attention badge in the measured tab width. */
 .dock-zone-tabs .tab-title { display: flex; align-items: center; justify-content: center; }
-.dock-zone-tabs .tab-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-zone-tabs .tab-title-text { white-space: nowrap; }
 .dock-zone-tabs .tab-title .panel-indicator { flex: none; }
 .dock-zone-title-only > .product-tabs-header > .product-tablist { display: none; }
 .dock-zone-title-only > .product-tabs-header > .dock-zone-actions {
@@ -500,44 +508,39 @@
   cursor: grabbing;
 }
 .panel-drag-ghost,
-.panel-drag-target,
-.panel-drag-caret { position: fixed; box-sizing: border-box; }
+.panel-drag-target { position: fixed; box-sizing: border-box; }
 .panel-drag-ghost {
-  background: var(--dinkster-interaction-selected);
-  border: 1px dashed var(--dinkster-border-selected);
-  box-shadow: var(--dinkster-elevation-high);
-  opacity: 0.8;
+  background: color-mix(in srgb, var(--dinkster-interaction-hover) 55%, transparent);
+  border: 1px solid var(--dinkster-border-hover);
 }
-.panel-drag-ghost-active { opacity: 1; }
+.panel-drag-ghost-active { background: color-mix(in srgb, var(--dinkster-interaction-hover) 55%, transparent); }
 .panel-drag-target {
   display: grid;
   place-items: start center;
   padding: var(--dinkster-space-8);
-  color: var(--dinkster-accent-foreground);
-  background: color-mix(in srgb, var(--dinkster-interaction-selected) 58%, transparent);
-  border: 2px solid var(--dinkster-border-selected);
+  color: var(--dinkster-text-secondary);
+  background: color-mix(in srgb, var(--dinkster-interaction-hover) 55%, transparent);
+  border: 1px solid var(--dinkster-border-hover);
   border-radius: var(--dinkster-radius-control);
-  box-shadow: inset 0 0 0 1px var(--dinkster-surface-selected), var(--dinkster-elevation-high);
 }
+.panel-drag-target[data-slot-fallback='true'] { place-items: center; }
 .panel-drag-target[data-allowed='false'] {
   color: var(--dinkster-danger-foreground);
   background: color-mix(in srgb, var(--dinkster-danger-background) 72%, transparent);
   border-color: var(--dinkster-danger-border);
+  border-width: 2px;
+  box-shadow: inset 0 0 0 1px var(--dinkster-surface-selected), var(--dinkster-elevation-high);
 }
 .panel-drag-target-label {
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
   background: var(--dinkster-surface-raised);
-  border: 1px solid currentColor;
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-capsule);
   font-size: var(--dinkster-type-metadata-size);
   font-weight: var(--dinkster-weight-regular);
   line-height: var(--dinkster-type-metadata-line);
 }
-.panel-drag-caret {
-  background: var(--dinkster-border-selected);
-  border-radius: var(--dinkster-radius-capsule);
-  box-shadow: 0 0 0 1px var(--dinkster-surface-selected);
-}
+.panel-drag-target[data-allowed='false'] .panel-drag-target-label { border-color: currentColor; }
 body.panel-drag-active,
 body.panel-drag-active * { cursor: grabbing !important; }
 body.panel-drag-not-allowed,
@@ -551,19 +554,20 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   max-width: 220px;
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
   pointer-events: none;
-  color: var(--dinkster-text-primary);
+  color: var(--dinkster-text-secondary);
   background: var(--dinkster-surface-raised);
-  border: 1px solid var(--dinkster-border-selected);
+  border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
   box-shadow: var(--dinkster-elevation-high);
   font-size: var(--dinkster-type-metadata-size);
   line-height: var(--dinkster-type-metadata-line);
-  opacity: 0.85;
 }
+.tab-drag-ghost[data-active='true'] { color: var(--dinkster-text-primary); }
 .tab-drag-ghost[data-refused='true'] {
   color: var(--dinkster-danger-foreground);
   background: color-mix(in srgb, var(--dinkster-danger-background) 72%, var(--dinkster-surface-raised));
   border-color: var(--dinkster-danger-border);
+  opacity: 0.85;
 }
 .tab-drag-ghost-icon { display: inline-flex; flex: none; }
 .tab-drag-ghost-title {
@@ -572,7 +576,7 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   text-overflow: ellipsis;
 }
 .rail-section { padding: var(--dinkster-space-12); }
-.rail-section h2 { display: none; }
+.rail-section h2:not(.dinkster-confirmation > h2) { display: none; }
 
 .statusbar {
   display: flex;
@@ -636,11 +640,11 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
     bottom: 0;
     z-index: 20;
     min-width: 0;
-    width: calc(100vw - var(--dinkster-space-32) - var(--dinkster-space-16)) !important;
-    max-width: calc(100vw - var(--dinkster-space-32) - var(--dinkster-space-16));
+    width: calc(100vw - 54px) !important;
+    max-width: calc(100vw - 54px);
     box-shadow: var(--dinkster-elevation-high);
   }
-  .dock-panel { left: calc(var(--dinkster-space-32) + var(--dinkster-space-16)); }
+  .dock-panel { left: 54px; }
   .rail { right: 0; }
   /* Overlaid dock/rail surfaces cover the editors, but each group's tab
      strip must stay visible and reachable. Hide only the stages and
@@ -664,7 +668,6 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .engine-spinner { animation-duration: var(--dinkster-motion-reduced); }
   .canvas-file-drop-icon svg { animation: none !important; }
 }
 
@@ -728,15 +731,13 @@ section.editor-group:not(:only-of-type):not([data-focused='true']) .tab.active {
 }
 .editor-split-divider[data-direction='row'] { cursor: col-resize; }
 .editor-split-divider[data-direction='column'] { cursor: row-resize; }
-.editor-split-divider:hover,
-.editor-split-divider:focus-visible { background: var(--dinkster-border-focus); outline: none; }
 
 .editor-split-drop-preview {
   position: absolute;
   z-index: 9;
   pointer-events: none;
-  background: color-mix(in srgb, var(--dinkster-border-focus) 18%, transparent);
-  box-shadow: inset 0 0 0 2px var(--dinkster-border-focus);
+  background: color-mix(in srgb, var(--dinkster-interaction-hover) 55%, transparent);
+  box-shadow: inset 0 0 0 var(--dinkster-border-width) var(--dinkster-border-hover);
 }
 
 .activity-log {
@@ -763,7 +764,7 @@ section.editor-group:not(:only-of-type):not([data-focused='true']) .tab.active {
 }
 
 .activity-log-list:focus-visible {
-  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus);
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: -2px;
 }
 

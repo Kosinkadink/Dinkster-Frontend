@@ -6,8 +6,8 @@
  * Solid transform) can pin them directly - same split as combo-search.ts.
  */
 
-import type { Hit } from '@dinkster/canvas'
-import { outputsOf, supportsExpressionMirror, supportsGlslMirror, supportsOutputRepresentation, widgetRepresentationsOf, type MenuContext, type MenuItem, type MenuRegistry, type MenuTarget, type NodeSchema, type ResolvedMenuGroup, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
+import type { Hit, OccurrenceMutationPlanner, Scene } from '@dinkster/canvas'
+import { boundaryItems, constructsOf, coreCommandRegistry, createTransactionBuilder, effectiveOccurrenceTopology, executeCommand, isPortEndpoint, outputsOf, supportsExpressionMirror, supportsGlslMirror, supportsOutputRepresentation, widgetRepresentationsOf, type BoundaryBinding, type CommandInvocation, type Json, type LinkEndpoint, type MenuContext, type MenuItem, type MenuRegistry, type MenuTarget, type NodeSchema, type ResolvedMenuGroup, type SchemaResolver, type WidgetSpec, type WorkflowDocument } from '@dinkster/core'
 
 /** Where and on what the menu opened; anchored in canvas-pane CSS px. */
 export interface MenuAnchor {
@@ -16,6 +16,49 @@ export interface MenuAnchor {
   readonly worldX: number
   readonly worldY: number
   readonly groups: readonly ResolvedMenuGroup[]
+}
+
+/** Direct removal takes the member's wires with it; pack steps deliberately do not. */
+export function memberRemovalInvocation(
+  doc: WorkflowDocument,
+  schema: NodeSchema,
+  graphId: string,
+  nodeId: string,
+  construct: string,
+  member: string,
+): CommandInvocation | undefined {
+  const graph = doc.graphs[graphId]
+  if (graph === undefined) return undefined
+  const node = graph.nodes[nodeId]
+  if (node === undefined) return undefined
+  const spec = constructsOf(schema, node.dynamic).get(construct)
+  const members = node.dynamic?.[construct]?.members ?? []
+  if (spec?.kind !== 'group' || typeof spec.grows !== 'string' || !members.includes(member) || members.length <= spec.minMembers) return undefined
+  const prefix = `${construct}.${member}`
+  const touches = (end: LinkEndpoint | BoundaryBinding): boolean => {
+    if (!('node' in end) || end.node !== nodeId) return false
+    const port = 'tap' in end ? end.tap : 'port' in end ? end.port : undefined
+    return typeof port === 'string' && (port === prefix || port.startsWith(`${prefix}.`))
+  }
+  const invocations: CommandInvocation[] = []
+  for (const [linkId, link] of Object.entries(graph.links)) {
+    if (touches(link.from) || touches(link.to)) invocations.push({ command: 'link.disconnect', params: { graphId, linkId } })
+  }
+  for (const [netId, net] of Object.entries(graph.nets)) {
+    if (touches(net.source)) invocations.push({ command: 'net.remove', params: { graphId, netId } })
+    else for (const sink of net.sinks) {
+      if (touches(sink)) invocations.push({ command: 'net.disconnectInput', params: { graphId, to: { ...sink } } })
+    }
+  }
+  for (const side of ['inputs', 'outputs'] as const) {
+    for (const item of boundaryItems(graph.boundary, side)) {
+      for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+        if (touches(binding)) invocations.push({ command: 'boundary.unbind', params: { graphId, side, itemId: item.id, ...binding } })
+      }
+    }
+  }
+  invocations.push({ command: 'dynamic.removeMember', params: { graphId, nodeId, construct, member } })
+  return { command: 'batch', params: { invocations } as unknown as Json }
 }
 
 /** Flat item list (for keyboard nav); sep marks the first item of a later group. */
@@ -79,7 +122,7 @@ export function widgetRepresentationMenuGroup(input: {
     group: '45-widget-representation',
     items: [{
       id: 'core.widget.representation',
-      label: 'Representation',
+      label: 'Display',
       ...(input.disabled === undefined ? {} : { disabled: input.disabled }),
       children: set.representations.map((representation) => ({
         id: `core.widget.representation.${representation.id}`,
@@ -117,6 +160,78 @@ export function widgetRepresentationAddress(
     graphId: hit.row.familyOwner?.graphId ?? graphId,
     nodeId: hit.row.familyOwner?.nodeId ?? hit.node.id,
     inputId: hit.row.familyOwner?.valueKey ?? hit.row.valueKey,
+  }
+}
+
+/** A curve owns its histogram visibility, independently of its value's owner. */
+export function curveHistogramMenuGroup(input: {
+  readonly document: WorkflowDocument
+  readonly scene: Scene
+  readonly hit: Pick<Extract<Hit, { kind: 'widget' }>, 'node' | 'row' | 'bnode'>
+  readonly resolve: SchemaResolver
+  readonly planner?: OccurrenceMutationPlanner
+  readonly disabled: boolean
+}): ResolvedMenuGroup | undefined {
+  const { document, scene, hit } = input
+  const histogram = hit.row.histogram
+  if (hit.bnode !== undefined || histogram === undefined) return undefined
+  const graphId = scene.graphId
+  const nodeId = hit.node.id
+  const valueKey = hit.row.valueKey
+  const shown = histogram.connected ||
+    (document.view.graphs[graphId]?.nodes[nodeId]?.histogramVisibility?.[valueKey] ?? hit.row.spec.options['histogramVisible']) !== false
+  const invocations: CommandInvocation[] = []
+  let disabledReason: string | undefined
+  if (shown && histogram.connected) {
+    if (scene.occurrence !== undefined) {
+      const effective = effectiveOccurrenceTopology(document, input.resolve, scene.occurrence.owner)
+      const links = [...effective.links, ...effective.projectedParentLinks].filter((link) =>
+        link.to.graphId === graphId && isPortEndpoint(link.to.endpoint) && link.to.endpoint.node === nodeId && link.to.endpoint.port === histogram.portId)
+      // Each trusted plan fingerprints the document after earlier removals.
+      // Nothing is published until the complete batch is dispatched.
+      const tx = createTransactionBuilder(document)
+      const registry = coreCommandRegistry([], input.resolve)
+      disabledReason = effective.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message
+      if (links.length === 0) disabledReason ??= 'The histogram connection cannot be resolved.'
+      for (const link of links) {
+        if (disabledReason !== undefined) break
+        const planned = input.planner?.planOccurrenceLinkMutation(tx.current, input.resolve, {
+          kind: 'disconnect', ...scene.occurrence, link: link.identity,
+        })
+        if (planned === undefined || !planned.ok) {
+          disabledReason = planned === undefined ? 'Occurrence-local link editing is unavailable.' : planned.diagnostics[0]?.message ?? 'The histogram connection cannot be resolved.'
+          break
+        }
+        const diagnostics = executeCommand(registry.get(planned.invocation.command)!, tx.current, planned.invocation.params, tx, { kind: 'initial' })
+        disabledReason = diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message
+        invocations.push(planned.invocation)
+      }
+    } else {
+      const graph = document.graphs[graphId]!
+      const targetsHistogram = (end: { readonly node: string; readonly port: string }) => end.node === nodeId && end.port === histogram.portId
+      for (const link of Object.values(graph.links)) {
+        if (isPortEndpoint(link.to) && targetsHistogram(link.to)) invocations.push({ command: 'link.disconnect', params: { graphId, linkId: link.id } })
+      }
+      if (Object.values(graph.nets).some((net) => net.sinks.some(targetsHistogram))) {
+        invocations.push({ command: 'net.disconnectInput', params: { graphId, to: { node: nodeId, port: histogram.portId } } })
+      }
+      for (const item of boundaryItems(graph.boundary, 'inputs')) {
+        if ([item.binds, ...(item.alsoBinds ?? [])].some((binding) => binding.kind === 'port' && targetsHistogram(binding))) {
+          invocations.push({ command: 'boundary.unbind', params: { graphId, side: 'inputs', itemId: item.id, node: nodeId, port: histogram.portId } })
+        }
+      }
+      if (invocations.length === 0) disabledReason = 'The histogram connection cannot be resolved.'
+    }
+  }
+  invocations.push({ command: 'view.setHistogramVisible', params: { graphId, nodeId, valueKey, visible: !shown } })
+  return {
+    group: '45-curve-histogram',
+    items: [{
+      id: 'core.widget.histogramVisibility', label: shown ? 'Hide histogram input' : 'Show histogram input',
+      disabled: input.disabled || disabledReason !== undefined,
+      ...(disabledReason === undefined ? {} : { disabledReason }),
+      action: { kind: 'command', invocation: invocations.length === 1 ? invocations[0]! : { command: 'batch', params: { invocations: invocations as unknown as Json } } },
+    }],
   }
 }
 
@@ -264,12 +379,27 @@ export function menuTargetOf(hit: Hit): MenuTarget {
           ? { synthetic: true as const }
           : {}),
       }
-    case 'widget':
+    case 'widget': {
       // A field on a subgraph's Inputs panel belongs to the panel, which has
       // no menu of its own. An editor row stores nothing of its own: it opens
       // the node's menu.
       if (hit.bnode !== undefined) return { kind: 'canvas' }
-      return hit.row.editor === true ? { kind: 'node', nodeId: hit.node.id } : widgetMenuTarget(hit.node.id, hit.row)
+      if (hit.row.editor === true) return { kind: 'node', nodeId: hit.node.id }
+      const index = hit.node.layout.rows.indexOf(hit.row)
+      const line = hit.node.layout.lines?.find((line) => index >= line.first && index <= line.last)
+      return {
+        ...widgetMenuTarget(hit.node.id, hit.row),
+        ...(line === undefined ? {} : { line: { key: line.key, folded: line.folded } }),
+      }
+    }
+    case 'line':
+      return { kind: 'line', nodeId: hit.node.id, key: hit.line.key, folded: hit.line.folded }
+    case 'button': {
+      const index = hit.node.layout.rows.indexOf(hit.row)
+      const line = hit.node.layout.lines?.find((line) => index >= line.first && index <= line.last)
+      return line === undefined ? { kind: 'node', nodeId: hit.node.id }
+        : { kind: 'line', nodeId: hit.node.id, key: line.key, folded: line.folded }
+    }
     case 'growth':
       return { kind: 'growth', nodeId: hit.node.id, construct: hit.row.construct }
     case 'section':

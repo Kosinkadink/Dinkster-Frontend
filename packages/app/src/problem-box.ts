@@ -2,7 +2,7 @@ import { outputRowKey, type SceneNode } from '@dinkster/canvas'
 import type { NodeProblemKind, NodeProblemLine } from './problem-display.js'
 
 /** What a line in the node's box offers; none of them fetches anything by itself. */
-export type ProblemBoxAction = 'edit-field' | 'locate-asset'
+export type ProblemBoxAction = 'edit-field' | 'locate-asset' | 'review-model' | 'model-management' | 'model-storage'
 
 /** One line in a node's problem box: one cause, with its row's name and its actions. */
 export interface ProblemBoxLine {
@@ -63,17 +63,29 @@ export function problemBoxLines(
     .map(({ problem }) => {
       const row = problem.row === undefined ? undefined : rows.find((candidate) => candidate.key === problem.row)
       const diagnostic = problem.diagnostic
+      const nodeMessage = diagnostic.data?.['nodeMessage']
       const actions: ProblemBoxAction[] = diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'
         ? ['locate-asset']
+        : diagnostic.code.startsWith('model.availability.') && typeof diagnostic.data?.['input'] === 'string'
+          ? [
+            ...(diagnostic.code === 'model.availability.missing' && diagnostic.data['plannable'] === true ? ['review-model' as const] : []),
+            ...(diagnostic.code === 'model.availability.model-hidden' ? ['model-management' as const] : []),
+            ...(diagnostic.code === 'model.availability.folder-disabled' ? ['model-storage' as const] : []),
+            'locate-asset',
+          ]
         : row?.field === true ? ['edit-field'] : []
       return {
         key: JSON.stringify([problem.row ?? null, diagnostic.code, diagnostic.message]),
         kind: problem.kind,
-        ...(problem.row === undefined ? {} : { row: problem.row, rowName: row?.name ?? rowName(problem.row) }),
-        message: display(problem),
+        ...(problem.row === undefined ? {} : {
+          row: problem.row,
+          ...(typeof nodeMessage === 'string' ? {} : { rowName: row?.name ?? rowName(problem.row) }),
+        }),
+        ...(diagnostic.code === 'compile.input.missing' && diagnostic.hiddenRequiredField !== undefined
+          ? { rowName: diagnostic.hiddenRequiredField } : {}),
+        message: typeof nodeMessage === 'string' ? nodeMessage : display(problem),
         actions,
         problem,
       }
     })
 }
-

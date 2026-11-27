@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 
 import { asConnectionId, asLineageId, asPromptId, type CompileArtifact, type ExecutionRef } from '@dinkster/core'
-import type { ExecutionState } from '@dinkster/client'
-import { createSignal } from 'solid-js'
+import type { ExecutionState, SupervisorStatus } from '@dinkster/client'
+import { Show, createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkflowQueueControl, type WorkflowQueueOwner } from '../src/WorkflowQueueControl.js'
 import { executionActivity } from '../src/execution-activity.js'
+import { EngineRunControl } from '../src/EngineRunControl.js'
 
 const connection = asConnectionId('local')
 
@@ -55,6 +56,42 @@ const listedJobs = (root: HTMLElement): string =>
   [...root.querySelectorAll('.execution-open')].map((button) => button.getAttribute('aria-label')).join(' ')
 
 describe('WorkflowQueueControl', () => {
+  it('replaces Run through engine transitions and hides failed lists without removing running progress', () => {
+    const alpha = owner('alpha', 'Alpha workflow')
+    const [status, setStatus] = createSignal<SupervisorStatus>({ protocol: 1, state: 'ready' })
+    const root = document.createElement('div')
+    document.body.append(root)
+    const entry = execution(alpha, 'alpha-run', 'running', 1)
+    const running = { ...entry, artifact: { ...entry.artifact!, prompt: { a: { class_type: 'Test', inputs: {} } } } }
+    const unmount = render(() => <WorkflowQueueControl owner={alpha}
+      executions={[running]}
+      canQueue={status().state === 'ready'} onQueue={() => undefined} onCancel={() => undefined}
+      onOpenExecution={() => undefined} hideRunList={status().state === 'failed'}
+      runControl={<Show when={status().state !== 'ready'}>
+        <EngineRunControl status={status()} baseUrl="" onRestart={async () => undefined} />
+      </Show>} />, root)
+    expect(root.querySelector('[data-testid="queue-button"]')).not.toBeNull()
+    for (const state of ['stopped', 'starting'] as const) {
+      setStatus({ protocol: 1, state })
+      expect(root.querySelector('[data-testid="queue-button"]')).toBeNull()
+      expect(root.textContent).toContain(state === 'stopped' ? 'Start engine' : 'Starting engine')
+      expect(root.querySelector('[data-testid="workflow-queue-toggle"]')).not.toBeNull()
+    }
+    root.querySelector<HTMLButtonElement>('[data-testid="workflow-queue-toggle"]')!.click()
+    expect(root.querySelector('[role="region"]')).not.toBeNull()
+    setStatus({ protocol: 1, state: 'failed' })
+    expect(root.textContent).toContain('Engine failed')
+    expect(root.querySelector('[data-testid="workflow-queue-toggle"]')).toBeNull()
+    expect(root.querySelector('[data-testid="workflow-cancel"]')).toBeNull()
+    expect(root.querySelector('[role="region"]')).toBeNull()
+    expect(root.querySelector('[data-testid="workflow-progress"]')).not.toBeNull()
+    setStatus({ protocol: 1, state: 'ready' })
+    expect(root.querySelector('[data-testid="queue-button"]')).not.toBeNull()
+    expect(root.querySelector('[data-testid="workflow-queue-toggle"]')).not.toBeNull()
+    expect(root.querySelector('[role="region"]')).toBeNull()
+    unmount()
+  })
+
   it('counts concurrent running and waiting jobs separately across workflow scopes', () => {
     const alpha = owner('alpha', 'Alpha workflow')
     const beta = owner('beta', 'Beta workflow')

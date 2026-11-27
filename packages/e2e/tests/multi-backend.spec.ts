@@ -8,7 +8,7 @@
  * than one exists, and outputs always route through the execution's OWN
  * backend - including after that backend is removed.
  */
-import { expect, selectProductOption, test, type Page } from './fixtures.js'
+import { expect, inspectRun, selectProductOption, test, type Page } from './fixtures.js'
 
 
 const secondBackend = process.env['DINKSTER_E2E_NATIVE_FRONTEND']
@@ -34,8 +34,8 @@ async function addSecondBackend(page: Page): Promise<void> {
   await page.getByTestId('backend-add').click()
   const rows = page.getByTestId('backend-row')
   await expect(rows).toHaveCount(2)
-  await expect(rows.nth(1)).toContainText(/\d+ available/, { timeout: 15_000 })
-  await expect(rows.nth(1)).toContainText('Connected', { timeout: 15_000 })
+  await expect(rows.nth(1)).toContainText(/\d+ node types?/, { timeout: 15_000 })
+  await expect(rows.nth(1)).toHaveAttribute('data-status', 'connected', { timeout: 15_000 })
 }
 
 const executionConnections = (page: Page) =>
@@ -61,7 +61,7 @@ test('single backend omits targeting and execution groups but keeps its connecti
 test('adding a backend connects it and reveals per-tab targeting', async ({ page }) => {
   await addSecondBackend(page)
   const rows = page.getByTestId('backend-row')
-  await expect(rows.nth(1)).toContainText('Connected', { timeout: 15_000 })
+  await expect(rows.nth(1)).toHaveAttribute('data-status', 'connected', { timeout: 15_000 })
   // Targeting appears while the connection item keeps the active backend label.
   await expect(page.getByTestId('tab-target')).toBeVisible()
   await expect(page.getByTestId('status-connection').locator('.status-connection-name')).toHaveText('Local')
@@ -112,7 +112,7 @@ test('frozen views route outputs through the run backend, surviving removal', as
   expect(run.connection).toBe(secondBackend)
 
   // Open the frozen view of the second-origin run.
-  await page.getByTestId('execution-row').first().locator('.runs-details > summary').click()
+  await inspectRun(page.getByTestId('execution-row').first())
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
   await expect(page.getByTestId('status-connection').locator('.status-connection-name')).toHaveText(secondBackendLabel)
   await page.getByRole('tab', { name: 'Runs', exact: true }).click()

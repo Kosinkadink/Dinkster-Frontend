@@ -14,6 +14,22 @@ const SELECTION_DEFAULTS: Record<string, string> = {
 
 describe('Dinkster schema wire', () => {
 
+  it('keeps portable Mount inputs and their legacy string union without accepting other sockets', () => {
+    const decode = (type: unknown) => parseDinksterSchema('Save', { body: [
+      { kind: 'input', id: 'mount', type, required: false, default: null, widget: { type: 'MOUNT' } },
+    ] } as never)
+    for (const type of [concrete('MOUNT'), concrete('STRING'),
+      { kind: 'union', types: ['MOUNT', 'STRING'] }, { kind: 'union', types: ['STRING', 'MOUNT'] }]) {
+      const { schema, diagnostics } = decode(type)
+      expect(diagnostics).toEqual([])
+      expect(inputsOf(schema!)[0]).toMatchObject({ id: 'mount', widget: { widgetType: 'MOUNT', default: null } })
+    }
+    for (const type of [concrete('INT'), { kind: 'union', types: ['MOUNT', 'INT'] },
+      { kind: 'union', types: ['MOUNT', 'STRING', 'INT'] }, { kind: 'list', element: concrete('MOUNT') }]) {
+      expect(decode(type).schema).toBeUndefined()
+    }
+  })
+
   it('decodes a Switch selector as its pick and group of branches, and refuses the two-branch form', () => {
     // The engine's schema_to_wire output for a Switch.
     const body = [
@@ -60,6 +76,25 @@ describe('Dinkster schema wire', () => {
     expect(count!['displayName']).toBeUndefined()
     expect(plain).toMatchObject({ displayName: 'Plain', visible: false })
     expect(out).toMatchObject({ labelFormula: { formula: 'mode' }, visible: false })
+  })
+
+  it('keeps read-only, disabled and the reason on an input as declared, literal or formula', () => {
+    const { schema, diagnostics } = parseDinksterSchema('Blocked', { body: [
+      { kind: 'input', id: 'x', type: concrete('INT'), readOnly: { formula: 'locked' } },
+      { kind: 'input', id: 'y', type: concrete('INT'), disabled: true, disabledReason: 'Set by the preset' },
+      { kind: 'input', id: 'z', type: concrete('INT'), disabled: { formula: 'x > 0' }, disabledReason: { formula: 'reason' } },
+      { kind: 'input', id: 'plain', type: concrete('INT') },
+    ] } as never)
+    expect(diagnostics).toEqual([])
+    const [x, y, z, plain] = schema!.body as unknown as Record<string, unknown>[]
+    expect(x).toMatchObject({ readOnly: { formula: 'locked' } })
+    expect(x).not.toHaveProperty('disabled')
+    expect(y).toMatchObject({ disabled: true, disabledReason: 'Set by the preset' })
+    expect(y).not.toHaveProperty('readOnly')
+    expect(z).toMatchObject({ disabled: { formula: 'x > 0' }, disabledReason: { formula: 'reason' } })
+    for (const key of ['readOnly', 'disabled', 'disabledReason']) expect(plain).not.toHaveProperty(key)
+    const wrong = parseDinksterSchema('Wrong', { body: [{ kind: 'input', id: 'x', type: concrete('INT'), readOnly: 'yes' }] } as never)
+    expect(wrong.schema).toBeUndefined()
   })
 
   it.each([
@@ -399,7 +434,7 @@ describe('Dinkster schema wire', () => {
     const nested = { ...imported.document!, graphs: {
       g0: { ...graph, nodes: { a: instance('a', ['Detailed', 'Quick']), b: instance('b', ['Fine', 'Detailed']) } },
       soften: { ...graph, id: asGraphDefId('soften'), name: 'soften', nodes: { inner }, boundary: {
-        inputs: [{ id: 'choice', binds: { kind: 'port', node: 'inner', port: 'choice' }, promoted: true }], outputs: [],
+        body: [{ kind: 'input', id: 'choice', binds: { kind: 'port', node: 'inner', port: 'choice' }, promoted: true }],
       } },
     } }
     const compiledNested = compile({ document: nested as never, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('authored'), schemaHash: 'authored' })
@@ -657,6 +692,36 @@ describe('Dinkster schema wire', () => {
     const [tied, plain] = inputsOf(decoded.schema!)
     expect(tied!.widget!.options).toEqual({ inputStrip: ['#000000', '#ffffff'], histogram: 'bins' })
     expect(plain!.widget!.options).toEqual({})
+    for (const interpolations of [['step'], ['step', 'linear']]) {
+      const restricted = parseDinksterSchema('RestrictedCurve', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('curve', { interpolations })],
+      })
+      expect(restricted.diagnostics).toEqual([])
+      expect(inputsOf(restricted.schema!)[0]!.widget!.options).toEqual({ interpolations })
+    }
+    for (const interpolations of [null, 'step', [], ['step', 'step'], ['unknown'], [1]]) {
+      const rejected = parseDinksterSchema('BadCurve', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('curve', { interpolations })],
+      })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('interpolations must be distinct supported kinds') })])
+    }
+    for (const histogramVisible of [false, true]) {
+      const visible = parseDinksterSchema('Curves', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+        body: [curve('curve', { histogram: 'bins', histogramVisible }),
+          { kind: 'input', id: 'bins', type: concrete('HISTOGRAM'), required: false }],
+      })
+      expect(visible.diagnostics).toEqual([])
+      expect(inputsOf(visible.schema!)[0]!.widget!.options).toEqual({ histogram: 'bins', histogramVisible })
+    }
+    for (const histogramVisible of [null, 0, 1, 'false']) {
+      const rejected = parseDinksterSchema('BadCurve', {
+        schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('curve', { histogramVisible })],
+      })
+      expect(rejected.schema).toBeUndefined()
+      expect(rejected.diagnostics).toEqual([expect.objectContaining({ severity: 'error', message: expect.stringContaining('histogramVisible must be a boolean') })])
+    }
     for (const bad of ['', 3]) {
       const rejected = parseDinksterSchema('BadCurve', { schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, body: [curve('c', { histogram: bad })] })
       expect(rejected.schema).toBeUndefined()

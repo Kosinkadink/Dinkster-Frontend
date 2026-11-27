@@ -18,6 +18,7 @@ export interface WorkflowTabItem {
   readonly id: string
   readonly title: string
   readonly editorKind?: string
+  readonly icon?: Parameters<typeof ProductRunIcon>[0]['icon']
 }
 
 export type TabRunState = 'idle' | 'queued' | 'running' | 'finished' | 'failed'
@@ -36,8 +37,11 @@ const kindIcon = (kind: string | undefined) => {
 export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly tabs: readonly T[]
   readonly activeId: string
+  /** Accessible name for a mixed strip of workflows and pages. */
+  readonly label?: string
   readonly draggedId?: string | undefined
   readonly insertionIndex?: number | undefined
+  readonly dropIndex?: number | undefined
   readonly runState?: ((tab: T) => TabRunState) | undefined
   readonly isDirty: (tab: T) => boolean
   readonly isFrozen: (tab: T) => boolean
@@ -103,7 +107,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
           action: { kind: 'host', action: 'workflow.duplicate' }, disabled: props.onDuplicate === undefined },
       ],
     } satisfies ResolvedMenuGroup] : []),
-    {
+    ...(tab.editorKind !== 'page' ? [{
           group: 'workflow-placement',
           items: [
             ...(props.onSplitRight !== undefined
@@ -136,8 +140,8 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             { id: 'workflow.share', label: message('shell.workflowTabs.share'),
               action: { kind: 'host', action: 'workflow.share' }, disabled: !props.canShare(tab) },
           ],
-    },
-    {
+    } satisfies ResolvedMenuGroup] : []),
+    ...(tab.editorKind !== 'page' ? [{
       group: 'workflow-settings',
       items: [
         ...(props.previews !== undefined && props.onSetPreviews !== undefined ? [{
@@ -160,7 +164,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
           } satisfies MenuActionItem)),
         } satisfies MenuSubmenuItem] : []),
       ],
-    },
+    } satisfies ResolvedMenuGroup] : []),
     {
       group: 'workflow-close',
       items: [
@@ -241,13 +245,16 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
       ref={(root) => props.setRoot(root)}
       classList={{ 'workflow-tabs': true, 'tab-dragging': props.draggedId !== undefined }}
       data-testid="tab-bar"
-      aria-label={message('shell.workflowTabs.documents')}
+      aria-label={props.label ?? message('shell.workflowTabs.documents')}
     >
       {/* Keep close/new buttons outside the tablist without changing visual scroll order. */}
-      <div class="visually-hidden" role="tablist" aria-label={message('shell.workflowTabs.openWorkflows')}
+      <div class="visually-hidden" role="tablist" aria-label={props.label ?? message('shell.workflowTabs.openWorkflows')}
         aria-owns={props.tabs.map((tab) => workflowTabDomId(tab.id)).join(' ')} />
       <div class="workflow-tablist">
-        <For each={props.tabs}>{(tab) => (
+        <For each={props.tabs}>{(tab, index) => (<>
+          <Show when={props.dropIndex === index()}>
+            <div class="tab-drop-slot" aria-hidden="true" />
+          </Show>
           <div
             classList={{
               tab: true,
@@ -279,7 +286,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             {props.renderLeading?.(tab)}
             <Show when={renaming() !== tab.id} fallback={<span class="tab-select">
               <ProductRunIcon
-                icon={props.isFrozen(tab) ? Snowflake : kindIcon(tab.editorKind)}
+                icon={props.isFrozen(tab) ? Snowflake : tab.icon ?? kindIcon(tab.editorKind)}
                 running={props.runState?.(tab) === 'running'}
                 queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
@@ -318,7 +325,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               onKeyDown={(event) => onTabKeyDown(event, tab)}
             >
               <ProductRunIcon
-                icon={props.isFrozen(tab) ? Snowflake : kindIcon(tab.editorKind)}
+                icon={props.isFrozen(tab) ? Snowflake : tab.icon ?? kindIcon(tab.editorKind)}
                 running={props.runState?.(tab) === 'running'}
                 queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
@@ -345,7 +352,10 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               </button>
             </span>
           </div>
-        )}</For>
+        </>)}</For>
+        <Show when={props.dropIndex === props.tabs.length}>
+          <div class="tab-drop-slot" aria-hidden="true" />
+        </Show>
         <Show when={props.showNew !== false}><button
           class="tab-new"
           data-testid="new-tab"

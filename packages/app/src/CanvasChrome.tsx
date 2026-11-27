@@ -1,11 +1,11 @@
-import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, For, on, onCleanup, Show, type JSX } from 'solid-js'
 import type { CommandOutcome } from '@dinkster/core'
 import { AppWindow, Bookmark, ChevronDown, Focus, Frame, Layers, Map as MapIcon, MessageCircleWarning, Palette, Route, Workflow, type LucideIcon } from 'lucide-solid'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from './editors.js'
 import { Icon } from './Icon.js'
 import { useAppMessage } from './locale.js'
 import { ProductButton, ProductTextInput } from './ProductControls.js'
-import { CanvasClosedRow } from '@dinkster/ui'
+import { CanvasClosedRow, ProductShortcut } from '@dinkster/ui'
 import { ProductNotice } from './ProductForm.js'
 
 /**
@@ -174,6 +174,7 @@ export function CanvasCornerControls(props: {
   readonly shortcuts?: { readonly zoomIn?: string | undefined; readonly zoomOut?: string | undefined }
   readonly ref?: (element: HTMLDivElement) => void
   readonly minimapRef?: (element: HTMLCanvasElement) => void
+  readonly children?: JSX.Element
   readonly onToggleMinimap: () => void
   readonly onToggleSetting: (id: string) => void
   readonly onOpenMenu: (menu: CanvasCornerMenu) => void
@@ -224,6 +225,7 @@ export function CanvasCornerControls(props: {
   })
   return (
     <div ref={props.ref} class="canvas-corner-controls" data-minimap-size={props.size} data-menu-open={props.menu === undefined ? undefined : 'true'}>
+      {props.children}
       <canvas
         ref={props.minimapRef}
         class="minimap"
@@ -297,8 +299,8 @@ export function CanvasCornerControls(props: {
                   onOpen={() => startTyping()}
                   onStep={(direction) => props.onZoomBy(direction > 0 ? 1.2 : 1 / 1.2)}
                   steps={{
-                    decrease: { label: message('canvas.corner.zoomOut'), detail: props.shortcuts?.zoomOut },
-                    increase: { label: message('canvas.corner.zoomIn'), detail: props.shortcuts?.zoomIn },
+                    decrease: { label: message('canvas.corner.zoomOut'), shortcut: props.shortcuts?.zoomOut },
+                    increase: { label: message('canvas.corner.zoomIn'), shortcut: props.shortcuts?.zoomIn },
                   }}
                 />
               }>
@@ -321,8 +323,8 @@ export function CanvasCornerControls(props: {
                 </label>
               </Show>
             </div>
-            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-in" onClick={() => props.onZoomBy(1.2)}><span>{message('canvas.corner.zoomIn')}</span><Show when={props.shortcuts?.zoomIn}>{(keys) => <span class="menu-shortcut">{keys()}</span>}</Show></ProductButton>
-            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-out" onClick={() => props.onZoomBy(1 / 1.2)}><span>{message('canvas.corner.zoomOut')}</span><Show when={props.shortcuts?.zoomOut}>{(keys) => <span class="menu-shortcut">{keys()}</span>}</Show></ProductButton>
+            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-in" onClick={() => props.onZoomBy(1.2)}><span>{message('canvas.corner.zoomIn')}</span><Show when={props.shortcuts?.zoomIn}>{(keys) => <span class="menu-shortcut"><ProductShortcut keys={keys()} /></span>}</Show></ProductButton>
+            <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-out" onClick={() => props.onZoomBy(1 / 1.2)}><span>{message('canvas.corner.zoomOut')}</span><Show when={props.shortcuts?.zoomOut}>{(keys) => <span class="menu-shortcut"><ProductShortcut keys={keys()} /></span>}</Show></ProductButton>
             <ProductButton variant="ghost" type="button" role="menuitem" data-testid="canvas-zoom-reset" onClick={() => { props.onZoomTo(1); props.onCloseMenu() }}><span>{message('canvas.corner.zoomReset')}</span></ProductButton>
           </div>
         </Show>

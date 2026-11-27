@@ -30,6 +30,21 @@ const line = (kind: 'error' | 'warning', code: string, row?: string): NodeProble
 })
 
 describe('problemBoxLines', () => {
+  it('names a solver row once while retaining its identity and field action', () => {
+    const problem: NodeProblemLine = {
+      kind: 'warning', row: 'width',
+      diagnostic: diag('warning', 'schema', 'solve.linkMismatch', 'Generate image: Width needs a whole number, but Load image sends an image.', {
+        data: { nodeMessage: 'Width needs a whole number, but Load image sends an image.' },
+      }),
+    }
+    const [shown] = problemBoxLines([problem], problemBoxRows(node), (row) => row, () => 'Panel-only text')
+    expect(shown).toMatchObject({
+      row: 'width', message: 'Width needs a whole number, but Load image sends an image.',
+      kind: 'warning', actions: ['edit-field'], problem,
+    })
+    expect(shown?.rowName).toBeUndefined()
+  })
+
   it('lists the whole node first, then rows top to bottom, strongest first on a row', () => {
     const lines = problemBoxLines([
       line('warning', 'steps.max', 'steps'),
@@ -104,7 +119,9 @@ describe('problemBoxPlacement', () => {
     expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 3 }, 1200)?.maxWidth).toBe(400)
     // A pane narrower than 400 + 2 * 16 keeps 16 px at each side.
     expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 1 }, 300)?.maxWidth).toBe(268)
-    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.5 }, 1200)).toBeDefined()
-    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.49 }, 1200)).toBeUndefined()
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.3 }, 1200)).toBeDefined()
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.29 }, 1200)).toBeUndefined()
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.6 }, 1200, 0.6)).toBeDefined()
+    expect(problemBoxPlacement(node, [], { x: 0, y: 0, scale: 0.5 }, 1200, 0.6)).toBeUndefined()
   })
 })

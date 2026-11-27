@@ -7,7 +7,6 @@ import { MultiComboWidgetEditor } from './MultiComboWidgetEditor.js'
 import { MarkdownWidgetEditor } from './MarkdownWidgetEditor.js'
 import { MountWidgetEditor } from './MountWidgetEditor.js'
 import { PainterWidgetEditor } from './PainterWidgetEditor.js'
-import { ResolutionWidgetEditor } from './ResolutionWidgetEditor.js'
 import { SaveTargetWidgetEditor } from './SaveTargetWidgetEditor.js'
 import { ScalarWidgetEditor } from './ScalarWidgetEditor.js'
 import { VideoEditWidgetEditor } from './VideoEditWidgetEditor.js'
@@ -26,7 +25,6 @@ const coreWidgetEditors = new Map<string, unknown>([
   ['VIDEO_EDIT', VideoEditWidgetEditor],
   ['BOUNDING_BOX', BoundingBoxWidgetEditor],
   ['PAINTER', PainterWidgetEditor],
-  ['RESOLUTION_PREVIEW', ResolutionWidgetEditor],
   ['SAVE_TARGET', SaveTargetWidgetEditor],
 ])
 

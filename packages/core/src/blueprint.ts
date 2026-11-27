@@ -16,7 +16,7 @@
  */
 
 import { diag, type Diagnostic } from './diagnostics.js'
-import { FORMAT_VERSION, type GraphDef, type GraphViewState, type Json, type WorkflowDocument } from './format/document.js'
+import { boundaryItems, FORMAT_VERSION, type GraphDef, type GraphViewState, type Json, type WorkflowDocument } from './format/document.js'
 import type { GraphDefId, LineageId } from './ids.js'
 import { subgraphDefIdOf } from './invariants.js'
 
@@ -74,7 +74,7 @@ export function blueprintFromSubgraph(
     if (gv !== undefined) view[defId] = gv
   }
   const innerNodes = { ...rootDef.nodes }
-  for (const item of rootDef.boundary.inputs) {
+  for (const item of boundaryItems(rootDef.boundary, 'inputs')) {
     if (item.binds.kind !== 'port' || item.promoted !== true || !Object.hasOwn(node.values, item.id)) continue
     const inner = innerNodes[item.binds.node]
     if (inner === undefined) continue

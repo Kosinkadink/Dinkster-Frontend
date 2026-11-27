@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { noEngineOpen, type MemoryStatus } from '@dinkster/client'
-import { ProductRunActivity, ProductRunIcon } from '@dinkster/ui'
+import { ProductFixesCount, ProductRunActivity, ProductRunIcon } from '@dinkster/ui'
 import Workflow from 'lucide-solid/icons/workflow'
 import Snowflake from 'lucide-solid/icons/snowflake'
 import Download from 'lucide-solid/icons/download'
@@ -120,6 +120,14 @@ export function StatusBar(props: {
   const backends = useSignal(props.app.backends)
   const backendTick = useSignal(props.app.backendsTick)
   const settings = useSignal(props.app.settings.changed)
+  const adjustmentNotices = useSignal(props.app.adjustmentNotices)
+  // After its cross, the notice leaves only this count until the workflow is saved or closed.
+  const adjusted = () => {
+    const tab = props.tab()
+    const notice = tab === undefined ? undefined : adjustmentNotices().get(tab.id)
+    if (notice === undefined || !notice.dismissed) return 0
+    return notice.adjustments.reduce((total, adjustment) => total + adjustment.count, 0)
+  }
   const [tasks, setTasks] = createSignal<ReadonlyMap<string, readonly BackgroundTask[]>>(new Map())
   const allTasks = createMemo(() => [...tasks().values()].flat())
   const workflowTab = () => {
@@ -151,9 +159,19 @@ export function StatusBar(props: {
   const runLabel = () => `${props.tab()?.title}: ${busy() ? activityLabel() : message('shell.status.noActivity')}${props.tab()?.execution === undefined ? '' : ` - ${message('shell.status.frozen')}`}${runWords() === '' ? '' : ` - ${runWords()}`}`
   const connection = () => {
     backendTick()
-    return noEngineOpen(props.backend().supervisor.get()) ? 'no-engine' : backendConnectionStatus(props.backend())
+    const supervisor = props.backend().supervisor.get()
+    if (noEngineOpen(supervisor) || supervisor?.state === 'stopped') return 'no-engine'
+    if (supervisor?.state === 'starting' || supervisor?.state === 'failed') return supervisor.state
+    return backendConnectionStatus(props.backend())
   }
-  const connectionWords = () => connection() === 'no-engine' ? message('shell.status.noEngine') : connection()
+  const connectionWords = () => {
+    switch (connection()) {
+      case 'no-engine': return message('shell.engine.notRunning')
+      case 'starting': return message('shell.engine.starting')
+      case 'failed': return message('shell.engine.failed')
+      default: return connection()
+    }
+  }
   const connectionLabel = () => `${props.backend().label}: ${connectionWords()}`
   const backgroundLabel = () => allTasks().map((task) => `${task.backend}: ${task.text}`).join('; ')
   let footer!: HTMLElement
@@ -198,12 +216,18 @@ export function StatusBar(props: {
         <Show when={props.problems()}>{(problem) => <ProductButton variant="ghost" size="compact" class="status-item status-problems"
           data-testid="status-problems" data-severity={problem().severity} aria-label={problem().label} data-tooltip-label={problem().label}
           onClick={() => props.openPanel('problems')}>{message('shell.status.problemCount', { count: problem().count })}</ProductButton>}</Show>
+        <Show when={adjusted() > 0}>
+          <span class="status-item status-adjusted" data-testid="status-adjusted">
+            <ProductFixesCount size="compact" count={adjusted()} label={message('fixesNotice.count', { count: adjusted() })}
+              onOpen={() => props.app.reopenAdjustmentNotice(props.tab()!.id)} />
+          </span>
+        </Show>
         <Show when={allTasks().length > 0}><ProductButton variant="ghost" size="compact" class="status-item status-background" data-testid="status-background"
           aria-label={backgroundLabel()} data-tooltip-label={backgroundLabel()} onClick={props.openAppLog}>
           <Icon icon={Download} /><span class="status-background-description">{allTasks().length === 1 ? allTasks()[0]!.text : message('shell.status.tasks', { count: allTasks().length })}</span>
           <span class="status-background-count" aria-hidden="true">{allTasks().length}</span>
         </ProductButton></Show>
-        <Show when={connection() !== 'no-engine' && props.backend().schemaState.get().status !== 'ready'}>
+        <Show when={!['no-engine', 'starting', 'failed'].includes(connection()) && props.backend().connection.status.get() === 'connected' && props.backend().schemaState.get().status !== 'ready'}>
           <span class="status-catalog">{props.backend().schemaState.get().status === 'error' ? message('backendsPanel.schema.unavailable') : message('shell.status.loadingSchemas')}</span>
         </Show>
         <span class="status-extensions" data-testid="status-trailing">{props.extensions}</span>
