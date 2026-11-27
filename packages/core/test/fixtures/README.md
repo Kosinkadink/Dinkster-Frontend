@@ -24,4 +24,5 @@ OrElse, HasValue and OnlyIf in dinkster-nodes `dinkster_utilities/flow.py` at
 `5a4957aa93cd22987e897acabe8a943f4c975eb3`. Compiler and interaction tests
 decode these pack declarations rather than substituting test-only flow nodes.
 The Unpack entry was exported by the same method from dinkster-nodes
-`a693b82c850bdbbcf88e865b35c00604e553339d`.
+`a693b82c850bdbbcf88e865b35c00604e553339d`, with its connection hint condition
+updated to match `2248e79be94986e571deac45f21e5bb07586ff2b`.

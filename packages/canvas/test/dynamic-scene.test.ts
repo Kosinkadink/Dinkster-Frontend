@@ -278,6 +278,7 @@ it('hides manual Unpack count actions for known wired counts and restores them w
     }).nodes.find(n => n.node.type === 'Unpack')!
     const button = scoped === 'all' || scoped === 'button' ? 'format.set_count' : 'set_count'
     const hasAction = () => shown().layout.rows.some(row => row.kind === 'button' && row.buttonId === button)
+    const hasConnectHint = () => shown().layout.rows.some(row => row.kind === 'note' && row.text === 'Connect a list or record')
     const target = { graphId, nodeId: 'unpack', instancePath: shared ? ['shell'] : [], button }
     const items = () => shown().layout.pins.filter(pin => pin.direction === 'out' && pin.portId.startsWith(scoped === 'all' || scoped === 'group' ? 'format.items.' : 'items.'))
     const countUnknown = () => {
@@ -287,11 +288,13 @@ it('hides manual Unpack count actions for known wired counts and restores them w
     }
     expect(items()).toHaveLength(count)
     expect(countUnknown()).toBe(false)
+    expect(hasConnectHint()).toBe(false)
     expect(hasAction()).toBe(false)
     expect(buttonAvailability(store.doc, target, host).enabled).toBe(false)
     if (!shared) expect(buttonAvailability(store.doc, target, { schemaOf: host.schemaOf, editorFor: host.editorFor }).enabled).toBe(false)
     expect(store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l0' } }).ok).toBe(true)
     expect(countUnknown()).toBe(true)
+    expect(hasConnectHint()).toBe(true)
     expect(hasAction()).toBe(true)
     expect(buttonAvailability(store.doc, target, host).enabled).toBe(true)
     expect(items()).toHaveLength(count)
@@ -304,6 +307,7 @@ it('hides manual Unpack count actions for known wired counts and restores them w
       from: { node: 'source', port: 'unknown' }, to: { node: shared ? 'shell' : 'unpack', port: shared ? 'list' : inputPort },
     } }).ok).toBe(true)
     expect(countUnknown()).toBe(true)
+    expect(hasConnectHint()).toBe(false)
     expect(hasAction()).toBe(true)
     expect(buttonAvailability(store.doc, target, host).enabled).toBe(true)
     expect(items()).toHaveLength(count)

@@ -120,7 +120,7 @@ const unpack = schema('dinkster.utilities.unpack', 'Unpack', [
     kind: 'note',
     id: 'empty',
     text: 'Connect a list or record',
-    visible: { formula: 'not linked(list) or count == 0' },
+    visible: { formula: 'not linked(list)' },
   },
   {
     kind: 'group',

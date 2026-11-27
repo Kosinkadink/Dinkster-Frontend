@@ -207,7 +207,7 @@
         "id": "empty",
         "text": "Connect a list or record",
         "visible": {
-          "formula": "not linked(list) or count == 0"
+          "formula": "not linked(list)"
         }
       },
       {
