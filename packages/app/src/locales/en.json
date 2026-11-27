@@ -554,6 +554,7 @@
   "assets.quickList.limit": "Up to {size}",
   "assets.quickList.changed": "The field changed. Close this list and try again.",
   "assets.import.copying": "Copying",
+  "assets.import.amount": "{received} of {total}",
   "assets.import.copyingAmount": "Copying, {received} of {total}",
   "assets.import.copyingTo": "Copying to {mount}",
   "assets.import.copyingToAmount": "Copying to {mount}, {received} of {total}",

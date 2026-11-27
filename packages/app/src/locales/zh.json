@@ -556,6 +556,7 @@
   "assets.quickList.limit": "最大 {size}",
   "assets.quickList.changed": "字段已更改。请关闭此列表后重试。",
   "assets.import.copying": "正在复制",
+  "assets.import.amount": "{received} / {total}",
   "assets.import.copyingAmount": "正在复制，{received} / {total}",
   "assets.import.copyingTo": "正在复制到 {mount}",
   "assets.import.copyingToAmount": "正在复制到 {mount}，{received} / {total}",

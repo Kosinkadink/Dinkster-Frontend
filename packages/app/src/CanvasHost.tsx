@@ -1806,7 +1806,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const heights: Record<string, Record<string, number>> = {}
     for (const [, state] of shownAssetImports()) {
       const target = state.editor.target
-      if (target.kind === 'input') (heights[target.nodeId] ??= {})[target.valueKey] = defaultTokens.rowHeight + canvasPaintTokens.node.editorSpace.pad * 2
+      if (target.kind === 'input') (heights[target.nodeId] ??= {})[target.valueKey] =
+        defaultTokens.rowHeight * (state.phase === 'copying' ? 2 : 1) + canvasPaintTokens.node.editorSpace.pad * 2
     }
     return heights
   }, undefined, { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) })
@@ -7525,7 +7526,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             ? { received: state.received, total: state.total } : undefined
           return {
             phase: 'copying' as const,
-            label: amount === undefined
+            label: state.mount === undefined ? message('assets.import.copying') : message('assets.import.copyingTo', { mount: '' }).trimEnd(),
+            mount: state.mount,
+            amount: amount === undefined ? undefined : message('assets.import.amount', {
+              received: formatByteSize(amount.received), total: formatByteSize(amount.total),
+            }),
+            description: amount === undefined
               ? state.mount === undefined ? message('assets.import.copying') : message('assets.import.copyingTo', { mount: state.mount })
               : message(state.mount === undefined ? 'assets.import.copyingAmount' : 'assets.import.copyingToAmount', {
                 mount: state.mount ?? '', received: formatByteSize(amount.received), total: formatByteSize(amount.total),

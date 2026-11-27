@@ -98,6 +98,9 @@ export function CanvasEditorLine(props: { dimmed?: boolean; readOnly?: boolean |
 export type CanvasFileCopyState = {
   readonly phase: 'copying'
   readonly label: string
+  readonly mount?: string | undefined
+  readonly amount?: string | undefined
+  readonly description: string
   readonly value?: number | undefined
   readonly stopLabel: string
   readonly onStop: () => void
@@ -114,10 +117,32 @@ export type CanvasFileCopyState = {
 /** Copying and waiting can be stopped; checking waits for the engine's canonical answer. */
 export function CanvasFileCopy(props: { state: CanvasFileCopyState }) {
   const stoppable = () => props.state.phase !== 'checking' ? props.state : undefined
-  return <div class="dinkster-canvas-file-copy" role="status">
-    <span class="dinkster-canvas-file-copy-label" title={props.state.label}>{props.state.label}</span>
-    <ProductProgress label={props.state.label} value={props.state.phase === 'copying' ? props.state.value : undefined} />
-    <Show when={stoppable()}>{(state) => <CanvasSideLink onClick={() => state().onStop()}>{state().stopLabel}</CanvasSideLink>}</Show>
+  const copying = () => props.state.phase === 'copying' ? props.state : undefined
+  const description = () => copying()?.description ?? props.state.label
+  const [hideDestination, setHideDestination] = createSignal(false)
+  let heading!: HTMLDivElement
+  let prefix!: HTMLSpanElement
+  let amount!: HTMLSpanElement
+  onMount(() => {
+    const observer = new ResizeObserver(() => {
+      const gap = Number.parseFloat(getComputedStyle(heading).columnGap) || 0
+      setHideDestination(amount.offsetWidth > 0 && prefix.offsetWidth + amount.offsetWidth + gap > heading.clientWidth)
+    })
+    for (const element of [heading, prefix, amount]) observer.observe(element)
+    onCleanup(() => observer.disconnect())
+  })
+  return <div class="dinkster-canvas-file-copy" data-phase={props.state.phase} role="status">
+    <div class="dinkster-canvas-file-copy-heading" ref={heading} title={description()}>
+      <span class="dinkster-canvas-file-copy-label" data-hidden={hideDestination() ? 'true' : undefined}>
+        <span class="dinkster-canvas-file-copy-prefix" ref={prefix}>{props.state.label}</span>
+        <Show when={copying()?.mount}>{(mount) => <span class="dinkster-canvas-file-copy-mount">{mount()}</span>}</Show>
+      </span>
+      <span class="dinkster-canvas-file-copy-amount" ref={amount}>{copying()?.amount}</span>
+    </div>
+    <div class="dinkster-canvas-file-copy-controls">
+      <ProductProgress label={description()} value={copying()?.value} />
+      <Show when={stoppable()}>{(state) => <CanvasSideLink onClick={() => state().onStop()}>{state().stopLabel}</CanvasSideLink>}</Show>
+    </div>
   </div>
 }
 

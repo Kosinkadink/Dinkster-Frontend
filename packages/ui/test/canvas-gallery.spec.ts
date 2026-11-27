@@ -27,6 +27,31 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
+test('copy amounts and Stop stay readable without widening the node', async ({ page }) => {
+  await openPage(page, 'row-file-previews')
+  for (const title of ['Copying a video', 'Copying in a narrow node']) {
+    const card = page.locator('figure').filter({ has: page.locator('figcaption', { hasText: title }) })
+    const canvas = card.locator('canvas')
+    await expect(canvas).toHaveAttribute('data-ready', /-dark$/)
+    const before = await canvas.boundingBox()
+    const amount = card.getByText('210 MiB of 512 MiB', { exact: true })
+    const stop = card.getByRole('button', { name: 'Stop', exact: true })
+    await expect(amount).toBeVisible()
+    await expect(stop).toBeVisible()
+    expect(await amount.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    const amountBox = (await amount.boundingBox())!
+    const stopBox = (await stop.boundingBox())!
+    expect(stopBox.y).toBeGreaterThanOrEqual(amountBox.y + amountBox.height)
+    expect(amountBox.x).toBeGreaterThanOrEqual(before!.x)
+    expect(amountBox.x + amountBox.width).toBeLessThanOrEqual(before!.x + before!.width)
+    await stop.click()
+    await expect(card.getByRole('status')).toHaveCount(0)
+    const after = (await canvas.boundingBox())!
+    expect(after.width).toBe(before!.width)
+    expect(after.height).toBeLessThan(before!.height)
+  }
+})
+
 test('choosing a fixes Review entry selects its named example on the canvas', async ({
   page,
 }, testInfo) => {
