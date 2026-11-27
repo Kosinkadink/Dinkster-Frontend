@@ -812,6 +812,28 @@ function checkViewState(doc: WorkflowDocument, diags: Diagnostic[]) {
         diags.push(diag('warning', 'invariant', 'doc.view.danglingReroute', `[${defId}] view state for missing reroute '${rerouteId}'`))
       }
     }
+    const membership = graphView.groupMembership
+    if (membership !== undefined) {
+      const live = { nodes: def.nodes, reroutes: def.reroutes, groups: graphView.groups ?? {}, boundary: graphView.boundary ?? {} }
+      for (const kind of ['nodes', 'reroutes', 'groups', 'boundary'] as const) {
+        for (const [id, parent] of Object.entries(membership[kind])) {
+          if (!Object.hasOwn(live[kind], id) || !Object.hasOwn(live.groups, parent))
+            diags.push(diag('warning', 'invariant', 'doc.view.danglingGroupMember', `[${defId}] group membership '${kind}.${id}' references a missing item or group`))
+        }
+      }
+      for (const id of Object.keys(membership.groups)) {
+        const seen = new Set<string>([id])
+        let parent = membership.groups[id]
+        while (parent !== undefined) {
+          if (seen.has(parent)) {
+            diags.push(diag('warning', 'invariant', 'doc.view.groupCycle', `[${defId}] cyclic group membership at '${id}'`))
+            break
+          }
+          seen.add(parent)
+          parent = membership.groups[parent]
+        }
+      }
+    }
     for (const netId of graphView.collapsedNets ?? []) {
       if (!def.nets[netId]) {
         diags.push(diag('warning', 'invariant', 'doc.view.danglingNet', `[${defId}] collapsedNets references missing net '${netId}'`))

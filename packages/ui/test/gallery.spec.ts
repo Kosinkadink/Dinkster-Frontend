@@ -1128,6 +1128,41 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(page).toHaveScreenshot('dialog-open-390.png')
 })
 
+test('pending confirmation dismissal controls dim without a page root and recover when work ends', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') })
+  await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'))
+  await page.goto('/#confirmations')
+  // The app mounts dialogs outside a page root; the gallery body normally masks that context.
+  await page.evaluate(() => document.body.classList.remove('dinkster-root'))
+  const opener = page.getByRole('button', { name: 'Review working', exact: true })
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
+  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true })
+  const close = dialog.getByRole('button', { name: 'Close', exact: true })
+  const action = dialog.getByRole('button', { name: 'Remove backend', exact: true })
+  for (const control of [cancel, close]) {
+    await expect(control).toBeDisabled()
+    await expect(control).toHaveCSS('opacity', '0.45')
+    await control.dispatchEvent('click')
+    await expect(dialog).toBeVisible()
+  }
+  await expect(action).toHaveAttribute('aria-busy', 'true')
+  await expect(action).toHaveCSS('opacity', '1')
+  await expect(action.locator('.dinkster-spinner')).toBeVisible()
+  for (let press = 0; press < 4; press += 1) await page.keyboard.press('Escape')
+  await page.mouse.click(1, 1)
+  await expect(dialog).toBeVisible()
+  await page.clock.runFor(600)
+  for (const control of [cancel, close]) {
+    await expect(control).toBeEnabled()
+    await expect(control).toHaveCSS('opacity', '1')
+  }
+  await expect(action).not.toHaveAttribute('aria-busy', 'true')
+  await cancel.click()
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+})
+
 test('wide dialogs use their own width and preserve narrow margins and dismissal', async ({
   page,
 }) => {

@@ -651,6 +651,13 @@ function checkGraphView(c: ShapeChecker, v: unknown, path: string): void {
   if (v['groups'] !== undefined && c.obj(v['groups'], `${path}.groups`)) {
     for (const [k, g] of Object.entries(v['groups'])) checkGroupView(c, k, g, `${path}.groups.${k}`)
   }
+  if (v['groupMembership'] !== undefined && c.obj(v['groupMembership'], `${path}.groupMembership`)) {
+    for (const kind of ['nodes', 'reroutes', 'groups', 'boundary']) {
+      const members = v['groupMembership'][kind]
+      if (c.obj(members, `${path}.groupMembership.${kind}`))
+        for (const [id, parent] of Object.entries(members)) c.str(parent, `${path}.groupMembership.${kind}.${id}`, { nonEmpty: true })
+    }
+  }
   if (v['groupSeq'] !== undefined) c.int(v['groupSeq'], `${path}.groupSeq`, 0)
   if (v['collapsedNets'] !== undefined && c.arr(v['collapsedNets'], `${path}.collapsedNets`)) {
     v['collapsedNets'].forEach((n, i) => c.str(n, `${path}.collapsedNets[${i}]`))

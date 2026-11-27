@@ -484,6 +484,9 @@ describe('Dinkster clipboard', () => {
       grp10: { id: 'grp10', title: 'live', bounds: { x: 0, y: 0, width: 10, height: 10 } },
     }
     ;(source.view.graphs.g0 as unknown as Record<string, unknown>).groupSeq = 11
+    ;(source.view.graphs.g0 as unknown as Record<string, unknown>).groupMembership = {
+      nodes: { a: 'grp10' }, reroutes: {}, groups: {}, boundary: {},
+    }
     const envelope = serializeSelection(source, 'g0', { nodes: ['a'], reroutes: [], groups: ['grp10'] })!
     expect(envelope.groups).toHaveLength(1)
     const plan = planClipboardPaste(source, 'g0', envelope, { x: 20, y: 30 })!
@@ -493,6 +496,8 @@ describe('Dinkster clipboard', () => {
     expect(groups.grp10!.title).toBe('live') // untouched
     expect(groups.grp11).toBeDefined() // fresh id from the group cursor
     expect(store.doc.view.graphs.g0!.groupSeq).toBe(12)
+    const pastedNode = Object.keys(store.doc.graphs.g0!.nodes).find((id) => !source.graphs.g0!.nodes[id])!
+    expect(store.doc.view.graphs.g0!.groupMembership!.nodes).toEqual({ a: 'grp10', [pastedNode]: 'grp11' })
     // Undo restores the pre-paste groups but never rewinds the cursor
     // (allocation-monotonic replay) - a re-paste cannot remint grp11.
     expect(store.undo()).toBe(true)

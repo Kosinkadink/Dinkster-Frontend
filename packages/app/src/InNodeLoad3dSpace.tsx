@@ -64,6 +64,7 @@ export function Load3dSpace(props: {
 }) {
   const message = useAppMessage()
   const [state, setState] = createSignal<ViewState>('loading')
+  const [sourceError, setSourceError] = createSignal<string>()
   const [camera, setCamera] = createSignal<Model3dCameraState>()
   const [transform, setTransform] = createSignal<Model3dTransform>()
   const [clips, setClips] = createSignal<readonly { name: string; duration: number }[]>([])
@@ -134,6 +135,7 @@ export function Load3dSpace(props: {
     const live = untrack(() => props.live)
     const abort = new AbortController()
     setState('loading')
+    setSourceError(undefined)
     onCleanup(() => {
       setPoster((image) => { image?.close(); return undefined })
       abort.abort()
@@ -165,6 +167,7 @@ export function Load3dSpace(props: {
       setState('ready')
     })().catch((reason: unknown) => {
       if (abort.signal.aborted) return
+      setSourceError(reason instanceof Load3dSourceError ? undefined : reason instanceof Error ? reason.message : String(reason))
       setState(reason instanceof Load3dSourceError ? reason.problem : 'unavailable')
     })
   }))
@@ -283,8 +286,7 @@ export function Load3dSpace(props: {
 
   const pictureMessage = (): string | undefined => {
     const shown = state()
-    if (shown === 'ready') return undefined
-    if (shown === 'native') return message('load3dWidget.native')
+    if (shown === 'ready' || shown === 'unavailable' || shown === 'native') return undefined
     if (shown === 'noModel' && props.wired) return message('inNodeLoad3d.notKnown')
     return message(`inNodeLoad3d.${shown}`)
   }
@@ -314,14 +316,7 @@ export function Load3dSpace(props: {
         loading={state() === 'loading'}
         {...(pictureMessage() === undefined ? {} : { message: pictureMessage()! })}
         {...(props.captures && !props.cameraWired && !props.readOnly && ready() ? {
-          actions: (
-            <>
-              <Show when={record() === 'failed' && recordError() !== undefined}>
-                <CanvasEditorNote tone="problem">{recordError()}</CanvasEditorNote>
-              </Show>
-              <CanvasEditorButtons buttons={recordActions()} />
-            </>
-          ),
+          actions: <CanvasEditorButtons buttons={recordActions()} />,
         } : {})}>
         <div class="node-load3d-view" data-live={props.live ? 'true' : 'false'} data-wired={props.cameraWired || props.readOnly ? 'true' : undefined}
           ref={(element) => { container = element }}>
@@ -391,6 +386,20 @@ export function Load3dSpace(props: {
           onClick: () => animate(clip(), viewer?.animationTime() ?? time(), !playing(), speed()),
         }]} />
       </CanvasEditorSection>
+      <Show when={record() === 'failed' && recordError() !== undefined} fallback={
+        <Show when={state() === 'unavailable' || state() === 'native'}>
+          <CanvasEditorNote tone={state() === 'native' ? 'warning' : 'problem'} details={{ label: message('runs.details'),
+            title: message(state() === 'native' ? 'load3dWidget.native' : 'inNodeLoad3d.unavailableTitle'),
+            ...(sourceError() === undefined ? {} : { body: sourceError()! }) }}>
+            {message(state() === 'native' ? 'inNodeEditor.nativeShort' : 'inNodeLoad3d.unavailableShort')}
+          </CanvasEditorNote>
+        </Show>
+      }>
+        <CanvasEditorNote tone="problem" details={{ label: message('runs.details'), title: message('load3dWidget.recordingFailed'),
+          body: [recordError(), ...(state() === 'native' ? [message('load3dWidget.native')] : state() === 'unavailable' ? [message('inNodeLoad3d.unavailableTitle'), sourceError()] : [])].filter(Boolean).join('\n') }}>
+          {message('inNodeLoad3d.recordingFailedShort')}
+        </CanvasEditorNote>
+      </Show>
     </div>
   )
 }
