@@ -31,7 +31,7 @@ import { buildRerouteIndex, traceEndpoint, traceEndpointAll } from '../reroute.j
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { schemaResolverForCommand } from './command-support.js'
 import { constructsOf } from '../schema/body.js'
-import type { ChoiceSpec, GroupSpec, TypeChoiceSpec } from '../schema/model.js'
+import type { ChoiceSpec, GroupSpec, NodeSchema, TypeChoiceSpec } from '../schema/model.js'
 import { checkDocument, subgraphDefIdOf } from '../invariants.js'
 import { allNodesOf, storeStartState } from './start-state.js'
 import { boundaryItems } from '../format/document.js'
@@ -461,6 +461,14 @@ function compactScope(
 
 const dynamicCompact: CommandDefinition = {
   id: 'dynamic.compact',
+  prepareForSharedReplay(doc, params, context) {
+    if (!isObj(params) || params.clearRetainedOutputs !== true || params.schemaSnapshot !== undefined ||
+        typeof params.graphId !== 'string' || typeof params.nodeId !== 'string') return undefined
+    const node = doc.graphs[params.graphId]?.nodes[params.nodeId]
+    const schema = node && schemaResolverForCommand(doc, context)?.(node.type)
+    return node === undefined || schema === undefined ? undefined
+      : { ok: true, params: { ...params, schemaSnapshot: { [node.type]: schema } as unknown as Json } }
+  },
   run(doc, params, tx, context) {
     if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.nodeId !== 'string')
       return [err('params.invalid', 'dynamic.compact: params must be {graphId, nodeId}')]
@@ -532,7 +540,12 @@ const dynamicCompact: CommandDefinition = {
     }
     if (unresolvedOverlay) return []
 
-    const schema = schemaResolverForCommand(doc, context)?.(node.type)
+    // Replay uses the declaration, not a list of dead wires: an intervening
+    // count increase can have made those positions live again.
+    const snapshot = isObj(params.schemaSnapshot) ? params.schemaSnapshot[node.type] : undefined
+    const schema = schemaResolverForCommand(doc, context)?.(node.type) ??
+      (context.kind === 'shared-replay' && isObj(snapshot) && Array.isArray(snapshot.body)
+        ? snapshot as unknown as NodeSchema : undefined)
     // Automatic post-edit compaction must preserve other retained wires.
     if (params.clearRetainedOutputs === true && schema !== undefined) {
       const retained = new Set([...elabOutputsOf(elaborateInterface(schema, node,

@@ -534,6 +534,19 @@ describe('dynamic.compact', () => {
     const revision = store.revision
     expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1', clearRetainedOutputs: true } }).ok).toBe(true)
     expect(store.revision).toBe(revision)
+
+    const replayParams = coreCommandRegistry().get('dynamic.compact')!.prepareForSharedReplay!(before,
+      clear.invocation.params, { kind: 'initial', schemaResolverFor: () => (type) => type === 'Batch' ? schema : undefined }, undefined)
+    if (replayParams?.ok !== true) throw new Error('Missing replay declaration')
+    const replay = new DocumentStore(before, coreCommandRegistry(), 200, undefined, () => ({ kind: 'shared-replay' }))
+    expect(replay.dispatch({ command: 'dynamic.compact', params: replayParams.params }).ok).toBe(true)
+    expect(replay.doc).toEqual(store.doc)
+    const grown = { ...before, graphs: { ...before.graphs, g0: { ...before.graphs['g0']!, nodes: {
+      ...before.graphs['g0']!.nodes, n1: { ...before.graphs['g0']!.nodes['n1']!, values: { count: 5 } },
+    } } } }
+    const rebased = new DocumentStore(grown, coreCommandRegistry(), 200, undefined, () => ({ kind: 'shared-replay' }))
+    expect(rebased.dispatch({ command: 'dynamic.compact', params: replayParams.params }).ok).toBe(true)
+    expect(rebased.doc).toEqual(grown)
   })
 
   it('removes unreferenced rows while preserving linked member identity and order', () => {
