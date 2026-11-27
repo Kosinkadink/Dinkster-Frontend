@@ -239,6 +239,7 @@ export function NodePalette(props: {
   const announcement = () => {
     const rows = groups().flatMap((group) => group.rows)
     const index = rows.findIndex((item) => item.key === selectedKey())
+    if (index < 0 && props.catalogRecovery !== undefined) return ''
     if (index < 0) return query().trim() === ''
       ? message('palette.announcement.noNodes')
       : message('palette.announcement.noMatches', { query: query() })
@@ -362,7 +363,7 @@ export function NodePalette(props: {
         hints={[
           { keys: ['Up', 'Down'], label: message('search.hint.move') },
           { keys: ['Enter'], label: message(selected()?.install !== undefined ? 'search.hint.install' : selectedKey()?.startsWith('category:') ? 'search.hint.open' : 'search.hint.placeNode') },
-          { keys: ['Tab'], label: message('search.hint.nextKind') },
+          ...(props.catalogRecovery === undefined ? [{ keys: ['Tab'], label: message('search.hint.nextKind') }] : []),
           { keys: ['Esc'], label: message('search.hint.close') },
         ]}
         preview={<Show when={selected()}>{(entry) => <>
