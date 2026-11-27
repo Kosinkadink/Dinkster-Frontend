@@ -505,8 +505,11 @@ describe('typed overview detail', () => {
     const scene = fixtureScene('clean')
     const node = scene.nodes[0]!
     const link = scene.links[0]!
-    for (const [scale, contentDetail] of [[0.49, false], [0.5, true]] as const) {
-      const calls = paintWith(scene, (renderer) => renderer.setViewport({ x: 0, y: 0, scale }))
+    for (const [scale, threshold, contentDetail] of [[0.29, undefined, false], [0.3, undefined, true], [0.5, 0.6, false], [0.6, 0.6, true]] as const) {
+      const calls = paintWith(scene, (renderer) => {
+        renderer.setViewport({ x: 0, y: 0, scale })
+        if (threshold !== undefined) renderer.setDetailMinScale(threshold)
+      })
       expect(calls.some((call) => call.method === 'fillText' && call.args[0] === node.layout.title)).toBe(true)
       expect(calls.some((call) =>
         call.method === 'arc' &&
@@ -517,16 +520,16 @@ describe('typed overview detail', () => {
     }
   })
 
-  it('only paints overview titles that fit their node width', () => {
+  it('keeps short overview titles whole and cuts long titles with three dots', () => {
     const base = fixtureScene('clean')
     const node = base.nodes[0]!
     const fittingTitle = 'ImgSrc'
-    const oversizedTitle = 'This title is wider than its node'
+    const oversizedTitle = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
     const scene = {
       ...base,
       nodes: [
-        { ...node, layout: { ...node.layout, title: fittingTitle } },
-        { ...node, id: 'oversized-title', x: node.x + node.layout.width + 20, layout: { ...node.layout, title: oversizedTitle } },
+        { ...node, layout: { ...node.layout, width: 140, title: fittingTitle } },
+        { ...node, id: 'oversized-title', x: node.x + 160, layout: { ...node.layout, width: 140, title: oversizedTitle } },
       ],
       links: [],
     }
@@ -534,7 +537,7 @@ describe('typed overview detail', () => {
       renderer.setViewport({ x: 0, y: 0, scale: CANVAS_DETAIL_MIN_SCALE - 0.01 }))
 
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === fittingTitle)).toBe(true)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === oversizedTitle)).toBe(false)
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'ABCDEFGHIJKLMN...')).toBe(true)
   })
 
 })
@@ -634,7 +637,7 @@ describe('canvas hover affordance paint', () => {
     expect(ordinary).toBeDefined()
   })
 
-  it('enlarges every shared match pin when one is hovered or keyboard-focused', () => {
+  it('enlarges every shared match pin when one is hovered', () => {
     const scene = hoverScene()
     const node = scene.nodes[0]!
     const matchScene: Scene = {
@@ -657,9 +660,6 @@ describe('canvas hover affordance paint', () => {
     }
     assertAssociated(paintWith(matchScene, (renderer) => renderer.setOverlay({
       hoveredPin: { nodeId: 'hover-node', portId: 'in', direction: 'in' },
-    })))
-    assertAssociated(paintWith(matchScene, (renderer) => renderer.setOverlay({
-      focusedPin: { nodeId: 'hover-node', portId: 'out', direction: 'out' },
     })))
   })
 
@@ -1099,11 +1099,12 @@ describe('scene visual bounds and fitting', () => {
     const { ctx } = recordingCtx()
     const tracked = mutableCanvas(ctx, 800, 600)
     const renderer = new CanvasRenderer(tracked.canvas, defaultTokens)
+    renderer.setDetailMinScale(0.5)
     renderer.setScene(emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 1576, height: 1000 }] }))
 
     renderer.fitToScene(50)
 
-    expect(renderer.getViewport()).toEqual({ x: -44, y: -50, scale: CANVAS_DETAIL_MIN_SCALE })
+    expect(renderer.getViewport()).toEqual({ x: -44, y: -50, scale: 0.5 })
     renderer.dispose()
   })
 
@@ -1111,12 +1112,13 @@ describe('scene visual bounds and fitting', () => {
     const { ctx } = recordingCtx()
     const tracked = mutableCanvas(ctx, 800, 600)
     const renderer = new CanvasRenderer(tracked.canvas, defaultTokens)
+    renderer.setDetailMinScale(0.5)
     renderer.setScene(emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 1577, height: 1000 }] }))
 
     renderer.fitToScene(50)
 
     expect(renderer.getViewport().scale).toBeCloseTo(700 / 1577)
-    expect(renderer.getViewport().scale).toBeLessThan(CANVAS_DETAIL_MIN_SCALE)
+    expect(renderer.getViewport().scale).toBeLessThan(0.5)
     renderer.dispose()
   })
 

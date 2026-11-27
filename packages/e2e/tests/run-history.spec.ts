@@ -9,8 +9,8 @@
  *   without it while the sourceDocument asset bytes survive;
  * - a delete transport failure lands in Problems (history.deleteFailed)
  *   and the record stays;
- * - 'Clear finished' opens a question and wipes the scope only after the
- *   explicit loss action.
+ * - 'Clear finished' removes finished records immediately, preserving files,
+ *   workflows and pending runs.
  *
  * The clear test wipes the ENTIRE local history scope of the target server
  * (that is the feature); runs there are e2e-produced. Requires a NATIVE
@@ -22,6 +22,7 @@ import { expect, nativeTest, openRailPanel, productOption, selectProductOption, 
 import { requireBackendNodes } from './required-nodes.js'
 
 const NATIVE_BACKEND = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:8765'
+test.use({ seedWorkflows: false })
 
 /** Register the native server as a second backend (no tab targeting yet). */
 async function addNativeBackend(page: Page): Promise<void> {
@@ -29,7 +30,6 @@ async function addNativeBackend(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Add backend', exact: true }).click()
   await page.getByTestId('backend-url-input').fill(NATIVE_BACKEND)
   await page.getByTestId('backend-add').click()
-  await expect(page.getByTestId('tab-target')).toBeVisible()
 }
 
 /**
@@ -324,36 +324,93 @@ test('two cached runs collapse into one expandable no-op history row', async ({ 
   }
 })
 
-test('delete removes the record only: the collection re-pages and asset bytes survive', async ({ page }) => {
-  const jobId = await queueAndComplete(page)
+test('Delete record and Clear finished act immediately and preserve assets and pending runs', async ({ page }, info) => {
+  const emptied = await fetch(`${NATIVE_BACKEND}/api/history?scope=local`, { method: 'DELETE' })
+  expect(emptied.ok).toBe(true)
   await openRuns(page)
+  const runs = page.getByTestId('runs-panel')
+  const clear = runs.getByTestId('collection-source-action')
+  await expect(runs.getByTestId('collection-empty')).toHaveAttribute('data-collection-state', 'empty')
+  await page.screenshot({ path: info.outputPath('empty-history.png') })
+  await expect(clear).toBeDisabled()
+  const jobId = await queueAndComplete(page)
   const entry = entryFor(page, jobId)
   await expect(entry).toHaveCount(1)
   await entry.click()
   const sourceDoc = (await durableRecords()).find((record) => record.jobId === jobId)?.sourceDocument
   expect(sourceDoc).toMatch(/^blake3:[0-9a-f]{64}$/)
+  // A saved file is separate from the run record, even when it names that run.
+  const savedBytes = new TextEncoder().encode(`Saved output for ${jobId}`)
+  const saved = await fetch(`${NATIVE_BACKEND}/api/assets?scope=local&name=${encodeURIComponent(`${jobId}.bin`)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: savedBytes,
+  })
+  expect(saved.ok).toBe(true)
+  const savedFile = await saved.json() as { asset: { digest: string } }
+  const workflow = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
+  const assetUrl = `${NATIVE_BACKEND}/api/assets/${encodeURIComponent(sourceDoc!)}`
+  const before = await fetch(assetUrl)
+  expect(before.ok).toBe(true)
+  const assetBytes = new Uint8Array(await before.arrayBuffer())
 
-  await chosenRunMenu(page, entry, 'Delete record')
-  const question = entry.locator('.dinkster-confirmation')
-  await expect(question.getByRole('heading')).toContainText('Delete the record of')
-  await expect(question.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
-  expect((await durableRecords()).some((record) => record.jobId === jobId)).toBe(true)
-  await question.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(entry).toHaveCount(1)
-  await expect(entry).toHaveAttribute('aria-selected', 'true')
-  await chosenRunMenu(page, entry, 'Delete record')
-  await question.getByRole('button', { name: 'Delete record', exact: true }).click()
+  await entry.getByRole('button', { name: /^More for / }).click()
+  await page.screenshot({ path: info.outputPath('run-record-menu.png') })
+  await page.getByRole('menuitem', { name: 'Delete record', exact: true }).click()
+  await expect(runs.locator('.dinkster-confirmation')).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(entry).toHaveCount(0, { timeout: 10_000 })
 
   // Record-only by contract: the producing document's asset bytes survive.
-  const asset = await fetch(`${NATIVE_BACKEND}/api/assets/${encodeURIComponent(sourceDoc!)}`)
+  const asset = await fetch(assetUrl)
   expect(asset.ok).toBe(true)
+  expect(new Uint8Array(await asset.arrayBuffer())).toEqual(assetBytes)
+  const output = await fetch(`${NATIVE_BACKEND}/api/assets/${encodeURIComponent(savedFile.asset.digest)}?scope=local`)
+  expect(output.ok).toBe(true)
+  expect(new Uint8Array(await output.arrayBuffer())).toEqual(savedBytes)
+  expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(workflow)
   // And the record itself is durably gone, not just filtered client-side.
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=100`)).json() as
     { records: { jobId: string }[] }
   expect(listing.records.some((r) => r.jobId === jobId)).toBe(false)
+  const clearJob = await queueAndComplete(page)
+  await expect(entryFor(page, clearJob)).toHaveCount(1)
+  // Pending browser executions have no finished history record to remove.
+  await page.evaluate((jobId) => {
+    const app = window.__dinksterTest!.app
+    const source = [...app.store.executions.get().values()].find((run) => run.ref.prompt === jobId)!
+    const compiled = app.compileTab(app.activeTab()!, { kind: 'partial', targets: [{ instancePath: [], node: 'grad' as never }] })
+    if (!compiled?.ok) throw new Error('Pending execution fixture did not compile')
+    for (const status of ['queued', 'running'] as const) {
+      const execution = { ...source.ref, prompt: `retained-${status}` as typeof source.ref.prompt }
+      app.store.register(execution, compiled.artifact, Date.now())
+      if (status === 'running') app.store.apply({ kind: 'started', execution, timestamp: Date.now() + 1 })
+    }
+  }, clearJob)
+  const search = runs.getByTestId('collection-search')
+  await search.fill('failed')
+  await expect(runs.getByTestId('collection-entry')).toHaveCount(0)
+  await expect(clear).toBeEnabled()
+  await search.fill('no matching runs')
+  await expect(runs.getByTestId('collection-empty')).toHaveAttribute('data-collection-state', 'no-match')
+  await expect(clear).toBeEnabled()
+  await page.screenshot({ path: info.outputPath('filtered-empty-history-enabled.png') })
+  await clear.click()
+  const question = runs.locator('.dinkster-confirmation')
+  await expect(question).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(entryFor(page, clearJob)).toHaveCount(0)
+  await expect.poll(durableRecords).toEqual([])
+  await expect(clear).toBeDisabled()
+  await search.fill('')
+  await expect(runs.getByTestId('collection-empty')).toHaveAttribute('data-collection-state', 'empty')
+  await expect(clear).toBeDisabled()
+  expect(new Uint8Array(await (await fetch(assetUrl)).arrayBuffer())).toEqual(assetBytes)
+  expect(new Uint8Array(await (await fetch(`${NATIVE_BACKEND}/api/assets/${encodeURIComponent(savedFile.asset.digest)}?scope=local`)).arrayBuffer())).toEqual(savedBytes)
+  expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(workflow)
+  await expect(runs.getByTestId('runs-running').getByTestId('execution-row')).toHaveCount(1)
+  await expect(runs.getByTestId('runs-queued').getByTestId('execution-row')).toHaveCount(1)
+  await page.screenshot({ path: info.outputPath('clear-finished-immediate.png') })
   await chooseRunScope(page, 'workflow')
-  await expect(page.getByTestId('runs-panel').getByTestId('execution-row')).toHaveCount(0)
+  await expect(runs.getByTestId('execution-row')).toHaveCount(2)
 })
 
 test('a delete failure lands in Problems and keeps the record', async ({ page }) => {
@@ -366,8 +423,7 @@ test('a delete failure lands in Problems and keeps the record', async ({ page })
   const entry = entryFor(page, jobId)
   await entry.click()
   await chosenRunMenu(page, entry, 'Delete record')
-  await entry.locator('.dinkster-confirmation').getByRole('button', { name: 'Delete record', exact: true }).click()
-  await expect(entry.locator('.dinkster-confirmation')).toContainText('was not deleted.')
+  await expect(entry.locator('.dinkster-confirmation')).toHaveCount(0)
   await expect(entry).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('problems-panel')).toContainText('history.deleteFailed')
   await expect(entry).toHaveCount(1)
@@ -466,7 +522,7 @@ test('with a page tab in front Runs shows all workflows, and the earlier choice 
   await expect(scope).toHaveAttribute('data-selected-id', 'all')
 })
 
-nativeTest('clear asks first, wipes the whole scope on confirmation', async ({ page }) => {
+nativeTest('clear immediately wipes the whole finished scope with Assets open', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('assets-toggle').click()
   const assets = page.getByTestId('assets-overlay')
@@ -482,11 +538,7 @@ nativeTest('clear asks first, wipes the whole scope on confirmation', async ({ p
   await expect(clear).toHaveText('Clear finished')
   await clear.click()
   const question = runs.locator('.dinkster-confirmation')
-  await expect(question.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
-  await expect(question).toContainText('Removes every finished run on this backend, for all workflows. Saved files stay.')
-  await expect(runs.getByTestId('collection-entry').first()).toBeVisible()
-
-  await question.getByRole('button', { name: 'Clear finished', exact: true }).click()
+  await expect(question).toHaveCount(0)
   await expect(runs.getByTestId('collection-empty')).toBeVisible({ timeout: 10_000 })
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=10`)).json() as
     { records: unknown[] }

@@ -507,6 +507,18 @@ function RestoreSoftware(props: {
       title={`Restore snapshot ${props.entry.generation}`}
       pending={applying()}
       onDismiss={props.onDismiss}
+      action={
+        review()?.alternatives[alternative()] ? (
+          <ProductButton
+            intent="neutral"
+            fill="solid"
+            pending={applying()}
+            onClick={() => void apply()}
+          >
+            Apply restore
+          </ProductButton>
+        ) : undefined
+      }
     >
       <ProductNotice>
         Restoring changes environment software, not saved workflow runs. Review
@@ -606,14 +618,6 @@ function RestoreSoftware(props: {
                   </ProductSection>
                 )}
               </Show>
-              <ProductButton
-                intent="neutral"
-                fill="solid"
-                pending={applying()}
-                onClick={() => void apply()}
-              >
-                Apply restore
-              </ProductButton>
             </Show>
           </>
         )}

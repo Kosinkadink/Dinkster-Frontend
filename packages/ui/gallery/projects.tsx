@@ -91,6 +91,7 @@ interface MockProject {
   path: string
   runsOn: string
   packs: string
+  uncheckedPacks?: string
   size: string
   outputCount: string
   workflows: readonly MockWorkflow[]
@@ -125,7 +126,7 @@ const projects: readonly MockProject[] = [
     opened: '2 hours ago',
     path: '/home/kosin/Dinkster/projects/film-grain-tests',
     runsOn: 'Stable 0.0.18',
-    packs: '4 enabled',
+    packs: '4 needed by its workflows',
     size: '3.1 GB',
     outputCount: '212 outputs',
     workflows: workflows([
@@ -147,7 +148,7 @@ const projects: readonly MockProject[] = [
     opened: 'Yesterday',
     path: '/home/kosin/Dinkster/projects/teapot-product-shots',
     runsOn: 'Stable 0.0.18',
-    packs: '2 enabled',
+    packs: '2 needed by its workflows, 1 added',
     size: '640 MB',
     outputCount: '38 outputs',
     workflows: workflows([
@@ -163,7 +164,7 @@ const projects: readonly MockProject[] = [
     opened: '3 days ago',
     path: '/home/kosin/Dinkster/projects/valley-matte-paintings',
     runsOn: 'Stable 0.0.18',
-    packs: '3 enabled',
+    packs: '3 needed by its workflows',
     size: '1.4 GB',
     outputCount: '96 outputs',
     workflows: workflows([
@@ -180,7 +181,8 @@ const projects: readonly MockProject[] = [
     opened: 'Nov 12',
     path: '/home/kosin/Dinkster/projects/bookshop-diorama',
     runsOn: 'Nightly',
-    packs: '5 enabled',
+    packs: 'At least 5 needed',
+    uncheckedPacks: '2 workflows not checked yet',
     size: '820 MB',
     outputCount: '41 outputs',
     workflows: workflows([
@@ -195,7 +197,7 @@ const projects: readonly MockProject[] = [
     opened: 'Nov 3',
     path: '/home/kosin/Dinkster/projects/audio-experiments',
     runsOn: 'Stable 0.0.16',
-    packs: '1 enabled',
+    packs: '1 needed by its workflows',
     size: '12 MB',
     outputCount: '3 outputs',
     workflows: workflows([['Stem split', 'Nov 3']]),
@@ -211,7 +213,7 @@ const projects: readonly MockProject[] = [
     opened: 'Never opened',
     path: '/home/kosin/Dinkster/projects/default',
     runsOn: 'Stable 0.0.18',
-    packs: 'None',
+    packs: 'None needed',
     size: '0 B',
     outputCount: 'no outputs',
     workflows: [],
@@ -388,29 +390,71 @@ export function ProjectsGallery() {
   const [templates, setTemplates] = createSignal(false)
   const [place, setPlace] = createSignal<Place>('projects')
   const [selected, setSelected] = createSignal('film-grain-tests')
+  const [narrowDetail, setNarrowDetail] = createSignal(false)
   const [hidden, setHidden] = createSignal<ReadonlySet<string>>(new Set())
   const [dialog, setDialog] = createSignal<'rename' | 'delete'>()
   const [banner, setBanner] = createSignal(true)
   const [name, setName] = createSignal('Night market')
   const [startWith, setStartWith] = createSignal('empty')
   const [activity, setActivity] = createSignal('No action yet')
+  // Deleted projects can be restored; these two were deleted before the page opened.
+  const [deleted, setDeleted] = createSignal<
+    readonly { id: string; name: string; detail: string }[]
+  >([
+    {
+      id: 'old-storyboard',
+      name: 'Old storyboard',
+      detail: 'Deleted 3 days ago',
+    },
+    { id: 'test-renders', name: 'Test renders', detail: 'Deleted Oct 12' },
+  ])
+  const [removed, setRemoved] = createSignal<ReadonlySet<string>>(new Set())
+  const [restored, setRestored] = createSignal<readonly MockProject[]>([])
   const pictures = new Map<string, string>()
   const picture = (output: MockOutput, index: number) => {
     const key = `${output.hue}-${index}`
     if (!pictures.has(key)) pictures.set(key, outputPicture(output.hue, index))
     return pictures.get(key)!
   }
-  const allProjects = (): MockProject[] => [
-    ...projects,
-    ...(many()
-      ? extraNames.map((name, index) => ({
-          ...projects[5]!,
-          id: `extra-${index}`,
-          name,
-          opened: 'Oct 30',
-        }))
-      : []),
-  ]
+  const allProjects = (): MockProject[] =>
+    [
+      ...projects,
+      ...restored(),
+      ...(many()
+        ? extraNames.map((name, index) => ({
+            ...projects[5]!,
+            id: `extra-${index}`,
+            name,
+            opened: 'Oct 30',
+          }))
+        : []),
+    ].filter((entry) => !removed().has(entry.id))
+  const deleteSelected = () => {
+    const list = allProjects()
+    const index = list.findIndex((entry) => entry.id === project().id)
+    const gone = list[index]!
+    setRemoved(new Set([...removed(), gone.id]))
+    setDeleted([
+      { id: gone.id, name: gone.name, detail: 'Deleted just now' },
+      ...deleted(),
+    ])
+    setSelected((list[index + 1] ?? list[index - 1])!.id)
+    setActivity(`Deleted ${gone.name}`)
+  }
+  const restore = (id: string) => {
+    const row = deleted().find((entry) => entry.id === id)!
+    if (removed().has(id))
+      setRemoved(new Set([...removed()].filter((entry) => entry !== id)))
+    else
+      setRestored([
+        ...restored(),
+        { ...projects[5]!, id, name: row.name, opened: 'Created Oct 2' },
+      ])
+    setDeleted(deleted().filter((entry) => entry.id !== id))
+    setSelected(id)
+    setNarrowDetail(true)
+    setActivity(`Restored ${row.name}`)
+  }
   const project = () =>
     allProjects().find((entry) => entry.id === selected()) ?? projects[0]!
   const ownEditor = () => state() === 'opening-own-editor'
@@ -574,7 +618,7 @@ export function ProjectsGallery() {
         columns={[
           [
             {
-              label: 'Files',
+              label: 'Outputs',
               value: project().path,
               action: (
                 <ProductTextButton
@@ -598,13 +642,7 @@ export function ProjectsGallery() {
           [
             {
               label: 'Packs',
-              value: project().packs,
-              action: (
-                <ProductTextButton
-                  label="Manage"
-                  onClick={() => setActivity('Packs opened')}
-                />
-              ),
+              value: <>{project().packs}<Show when={project().uncheckedPacks}><span class="dinkster-project-fact-detail">{'. '}{project().uncheckedPacks}</span></Show></>,
             },
             {
               label: 'Size',
@@ -722,20 +760,22 @@ export function ProjectsGallery() {
           autofocus
           onInput={(event) => setName(event.currentTarget.value)}
         />
-        <span>Files</span>
-        <span class="dinkster-project-form-path">
-          <span>
-            /home/kosin/Dinkster/projects/
-            {name()
-              .trim()
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/gu, '-')}
+        <div class="dinkster-project-form-folder">
+          <span>Files</span>
+          <span class="dinkster-project-form-path">
+            <span>
+              /home/kosin/Dinkster/projects/
+              {name()
+                .trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/gu, '-')}
+            </span>
+            <ProductTextButton
+              label="Change"
+              onClick={() => setActivity('Folder browser opened')}
+            />
           </span>
-          <ProductTextButton
-            label="Change"
-            onClick={() => setActivity('Folder browser opened')}
-          />
-        </span>
+        </div>
         <label for="new-project-runs-on">Runs on</label>
         <ProductSelect id="new-project-runs-on" options={['Stable 0.0.18 - this computer', 'Nightly - this computer'].map((label) => ({ value: label, label }))} />
         <span>Start with</span>
@@ -755,7 +795,7 @@ export function ProjectsGallery() {
           />
         </span>
         <div class="dinkster-actions">
-          <ProductButton onClick={() => setState('ready')}>
+          <ProductButton onClick={() => { setState('ready'); setNarrowDetail(false) }}>
             Cancel
           </ProductButton>
           <ProductButton
@@ -915,6 +955,8 @@ export function ProjectsGallery() {
               </Match>
               <Match when={true}>
                 <ProductProjectsView
+                  narrowPanel={state() === 'new' || narrowDetail() ? 'detail' : 'list'}
+                  back={{ label: 'Projects', onSelect: () => { setState('ready'); setNarrowDetail(false) } }}
                   list={
                     <ProductProjectList
                       title="Projects"
@@ -926,8 +968,18 @@ export function ProjectsGallery() {
                         if (id === 'new') return
                         if (state() === 'new') setState('ready')
                         setSelected(id)
+                        setNarrowDetail(true)
                       }}
                       loadingLabel="Loading projects"
+                      deleted={{
+                        title: `Deleted projects (${deleted().length})`,
+                        restoreLabel: 'Restore',
+                        rows: deleted(),
+                        onRestore: (id) => {
+                          if (state() === 'new') setState('ready')
+                          restore(id)
+                        },
+                      }}
                     />
                   }
                 >
@@ -959,13 +1011,7 @@ export function ProjectsGallery() {
         <ProductDialog
           title="Rename project"
           onDismiss={() => setDialog(undefined)}
-        >
-          <ProductField label="Name">
-            {(attributes) => (
-              <ProductTextInput {...attributes} value={project().name} />
-            )}
-          </ProductField>
-          <div class="dinkster-actions">
+          action={
             <ProductButton
               fill="solid"
               onClick={() => {
@@ -975,21 +1021,24 @@ export function ProjectsGallery() {
             >
               Save
             </ProductButton>
-            <ProductButton onClick={() => setDialog(undefined)}>
-              Cancel
-            </ProductButton>
-          </div>
+          }
+        >
+          <ProductField label="Name">
+            {(attributes) => (
+              <ProductTextInput {...attributes} value={project().name} />
+            )}
+          </ProductField>
         </ProductDialog>
       </Show>
       <Show when={dialog() === 'delete'}>
           <ProductConfirmationDialog
             title={`Delete "${project().name}"?`}
-            consequence="Its workflows and outputs leave the project list. Files in its folder stay on disk."
+            consequence="It moves to Deleted projects at the bottom of this list, with its workflows and outputs. You can restore it from there. No files are removed."
             actionLabel="Delete project"
             intent="remove"
             onConfirm={() => {
               setDialog(undefined)
-              setActivity(`Deleted ${project().name}`)
+              deleteSelected()
             }}
             onCancel={() => setDialog(undefined)}
           />

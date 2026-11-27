@@ -1190,12 +1190,7 @@ function Environments() {
               onDismiss={() => {
                 if (!busy()) setRemoving(undefined)
               }}
-            >
-              <ProductNotice>
-                Remove the saved binding for {environment().name}? Environment
-                files, projects and snapshots are not deleted.
-              </ProductNotice>
-              <div class="dinkster-actions">
+              action={
                 <ProductButton
                   intent="remove"
                   fill="solid"
@@ -1216,13 +1211,12 @@ function Environments() {
                 >
                   Remove binding
                 </ProductButton>
-                <ProductButton
-                  disabled={busy()}
-                  onClick={() => setRemoving(undefined)}
-                >
-                  Cancel
-                </ProductButton>
-              </div>
+              }
+            >
+              <ProductNotice>
+                Remove the saved binding for {environment().name}? Environment
+                files, projects and snapshots are not deleted.
+              </ProductNotice>
             </ProductDialog>
           )}
         </Show>

@@ -35,7 +35,7 @@ export function WorkflowQueueControl(props: {
   /** Absent on a frozen tab, which has no Run button: only its run list and progress. */
   readonly onQueue?: (() => void) | undefined
   /** Replaces Run while its engine is unavailable, inside the progress/list anchor. */
-  readonly runControl?: JSX.Element
+  readonly runControl?: (runButton: JSX.Element) => JSX.Element
   /** Hides the list and cancel controls, but keeps progress for an existing job. */
   readonly hideRunList?: boolean | undefined
   readonly onOpenExecution: (ref: ExecutionRef) => void
@@ -46,7 +46,19 @@ export function WorkflowQueueControl(props: {
   readonly thumbnail?: ((entry: ExecutionState) => JSX.Element) | undefined
 }) {
   const message = useAppMessage()
-  const runControl = children(() => props.runControl)
+  const runButton = <Show when={props.onQueue}>{(onQueue) => <button
+    type="button"
+    class="workflow-queue-submit"
+    data-testid="queue-button"
+    aria-label={`Run ${props.owner.title}`}
+    data-tooltip-label={props.blockedReason ?? message('command.workflow.queue')}
+    data-tooltip-shortcut={props.blockedReason === undefined ? 'Ctrl+Enter' : undefined}
+    disabled={!props.canQueue}
+    onClick={() => onQueue()()}
+  >
+    <Icon icon={Play} /> {message('appView.queue')}
+  </button>}</Show>
+  const runControl = children(() => props.runControl?.(runButton) ?? runButton)
   const [open, setOpen] = createSolidSignal(false)
   createEffect(() => { if (props.hideRunList) setOpen(false) })
   const popoverId = `workflow-queue-popover-${createUniqueId()}`
@@ -120,20 +132,7 @@ export function WorkflowQueueControl(props: {
       data-owner={props.owner.id}
     >
       <div class="workflow-queue-buttons">
-        <Show when={runControl()} fallback={
-        <Show when={props.onQueue}>{(onQueue) => <button
-          type="button"
-          class="workflow-queue-submit"
-          data-testid="queue-button"
-          aria-label={`Run ${props.owner.title}`}
-          data-tooltip-label={props.blockedReason ?? message('command.workflow.queue')}
-          data-tooltip-shortcut={props.blockedReason === undefined ? 'Ctrl+Enter' : undefined}
-          disabled={!props.canQueue}
-          onClick={() => onQueue()()}
-        >
-          <Icon icon={Play} /> {message('appView.queue')}
-        </button>}</Show>
-        }>{(control) => control()}</Show>
+        {runControl()}
         <Show when={!props.hideRunList}>
         <button
           ref={toggle}

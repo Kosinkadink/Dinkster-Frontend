@@ -8,6 +8,8 @@ import { diag, type Diagnostic } from './diagnostics.js'
 import { NET_VIEWS_EXT_KEY, netViewKey, netViewPositions, netViewToJson, parseNetViewPosition, updateNetViewPositions, type NetViewPosition } from './format/net-views.js'
 import { routeMatchesOwnerChain, subgraphDefIdOf } from './invariants.js'
 import { canonicalJson } from './compile/hash.js'
+import { remapGroupMembership } from './group-membership.js'
+import type { GroupMembership } from './format/document.js'
 
 export interface DinksterClipboardEnvelope {
   readonly format: 'dinkster-clipboard'
@@ -16,6 +18,7 @@ export interface DinksterClipboardEnvelope {
   readonly links: readonly Json[]
   readonly reroutes: readonly { readonly data: Json; readonly view: Json }[]
   readonly groups: readonly Json[]
+  readonly groupMembership?: GroupMembership
   /** Versions 2+. Version 1 readers remain accepted and have no stubs. */
   readonly externalIncoming?: readonly ExternalIncomingStub[]
   readonly scope?: { readonly lineage: string; readonly graph: string; readonly token: string }
@@ -401,6 +404,7 @@ function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefine
   // could commit fields that validateDocumentShape rejects - a document
   // that saves but never loads again.
   if (validateClipboardRecords({ nodes, links, reroutes, groups }).length > 0) return undefined
+  if (value.groupMembership !== undefined && validateGraphViewShape({ nodes: {}, groupMembership: value.groupMembership }).length > 0) return undefined
   if (value.version === 5 && !definitionOccurrenceReferencesClosed(
     definitions!,
     occurrenceTopologies,
@@ -411,6 +415,7 @@ function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefine
   )) return undefined
   return {
     format: 'dinkster-clipboard', version: value.version, nodes, links, reroutes, groups,
+    ...(value.groupMembership !== undefined ? { groupMembership: value.groupMembership as unknown as GroupMembership } : {}),
     ...(value.version >= 2 ? { externalIncoming, scope: { ...value.scope! } } : {}),
     ...(hasOccurrences ? { occurrenceTopologies } : {}),
     ...(value.version === 4 || value.version === 5 ? { nets } : {}),
@@ -469,6 +474,7 @@ export function serializeSelection(
   graphId: string,
   selection: { readonly nodes: Iterable<string>; readonly reroutes: Iterable<string>; readonly groups?: Iterable<string> },
   scopeToken = '',
+  membership = doc.view.graphs[graphId]?.groupMembership,
 ): DinksterClipboardEnvelope | undefined {
   const graph = doc.graphs[graphId]
   const view = doc.view.graphs[graphId]
@@ -533,6 +539,12 @@ export function serializeSelection(
       .map((link) => link as unknown as Json),
     reroutes: [...reroutes].map((id) => ({ data: graph.reroutes[id]! as unknown as Json, view: view.reroutes?.[id]! as unknown as Json })),
     groups: [...groups].flatMap((id) => view.groups?.[id] ? [view.groups[id] as unknown as Json] : []),
+    ...(membership !== undefined ? { groupMembership: remapGroupMembership(membership, {
+      nodes: new Map([...nodes].map((id) => [id, id])),
+      reroutes: new Map([...reroutes].map((id) => [id, id])),
+      groups: new Map([...groups].map((id) => [id, id])),
+      boundary: new Map(),
+    }) } : {}),
     scope: { lineage: doc.lineage, graph: graphId, token: scopeToken },
     externalIncoming: Object.values(graph.links).flatMap((link): ExternalIncomingStub[] => {
       if ((!isPortEndpoint(link.from) && !isWidgetTapRef(link.from)) || !isPortEndpoint(link.to) ||
@@ -1086,6 +1098,7 @@ function materialize(
     if (tx.current.ext === undefined) tx.set(['ext'], {})
     tx.set(['ext', NET_VIEWS_EXT_KEY], updateNetViewPositions(tx.current, tagPlacements))
   }
+  const groupMap = new Map<string, string>()
   if (envelope.groups.length) {
     // FR1: groups mint from the shared group floor (groupSeq cursor +
     // live keys + binding-referenced ids, see group-alloc.ts), never from
@@ -1103,12 +1116,23 @@ function materialize(
       if (!Number.isSafeInteger(seq) || !Number.isSafeInteger(seq + 1))
         throw new Error(`group id space exhausted: cursor is at ${seq}`)
       const id = `grp${seq++}`
+      groupMap.set(String(group.id), id)
       if (Object.hasOwn(existing, id))
         throw new Error(`group id space exhausted: '${id}' already exists`)
       const b = group.bounds as Record<string, Json>
       tx.set(['view', 'graphs', graphId, 'groups', id], { ...group, id, bounds: { ...b, x: Number(b.x) + dx, y: Number(b.y) + dy } } as unknown as Json)
     }
     tx.set(['view', 'graphs', graphId, 'groupSeq'], seq)
+  }
+  if (envelope.groupMembership !== undefined) {
+    const pasted = remapGroupMembership(envelope.groupMembership, { nodes: nodeMap, reroutes: rerouteMap, groups: groupMap, boundary: new Map() })
+    const current = tx.current.view.graphs[graphId]!.groupMembership
+    tx.set(['view', 'graphs', graphId, 'groupMembership'], {
+      nodes: { ...current?.nodes, ...pasted.nodes },
+      reroutes: { ...current?.reroutes, ...pasted.reroutes },
+      groups: { ...current?.groups, ...pasted.groups },
+      boundary: { ...current?.boundary },
+    })
   }
   const occurrenceTopologies = occurrenceTopologiesForPaste(envelope, definitions)
   if (occurrenceTopologies.length > 0) {

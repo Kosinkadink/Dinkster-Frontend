@@ -67,9 +67,8 @@ export function audioPreview(values: PeekValues, query: ValueQuery, descriptor: 
           diagnostics.push(`Audio ${kind}: invalid MIME or rendition exceeds preview budget`)
           return undefined
         }
-        if (kind === 'waveform') diagnostics.push(result.waveform === 'sampled-peak'
-          ? 'Waveform: sampled peaks (not exhaustive)'
-          : result.waveform ? `Waveform method: ${result.waveform}` : 'Waveform sampling method not reported')
+        if (kind === 'waveform' && result.waveform !== 'sampled-peak') diagnostics.push(
+          result.waveform ? `Waveform method: ${result.waveform}` : 'Waveform sampling method not reported')
         return result.bytes
       }
       const [waveformBytes, windowBytes] = await Promise.all([request('waveform'), request('window')])

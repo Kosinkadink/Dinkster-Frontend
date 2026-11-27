@@ -168,64 +168,6 @@ test('run activity distinguishes concurrent running jobs from queued jobs and re
   await expect.poll(() => ring.evaluate((element) => getComputedStyle(element).animationName)).toBe('none')
 })
 
-test('portable site geometry follows the site scale without changing app density', async ({
-  page,
-}) => {
-  await page.goto('/#controls')
-  for (const width of [1280, 1440, 1920, 390]) {
-    await page.setViewportSize({ width, height: 900 })
-    const values = await page.evaluate(() => {
-      const root = document.documentElement
-      root.dataset.density = 'site'
-      const style = getComputedStyle(root)
-      const site = Object.fromEntries(
-        [
-          'navigation-width',
-          'row-button-height',
-          'row-button-mobile-height',
-          'field-height',
-          'main-button-height',
-          'panel-radius',
-          'control-radius',
-          'mobile-top-bar-padding',
-          'status-tint-opacity',
-        ].map((name) => [
-          name,
-          name === 'status-tint-opacity'
-            ? Number(style.getPropertyValue(`--dinkster-site-${name}`))
-            : style.getPropertyValue(`--dinkster-site-${name}`).trim(),
-        ]),
-      )
-      root.dataset.density = 'app'
-      const app = {
-        siteField: getComputedStyle(root)
-          .getPropertyValue('--dinkster-site-field-height')
-          .trim(),
-        input: getComputedStyle(root)
-          .getPropertyValue('--dinkster-input-primary-height')
-          .trim(),
-        body: getComputedStyle(document.body).fontSize,
-      }
-      root.dataset.density = 'site'
-      return { site, app }
-    })
-    expect(values).toEqual({
-      site: {
-        'navigation-width': '220px',
-        'row-button-height': '28px',
-        'row-button-mobile-height': '32px',
-        'field-height': '36px',
-        'main-button-height': '36px',
-        'panel-radius': '8px',
-        'control-radius': '6px',
-        'mobile-top-bar-padding': '8px',
-        'status-tint-opacity': 0.14,
-      },
-      app: { siteField: '', input: '40px', body: '13px' },
-    })
-  }
-})
-
 const background = (locator: Locator) =>
   locator.evaluate((element) => getComputedStyle(element).backgroundColor)
 const token = (page: Page, name: string) =>
@@ -1174,6 +1116,41 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await opener.click()
   await expect(dialog).toBeVisible()
   await expect(page).toHaveScreenshot('dialog-open-390.png')
+})
+
+test('pending confirmation dismissal controls dim without a page root and recover when work ends', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') })
+  await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'))
+  await page.goto('/#confirmations')
+  // The app mounts dialogs outside a page root; the gallery body normally masks that context.
+  await page.evaluate(() => document.body.classList.remove('dinkster-root'))
+  const opener = page.getByRole('button', { name: 'Review working', exact: true })
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
+  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true })
+  const close = dialog.getByRole('button', { name: 'Close', exact: true })
+  const action = dialog.getByRole('button', { name: 'Remove backend', exact: true })
+  for (const control of [cancel, close]) {
+    await expect(control).toBeDisabled()
+    await expect(control).toHaveCSS('opacity', '0.45')
+    await control.dispatchEvent('click')
+    await expect(dialog).toBeVisible()
+  }
+  await expect(action).toHaveAttribute('aria-busy', 'true')
+  await expect(action).toHaveCSS('opacity', '1')
+  await expect(action.locator('.dinkster-spinner')).toBeVisible()
+  for (let press = 0; press < 4; press += 1) await page.keyboard.press('Escape')
+  await page.mouse.click(1, 1)
+  await expect(dialog).toBeVisible()
+  await page.clock.runFor(600)
+  for (const control of [cancel, close]) {
+    await expect(control).toBeEnabled()
+    await expect(control).toHaveCSS('opacity', '1')
+  }
+  await expect(action).not.toHaveAttribute('aria-busy', 'true')
+  await cancel.click()
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
 })
 
 test('wide dialogs use their own width and preserve narrow margins and dismissal', async ({

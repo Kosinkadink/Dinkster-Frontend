@@ -12,6 +12,7 @@ const primitiveTags = new Map(
     ['select.tsx', new Set(['button', 'input'])],
     ['canvas-field.tsx', new Set(['button', 'input'])],
     ['canvas-list.tsx', new Set(['button', 'input'])],
+    ['fixes-notice.tsx', new Set(['button'])],
     ['canvas-save-target.tsx', new Set(['button', 'input'])],
     ['problem-box.tsx', new Set(['button'])],
     ['layout.tsx', new Set(['button'])],

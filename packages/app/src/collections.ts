@@ -13,7 +13,7 @@ import {
   type CollectionEntry,
   type CollectionSource,
 } from '@dinkster/core'
-import { HISTORY_STATES, type ExecutionState, type HistoryRunRecord, type LibraryRecord, type TemplateDescriptor } from '@dinkster/client'
+import { HISTORY_STATES, type ExecutionState, type HistoryPage, type HistoryRunRecord, type LibraryRecord, type TemplateDescriptor } from '@dinkster/client'
 import { LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState, type Backend } from './app-state.js'
 import { runAttributionLabel, type RunAttribution } from './run-attribution.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
@@ -367,6 +367,42 @@ export function workflowsSource(app: AppState): CollectionSource {
   }
 }
 
+export function boardsSource(app: AppState): CollectionSource {
+  return {
+    id: 'boards',
+    label: 'Boards',
+    page: async (req) => {
+      const backend = app.libraryBackend()
+      if (!backend) return { items: [], total: 0 }
+      const cursor = decodeOwnedCursor(backend.id, req.cursor)
+      const page = await backend.connection.listLibrary({
+        scope: LIBRARY_SCOPE,
+        query: req.query,
+        label: 'board',
+        limit: req.limit,
+        ...(cursor !== undefined ? { cursor } : {}),
+      })
+      const nextCursor = encodeOwnedCursor(backend.id, page.cursor)
+      return {
+        owner: backend.id,
+        items: page.records.map((record): CollectionEntry => ({
+          id: record.id,
+          owner: backend.id,
+          title: record.name,
+          subtitle: `Modified ${formatCollectionDate(record.modified * 1000)}`,
+          badges: [...record.labels.filter((label) => label !== 'board'), `rev ${record.revision}`],
+          details: [
+            { label: 'board id', text: record.id },
+            { label: 'backend', text: backend.label },
+            { label: 'revision', text: String(record.revision) },
+          ],
+        })),
+        ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
+      }
+    },
+  }
+}
+
 const timeText = (epoch: number): string => formatCollectionDate(epoch * 1000)
 const localTimeText = (epoch: number): string => formatCollectionDate(epoch)
 const titleCase = (value: string): string => value[0]!.toUpperCase() + value.slice(1)
@@ -570,20 +606,25 @@ export function runsSource(app: AppState): CollectionSource {
     label: 'Runs',
     page: async (req) => {
       const backend = app.libraryBackend()
-      if (!backend) return { items: [], total: 0 }
+      if (!backend) return { items: [], total: 0, disabledActions: ['clear'] }
       const cursor = decodeOwnedCursor(backend.id, req.cursor)
       const filter = runsFilterOf(req.query)
-      if (filter === undefined) return { owner: backend.id, items: [], total: 0 }
-      const page = await backend.connection.listHistory({
+      const listing: Promise<HistoryPage> = filter === undefined ? Promise.resolve({ records: [] }) : backend.connection.listHistory({
         scope: LIBRARY_SCOPE,
         ...filter,
         limit: req.limit,
         ...(cursor !== undefined ? { cursor } : {}),
       })
+      // A query or continuation can hide every row without emptying the backend.
+      const corpus = req.query.trim() === '' && cursor === undefined ? listing
+        : backend.connection.listHistory({ scope: LIBRARY_SCOPE, limit: 1 })
+      const [page, unfiltered] = await Promise.all([listing, corpus])
       const nextCursor = encodeOwnedCursor(backend.id, page.cursor)
       return {
         owner: backend.id,
+        disabledActions: unfiltered.records.length === 0 ? ['clear'] : [],
         items: groupNoOpHistoryRuns(page.records).map((row) => runRowEntry(row, backend.id)),
+        ...(filter === undefined ? { total: 0 } : {}),
         ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
       }
     },
