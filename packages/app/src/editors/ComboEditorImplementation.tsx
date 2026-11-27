@@ -6,6 +6,7 @@ import { comboOptions, remoteComboRefreshCanAdvance } from '../app-view-rows.js'
 import { clampComboHighlight, comboMenuEntries, comboRenderWindow, scrollComboHighlightIntoView, type ComboHighlightSource, type ComboOption, type ComboRenderWindow } from '../combo-search.js'
 import { Icon } from '../Icon.js'
 import { useAppMessage } from '../locale.js'
+import { failureMessage } from '../request-failure.js'
 import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
 import { ProductButton, ProductTextArea, ProductTextInput } from '../ProductControls.js'
 import { withMaterializeFrames, type WidgetEditorImplementationProps } from '../WidgetEditorController.js'
@@ -99,7 +100,7 @@ export const createComboImplementation = (multi: boolean): Component<WidgetEdito
       })
       .catch((error: unknown) => {
         if (!live || token !== requestToken) return
-        const detail = error instanceof Error ? error.message : String(error)
+        const detail = failureMessage(error, 'Choices could not be loaded.')
         setRemoteState(previous?.state === 'ready' || previous?.state === 'stale' ? { state: 'stale', source, options: previous.options, message: detail } : { state: 'unavailable', source, message: detail })
       })
   }

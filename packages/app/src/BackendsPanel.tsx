@@ -9,6 +9,7 @@ import { useAppMessage } from './locale.js'
 import { ProductField, productFieldIds } from './ProductForm.js'
 import { ProductTextInput } from './ProductControls.js'
 import { useSignal } from './solid-adapter.js'
+import { failureMessage } from './request-failure.js'
 
 function BackendAddress(props: { readonly value: string }) {
   const address = createMemo(() => props.value.match(/^(https?:\/\/)(\[[^\]]+\]|[^/:]+)(:\d+)?(.*)$/i))
@@ -55,7 +56,7 @@ function BackendRow(props: {
     setError('')
     setConnectFailed(false)
     try { await action() }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
+    catch (cause) { setError(failureMessage(cause)) }
     finally { setBusy(false) }
   }
   const connect = async () => {

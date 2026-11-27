@@ -232,7 +232,7 @@ describe('VideoEditEditor', () => {
     expect(root.textContent).not.toContain('Stale error')
     resolveOld({ available: true, descriptor: { typeId: 'VIDEO', fingerprint: 'new' }, renditions: [{ kind: 'poster', mime: 'image/png' }] })
     await vi.advanceTimersByTimeAsync(1)
-    expect(root.textContent).toContain('406 unavailable-rendition: No bounded decoder')
+    expect(root.textContent).toContain('Video preview unavailable. No bounded decoder')
     expect(values.rendition).toHaveBeenCalledTimes(1)
     expect(values.rendition).toHaveBeenCalledWith(expect.objectContaining({ jobId: 'new' }), 'poster', expect.anything())
   })

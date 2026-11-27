@@ -2,6 +2,7 @@ import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import type { DinksterConnection, LibraryStorage } from '@dinkster/client'
 import { ProductByteSizeInput, ProductConfirmation, ProductDialog, ProductErrorBanner, ProductSettingsSection, ProductSettingRow, ProductSwitch, ProductTextButton } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 
 export function LibraryStorageSettings(props: {
   readonly connection: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit' | 'clearLibraryStorage'>
@@ -35,7 +36,7 @@ export function LibraryStorageSettings(props: {
     } catch (cause) {
       if (current) {
         setStatus(undefined)
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setError(failureMessage(cause))
       }
     } finally {
       if (current) setBusy(false)
@@ -55,7 +56,7 @@ export function LibraryStorageSettings(props: {
     } catch (cause) {
       if (current) {
         setLimit(previous.limitBytes)
-        setSaveError({ id, text: cause instanceof Error ? cause.message : String(cause) })
+        setSaveError({ id, text: failureMessage(cause) })
       }
       return
     } finally {
@@ -77,7 +78,7 @@ export function LibraryStorageSettings(props: {
         ...previous, collectionEnabled: next.collectionEnabled, blocked: next.blocked, reclaimableBytes: null,
       })
     } catch (cause) {
-      if (current) setClearError(cause instanceof Error ? cause.message : String(cause))
+      if (current) setClearError(failureMessage(cause))
     } finally {
       if (current) {
         setConfirmClear(false)

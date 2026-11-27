@@ -220,6 +220,7 @@ import { readEditorCurve } from './in-node-editor-source.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
+import { formatByteSize } from './collections.js'
 import { boundaryItems } from '@dinkster/core'
 
 type WidgetLayoutRow = Extract<Hit, { kind: 'widget' }>['row']
@@ -7177,6 +7178,27 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     })
   }
 
+  const missingModels = createMemo(() => {
+    backendsTick()
+    tabTargets()
+    const tab = activeTab()
+    if (!tab || tab.execution) return []
+    const backend = props.app.backendForTab(tab)
+    if (backend.protocol !== 'dinkster' || !backend.templatesEnabled.get()) return []
+    problems()
+    return props.app.missingWorkflowModels(tab)?.models ?? []
+  })
+  const missingModelAmount = (): string => {
+    const assets = [...(registry()?.packs?.values() ?? [])].flatMap((pack) => pack.assets ?? [])
+    const sizes = missingModels().map((model) => {
+      if (model.asset) return model.asset.size
+      const matches = assets.filter((asset) => asset.name === model.name && asset.kind === model.kind)
+      return matches.every((asset) => asset.size === matches[0]?.size) ? matches[0]?.size : undefined
+    })
+    return sizes.every((size) => size !== undefined)
+      ? formatByteSize(sizes.reduce<number>((total, size) => total + size!, 0)) : ''
+  }
+
   /** Frozen-tab banner data: execution identity, status, live-sync verdict. */
   const frozenInfo = () => {
     executions()
@@ -7966,6 +7988,27 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         onZoomTo={(scale) => zoomCanvasTo?.(scale)}
       />
 
+      <Show when={missingModels().length > 0}>
+        <div ref={placeFrozenLine} class="frozen-banner" data-testid="missing-models-banner" role="status">
+          <span class="frozen-words">
+            <Icon icon={TriangleAlert} />
+            <span class="frozen-label">{message('modelPresence.missingSummary', { count: missingModels().length })}</span>
+            <Show when={missingModelAmount()}>{(amount) => <span class="frozen-sync">{amount()}</span>}</Show>
+          </span>
+          <span class="canvas-chrome-divider" aria-hidden="true" />
+          <ProductButton variant="ghost" type="button" class="canvas-chrome-button frozen-action"
+            onClick={() => {
+              const tab = activeTab()
+              if (!tab) return
+              const backend = props.app.backendForTab(tab)
+              props.app.openModelDownloads(backend, missingModels(), { tab, workflowTitle: tab.title,
+                missing: missingModels(),
+                stillCurrent: () => backend.protocol === 'dinkster' && backend.templatesEnabled.get(),
+              })
+            }}
+          >{message('modelDownloads.title')}</ProductButton>
+        </div>
+      </Show>
       <Show when={activeTab()?.id} keyed>{(_id) => <FixesNotice app={props.app} tab={activeTab()!} />}</Show>
 
       <Show when={frozenInfo()}>

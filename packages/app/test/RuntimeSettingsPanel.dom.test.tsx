@@ -34,7 +34,7 @@ describe('RuntimeSettingsPanel', () => {
 
   it('saves page controls immediately, preserves sibling values, and restores a refused scalar', async () => {
     const update = vi.fn(async (category: string, value: unknown) => {
-      if (category === 'jobs') throw new Error('Only two jobs are allowed')
+      if (category === 'jobs') throw new RuntimeSettingsError(400, { error: 'invalid-settings', category, message: 'Only two jobs are allowed' })
       return section(value, { source: 'runtime', mutability: 'on-worker-restart' })
     })
     const categories = ['dtype-policy', 'jobs', 'fp8-matmul']
@@ -54,7 +54,7 @@ describe('RuntimeSettingsPanel', () => {
     jobs.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     await flush()
     expect(jobs.value).toBe('2')
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Only two jobs are allowed')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. Only two jobs are allowed')
     expect(root.querySelector('[role="switch"]')).toBeNull()
     expect(root.textContent).not.toContain('Reset')
     expect(root.textContent).not.toContain('Unsaved changes')
@@ -62,7 +62,7 @@ describe('RuntimeSettingsPanel', () => {
   })
 
   it('keeps page list edits until Done succeeds or Cancel discards them', async () => {
-    const update = vi.fn().mockRejectedValueOnce(new Error('Argument refused')).mockImplementation(async (_category: string, value: unknown) => section(value))
+    const update = vi.fn().mockRejectedValueOnce(new RuntimeSettingsError(400, { error: 'invalid-settings', category: 'worker-comfy-args', message: 'Argument refused' })).mockImplementation(async (_category: string, value: unknown) => section(value))
     const { root } = mount({ categories: { granted: ['worker-comfy-args'], available: ['worker-comfy-args'] }, settings: {
       'worker-comfy-args': section(['--preview-method', 'auto'], { mutability: 'on-worker-restart' }),
     } }, update, true)
@@ -78,7 +78,7 @@ describe('RuntimeSettingsPanel', () => {
     expect(input.value).toBe('auto')
     input.value = 'latent2rgb'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     button('Done').click(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Argument refused')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. Argument refused')
     expect(input.value).toBe('latent2rgb')
     button('Done').click(); await flush()
     expect(update).toHaveBeenLastCalledWith('worker-comfy-args', ['--preview-method', 'latent2rgb'])
@@ -323,11 +323,11 @@ describe('RuntimeSettingsPanel', () => {
     const input = root.querySelector<HTMLInputElement>('[aria-label="Maximum running jobs"]')!
     input.value = '3'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     form.requestSubmit(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('must be at least 1')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. must be at least 1')
     input.value = '4'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     expect(root.querySelector('[role="alert"]')).toBeNull()
     form.requestSubmit(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Changes to jobs are not granted (granted: logging)')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. You do not have access.')
   })
 
   it('renders worker deny-list details only when complete and clears them on edit or success', async () => {
@@ -343,17 +343,17 @@ describe('RuntimeSettingsPanel', () => {
 
     input.value = '--preview-size'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     form.requestSubmit(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('flag only')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. flag only')
     input.value = '--owner-check'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     expect(root.querySelector('[role="alert"]')).toBeNull()
 
     form.requestSubmit(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('owner only')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. owner only')
     input.value = '--deny-check'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     expect(root.querySelector('[role="alert"]')).toBeNull()
 
     form.requestSubmit(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Dinkster owns --portRejected flag: --port (owned by Dinkster server).')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Settings could not be saved. Dinkster owns --portRejected flag: --port (owned by Dinkster server).')
     input.value = '--server-value'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     form.requestSubmit(); await flush()
     expect(root.querySelector('[role="alert"]')).toBeNull()

@@ -10,6 +10,7 @@ import { ProductPanelHeader } from './ProductSurfaces.js'
 import { ModelSettings } from './ModelSettings.js'
 import { MountFolderForm } from './MountFolderForm.js'
 import { OutputMountSettings } from './OutputMountSettings.js'
+import { failureMessage } from './request-failure.js'
 
 type NativeBackend = Extract<Backend, { protocol: 'dinkster' }>
 
@@ -76,7 +77,7 @@ export function StorageFolders(props: {
       setOperatorNotice(paths.status === 'rejected' || modelState.status === 'rejected')
       setError('')
     } catch (cause) {
-      if (current()) setError(cause instanceof Error ? cause.message : String(cause))
+      if (current()) setError(failureMessage(cause, message('request.storageLoadFailed')))
     }
   }
   createEffect(() => {
@@ -109,7 +110,7 @@ export function StorageFolders(props: {
       await load()
       if (owner === generation) setNotification({ message: message('storagePanel.saved') })
     } catch (cause) {
-      if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause))
+      if (owner === generation) setError(failureMessage(cause, message('request.storageSaveFailed')))
     } finally { if (owner === generation) setBusy(false) }
   }
   const selected = () => settings()?.mounts ?? []

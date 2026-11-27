@@ -1,4 +1,5 @@
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
+import { failureMessage } from '../request-failure.js'
 
 export const METADATA_INSPECTION_UNSUPPORTED = 'Metadata inspection is unsupported.'
 
@@ -34,6 +35,6 @@ export async function inspectAssetMetadata(p: {
     p.apply(value === undefined ? METADATA_INSPECTION_UNSUPPORTED : 'ready', value)
   } catch (reason) {
     if (!p.stillCurrent()) return
-    p.apply(reason instanceof Error ? reason.message : String(reason), undefined)
+    p.apply(failureMessage(reason, 'Metadata could not be loaded.'), undefined)
   }
 }

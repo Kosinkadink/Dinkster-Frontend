@@ -2,7 +2,7 @@
 
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
-import type { LibraryStorage, PackSettings } from '@dinkster/client'
+import { RequestFailure, type LibraryStorage, type PackSettings } from '@dinkster/client'
 import { registerCatalog, setLocale, t } from '@dinkster/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../src/locale.js'
@@ -176,7 +176,7 @@ describe('SettingsDialog search', () => {
       clearLibraryStorage: async () => {
         clearRequests += 1
         await pending
-        if (fail) throw new Error('Cleanup unavailable')
+        if (fail) throw new RequestFailure('POST', '/api/library/storage/clear', 503, 'Cleanup unavailable')
         return { collectionEnabled: enabled, blocked: enabled ? [] : ['owner_completeness_unknown'],
           reclaimedBytes: enabled ? 113 : 0, reclaimedFiles: enabled ? 2 : 0 }
       },
@@ -199,7 +199,7 @@ describe('SettingsDialog search', () => {
     confirm().click()
     expect(clearRequests).toBe(1)
     finish()
-    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Cleanup unavailable'))
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('The action could not be completed. Cleanup unavailable'))
     expect(root.querySelector('[role="alert"]')?.closest('.dinkster-settings-section')).not.toBeNull()
     expect(clear.disabled).toBe(false)
     fail = false
@@ -226,7 +226,7 @@ describe('SettingsDialog search', () => {
       fetchLibraryStorage: async () => ({ temporaryBytes: null, vaultBytes: null, adoptedBytes: null,
         reclaimableBytes: null, blocked: ['reference_state_unavailable'], collectionEnabled: false,
         policyAvailable: available, limitBytes: available ? 8193 : null }),
-      updateLibraryStorageLimit: async () => { throw new Error('Operator permission denied') },
+      updateLibraryStorageLimit: async () => { throw new RequestFailure('PATCH', '/api/library/storage', 403, 'Operator permission denied') },
       clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') },
     }
     const root = document.createElement('div')
@@ -240,14 +240,14 @@ describe('SettingsDialog search', () => {
     ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Refresh')!.click()
     await vi.waitFor(() => expect(limited.disabled).toBe(false))
     limited.click()
-    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Operator permission denied'))
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('The action could not be completed. Operator permission denied'))
     expect(limited.getAttribute('aria-checked')).toBe('true')
     expect(root.querySelector('#library-storage-temporaryBytes')?.textContent).toBe('Unknown')
     const input = root.querySelector<HTMLInputElement>('#library-storage-limit')!
     input.value = '4097 B'
     input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('#library-storage-limit-error')?.textContent).toBe('Operator permission denied'))
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-limit-error')?.textContent).toBe('The action could not be completed. Operator permission denied'))
     expect(input.value).toBe('0 GB')
     unmount()
   })
@@ -654,13 +654,13 @@ describe('SettingsDialog search', () => {
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} packSettings={{
       client: {
-        fetchPackSettings: async () => { throw new Error('pack is unavailable') },
+        fetchPackSettings: async () => { throw new RequestFailure('GET', '/api/packs/test/settings', 503, 'pack is unavailable') },
         updatePackSettings: async () => { throw new Error('unexpected update') },
       },
       packs: () => [{ id: 'broken', displayName: 'Broken Pack' }],
     }} />, root)
     root.querySelector<HTMLAnchorElement>('a[href="#packs"]')!.click()
-    await vi.waitFor(() => expect(root.querySelector('.pack-settings-status')?.textContent).toBe('pack is unavailable'))
+    await vi.waitFor(() => expect(root.querySelector('.pack-settings-status')?.textContent).toBe('The action could not be completed. pack is unavailable'))
     expect(root.querySelector('[data-pack-setting-id]')).toBeNull()
     unmount()
   })

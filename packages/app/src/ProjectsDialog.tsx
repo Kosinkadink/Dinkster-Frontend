@@ -8,6 +8,7 @@ import { ProductButton, ProductTextInput } from './ProductControls.js'
 import { ProductEmptyState, ProductListRow } from './ProductSurfaces.js'
 import { activeProjectId, migrateBrowserProjects } from './projects.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 
 /** The engine owns project records; switching reloads the window's device scope. */
 export function ProjectsDialog(props: {
@@ -70,7 +71,7 @@ export function ProjectsDialog(props: {
         await migrateBrowserProjects(connection, globalThis.localStorage, controller.signal)
         await readProjects(connection, controller.signal)
       } catch (cause) {
-        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause))
+        if (!controller.signal.aborted) setError(failureMessage(cause, message('request.projectsLoadFailed')))
       } finally {
         if (!controller.signal.aborted) setLoading(false)
       }
@@ -95,7 +96,7 @@ export function ProjectsDialog(props: {
       if (controller.signal.aborted || props.connection !== connection) return
       // Reload revisions after a conflict so the next rename can use fresh data.
       try { await readProjects(connection, controller.signal) } catch { /* Keep the original failure. */ }
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : String(cause))
+      if (!controller.signal.aborted) setError(failureMessage(cause, message('request.projectUpdateFailed')))
     } finally {
       if (!controller.signal.aborted) setBusy(false)
     }

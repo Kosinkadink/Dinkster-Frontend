@@ -9,12 +9,11 @@ import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState, ProductListRow, ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 
 type CollabActionKey = 'refresh' | 'leave' | 'end' | `join:${string}`
 type SessionListState = 'loading' | 'ready' | 'unavailable' | 'error'
 type ActiveMembership = CollabTabState | (NonNullable<BoardEntry['shared']> & { readonly baseUrl: string })
-
-const actionError = (error: unknown): string => error instanceof Error ? error.message : String(error)
 
 const statusLabel = (status: SharedSessionStatus): string => {
   switch (status) {
@@ -138,7 +137,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
     } catch (error) {
       if (!live || revision !== refreshRevision) return
       setListState('error')
-      setFailure('refresh', actionError(error))
+      setFailure('refresh', failureMessage(error, 'Shared sessions could not be loaded.'))
       if (!preserveAnnouncement) setAnnouncement('Shared sessions could not be loaded.')
     } finally {
       setActionPending('refresh', false)
@@ -204,7 +203,7 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
       setAnnouncement(success)
       onSuccess?.()
     } catch (error) {
-      setFailure(key, actionError(error))
+      setFailure(key, failureMessage(error))
       announceFailure()
     } finally {
       setActionPending(key, false)

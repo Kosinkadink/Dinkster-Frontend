@@ -12,6 +12,7 @@ import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } fro
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 
 type SettingsConnection = Pick<DinksterConnection, 'fetchRuntimeSettings' | 'updateRuntimeSetting'>
 
@@ -72,7 +73,7 @@ function EngineSettingRows(props: {
     } catch (cause) {
       if (live) {
         setValue(() => props.section.value)
-        setError({ id, text: cause instanceof Error ? cause.message : String(cause) })
+        setError({ id, text: failureMessage(cause, message('request.settingsSaveFailed')) })
       }
       return false
     } finally {
@@ -183,7 +184,7 @@ function CategoryEditor(props: {
       setError('')
       setRejected(undefined)
     } catch (cause) {
-      setError(cause instanceof RuntimeSettingsError ? cause.message : cause instanceof Error ? cause.message : String(cause))
+      setError(failureMessage(cause, message('request.settingsSaveFailed')))
       setRejected(cause instanceof RuntimeSettingsError && cause.offendingFlag !== undefined && cause.owner !== undefined
         ? { offendingFlag: cause.offendingFlag, owner: cause.owner }
         : undefined)
@@ -333,7 +334,7 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
       const result = await props.connection.fetchRuntimeSettings()
       if (request === requestSequence) setData(result)
     } catch (cause) {
-      if (request === requestSequence) setError(cause instanceof Error ? cause.message : String(cause))
+      if (request === requestSequence) setError(failureMessage(cause, message('request.settingsLoadFailed')))
     } finally {
       if (request === requestSequence) setLoading(false)
     }
