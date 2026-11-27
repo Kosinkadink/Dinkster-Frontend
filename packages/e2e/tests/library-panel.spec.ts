@@ -232,7 +232,7 @@ test('Library direct content preserves provenance, states, overflow, and respons
   fixture.setTemplateMode('error')
   await selectSource(page, 'packs')
   await selectSource(page, 'templates')
-  await expect(library.locator('[data-collection-state="error"]')).toContainText('GET /api/templates failed: 503')
+  await expect(library.locator('[data-collection-state="error"]')).toContainText('The engine reported an error.')
   await capture(page, 'after-library-error-1366x768')
 
   fixture.setTemplateMode('empty')
