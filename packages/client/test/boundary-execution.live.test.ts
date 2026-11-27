@@ -507,6 +507,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
       })
       for (const id of ['sample', 'extra']) select(id, 'text')
       for (const [itemId, port] of [['caption', 'mode.text'], ['photo', 'mode.picture']] as const) {
+        const beforeAdd = store.doc
         edit('boundary.addItem', { graphId: 'detail', side: 'inputs', itemId, node: 'sample', port })
         const before = store.doc
         const refused = store.dispatch({ command: 'boundary.addBinding', params: {
@@ -515,6 +516,10 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         expect(refused.ok).toBe(false)
         expect(refused.diagnostics.map((item) => item.code)).toContain('boundary.fanoutTypeMismatch')
         expect(store.doc).toBe(before)
+        expect(store.undo()).toBe(true)
+        expect(store.doc).toEqual(beforeAdd)
+        expect(store.redo()).toBe(true)
+        expect(store.doc).toEqual(before)
         edit('boundary.addBinding', { graphId: 'detail', itemId, node: 'extra', port })
       }
       if (depth === 2) for (const [itemId, port] of [['heading', 'caption'], ['picture', 'photo']] as const) {
@@ -539,10 +544,18 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
         expect(loaded).toEqual(store.doc)
         expect(loaded.graphs.root!.nodes.second).toEqual(sibling)
+        for (const id of ['sample', 'extra']) expect(loaded.graphs.detail!.nodes[id]!.values)
+          .toEqual(document.graphs.detail!.nodes[id]!.values)
         const compiled = compile({ document: loaded, revision: 1, resolve, scope: { kind: 'full' },
           connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
         expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
         if (!compiled.ok) throw new Error('Standalone option workflow did not compile')
+        expect(compiled.artifact.prompt.sink!.inputs.number).toEqual([path('first', false), 6])
+        for (const instance of ['first', 'second']) for (const extra of [false, true]) {
+          expect(compiled.artifact.prompt[path(instance, extra)]!.inputs).toMatchObject({
+            radius: 0.1, feather: 0.4, balance: 0.7, count: instance === 'second' && !extra ? 2 : 3,
+          })
+        }
         const expectedReceivers = Object.fromEntries([false, true].flatMap((second) => [false, true].map((extra) => [
           path(second ? 'second' : 'first', extra), expected(second, extra, imageTargets[extra ? 1 : 0]!,
             second ? 'native sibling leaf caption' : text, !second),
@@ -571,6 +584,10 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
                 jobId: submitted.execution.prompt, nodeId, expected: receipt, actual: actual[nodeId] }))
               expect(actual[nodeId], nodeId).toEqual(receipt)
               expect(outputs[nodeId]?.output91?.value).toBe(91)
+              expect(outputs[nodeId]?.['outputs.o0']?.value).toBe(10)
+              expect(outputs[nodeId]?.['outputs.o1']?.value).toBe(20)
+              if (nodeId === path('second', false)) expect(outputs[nodeId]?.['outputs.o2']).toBeUndefined()
+              else expect(outputs[nodeId]?.['outputs.o2']?.value).toBe(30)
             }
             expect(outputs.sink?.received?.value).toBe('91.0')
             console.info('Boundary standalone option receipt', JSON.stringify({ depth, phase,
