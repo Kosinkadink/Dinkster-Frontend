@@ -106,6 +106,7 @@ import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
+import { SecretsGallery } from './secrets.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -738,6 +739,7 @@ function Gallery() {
                 />
               </Section>
             </Match>
+            <Match when={route() === '#secrets'}><SecretsGallery /></Match>
             <Match when={route() === '#forms'}>
               <span class="dinkster-metadata dinkster-mono">ProductForm</span>
               <ProductNotice>

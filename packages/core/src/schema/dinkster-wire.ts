@@ -1684,7 +1684,7 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
       throw new Error(`${where}: secret default must be a credential name`)
     }
   }
-  // Secret names have their own editor, never the implicit STRING field.
+  // Secret names must not inherit the implicit STRING field.
   let widget: WidgetSpec | undefined = secret
     ? { widgetType: 'SECRET', options: {}, ...(entry['default'] !== undefined && entry['default'] !== null ? { default: entry['default'] } : {}) }
     : decoded.widget

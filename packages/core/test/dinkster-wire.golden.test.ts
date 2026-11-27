@@ -462,7 +462,7 @@ describe('Dinkster schema wire', () => {
     }
   })
 
-  it('compiles secret rows as credential names without inventing an empty string or exposing a text editor', () => {
+  it('preserves secret names through direct and nested-choice compilation without inventing an empty string', () => {
     const fields = [
       { kind: 'input', id: 'key', type: concrete('STRING'), pin: false, secret: true, default: 'caption-service' },
       { kind: 'input', id: 'optional_key', type: concrete('STRING'), pin: false, secret: true, required: false },
