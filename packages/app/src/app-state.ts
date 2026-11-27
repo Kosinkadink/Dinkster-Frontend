@@ -277,6 +277,7 @@ import {
 } from './execution-result-persistence.js'
 import { COLLAB_SCOPE, httpCollabTransport, stableActorId, type CollabTransport } from './collab.js'
 import { BoardWorkspace, type BoardEntry } from './board-workspace.js'
+import { inspectBoardMediaMetadata } from './board-media.js'
 import { buildParamRows } from './app-view-rows.js'
 import { installBoardPages } from './BoardPage.js'
 import { PresenceChannel } from './collab-presence.js'
@@ -3031,6 +3032,12 @@ export class AppState {
     readonly places?: readonly BoardRect[]
   }>>(new Map())
   private readonly uninstallBoardPages: () => void
+  readonly boardResultErrors = createSignal<ReadonlyMap<BoardEntry, string>>(new Map())
+  private readonly boardResultDeliveries = new Map<string, {
+    readonly entry: BoardEntry; readonly execution: ExecutionState; readonly generation: number
+    readonly abort: AbortController; pending: boolean
+  }>()
+  private readonly unsubscribeBoardResults: () => void
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
   /**
@@ -3444,6 +3451,13 @@ export class AppState {
     this.editorSplits = new EditorSplitStore(this.settings)
     this.pages = createAppPageTabs(this)
     this.uninstallBoardPages = installBoardPages(this)
+    const resultSubscriptions = [this.store.executions, this.boards.entries, this.backendsTick]
+      .map((signal) => signal.subscribe(() => this.deliverBoardResults()))
+    this.unsubscribeBoardResults = () => {
+      for (const unsubscribe of resultSubscriptions) unsubscribe()
+      for (const delivery of this.boardResultDeliveries.values()) delivery.abort.abort()
+      this.boardResultDeliveries.clear()
+    }
     // Stale-modal guard (see modalPanel above): registry churn that removes
     // the open modal's panel - or moves it off 'modal' - closes the modal
     // state itself, so a later re-register can never resurrect the dialog.
@@ -3867,6 +3881,7 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.unsubscribeBoardResults()
     this.uninstallBoardPages()
     for (const key of this.advancementPlans.keys()) this.dropAdvancement(key)
     this.boards.dispose()
@@ -10170,9 +10185,55 @@ export class AppState {
     return places
   }
 
+  private deliverBoardResults(): void {
+    if (this.disposed) return
+    const entries = this.boards.entries.get()
+    const executions = this.store.executions.get()
+    for (const [key, delivery] of this.boardResultDeliveries) {
+      if (entries.includes(delivery.entry) && executions.has(key)) continue
+      delivery.abort.abort()
+      this.boardResultDeliveries.delete(key)
+    }
+    if ([...this.boardResultErrors.get().keys()].some((entry) => !entries.includes(entry)))
+      this.boardResultErrors.set(new Map([...this.boardResultErrors.get()].filter(([entry]) => entries.includes(entry))))
+    for (const execution of executions.values()) {
+      if (!execution.jobRef || !execution.artifactsHydrated || this.store.isProvisionallyLost(execution.ref) ||
+        !['completed', 'error', 'interrupted', 'cancelled'].includes(execution.status)) continue
+      const origin = execution.artifact?.snapshot.ext?.['dinkster.boardCard']
+      const backend = this.backendFor(execution.ref.connection)
+      if (!workspaceRecord(origin) || typeof origin['card'] !== 'string' || backend?.protocol !== 'dinkster') continue
+      const entry = entries.find((entry) => entry.id === origin['board'] && entry.baseUrl === backend.baseUrl)
+      if (!entry || entry.session.doc.runs?.[execution.jobRef] || !entry.session.doc.items[origin['card']] ||
+        (entry.shared && !entry.shared.session.canEdit.get())) continue
+      const places = this.boardResultPlaces(entry, execution)
+      if (!places.length) continue
+      const key = executionKey(execution.ref)
+      const previous = this.boardResultDeliveries.get(key)
+      const generation = this.backendsTick.get()
+      if (previous?.pending || (previous?.execution === execution && previous.generation === generation)) continue
+      const delivery = { entry, execution, generation, abort: new AbortController(), pending: true }
+      this.boardResultDeliveries.set(key, delivery)
+      const current = () => !this.disposed && !delivery.abort.signal.aborted && this.boards.entries.get().includes(entry)
+      void this.placeBoardCardResults(entry, execution.ref, places[0]!, delivery.abort.signal).then(() => {
+        if (current() && this.boardResultErrors.get().has(entry)) {
+          const errors = new Map(this.boardResultErrors.get())
+          errors.delete(entry)
+          this.boardResultErrors.set(errors)
+        }
+      }).catch((reason: unknown) => {
+        if (current()) this.boardResultErrors.set(new Map([...this.boardResultErrors.get(),
+          [entry, reason instanceof Error ? reason.message : String(reason)]]))
+      }).finally(() => {
+        delivery.pending = false
+        this.deliverBoardResults()
+      })
+    }
+  }
+
   /** Place only a terminal run's recorded files, on its original Board/backend. */
   async placeBoardCardResults(entry: BoardEntry, ref: ExecutionRef,
     point: { readonly x: number; readonly y: number },
+    signal: AbortSignal = new AbortController().signal,
   ): Promise<readonly string[]> {
     const execution = this.store.get(ref)
     const backend = this.backendFor(ref.connection)
@@ -10184,13 +10245,19 @@ export class AppState {
     const job = execution?.jobRef
     if (!job || !execution.artifactsHydrated ||
       !['completed', 'error', 'interrupted', 'cancelled'].includes(execution.status)) return []
+    if (entry.session.doc.runs?.[job]) return []
+    const assets = await Promise.all(execution.artifacts.filter((asset) => boardMediaKindOf(asset.mediaType)).map(async (asset) => ({
+      digest: asset.digest, mediaType: asset.mediaType, name: asset.name.slice(0, BOARD_MAX_NAME),
+      origin: { job, node: asset.nodeId },
+      ...await inspectBoardMediaMetadata(backend.connection.assetUrl(asset.digest), asset.mediaType, signal),
+    })))
+    signal.throwIfAborted()
+    if (!this.boards.entries.get().includes(entry) || this.backendFor(ref.connection) !== backend)
+      throw new Error('Run does not belong to this Board and backend')
     return this.boards.placeMedia(entry.id, {
       project: activeProjectId(), baseUrl: backend.baseUrl,
       run: { job, card: origin['card'], places: this.boardResultPlaces(entry, execution) },
-      assets: execution.artifacts.filter((asset) => boardMediaKindOf(asset.mediaType)).map((asset) => ({
-        digest: asset.digest, mediaType: asset.mediaType, name: asset.name.slice(0, BOARD_MAX_NAME),
-        origin: { job, node: asset.nodeId },
-      })),
+      assets,
     }, point)
   }
 

@@ -1,7 +1,7 @@
 import { BOARD_MAX_NAME, boardMediaKindOf, emptyBoard, t, type BoardCardSource, type CollectionEntry, type CollectionSource } from '@dinkster/core'
 import { ProductBoard, ProductErrorBanner } from '@dinkster/ui'
 import { Images } from 'lucide-solid'
-import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import type { AppState, Backend } from './app-state.js'
 import type { BoardEntry } from './board-workspace.js'
 import { CanvasCornerControls, type CanvasCornerMenu } from './CanvasChrome.js'
@@ -18,13 +18,40 @@ import { CollectionPanel } from './CollectionPanel.js'
 import { boardBlueprintsSource, workflowsSource } from './collections.js'
 import { BoardCard } from './BoardCard.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { executionProgress } from './ExecutionActivityCard.js'
 
 function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string | undefined; clearSaveError: () => void }) {
   const [menu, setMenu] = createSignal<CanvasCornerMenu>()
   const [error, setError] = createSignal<string>()
-  const clearError = () => { setError(undefined); props.clearSaveError() }
+  const resultErrors = useSignal(props.app.boardResultErrors)
+  const clearError = () => {
+    setError(undefined)
+    props.clearSaveError()
+    const errors = new Map(props.app.boardResultErrors.get())
+    errors.delete(props.entry)
+    props.app.boardResultErrors.set(errors)
+  }
   const backends = useSignal(props.app.backends)
   const boardBackend = () => backends().find((backend) => backend.baseUrl === props.entry.baseUrl && backend.protocol === 'dinkster')
+  const executions = useSignal(props.app.store.executions)
+  const submissions = useSignal(props.app.boardCardSubmissions)
+  const changed = useSignal(props.app.boards.changed)
+  const pendingRuns = createMemo(() => {
+    executions(); changed(); backends()
+    return Object.values(props.entry.session.doc.items).flatMap((card) => {
+      if (card.kind !== 'workflow' && card.kind !== 'blueprint') return []
+      const active = props.app.executionsForBoardCard(props.entry, card.id)
+        .filter((run) => run.status === 'queued' || run.status === 'running')
+      if (active.length) return active.map((run) => {
+        const progress = executionProgress(run)?.value
+        return { job: run.jobRef ?? run.key, card: card.id, places: props.app.boardResultPlaces(props.entry, run),
+          ...(progress === undefined ? {} : { progress }) }
+      })
+      const preparing = submissions().get(props.app.boardCardKey(props.entry, card.id))
+      return preparing?.places ? [{ job: props.app.boardCardKey(props.entry, card.id), card: card.id,
+        places: preparing.places }] : []
+    })
+  })
   let live = true
   let drop = 0
   let input!: HTMLInputElement
@@ -172,10 +199,11 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
         stageImport([...event.currentTarget.files ?? []], pickerPoint)
         event.currentTarget.value = ''
       }} />
-    <Show when={error() ?? props.saveError}>{(message) => <ProductErrorBanner onDismiss={clearError}>{message()}</ProductErrorBanner>}</Show>
+    <Show when={error() ?? resultErrors().get(props.entry) ?? props.saveError}>{(message) => <ProductErrorBanner onDismiss={clearError}>{message()}</ProductErrorBanner>}</Show>
     <div class="board-page-canvas"><ProductBoard
     fill
     store={props.entry.session}
+    pendingRuns={pendingRuns()}
     onAddCard={boardBackend() ? {
       workflow: (point) => chooseCard('workflow', point), blueprint: (point) => chooseCard('blueprint', point),
     } : {}}

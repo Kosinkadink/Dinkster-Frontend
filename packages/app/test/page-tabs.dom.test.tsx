@@ -9,7 +9,7 @@ import { App } from '../src/App.js'
 import { ASSET_DRAG_TYPE } from '../src/asset-browser/drag.js'
 import * as boardMedia from '../src/board-media.js'
 import { setPanelOpen } from '../src/panel-location.js'
-import { BOARD_MEDIA_TYPE, boundaryOf, emptyBoard, exposedKey, loadDocument } from '@dinkster/core'
+import { BOARD_MEDIA_TYPE, asPromptId, boundaryOf, emptyBoard, exposedKey, loadDocument } from '@dinkster/core'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import {
   layoutGroups,
@@ -505,6 +505,23 @@ describe('app page tabs', () => {
       expect(entry.session.redo()).toBe(true)
       await vi.waitFor(() => expect(input.value).toBe('17'))
       expect(app.tabs.get()).toHaveLength(1)
+      fetch.mockResolvedValue(bytes)
+      vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(`blake3:${'f'.repeat(64)}`)
+      const ref = { connection: backend.id, prompt: asPromptId('board-progress') }
+      vi.spyOn(backend.connection, 'submit').mockResolvedValue({ ok: true, execution: ref, jobRef: 'board-progress' })
+      ;[...card().querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Run')!.click()
+      await vi.waitFor(() => expect(app.store.get(ref)).toBeDefined())
+      expect(root.querySelectorAll('[data-board-pending]')).toHaveLength(1)
+      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+      app.store.apply({ kind: 'nodeStates', execution: ref, timestamp: 2,
+        nodes: { n0: { state: 'done' }, n1: { state: 'running', value: 0.5 } } })
+      await vi.waitFor(() => expect(root.querySelector('[aria-label="Run progress"]')?.getAttribute('aria-valuenow')).toBe('0.75'))
+      app.store.apply({ kind: 'error', execution: ref, timestamp: 3,
+        detail: { exceptionType: 'Error', exceptionMessage: 'Failed before saving', traceback: [] } })
+      app.store.hydrateArtifacts(ref, [])
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-board-pending]')).toHaveLength(0))
+      expect(root.querySelectorAll('[data-board-history]')).toHaveLength(0)
+      expect(entry.session.doc.order).toEqual([first, second])
     } finally {
       dispose(); app.dispose(); root.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals()
     }

@@ -112,12 +112,13 @@ describe('Board card sources', () => {
     vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
     vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(CHAIN_DOC))
     vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
+    let available = true
     vi.spyOn(backend.connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
-      digests.map((digest) => ({ digest, status: 'available' })))
+      digests.map((digest) => ({ digest, status: available ? 'available' : 'missing' })))
     let count = 0
     vi.spyOn(backend.connection, 'submit').mockImplementation(async () => ({ ok: true,
       execution: { connection: backend.id, prompt: asPromptId(`saved-${++count}`) }, jobRef: `native-${count}` }))
-    const board = app.boards.open(emptyBoard(), 'Results', backend.baseUrl)
+    let board = app.boards.open(emptyBoard(), 'Results', backend.baseUrl)
     const card = await app.boards.placeCard(board.id, { project: activeProjectId(), baseUrl: backend.baseUrl,
       kind: 'workflow', source: { kind: 'library', recordId: 'r1' }, name: 'Rain' }, { x: 17, y: 29 })
     const point = { x: 410, y: 29 }
@@ -138,14 +139,29 @@ describe('Board card sources', () => {
           detail: { exceptionType: 'Error', exceptionMessage: 'Failed after saving', traceback: [] } }
         : { kind: status, execution: ref, timestamp: count })
       expect(await app.placeBoardCardResults(board, ref, point)).toEqual([])
+      const closed = status === 'cancelled' ? board.session.doc : undefined
+      if (closed) app.boards.close(board.id)
+      if (status === 'completed') available = false
       app.store.hydrateArtifacts(ref, [
         { nodeId: 'save-video', digest: DIGEST, name: 'rain.mp4', mediaType: 'video/mp4', size: 17, virtualPath: 'outputs/rain.mp4' },
         { nodeId: 'save-sound', digest: DIGEST2, name: 'rain.wav', mediaType: 'audio/wav', size: 29, virtualPath: 'outputs/rain.wav' },
         { nodeId: 'save-text', digest: DIGEST, name: 'notes.txt', mediaType: 'text/plain', size: 3, virtualPath: 'outputs/notes.txt' },
       ])
+      if (closed) {
+        expect(board.session.doc.runs?.[`native-${count}`]).toBeUndefined()
+        board = app.boards.open(closed, 'Reopened results', backend.baseUrl)
+      }
+      if (!available) {
+        await vi.waitFor(() => expect(app.boardResultErrors.get().get(board)).toContain('unavailable'))
+        expect(board.session.doc.order).toEqual([card])
+        available = true
+        app.backendsTick.update((value) => value + 1)
+      }
       const other = app.boards.open(emptyBoard(), 'Other', backend.baseUrl)
       await expect(app.placeBoardCardResults(other, ref, point)).rejects.toThrow('does not belong')
-      const ids = await app.placeBoardCardResults(board, ref, point)
+      await vi.waitFor(() => expect(board.session.doc.runs?.[`native-${count}`]?.items).toHaveLength(2))
+      const ids = board.session.doc.runs![`native-${count}`]!.items
+      await vi.waitFor(() => expect(app.boardResultErrors.get().has(board)).toBe(false))
       expect(ids.map((id) => board.session.doc.items[id]!.kind)).toEqual(['video', 'sound'])
       expect(board.session.doc.items[ids[0]!]!.rect).toEqual(held[0])
       expect(board.session.doc.items[ids[0]!]).toMatchObject({ asset: { digest: DIGEST,
