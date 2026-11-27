@@ -10,7 +10,9 @@ catalogTest('secret rows save and remove through the selected connection without
   const writes: string[] = []
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 404 }))
   await page.routeWebSocket('**/api/events?*', () => {})
-  await page.route('/api/nodes*', (route) => route.fulfill({ json: { schemaVersion: 1, epoch: 1, nodes: {} } }))
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'secret-editor-fixture', schemaWire: 2 }, nodes: {},
+  } }))
   await page.route('/api/projects/default', (route) => route.fulfill({ json: { project: {
     id: 'default', name: 'Default', created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
     environment: null, accountProject: null,
