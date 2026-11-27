@@ -1028,11 +1028,20 @@ export function CanvasSideActions(props: {
 
 export type CanvasSeedMode = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
-/** A seed's after-run mode as the icon drawn before its value. */
-export function CanvasSeedModeIcon(props: { mode: CanvasSeedMode }) {
+/** The mode's arrow follows numbers up/down and choices next/previous. */
+export function CanvasSeedModeIcon(props: {
+  mode: CanvasSeedMode
+  trigger?: 'after_generate' | 'after_refresh'
+}) {
+  const icon = () =>
+    props.trigger === 'after_refresh' && props.mode === 'increment'
+      ? ArrowDown
+      : props.trigger === 'after_refresh' && props.mode === 'decrement'
+        ? ArrowUp
+        : SEED_MODE_ICONS[props.mode]
   return (
     <Dynamic
-      component={SEED_MODE_ICONS[props.mode]}
+      component={icon()}
       class="dinkster-canvas-field-glyph"
       aria-label={props.mode}
       role="img"

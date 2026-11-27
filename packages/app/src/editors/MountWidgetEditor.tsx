@@ -25,7 +25,7 @@ const MountImplementation: Component<WidgetEditorImplementationProps> = (props) 
     })
   } else setError(message('mountWidget.error'))
 
-  const writable = () => settings()?.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready') ?? []
+  const writable = () => settings()?.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready' && !mount.saveError) ?? []
   const options = () => {
     const mounts = writable().map((mount) => ({ id: mount.id, value: mount.id, label: mount.id, disabled: false }))
     if (selected() !== '' && !mounts.some((mount) => mount.id === selected())) {

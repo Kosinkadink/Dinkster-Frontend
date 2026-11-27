@@ -922,6 +922,7 @@ export class InteractionController {
       this.recoverRepressedGesture(e)
       const wasIdle = this.gesture.kind === 'idle'
       this.onPointerDown(e)
+      this.renderer.setViewportGesture(this.gesture.kind === 'pan' || this.touchNav !== undefined)
       if (wasIdle && this.gesture.kind !== 'idle')
         this.pointerTrace.recordGesture(this.gesture.kind, 'start', 'pointerdown')
       // A press that captured the pointer but started no gesture (badge
@@ -1322,6 +1323,7 @@ export class InteractionController {
     if (kind === 'number-drag') this.renderer.setRowDrag(undefined)
     this.pointerTrace.recordGesture(kind, 'cancel', reason)
     this.gesture = { kind: 'idle' }
+    this.renderer.setViewportGesture(false)
     this.pushOverlay()
   }
 
@@ -1488,6 +1490,7 @@ export class InteractionController {
     const nav = this.touchNav
     if (nav === undefined) return
     this.touchNav = undefined
+    this.renderer.setViewportGesture(false)
     this.releasePointer(nav.a)
     this.releasePointer(nav.b)
     this.pointerTrace.recordGesture('touch-nav', event, reason)
@@ -3537,6 +3540,7 @@ export class InteractionController {
     const g = this.gesture
     const gestureGraphId = this.gestureGraphId
     this.gesture = { kind: 'idle' }
+    this.renderer.setViewportGesture(false)
     this.activePointerId = undefined
     this.activeButtonMask = undefined
     this.activePointerType = undefined
