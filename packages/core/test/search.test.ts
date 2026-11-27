@@ -94,6 +94,30 @@ describe('rankSearch', () => {
     expect(out).toHaveLength(2)
   })
 
+  it('orders palette names by exact, prefix, phrase, all words, then metadata without changing empty queries', () => {
+    const names = [
+      'Load Checkpoint Image Only (img2vid model)', 'Load Image (from Outputs)',
+      'Load Image (as Mask)', 'Reload Image', 'Image Load', 'Load Image',
+      'Load SAM3D Body Model', 'Load CLIP (Dual)', 'Zeta', 'Beta', 'Unrelated',
+    ]
+    const nodes = names.map((displayName) => ({
+      displayName, type: displayName, category: 'load image',
+    }))
+    nodes[nodes.length - 1] = { displayName: 'Unrelated', type: 'Unrelated', category: 'other' }
+    const options = { nameOf: (node: typeof nodes[number]) => node.displayName }
+    expect(rankSearch('  lOaD iMaGe  ', nodes, nodeSearchFields, options).map((node) => node.displayName)).toEqual([
+      'Load Image', 'Load Image (as Mask)', 'Load Image (from Outputs)', 'Reload Image',
+      'Image Load', 'Load Checkpoint Image Only (img2vid model)', 'Beta', 'Zeta',
+      'Load CLIP (Dual)', 'Load SAM3D Body Model',
+    ])
+    expect(rankSearch('load image', nodes, nodeSearchFields, { ...options, limit: 1 })).toEqual([nodes[5]])
+    expect(rankSearch('  ', nodes, nodeSearchFields, options)).toEqual(nodes)
+    const upscale = ['Load Latent Upscale Model', 'Load Upscale Model'].map((displayName) => ({
+      displayName, type: displayName, category: 'loaders',
+    }))
+    expect(rankSearch('Load Upscale Model', upscale, nodeSearchFields, options)).toEqual([upscale[1], upscale[0]])
+  })
+
 })
 
 describe('node search terms', () => {

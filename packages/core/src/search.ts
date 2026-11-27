@@ -115,22 +115,34 @@ export function scoreMatch(query: string, fields: readonly SearchField[]): numbe
 /**
  * Rank items by scoreMatch, descending; non-matches drop. Ties keep the
  * input order (stable sort), so callers control the neutral ordering by
- * pre-sorting. Empty query returns the input order unfiltered.
+ * pre-sorting. With nameOf, rank by exact name, prefix, phrase, all words,
+ * then other matches; ties use shorter names, then case-insensitive alphabetic
+ * order. Empty query returns the input order unfiltered in either mode.
  */
 export function rankSearch<T>(
   query: string,
   items: readonly T[],
   fieldsOf: (item: T) => readonly SearchField[],
-  opts?: { readonly limit?: number },
+  opts?: { readonly limit?: number; readonly nameOf?: (item: T) => string },
 ): T[] {
   const limit = opts?.limit ?? Number.POSITIVE_INFINITY
   const tokens = query.trim()
   if (tokens.length === 0) return items.slice(0, limit === Number.POSITIVE_INFINITY ? undefined : limit)
-  const scored: { item: T; score: number }[] = []
+  const phrase = tokens.toLowerCase()
+  const queryWords = phrase.split(/\s+/)
+  const nameTier = (name: string): number => name === phrase ? 0
+    : name.startsWith(phrase) ? 1
+      : name.includes(phrase) ? 2
+        : queryWords.every((word) => name.includes(word)) ? 3 : 4
+  const scored: { item: T; score: number; name: string; tier: number }[] = []
   for (const item of items) {
     const score = scoreMatch(query, fieldsOf(item))
-    if (score !== undefined) scored.push({ item, score })
+    if (score !== undefined) {
+      const name = opts?.nameOf?.(item).toLowerCase() ?? ''
+      scored.push({ item, score, name, tier: nameTier(name) })
+    }
   }
-  scored.sort((a, b) => b.score - a.score) // stable: ties keep input order
+  scored.sort((a, b) => opts?.nameOf === undefined ? b.score - a.score
+    : a.tier - b.tier || a.name.length - b.name.length || a.name.localeCompare(b.name))
   return scored.slice(0, limit === Number.POSITIVE_INFINITY ? undefined : limit).map((s) => s.item)
 }
