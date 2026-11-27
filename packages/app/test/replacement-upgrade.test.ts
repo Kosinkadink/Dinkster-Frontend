@@ -1,7 +1,8 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildDinksterRegistry } from '@dinkster/client'
-import type { CommandOutcome, DinksterNodesPayload, JsonObject } from '@dinkster/core'
+import { serializeSelection, type CommandOutcome, type DinksterNodesPayload, type JsonObject } from '@dinkster/core'
+import { pasteClipboardIntoTab } from '../src/clipboard-paste.js'
 import { AppState } from '../src/app-state.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
@@ -226,6 +227,20 @@ describe('native open-time replacement', () => {
     expect(values()).toEqual({ amount: 16, cap: 9 })
     expect(tab.store.undo()).toBe(true)
     expect(tab.store.doc.graphs.g0!.nodes[added]).toBeUndefined()
+    const text = JSON.stringify(serializeSelection(tab.store.doc, 'g0', { nodes: ['first'], reroutes: [] }))
+    const pasted = tab.store.predictedNodeId('g0')!
+    expect(await pasteClipboardIntoTab({
+      readText: async () => text, graphId: 'g0', anchor: { x: 50, y: 60 },
+      tabStillOpen: () => true, frozen: () => false, currentGraphId: () => 'g0', graphStillOwned: () => true,
+      doc: () => tab.store.doc,
+      dispatch: async (invocation) => (await app.dispatchEditTo(tab, invocation)).ok,
+      onPasted: () => {},
+    })).toBe('pasted')
+    expect(tab.store.doc.graphs.g0!.nodes[pasted]!.values).toEqual({ amount: 8, cap: 9 })
+    expect(values()).toEqual({ amount: 16, cap: 9 })
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes[pasted]).toBeUndefined()
+    expect(values()).toEqual({ amount: 16, cap: 9 })
     const pending = app.dispatchEditTo(tab, edit(5))
     expect(tab.store.dispatch(edit(7)).ok).toBe(true)
     expect((await pending).ok).toBe(false)
