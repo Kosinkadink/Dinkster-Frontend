@@ -322,9 +322,10 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-message > .dinkster-button { color: var(--dinkster-text-secondary); }
 /* The toast floats over other content, so the message's quiet fill sits on the raised surface. */
 .dinkster-toast { position: fixed; inset: auto var(--dinkster-space-24) var(--dinkster-space-24) auto; max-width: calc(100vw - var(--dinkster-space-32)); z-index: 2; border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); }
-.dinkster-dialog { width: min(var(--dinkster-empty-state-max-width), calc(100vw - var(--dinkster-space-32))); padding: var(--dinkster-space-24); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }
+.dinkster-dialog { box-sizing: border-box; width: min(var(--dinkster-dialog-max-width), calc(100vw - var(--dinkster-space-32))); padding: var(--dinkster-space-16); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); color: var(--dinkster-text-primary); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }
 .dinkster-dialog[data-size='wide'] { width: min(var(--dinkster-dialog-wide-max-width), calc(100vw - var(--dinkster-space-32))); }
-.dinkster-dialog[data-size='confirmation'] { box-sizing: border-box; width: min(var(--dinkster-confirmation-max-width), calc(100vw - var(--dinkster-space-32))); padding: var(--dinkster-space-16); }
+.dinkster-dialog[data-size='confirmation'] { width: min(var(--dinkster-confirmation-max-width), calc(100vw - var(--dinkster-space-32))); }
+.dinkster-dialog .dinkster-stack { gap: var(--dinkster-space-12); }
 .dinkster-dialog .dinkster-button[aria-busy='true'] { opacity: 1; }
 .dinkster-dialog-actions { display: flex; justify-content: flex-end; align-items: center; gap: var(--dinkster-space-8); }
 .dinkster-confirmation { display: grid; gap: var(--dinkster-space-8); min-width: 0; }
@@ -2091,3 +2092,7 @@ button.dinkster-row-main { cursor: pointer; }
   .dinkster-search[data-preview='beside'] .dinkster-search-body { grid-template-columns: minmax(0, 1fr); }
   .dinkster-search[data-preview='beside'] .dinkster-search-preview { display: none; }
 }
+/* Dialog controls keep app sizing even inside the site's larger-control density. */
+.dinkster-dialog .dinkster-button { height: var(--dinkster-menu-row-height); min-height: 0; padding-block: 0; }
+.dinkster-dialog .dinkster-button[data-icon-only] { width: var(--dinkster-menu-row-height); max-width: var(--dinkster-menu-row-height); }
+.dinkster-dialog .dinkster-input:not(.dinkster-textarea) { height: var(--dinkster-space-32); min-height: 0; padding-block: 0; }
