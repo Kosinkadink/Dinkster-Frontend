@@ -1833,6 +1833,11 @@ export function buildScene(input: BuildSceneInput): Scene {
         if (row.kind !== 'widget' || owner === undefined || row.selector !== undefined || row.optionsTarget !== undefined) continue
         outsideRows.set(row.inputId, [{ ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }])
       }
+      // Whole constructs below use their inner occurrence's elaboration,
+      // not this flat field node's definition-default dynamic state.
+      fieldElaborated = { ...fieldElaborated,
+        items: elabInputsOf(fieldElaborated).filter((item) => outsideRows.has(item.spec.id)),
+      }
     }
     for (const item of boundaryItems(def.boundary, 'inputs')) {
       const binding = item.binds
