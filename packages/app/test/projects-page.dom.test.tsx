@@ -148,6 +148,125 @@ it('offers setup only after a failed installations read recovers to a known empt
   dispose()
 })
 
+it('reads saved sandbox authority per installation and keeps unavailable prerequisites distinct from off', async () => {
+  let available = false
+  const saved = new Map([[stable.root, false], [nightly.root, true]])
+  vi.stubGlobal('fetch', vi.fn(async (input, init) => {
+    const url = new URL(String(input), 'http://localhost')
+    const root = url.searchParams.get('root')!
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body))
+      saved.set(body.root, body.sandboxPacks)
+      // The write happened even though its reply was lost.
+      throw new Error('Reply lost')
+    }
+    return Response.json(url.pathname.endsWith('/readiness')
+      ? { sandboxPacks: saved.get(root), available, detail: 'bubblewrap is missing' }
+      : { available: true, packs: [] })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable, nightly], engine: 'stopped' }) }} />, document.body)
+  await settle()
+  const toggle = () => document.querySelector<HTMLButtonElement>('[role="switch"]')!
+  expect(toggle().getAttribute('aria-checked')).toBe('false')
+  expect(toggle().disabled).toBe(true)
+  expect(document.querySelector('details')?.textContent).toContain('bubblewrap is missing')
+  available = true
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Check again')!.click()
+  await settle()
+  expect(toggle().disabled).toBe(false)
+  toggle().click()
+  await settle()
+  expect(toggle().getAttribute('aria-checked')).toBe('true')
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain('The engine did not answer.')
+  expect(document.body.textContent).toContain('Changes apply when the engine restarts.')
+  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  await settle()
+  expect(toggle().getAttribute('aria-checked')).toBe('true')
+  toggle().click()
+  await settle()
+  expect(toggle().getAttribute('aria-checked')).toBe('false')
+  document.querySelectorAll<HTMLElement>('[role="option"]')[0]!.click()
+  await settle()
+  expect(toggle().getAttribute('aria-checked')).toBe('true')
+  dispose()
+})
+
+it('shows pack requests and edits all internet addresses with provenance and field-specific refusals', async () => {
+  let addresses = [{ address: 'https://models.example', source: 'pack' }, { address: 'https://mirror.example', source: 'user' }]
+  vi.stubGlobal('fetch', vi.fn(async (input, init) => {
+    const url = new URL(String(input), 'http://localhost')
+    if (url.pathname.endsWith('/readiness')) return Response.json({ sandboxPacks: true, available: true, detail: '' })
+    if (url.pathname.endsWith('/internet')) {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init.body))
+        if (body.address === 'bad') return Response.json({ error: 'invalid-request', message: 'Use an exact HTTPS origin' }, { status: 400 })
+        addresses = [...addresses, { address: body.address, source: 'user' }]
+      } else if (init?.method === 'DELETE') {
+        const body = JSON.parse(String(init.body))
+        addresses = addresses.filter((row) => row.address !== body.address)
+      }
+      return Response.json({ internetAddresses: addresses })
+    }
+    return Response.json({ available: true, packs: [
+      { pack: 'Detector', graphicsCard: { requested: true, granted: true }, internetAddresses: addresses },
+      { pack: 'Local tools', graphicsCard: { requested: false, granted: false }, internetAddresses: [] },
+      { pack: 'Unreadable', graphicsCard: { requested: null, granted: null }, internetAddresses: null },
+    ] })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable], engine: 'stopped' }) }} />, document.body)
+  await settle()
+  const table = document.querySelector('table')!
+  expect([...table.querySelectorAll('tbody tr')].map((row) => row.textContent)).toEqual([
+    'DetectorUses it2 addresses', 'Local toolsNot used0 addresses', 'UnreadableNot knownNot known',
+  ])
+  expect(document.querySelectorAll('[role="switch"]')).toHaveLength(1)
+  ;[...table.querySelectorAll('button')].find((button) => button.textContent === '2 addresses')!.click()
+  await settle()
+  const dialog = () => document.querySelector('dialog')!
+  expect(dialog().textContent).toContain('https://models.exampleAsked by the pack')
+  expect(dialog().textContent).toContain('https://mirror.exampleAdded by you')
+  const input = () => dialog().querySelector('input')!
+  const enter = (value: string) => { input().value = value; input().dispatchEvent(new Event('input', { bubbles: true })) }
+  enter('bad')
+  dialog().querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await settle()
+  expect(input().getAttribute('aria-invalid')).toBe('true')
+  expect(document.getElementById(input().getAttribute('aria-describedby')!)?.textContent).toContain('Use an exact HTTPS origin')
+  enter('https://extra.example')
+  dialog().querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await settle()
+  expect(dialog().textContent).toContain('https://extra.exampleAdded by you')
+  ;[...dialog().querySelectorAll('li')].find((row) => row.textContent?.includes('https://models.example'))!.querySelector('button')!.click()
+  expect(dialog().textContent).toContain('Remove https://models.example')
+  ;[...dialog().querySelectorAll('button')].find((button) => button.textContent === 'Remove')!.click()
+  await settle()
+  expect(dialog().textContent).not.toContain('https://models.example')
+  expect(dialog().textContent).toContain('https://mirror.exampleAdded by you')
+  expect(dialog().textContent).toContain('https://extra.exampleAdded by you')
+  dispose()
+})
+
+it('does not turn unavailable pack metadata into an empty installed pack list', async () => {
+  let unavailable = true
+  vi.stubGlobal('fetch', vi.fn(async (input) => {
+    const path = new URL(String(input), 'http://localhost').pathname
+    if (path.endsWith('/readiness')) return Response.json({ sandboxPacks: true, available: true, detail: '' })
+    return unavailable
+      ? Response.json({ error: 'pack-metadata-unavailable', message: 'Snapshot cannot report pack requests' }, { status: 503 })
+      : Response.json({ available: true, packs: [] })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable], engine: 'stopped' }) }} />, document.body)
+  await settle()
+  expect(document.body.textContent).toContain('Snapshot cannot report pack requests')
+  expect(document.body.textContent).not.toContain('No packs installed')
+  unavailable = false
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Try again')!.click()
+  await settle()
+  expect(document.body.textContent).toContain('No packs installed')
+  expect(document.body.textContent).not.toContain('Snapshot cannot report pack requests')
+  dispose()
+})
+
 it.each([
   { required: ['a', 'b', 'a'], extra: ['a', 'c', 'c'], unknown: 0, text: '2 needed by its workflows, 1 added', names: 'a\nb\nc' },
   { required: ['a', 'b'], extra: [], unknown: 0, text: '2 needed by its workflows', names: 'a\nb' },

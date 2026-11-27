@@ -13,6 +13,7 @@ import {
 import { useAppMessage } from '../locale.js'
 import { SetupForm, type SetupStatus } from '../SetupForm.js'
 import type { EngineState, PageInstallation, ProjectsSource } from './ProjectsPage.js'
+import { InstallationSandbox } from './InstallationSandbox.js'
 
 export function InstallationsView(props: {
   readonly source: Pick<ProjectsSource, 'installations'>
@@ -80,6 +81,7 @@ export function InstallationsView(props: {
                 [{ label: message('setup.folder'), value: installation().root }],
                 [],
               ]} />
+              <Show when={installation().root} keyed>{(root) => <InstallationSandbox root={root} engine={installation().engine} />}</Show>
             </div>}
           </Show>
         </Show>
