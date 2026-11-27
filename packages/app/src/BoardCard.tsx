@@ -1,9 +1,14 @@
-import { documentResolver, exposedKey, jsonSameValue, t, type BoardCardItem, type Json, type WorkflowDocument } from '@dinkster/core'
-import { ProductBoardCard } from '@dinkster/ui'
+import { documentResolver, exposedKey, jsonSameValue, semanticDesignTokens, t, type BoardCardItem, type ControllerMode, type Json, type WorkflowDocument } from '@dinkster/core'
+import { placeFloatingSurface } from '@dinkster/core/floating-surface'
+import { CanvasSeedModeIcon, ProductBoardCard, ProductButton } from '@dinkster/ui'
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup } from 'solid-js'
+import { Portal } from 'solid-js/web'
+import { Dice5, Lock, Minus, Plus } from 'lucide-solid'
 import type { AppState, Backend } from './app-state.js'
 import { ExposedParameterInput } from './AppView.js'
+import { ControllerModeMenu } from './ControllerModeMenu.js'
 import { executionStatusLabel } from './ExecutionActivityCard.js'
+import { Icon } from './Icon.js'
 import { buildParamRows, comboOptions, fetchRemoteComboOptions, type ParamRow } from './app-view-rows.js'
 import { applyCardInputs, type BoardEntry } from './board-workspace.js'
 import { ProductNotice } from './ProductForm.js'
@@ -18,9 +23,59 @@ function BoardCardInput(props: {
   readonly backend: Backend
   readonly app: AppState
   readonly commit: (row: LiveRow, value: Json) => boolean
+  readonly onMode: (row: LiveRow, mode: ControllerMode) => boolean
 }) {
   const labelId = `board-input-${createUniqueId()}`
   const [error, setError] = createSignal<string>()
+  const [modeOpen, setModeOpen] = createSignal(false)
+  const mode = () => props.row.node.controllers?.[props.row.valueKey] ?? props.row.spec?.controllerInitial ?? 'randomize'
+  let modeButton!: HTMLButtonElement
+  let menu!: HTMLDivElement
+  const closeMode = (focus = false) => {
+    setModeOpen(false)
+    if (focus) modeButton.focus()
+  }
+  createEffect(() => {
+    if (!modeOpen()) return
+    const place = () => {
+      if (!modeOpen() || !menu) return
+      const placement = placeFloatingSurface({
+        surface: { width: menu.offsetWidth, height: menu.scrollHeight }, anchor: modeButton.getBoundingClientRect(),
+        bounds: { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }, direction: 'block',
+        margin: semanticDesignTokens.space[4], gap: semanticDesignTokens.space[4],
+      })
+      menu.style.left = `${placement.left}px`
+      menu.style.top = `${placement.top}px`
+      menu.style.maxHeight = `${placement.maxHeight}px`
+    }
+    const outside = (event: PointerEvent) => {
+      if (!menu.contains(event.target as Node) && !modeButton.contains(event.target as Node)) closeMode()
+    }
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMode(true) }
+      else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault()
+        const items = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+        const current = items.indexOf(document.activeElement as HTMLButtonElement)
+        const index = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+          : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+        items[index]?.focus()
+      } else if (event.key === 'Tab') closeMode()
+    }
+    queueMicrotask(() => {
+      if (!modeOpen()) return
+      place()
+      menu.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus()
+    })
+    document.addEventListener('pointerdown', outside, true)
+    window.addEventListener('keydown', keydown)
+    window.addEventListener('resize', place)
+    onCleanup(() => {
+      document.removeEventListener('pointerdown', outside, true)
+      window.removeEventListener('keydown', keydown)
+      window.removeEventListener('resize', place)
+    })
+  })
   const [remote, setRemote] = createSignal<readonly { value: Json; label: string }[]>()
   let abort: AbortController | undefined
   let live = true
@@ -52,6 +107,21 @@ function BoardCardInput(props: {
   return <>
     <div class="dinkster-board-card-input">
       <span id={labelId}>{props.row.label}</span>
+      <Show when={props.row.spec?.controller === 'after_generate'}>
+        <span class="dinkster-board-controller"><ProductButton ref={(element) => { modeButton = element }} fill="quiet"
+          aria-label={`After run for ${props.row.label}`} aria-haspopup="menu" aria-expanded={modeOpen()}
+          onClick={() => setModeOpen((open) => !open)}>
+          <Show when={['INT', 'FLOAT'].includes(props.row.spec!.widgetType)}
+            fallback={<Icon icon={{ fixed: Lock, increment: Plus, decrement: Minus, randomize: Dice5 }[mode()]} />}>
+            <CanvasSeedModeIcon mode={mode()} />
+          </Show>
+        </ProductButton></span>
+        <Show when={modeOpen()}><Portal><div class="dinkster-root dinkster-board-controller-layer"
+          onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+          <ControllerModeMenu ref={(element) => { menu = element }} mode={mode()} trigger="after_generate"
+            onMode={(next) => { if (props.onMode(props.row, next)) closeMode(true) }} />
+        </div></Portal></Show>
+      </Show>
       <ExposedParameterInput row={props.row} labelId={labelId} draftScopeId={labelId} onCommit={commit}
         onError={setError} onDraftActive={() => undefined}
         combo={<ProductSelect ariaLabelledBy={labelId} selectedId={selected() < 0 ? 'stored' : String(selected())}
@@ -132,6 +202,17 @@ export function BoardCard(props: {
     if (!result.ok) setError(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
     return result.ok
   }
+  const chooseMode = (row: LiveRow, mode: ControllerMode): boolean => {
+    const latest = rows().get(exposedKey(row.entry))
+    if (!latest || latest.kind !== 'live' || !editable(latest) || latest.spec?.controller !== 'after_generate' ||
+      !backend() || !props.app.boards.entries.get().includes(props.entry)) return false
+    if ((latest.node.controllers?.[latest.valueKey] ?? latest.spec.controllerInitial ?? 'randomize') === mode) return true
+    const result = props.entry.session.dispatch({ command: 'board.card.controller', params: {
+      id: props.card.id, key: exposedKey(latest.entry), mode,
+    } })
+    if (!result.ok) setError(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+    return result.ok
+  }
   return <ProductBoardCard name={props.card.name} kind={props.card.kind}
     lastRun={pending() ? 'Preparing' : latest() ? executionStatusLabel(latest()!.status) : 'Not run'}
     running={running()} disabled={!source() || !registry() || !!projection().error}
@@ -147,7 +228,7 @@ export function BoardCard(props: {
             {typeof (row() as LiveRow).value === 'string' ? (row() as LiveRow).value as string : JSON.stringify((row() as LiveRow).value) ?? t('appView.value.unset')}
           </span>
         </div>}>
-          <BoardCardInput app={props.app} backend={backend()!} row={row() as LiveRow} commit={commit} />
+          <BoardCardInput app={props.app} backend={backend()!} row={row() as LiveRow} commit={commit} onMode={chooseMode} />
         </Show>
       </Show>
     }}</For>

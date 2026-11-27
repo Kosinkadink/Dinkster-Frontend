@@ -111,7 +111,6 @@
     "attribute:title:Embedded workflow found",
     "text:3D viewer unavailable",
     "text:Add reroute",
-    "text:After",
     "text:Bookmarks",
     "text:Cancel",
     "text:Cancel",
@@ -169,6 +168,9 @@
     "text:agent",
     "text:agent",
     "text:here now"
+  ],
+  "ControllerModeMenu.tsx": [
+    "text:After"
   ],
   "CustomizeLayoutDialog.tsx": [
     "text:Choose which supported shell regions are visible.",

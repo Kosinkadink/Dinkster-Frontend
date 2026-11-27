@@ -42,6 +42,14 @@ it('refreshes saved-source controls, drops hidden values made fixed, and ignores
   const values = () => [...root.querySelectorAll<HTMLInputElement>('[role="spinbutton"]')].map((input) => input.value)
   try {
     await vi.waitFor(() => expect(values()).toEqual(['17']))
+    const modeButton = () => root.querySelector<HTMLButtonElement>('[aria-label="After run for amount"]')!
+    modeButton().click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="seed-controller-fixed"]')?.getAttribute('aria-checked')).toBe('true'))
+    document.querySelector<HTMLButtonElement>('[data-testid="seed-controller-increment"]')!.click()
+    expect(document.querySelector('[data-testid="seed-controller-menu"]')).toBeNull()
+    expect(document.activeElement).toBe(modeButton())
+    expect((board.session.doc.items[id] as BoardCardItem).controllers).toEqual({ [exposedKey(input('amount'))]: 'increment' })
+    expect(source.graphs.g0.nodes.n0.controllers.amount).toBe('fixed')
     source = { ...source, graphs: { g0: { ...source.graphs.g0, nodes: { n0: { ...source.graphs.g0.nodes.n0,
       values: { seed: 41, amount: 23 }, controllers: { seed: 'fixed', amount: 'fixed' },
     } } } } }
@@ -67,5 +75,25 @@ it('refreshes saved-source controls, drops hidden values made fixed, and ignores
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
     expect(values()).toEqual(['91', '17'])
     expect(source.graphs.g0.nodes.n0.values).toEqual({ seed: 91, amount: 29 })
+    modeButton().click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="seed-controller-increment"]')?.getAttribute('aria-checked')).toBe('true'))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(document.querySelector('[data-testid="seed-controller-menu"]')).toBeNull()
+    board.session.dispatch({ command: 'board.card.input', params: { id, input: input('amount') } })
+    await vi.waitFor(() => expect(values()).toEqual(['91', '29']))
+    modeButton().click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="seed-controller-fixed"]')?.getAttribute('aria-checked')).toBe('true'))
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    expect(document.querySelector('[data-testid="seed-controller-menu"]')).toBeNull()
+    modeButton().click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="seed-controller-fixed"]')).not.toBeNull())
+    document.querySelector<HTMLButtonElement>('[data-testid="seed-controller-fixed"]')!.click()
+    source = { ...source, graphs: { g0: { ...source.graphs.g0, nodes: { n0: { ...source.graphs.g0.nodes.n0,
+      controllers: { seed: 'fixed', amount: 'decrement' },
+    } } } } }
+    app.backendsTick.update((value) => value + 1)
+    await vi.waitFor(() => expect(values()).toEqual(['91', '29']))
+    modeButton().click()
+    await vi.waitFor(() => expect(document.querySelector('[data-testid="seed-controller-decrement"]')?.getAttribute('aria-checked')).toBe('true'))
   } finally { dispose(); app.dispose() }
 })

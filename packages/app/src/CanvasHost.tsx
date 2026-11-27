@@ -146,7 +146,8 @@ import {
   type WorkflowDocument,
   widgetRepresentationChoices,
 } from '@dinkster/core'
-import { Check, CheckCircle2, Dice5, FileUp, LoaderCircle, Lock, Minus, Plus, Snowflake, TriangleAlert, X } from 'lucide-solid'
+import { CheckCircle2, FileUp, LoaderCircle, Snowflake, TriangleAlert, X } from 'lucide-solid'
+import { ControllerModeMenu } from './ControllerModeMenu.js'
 import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
 import { runClock } from './execution-activity.js'
 import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
@@ -2015,8 +2016,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     controller: ControllerMenuState,
     mode: ControllerMode,
   ): Promise<void> => {
-    // The compact canvas-row menu is the sole controller surface. Refuse
-    // when the tab object that opened it is gone.
+    // Refuse when the tab object that opened the menu is gone.
     if (!props.app.tabs.get().includes(controller.tab) || pendingController() === controller.lifetime) return
     const store = controller.tab.store
     const stack = controller.tab.graphStack.get()
@@ -7862,50 +7862,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             data-testid="seed-controller-catcher"
             onPointerDown={(event) => { if (event.target === event.currentTarget) setControllerMenu(undefined) }}
           >
-            <div
-              ref={controllerMenuEl}
-              class="floating-surface seed-controller-menu"
-              data-testid="seed-controller-menu"
-              style={{ left: `${menu().x}px`, top: `${menu().y}px` }}
-              role="menu"
-              aria-busy={pendingController() === menu().lifetime}
-            >
-              <div class="seed-controller-title">After {menu().trigger === 'after_refresh' ? 'refresh' : 'generate'}</div>
-              <For each={[
-                { mode: 'fixed' as const, label: 'Fixed', description: menu().trigger === 'after_refresh' ? 'Keep this value after refresh.' : 'Keep this value after a successful run.', icon: Lock },
-                { mode: 'increment' as const, label: 'Increment', description: menu().trigger === 'after_refresh' ? 'Choose the next option after refresh.' : 'Add the widget step after a successful run.', icon: Plus },
-                { mode: 'decrement' as const, label: 'Decrement', description: menu().trigger === 'after_refresh' ? 'Choose the previous option after refresh.' : 'Subtract the widget step after a successful run.', icon: Minus },
-                {
-                  mode: 'randomize' as const,
-                  label: menu().trigger === 'after_refresh' ? 'Randomize after refresh' : 'Randomize after run',
-                  description: menu().trigger === 'after_refresh'
-                    ? 'After each refresh, choose a random option; selecting this mode does not change the current value.'
-                    : 'After each successful run, choose a new seed within bounds; selecting this mode does not change the current value.',
-                  icon: Dice5,
-                },
-              ]}>
-                {(option) => (
-                  <ProductButton variant="ghost" size="compact"
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={menu().mode === option.mode}
-                    class={`seed-controller-option${menu().mode === option.mode ? ' selected' : ''}`}
-                    data-testid={`seed-controller-${option.mode}`}
-                    disabled={pendingController() === menu().lifetime}
-                    onClick={() => { void commitControllerMode(menu(), option.mode) }}
-                  >
-                    <Icon icon={option.icon} />
-                    <span><strong>{option.label}</strong><small>{option.description}</small></span>
-                    <Show when={menu().mode === option.mode}><Icon icon={Check} /></Show>
-                  </ProductButton>
-                )}
-              </For>
-              <Show when={menu().refusal} keyed>
-                {(refusal) => <ProductNotice tone="error" testId="controller-refusal">
-                  <strong>{refusal.code}</strong>: {refusal.message}
-                </ProductNotice>}
-              </Show>
-            </div>
+            <ControllerModeMenu ref={(element) => {
+              controllerMenuEl = element
+              element.style.left = `${menu().x}px`
+              element.style.top = `${menu().y}px`
+            }}
+              mode={menu().mode} trigger={menu().trigger} pending={pendingController() === menu().lifetime}
+              refusal={menu().refusal} onMode={(mode) => { void commitControllerMode(menu(), mode) }} />
           </div>
         )}
       </Show>
