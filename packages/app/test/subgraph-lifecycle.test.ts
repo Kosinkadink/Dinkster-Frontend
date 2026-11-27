@@ -775,9 +775,29 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     const store = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
       kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve),
     }))
-    const notes = (current: WorkflowDocument, type: string, values: Readonly<Record<string, Json>>) =>
-      elaborateInterface(documentResolver(current, resolve)(type)!, { values }).items
-        .filter((item) => item.kind === 'note').map((item) => [item.text, item.unknown ?? false])
+    const notes = (current: WorkflowDocument, runtimeId: string) => {
+      const path = runtimeId.split('.')
+      const nodeId = path.pop()!
+      const graphId = path.reduce((graph, hop) => current.graphs[graph]!.nodes[hop]!.type.slice(1), current.root as string)
+      const receiver = current.graphs[graphId]!.nodes[nodeId]!
+      const view = occurrenceDynamicView(current, resolve, path)
+      const dynamic = view.dynamic.get(nodeId) ?? receiver.dynamic
+      return elaborateInterface(documentNodeResolver(current, resolve)(graphId, receiver)!, {
+        ...receiver,
+        values: view.values.get(nodeId) ?? receiver.values,
+        ...(dynamic !== undefined ? { dynamic } : {}),
+      }, {
+        isInputConnected: (port) => view.inputPorts.get(nodeId)?.includes(port) ?? false,
+        isOutputConnected: () => false,
+        inputPorts: () => view.inputPorts.get(nodeId) ?? [],
+      }).items.filter((item) => item.kind === 'note')
+        .map((item) => [item.id, item.text, item.unknown ?? false, item.adjacentTo])
+    }
+    const expectedNotes = (prefix: string, seed: number) => [
+      [`${prefix}.answer`, String(seed * 2), false, `${prefix}.other`],
+      [`${prefix}.pending`, 'Waiting', true, undefined],
+      [`${prefix}.empty`, '', false, undefined],
+    ]
     const check = (current: WorkflowDocument, seeds: Readonly<Record<string, readonly [number, number]>>) => {
       const compiled = compile({ document: current, revision: 1, resolve, scope: { kind: 'full' },
         connection: asConnectionId('notes'), schemaHash: 'notes' })
@@ -787,7 +807,14 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       for (const [id, [seed, other]] of Object.entries(seeds)) {
         const inputs = compiled.artifact.prompt[id]!.inputs
         expect(inputs).toEqual({ 'pack.seed': seed, 'pack.other': other })
-        expect(notes(current, 'Noted', inputs)).toEqual([[String(seed * 2), false], ['Waiting', true], ['', false]])
+        expect(notes(current, id)).toEqual(expectedNotes('pack', seed))
+        if (id.endsWith('.sample')) {
+          const ancestors = id.split('.').slice(0, -1)
+          for (let length = 1; length <= ancestors.length; length++) {
+            const prefix = depth === 2 && length === 1 && ['first', 'second'].includes(ancestors[0]!) ? 'outer' : 'bundle'
+            expect(notes(current, ancestors.slice(0, length).join('.'))).toEqual(expectedNotes(prefix, seed))
+          }
+        }
       }
       return compiled.artifact.prompt
     }
@@ -799,8 +826,7 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     const joined = store.doc
     const fanout = { ...initial, [`first${suffix}.other`]: [21, 4], [`second${suffix}.other`]: [13, 7] } as const
     check(joined, fanout)
-    expect(notes(joined, joined.graphs.root!.nodes.first!.type, joined.graphs.root!.nodes.first!.values))
-      .toEqual([['42', false], ['Waiting', true], ['', false]])
+    expect(notes(joined, 'first')).toEqual(expectedNotes(key, 21))
     expect(store.dispatch({ command: 'boundary.addBinding', params: {
       graphId: 'detail', itemId: 'bundle', node: 'other', port: 'pack.seed',
     } }).ok).toBe(false)
@@ -864,7 +890,10 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       expect(result.session.doc.graphs).toEqual({ ...before.graphs, root: { ...before.graphs.root!, nextOrdinal: flattened.graphs.root!.nextOrdinal } })
       expect(result.session.redo()).toBe(true)
       expect(result.session.doc).toEqual(flattened)
-      expect(runOf(loadDocument(JSON.parse(JSON.stringify(flattened))).document!, resolve)).toEqual(runOf(flattened, resolve))
+      const reopened = loadDocument(JSON.parse(JSON.stringify(flattened))).document!
+      expect(runOf(reopened, resolve)).toEqual(runOf(flattened, resolve))
+      check(reopened, { [`second${suffix}.sample`]: [13, 7], [`second${suffix}.other`]: [11, 17],
+        ...(mode === 'active' ? { [depth === 1 ? primary.id : `${primary.id}.sample`]: [21, 4], [secondary]: [11, 17] } : {}) })
     }
   })
 
