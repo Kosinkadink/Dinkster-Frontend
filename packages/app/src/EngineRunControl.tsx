@@ -1,4 +1,4 @@
-import { Match, Show, Switch, createEffect, createSignal, createUniqueId, onCleanup, onMount } from 'solid-js'
+import { Match, Show, Switch, createEffect, createSignal, createUniqueId, on, onCleanup, onMount, type JSX } from 'solid-js'
 import { fetchSupervisorEngineLog, type SupervisorStatus } from '@dinkster/client'
 import { ProductButton, ProductCodeBlock, ProductDialog, ProductIcon, ProductLoading, ProductSpinner, ProductTextButton } from '@dinkster/ui'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
@@ -10,6 +10,7 @@ export function EngineRunControl(props: {
   readonly status: SupervisorStatus
   readonly baseUrl: string
   readonly onRestart: () => Promise<void>
+  readonly children?: JSX.Element
 }) {
   const message = useAppMessage()
   const [reasonOpen, setReasonOpen] = createSignal(false)
@@ -23,13 +24,17 @@ export function EngineRunControl(props: {
   let logRequest = 0
   onCleanup(() => { logRequest++ })
 
-  createEffect(() => {
-    props.baseUrl
-    logRequest++
-    setLogOpen(false)
-    setLog(undefined)
-    setReasonOpen(false)
-  })
+  createEffect(on(
+    () => [props.baseUrl, props.status.open?.root, props.status.open?.engine] as const,
+    (installation, previous) => {
+      // Tab replacements can invalidate the getters without changing the installation.
+      if (previous && installation.every((value, index) => value === previous[index])) return
+      logRequest++
+      setLogOpen(false)
+      setLog(undefined)
+      setReasonOpen(false)
+    },
+  ))
   createEffect(() => {
     if (props.status.state !== 'failed') setReasonOpen(false)
   })
@@ -82,7 +87,7 @@ export function EngineRunControl(props: {
         }
       }}
     >
-      <Switch>
+      <Switch fallback={props.children}>
         <Match when={props.status.state === 'starting'}>
           <span class="engine-run-starting" role="status" aria-live="polite">
             <ProductSpinner label={message('shell.engine.startingControl')} />
