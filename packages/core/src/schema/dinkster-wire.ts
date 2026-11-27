@@ -57,17 +57,10 @@ import type {
   WidgetRepresentationSpec,
   WidgetSpec,
 } from './model.js'
+import { primitiveWidgetFor } from './widget-defaults.js'
 
 /** The single schema wire contract decoded by this frontend. */
 export const DINKSTER_SCHEMA_WIRE_VERSION = 2
-
-/** Widget kinds implied by built-in primitive type ids. */
-const PRIMITIVE_WIDGETS: Readonly<Record<string, string>> = {
-  INT: 'INT',
-  FLOAT: 'FLOAT',
-  STRING: 'STRING',
-  BOOLEAN: 'BOOLEAN',
-}
 
 const ABSENT_POLICIES: ReadonlySet<string> = new Set(['skip', 'accept', 'fail', 'omit'])
 
@@ -1293,14 +1286,7 @@ function widgetFor(
     }
     throw new Error(`${nodeType}.${id}: widget descriptor is incompatible with its input`)
   }
-  if (type.kind !== 'concrete') return undefined
-  const widgetType = PRIMITIVE_WIDGETS[type.name]
-  if (widgetType === undefined) return undefined
-  return {
-    widgetType,
-    options: {},
-    ...(dflt !== undefined ? { default: dflt } : {}),
-  }
+  return primitiveWidgetFor(type, dflt)
 }
 
 function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], normalizedType?: TypeExpr): InputSpec {
@@ -2232,7 +2218,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       const input = decodedInputs.get(knownValue.input)
       const inputType = input?.type.kind === 'concrete' ? input.type.name : undefined
       const outputType = output.type.kind === 'concrete' ? output.type.name : undefined
-      const samePrimitive = outputType !== undefined && PRIMITIVE_WIDGETS[outputType] !== undefined && inputType === outputType
+      const samePrimitive = primitiveWidgetFor(output.type) !== undefined && inputType === outputType
       // A chosen option is its text, so a choice may also be known as a STRING.
       const fromChoice = inputType === 'COMBO' && (outputType === 'COMBO' || outputType === 'STRING')
       // A variable's known value applies once the variable is bound to a primitive or COMBO.

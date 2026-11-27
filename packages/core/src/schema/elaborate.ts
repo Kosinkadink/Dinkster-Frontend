@@ -71,7 +71,7 @@ import type {
 import { canonicalTypeIdOf, isAssetWidgetInput, isFormulaSpec, isLookupSpec, scopeRowsOf } from './model.js'
 import { typeExprFromDinksterWire } from './dinkster-wire.js'
 import { recordFieldTypeFits } from './type-relations.js'
-import { isAssetRefValue, readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
+import { isAssetRefValue, primitiveWidgetFor, readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
 import { normalizeComboOption, normalizedComboOptions } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
@@ -2704,7 +2704,14 @@ function elaboratePass(
         ...(kept === undefined ? {} : { optional: true, ...(!connectivity.isOutputConnected(item.address.port) ? { hidden: true as const } : {}) }),
       }, ...(kept === undefined ? {} : { kept }) }
     }
-    else if (item.kind === 'input' && item.spec.type.kind === 'record_field') items[index] = { ...item, spec: { ...item.spec, type: project(item.spec.type) } }
+    else if (item.kind === 'input' && item.spec.type.kind === 'record_field') {
+      let removed = false
+      const type = project(item.spec.type, () => { removed = true })
+      const widget = item.spec.widget ?? primitiveWidgetFor(type, item.spec.ext?.['default'])
+      items[index] = { ...item, spec: { ...item.spec, type,
+        ...(widget === undefined ? {} : { widget }), ...(removed ? { optional: true } : {}),
+      } }
+    }
   }
 
   const chunkSafe = schema.chunkSafe

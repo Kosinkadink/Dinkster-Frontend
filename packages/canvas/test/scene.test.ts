@@ -373,7 +373,7 @@ describe('buildScene', () => {
         body: [
           { kind: 'input', id: 'record', type: record, optional: false },
           { kind: 'input', id: 'field', type: text, optional: false },
-          ...(type === 'Read' ? [] : [{ kind: 'input' as const, id: 'value', optional: true,
+          ...(type === 'Read' ? [] : [{ kind: 'input' as const, id: 'value', optional: false,
             type: { kind: 'record_field' as const, input: 'record', index: 'field' } }]),
           { kind: 'output', id: type === 'Read' ? 'value' : 'record', type: type === 'Read'
             ? { kind: 'record_field', input: 'record', index: 'field' } : record },
@@ -392,7 +392,18 @@ describe('buildScene', () => {
       return buildScene({ document: current, graphId: 'g0', resolve: schema, tokens: defaultTokens, measure, widgetMeasure })
     }
     const warnings = (scene: Scene) => scene.diagnostics.filter((diagnostic) => diagnostic.code === 'record-field-removed')
-    expect(warnings(sceneWith([{ id: 'seed-id', name: 'noise', type: integer, optional: false }]))).toEqual([])
+    const normal = sceneWith([{ id: 'seed-id', name: 'noise', type: integer, optional: false }])
+    expect(warnings(normal)).toEqual([])
+    const valueEditor = (scene: Scene) => scene.nodes.find((node) => node.id === 'change')?.layout.rows
+      .find((row) => row.kind === 'widget' && row.inputId === 'value')
+    expect(valueEditor(normal)).toMatchObject({ kind: 'widget', type: integer })
+    for (const name of ['FLOAT', 'BOOLEAN']) {
+      const type: TypeExpr = { kind: 'concrete', name }
+      expect(valueEditor(sceneWith([{ id: 'seed-id', name: 'seed', type, optional: false }], selected(name))))
+        .toMatchObject({ kind: 'widget', type })
+    }
+    expect(valueEditor(sceneWith([{ id: 'seed-id', name: 'seed', type: { kind: 'concrete', name: 'IMAGE' }, optional: false }], selected('IMAGE'))))
+      .toBeUndefined()
     const removed = warnings(sceneWith([{ id: 'different-id', name: 'seed', type: text, optional: false }]))
     expect(removed.map((diagnostic) => [diagnostic.severity, diagnostic.message, diagnostic.anchor?.port]))
       .toEqual(['read', 'change'].map((node) => ['warning', "Record field 'seed' was removed.", { node, port: 'field' }]))
@@ -407,6 +418,7 @@ describe('buildScene', () => {
     for (const fields of [[], retyped]) {
       for (const wired of [true, 'rerouted'] as const) {
         const retained = sceneWith(fields, saved, wired)
+        expect(valueEditor(retained)).toMatchObject({ optional: true })
         expect(output(retained)).toMatchObject({ type: integer, inactive: true, maybeAbsent: true })
         expect(output(retained)?.kept).toContain('seed')
         for (const link of retained.links) expect(link).toMatchObject({ dimmed: true, maybeAbsent: true })
@@ -417,6 +429,7 @@ describe('buildScene', () => {
       }
     }
     const reselected = sceneWith(retyped, selected('STRING'), true)
+    expect(valueEditor(reselected)).toMatchObject({ kind: 'widget', type: text })
     expect(output(reselected)).toMatchObject({ type: text })
     expect(output(reselected)?.kept).toBeUndefined()
     expect(reselected.links.find((link) => link.id === 'read')?.dimmed).toBeUndefined()
