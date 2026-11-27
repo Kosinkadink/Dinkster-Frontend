@@ -413,6 +413,7 @@ describe('model provider credentials', () => {
     expect(calls.at(-1)?.method).toBe('DELETE')
     status = 409; payload = { error: 'private-canary' }
     await expect(connection.saveModelProviderToken('private-canary')).rejects.toMatchObject({ status: 409, serverMessage: undefined })
+    await expect(connection.saveModelProviderToken('private-canary')).rejects.not.toThrow('private-canary')
     status = 200; payload = { method: 'pkce', flowId: 'bad', authorizationUrl: 'https://example.com/oauth/authorize' }
     await expect(connection.startModelProviderSignIn('pkce')).rejects.toThrow('Invalid provider URL')
   })
