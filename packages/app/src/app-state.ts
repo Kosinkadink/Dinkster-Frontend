@@ -6030,10 +6030,14 @@ export class AppState {
         : adjustment.then(() => {
           if (this.tabs.get().includes(tab) && tab.store === store) return this.upgradeOnOpen(tab)
         })
-      if (upgrade === undefined) this.reportUnresolvedTypes(tab)
-      else void upgrade.then(() => {
-        if (this.tabs.get().includes(tab) && tab.store === store) this.reportUnresolvedTypes(tab)
-      })
+      const finish = (): void => {
+        if (!this.tabs.get().includes(tab) || tab.store !== store) return
+        this.reportUnresolvedTypes(tab)
+        if (this.settings.get<string>('automaticFixes.numberOutsideLimits') === 'apply')
+          void this.applyNumberFixes(tab, this.scanTabNumberFixes(tab), true)
+      }
+      if (upgrade === undefined) finish()
+      else void upgrade.then(finish)
     }
   }
 

@@ -151,6 +151,42 @@ describe('native open-time replacement', () => {
     expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
   })
 
+  it('corrects stored numbers on open once schemas arrive and preserves recorded Undo and Redo', async () => {
+    const backend = app.backends.get()[0]!
+    const numbers = { ...payload, nodes: { Current: { body: [
+      { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } },
+    ] } } }
+    const source = document()
+    const input = { ...source, graphs: { g0: { ...source.graphs.g0, links: {}, nodes: {
+      first: { id: 'first', type: 'Current', values: { amount: 14 } },
+      second: { id: 'second', type: 'Current', values: { amount: 29 } },
+    } } } }
+    await app.openDocument(input, 'Numbers before schemas')
+    const tab = app.activeTab()!
+    const values = () => Object.values(tab.store.doc.graphs.g0!.nodes).map((node) => node.values.amount)
+    expect(values()).toEqual([14, 29])
+    backend.registry.set(buildDinksterRegistry(backend.id, numbers))
+    await vi.waitFor(() => expect(values()).toEqual([12, 20]))
+    expect(app.adjustmentNotices.get().get(tab.id)!.adjustments.map((item) => item.count)).toEqual([1, 1])
+    expect(tab.store.undo()).toBe(true)
+    expect(values()).toEqual([14, 29])
+    expect(tab.store.canUndo).toBe(false)
+    expect(tab.store.redo()).toBe(true)
+    expect(values()).toEqual([12, 20])
+    expect(app.undoAdjustments(tab.id)).toBe(true)
+    expect(values()).toEqual([14, 29])
+    expect(app.scanTabNumberFixes(tab)).toEqual([])
+    await app.openDocument(input, 'Really opened again')
+    const reopened = app.activeTab()!
+    await vi.waitFor(() => expect(Object.values(reopened.store.doc.graphs.g0!.nodes).map((node) => node.values.amount)).toEqual([12, 20]))
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    await app.openDocument(input, 'Ask before correcting')
+    expect(Object.values(app.activeTab()!.store.doc.graphs.g0!.nodes).map((node) => node.values.amount)).toEqual([14, 29])
+    expect(app.scanTabNumberFixes(app.activeTab()!)).toHaveLength(2)
+    expect(app.adjustmentNotices.get().has(app.activeTab()!.id)).toBe(false)
+  })
+
   it('stores numeric fixes atomically, keeps later field edits on notice Undo, and does not repeat undone causes', async () => {
     const backend = app.backends.get()[0]!
     const numericPayload = { ...payload, nodes: { Current: { displayName: 'Numbers', category: 'test', body: [
