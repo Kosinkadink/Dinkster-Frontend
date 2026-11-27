@@ -755,6 +755,8 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     labelFormula: { formula: '"Total " + fixed(seed * 2 + bias, 0)' }, tooltip: 'Calculated in this receiver',
   }, { kind: 'output', id: 'result', type: FLOAT }])
   const formulaResolve = (type: string) => type === 'Calculator' ? calculator
+    : type === 'OptionalValue' ? node(type, [{ kind: 'input', id: 'total', type: FLOAT, optional: true,
+      widget: { widgetType: 'FLOAT', options: {} } }])
     : type === 'FormulaSink' ? node(type, [{ kind: 'input', id: 'value', type: FLOAT, optional: true }])
       : type === 'Text' ? { ...node(type, [{ kind: 'input', id: 'value', type: STRING, optional: true }]), isOutputNode: false } : undefined
   const formulaFixture = (depth: 1 | 2): WorkflowDocument => {
@@ -905,6 +907,7 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       const body = doc.graphs[bodyId]!
       const before: WorkflowDocument = { ...doc, graphs: { ...doc.graphs,
         ...(fanout ? { [bodyId]: { ...body, nodes: { ...body.nodes,
+          optional: { id: 'optional', type: 'OptionalValue', values: {} },
           ...(primaryTotal === undefined ? {} : { [depth === 1 ? 'sample' : 'detail']: {
             ...body.nodes[depth === 1 ? 'sample' : 'detail']!,
             values: { ...body.nodes[depth === 1 ? 'sample' : 'detail']!.values, total: primaryTotal },
@@ -912,13 +915,15 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
           ...(depth === 1 ? { other: { ...body.nodes.other!, values: { seed: 11, bias: 13, total: 5 } } }
             : { extra: { id: 'extra', type: '#detail', values: { start: 11, total: 5 } } }),
         }, boundary: { body: body.boundary!.body.map((item) => 'id' in item && item.id === (depth === 1 ? 'total' : 'resultValue')
-          ? { ...item, alsoBinds: [{ kind: 'port', node: depth === 1 ? 'other' : 'extra', port: 'total' }] } : item) } } } : {}),
+          ? { ...item, alsoBinds: [{ kind: 'port', node: depth === 1 ? 'other' : 'extra', port: 'total' },
+            { kind: 'port', node: 'optional', port: 'total' }] } : item) } } } : {}),
         root: { ...doc.graphs.root!, nodes: {
         ...doc.graphs.root!.nodes, first: mode === 'loop' ? { ...first, region: { kind: 'map', elementPorts: [depth === 1 ? 'start' : 'control'] } }
           : { ...first, mode },
       } } } } as WorkflowDocument
       if (fanout) {
         const expected = formulaRun(before)
+        expect(expected.prompt['first.optional']!.inputs).toEqual(total === undefined ? {} : { total })
         expect(expected.prompt[`first.${depth === 1 ? 'other' : 'extra.sample'}`]!.inputs.total).toBe(total ?? 5)
         expect(expected.prompt[`first${suffix}.sample`]!.inputs).toEqual({ seed: 21, bias: 7,
           ...(total === undefined && primaryTotal === undefined ? {} : { total: total ?? primaryTotal }),
@@ -949,6 +954,8 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
         expect(run.labels[receivingId]).toBe('Total 49')
         expect(run.prompt.sink!.inputs).toEqual({ value: [receivingId, 0] })
         if (fanout) {
+          const optional = Object.values(flattened.graphs.root!.nodes).find((entry) => entry.type === 'OptionalValue')!
+          expect(run.prompt[optional.id]!.inputs).toEqual(total === undefined ? {} : { total })
           const secondary = Object.values(flattened.graphs.root!.nodes).find((entry) =>
             depth === 1 ? entry.type === 'Calculator' && entry.values.seed === 11 : entry.type === '#detail' && entry.values.start === 11)!
           expect(run.prompt[depth === 1 ? secondary.id : `${secondary.id}.sample`]!.inputs.total).toBe(total ?? 5)

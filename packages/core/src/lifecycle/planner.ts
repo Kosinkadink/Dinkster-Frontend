@@ -34,7 +34,6 @@ import { subgraphDefIdOf } from '../invariants.js'
 import { constructRowOf, deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import { scopeRowsOf, type NodeSchema } from '../schema/model.js'
 import { DEFAULT_ELAB_BUDGET, elaborateInterface, EMPTY_CONNECTIVITY, valueKeyOf } from '../schema/elaborate.js'
-import { effectiveWidgetDefault } from '../schema/widget-defaults.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
 import { boundaryOutputCandidates, innerConstructAddress, matchBoundaryItem, projectConstructs } from '../compile/crossing.js'
 import { rerouteInputTargets } from '../reroute.js'
@@ -464,17 +463,8 @@ function planFlattenState(
         continue
       }
       const targetKey = binding.port as string
-      const targetSchema = schemaSnapshot[target.type]
-      const route = targetSchema === undefined ? undefined : resolveBoundaryRoute(targetSchema, binding, 'input', target.values, target.dynamic)
-      const slot = route?.ok && route.route.terminal.kind === 'port' ? route.route.terminal.slot : undefined
-      const value = Object.hasOwn(occurrence.values, item.id)
-        ? occurrence.values[item.id]
-        : Object.hasOwn(target.values, targetKey)
-          ? target.values[targetKey]
-          : slot?.kind !== 'input' || slot.automatic !== undefined || slot.widget === undefined
-            ? undefined : effectiveWidgetDefault(slot.widget) as Json | undefined
       const targetValues = { ...target.values }
-      if (value !== undefined) targetValues[targetKey] = value
+      if (Object.hasOwn(occurrence.values, item.id)) targetValues[targetKey] = occurrence.values[item.id]!
       const targetControllers = { ...(target.controllers ?? {}) }
       delete targetControllers[targetKey]
       if (controller !== undefined) targetControllers[targetKey] = controller

@@ -1729,7 +1729,7 @@ describe('subgraph.flatten L5-L6 core command', () => {
     expect(session.doc.graphs.body).toEqual(immutableBody)
     expect(session.doc.graphs.root!.nodes.occurrence).toBeUndefined()
     expect(session.doc.graphs.root!.nodes.survivor!.type).toBe('#body')
-    expect(session.doc.graphs.root!.nodes.n100).toEqual({ id: 'n100', type: '#child', values: { keep: 1, in: 0 }, controllers: { in: 'randomize' }, ext: { node: true } })
+    expect(session.doc.graphs.root!.nodes.n100).toEqual({ id: 'n100', type: '#child', values: { keep: 1 }, controllers: { in: 'randomize' }, ext: { node: true } })
     expect(session.doc.graphs.root!.nodes.n101).toMatchObject({ id: 'n101', type: 'BodyNode' })
     expect(session.doc.graphs.root!.links.incoming).toEqual({
       id: 'incoming', from: port('source', 'out'), to: port('n100', 'in'), ext: { delivery: 1 },
@@ -2029,9 +2029,6 @@ describe('subgraph.flatten L5-L6 core command', () => {
     expect(before.ok, JSON.stringify(!before.ok && before.diagnostics)).toBe(true)
     const plan = planFlattenBoundaryRoutes(body, resolve, root.nodes.occurrence!, root)
     expect(plan.statePlan.status).toBe('ready')
-    if (plan.statePlan.status === 'ready') {
-      expect(plan.statePlan.nodes[0]).toMatchObject({ values: { input: 7 }, controllers: { input: 'fixed' } })
-    }
     const evidence = { boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest }
     const session = trustedFlattenSession(initial, resolve)
     const outcome = session.dispatch({
@@ -2050,7 +2047,8 @@ describe('subgraph.flatten L5-L6 core command', () => {
       },
     })
     expect(outcome.ok, JSON.stringify(!outcome.ok && outcome.diagnostics)).toBe(true)
-    expect(session.doc.graphs.root!.nodes.n20).toMatchObject({ values: { input: 7 }, controllers: { input: 'fixed' } })
+    expect(session.doc.graphs.root!.nodes.n20!.values).toEqual({})
+    expect(session.doc.graphs.root!.nodes.n20!.controllers).toEqual({ input: 'fixed' })
     const after = compile({
       document: session.doc, revision: 2, resolve, scope: { kind: 'full' },
       connection: asConnectionId('nested-after'), schemaHash: 'nested-fallback',
@@ -2058,6 +2056,7 @@ describe('subgraph.flatten L5-L6 core command', () => {
     expect(after.ok, JSON.stringify(!after.ok && after.diagnostics)).toBe(true)
     if (before.ok && after.ok) {
       expect(Object.values(after.artifact.prompt)[0]!.inputs).toEqual(Object.values(before.artifact.prompt)[0]!.inputs)
+      expect(Object.values(after.artifact.prompt)[0]!.inputs.value).toBe(7)
     }
   })
 
