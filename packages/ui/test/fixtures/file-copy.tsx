@@ -4,7 +4,8 @@ import { CanvasEditorSpace, CanvasFileCopy } from '../../src/canvas-editor.js'
 
 export function mount() {
   const [phase, setPhase] = createSignal<'checking' | 'waiting'>('checking')
-  const [width, setWidth] = createSignal(140)
+  // Checking fits; Waiting overflows with either Chromium executable's font metrics.
+  const [width, setWidth] = createSignal(120)
   const container = document.createElement('div')
   document.body.replaceChildren(container)
   render(() => <CanvasEditorSpace ref={(element) => {
