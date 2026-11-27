@@ -92,17 +92,22 @@ export type CanvasFileCopyState = {
   readonly stopLabel: string
   readonly onStop: () => void
 } | {
+  readonly phase: 'waiting'
+  readonly label: string
+  readonly stopLabel: string
+  readonly onStop: () => void
+} | {
   readonly phase: 'checking'
   readonly label: string
 }
 
-/** Copying can be stopped; checking waits for the engine's canonical answer. */
+/** Copying and waiting can be stopped; checking waits for the engine's canonical answer. */
 export function CanvasFileCopy(props: { state: CanvasFileCopyState }) {
-  const copying = () => props.state.phase === 'copying' ? props.state : undefined
+  const stoppable = () => props.state.phase !== 'checking' ? props.state : undefined
   return <div class="dinkster-canvas-file-copy" role="status">
     <span class="dinkster-canvas-file-copy-label" title={props.state.label}>{props.state.label}</span>
-    <ProductProgress label={props.state.label} value={copying()?.value} />
-    <Show when={copying()}>{(state) => <CanvasSideLink onClick={() => state().onStop()}>{state().stopLabel}</CanvasSideLink>}</Show>
+    <ProductProgress label={props.state.label} value={props.state.phase === 'copying' ? props.state.value : undefined} />
+    <Show when={stoppable()}>{(state) => <CanvasSideLink onClick={() => state().onStop()}>{state().stopLabel}</CanvasSideLink>}</Show>
   </div>
 }
 

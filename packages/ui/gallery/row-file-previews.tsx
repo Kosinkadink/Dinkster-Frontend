@@ -33,7 +33,7 @@ interface FileExample {
   readonly accept: readonly string[]
   readonly width?: number
   readonly mode?: 'pending' | 'expected' | 'estimate' | 'stale' | 'unknown'
-  readonly copy?: 'copying' | 'checking'
+  readonly copy?: 'copying' | 'waiting' | 'checking'
 }
 
 const examples: readonly FileExample[] = [
@@ -56,6 +56,7 @@ const examples: readonly FileExample[] = [
   { title: 'No 3D file chosen', value: null, accept: ['model/gltf-binary'] },
   { title: 'No mixed file chosen', value: null, accept: mixed },
   { title: 'Copying a video', value: asset('diner_take3.mp4', 'video/mp4'), accept: ['video/*'], width: 340, copy: 'copying' },
+  { title: 'Waiting to publish a video', value: asset('diner_take3.mp4', 'video/mp4'), accept: ['video/*'], width: 340, copy: 'waiting' },
   { title: 'Checking a video', value: asset('diner_take3.mp4', 'video/mp4'), accept: ['video/*'], width: 340, copy: 'checking' },
 ]
 
@@ -159,6 +160,8 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
       }}>
         <CanvasFileCopy state={props.example.copy === 'checking'
           ? { phase: 'checking', label: 'Checking the file' }
+          : props.example.copy === 'waiting'
+          ? { phase: 'waiting', label: 'Waiting for another file', stopLabel: 'Stop', onStop: () => setStopped(true) }
           : { phase: 'copying', label: `Copying to input, ${formatSize(210 * 1048576)} of ${formatSize(512 * 1048576)}`, value: 210 / 512,
               stopLabel: 'Stop', onStop: () => setStopped(true) }} />
       </CanvasEditorSpace>}</Show>
