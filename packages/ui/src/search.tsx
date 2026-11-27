@@ -281,7 +281,7 @@ export function ProductSearch(props: {
     const row = currentRow()
     const count = rows().filter((item) => (item.kind ?? 'result') === 'result').length
     return row === undefined
-      ? props.empty?.title ?? ''
+      ? props.notice === undefined ? props.empty?.title ?? '' : ''
       : `${count} results. ${row.title}.`
   }
   const stepKind = (step: 1 | -1): boolean => {
@@ -534,9 +534,9 @@ export function ProductSearch(props: {
                     class="dinkster-search-group"
                     data-group={group.key}
                     role="group"
-                    aria-labelledby={group.label === undefined ? undefined : heading}
+                    aria-labelledby={group.label === undefined || (props.notice !== undefined && group.rows.length === 0) ? undefined : heading}
                   >
-                    <Show when={group.label}>
+                    <Show when={group.rows.length > 0 || props.notice === undefined ? group.label : undefined}>
                       {(label) => (
                         <div class="dinkster-search-group-heading" id={heading}>
                           <span>{label()}</span>

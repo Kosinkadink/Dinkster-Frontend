@@ -26,11 +26,11 @@ export function ProductRecoveryNotice(props: {
   action?: { readonly label: string; readonly onSelect: () => void; readonly pending?: boolean }
   error?: string
 }) {
-  return <div class="dinkster-stack">
-    <ProductNotice>{props.message}</ProductNotice>
-    <Show when={props.action}>{(action) => <div class="dinkster-actions">
+  return <div class="dinkster-message" data-recovery role="note">
+    <span class="dinkster-recovery-copy"><ProductIcon icon={Info} />{props.message}</span>
+    <Show when={props.action}>{(action) =>
       <ProductButton pending={action().pending === true} onClick={() => action().onSelect()}>{action().label}</ProductButton>
-    </div>}</Show>
+    }</Show>
     <Show when={props.error}>{(error) => <p class="dinkster-field-error" role="alert">
       <ProductIcon icon={CircleAlert} />{error()}
     </p>}</Show>
