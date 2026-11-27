@@ -924,7 +924,9 @@ function Gallery() {
                   const colors = canvasTypePaintForTheme(theme).typeColors
                   return <div class="dinkster-panel dinkster-stack" data-theme={theme}>
                     <h3 class="dinkster-heading">{theme === 'dark' ? 'Dark' : 'Light'}</h3>
-                    <ProductCountStrip label={`Model kinds, ${theme}`} segments={[
+                    <For each={['All sizes known', 'One size unavailable', 'No sizes known']}>{(state) => <div class="dinkster-stack">
+                    <h4 class="dinkster-heading">{state}</h4>
+                    <ProductCountStrip label={`Model kinds, ${theme}, ${state}`} segments={[
                       { label: 'LoRAs', count: 38, kind: 'model/lora' },
                       { label: 'Checkpoints', count: 12, kind: 'model/checkpoint' },
                       { label: 'ControlNet', count: 9, kind: 'model/controlnet' },
@@ -932,7 +934,17 @@ function Gallery() {
                       { label: 'VAEs', count: 4, kind: 'model/vae' },
                       { label: 'Upscalers', count: 3, kind: 'model/upscaler' },
                       { label: 'Other', count: 1, kind: 'other' },
-                    ].map((segment) => ({ ...segment, color: Object.hasOwn(modelKindColorMap, segment.kind) ? colors[modelKindColorMap[segment.kind]!]! : semanticTokensForTheme(theme).text.muted }))} />
+                    ].map((segment, index) => {
+                      const bytes = [16, 64, 9, 6, 4, 3, 1][index]! * 1024 ** 3
+                      return { ...segment,
+                        ...(state === 'No sizes known' ? {} : {
+                          weight: state === 'One size unavailable' && index === 0 ? 0 : bytes,
+                          value: state === 'One size unavailable' && index === 0 ? `${segment.count} models` : formatByteSize(bytes),
+                        }),
+                        color: Object.hasOwn(modelKindColorMap, segment.kind) ? colors[modelKindColorMap[segment.kind]!]! : semanticTokensForTheme(theme).text.muted,
+                      }
+                    })} />
+                    </div>}</For>
                   </div>
                 }}</For>
               </Section>
