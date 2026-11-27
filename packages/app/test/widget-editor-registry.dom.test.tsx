@@ -197,6 +197,40 @@ it('keeps mount recovery and declared-default reset inside the Save target edito
   } finally { dispose() }
 })
 
+it('opens Storage for a missing target until the project output is writable, then restores the fix in the same field', async () => {
+  const [ready, setReady] = createSolidSignal(false)
+  let opened = 0
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn(async () => true)
+  const dispose = render(() => <SaveTargetSpace value={{ mount: 'renders', prefix: 'portraits/first' }} wired={false}
+    fetchMounts={ready()
+      ? async () => ({ activeOutputMount: 'output', mountChangesAllowed: false,
+        mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }] })
+      : async () => ({ activeOutputMount: 'output', mountChangesAllowed: false,
+        mounts: [{ id: 'output', mode: 'readwrite', state: 'offline' }] })}
+    openStorage={() => { opened++ }} commit={commit} queue={() => {}} />, root)
+  const details = () => [...root.querySelectorAll('button')].find((entry) => entry.textContent === 'Details')!
+  try {
+    await vi.waitFor(() => expect(details()).toBeDefined())
+    details().click()
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('"renders" is missing and this project has no output mount.')
+    const storage = document.querySelector<HTMLButtonElement>('[role="dialog"] button')!
+    expect(storage.textContent).toBe('Open Storage')
+    storage.click()
+    expect(opened).toBe(1)
+    expect(root.querySelector('input')!.value).toBe('portraits/first')
+    setReady(true)
+    await vi.waitFor(() => expect(root.querySelector('.dinkster-canvas-editor-note')?.textContent).toContain('renders not found.'))
+    details().click()
+    const fix = document.querySelector<HTMLButtonElement>('[role="dialog"] button')!
+    expect(fix.textContent).toBe('Use project default')
+    fix.click()
+    expect(root.querySelector('.dinkster-canvas-target-value-text')?.textContent).toBe('Project default')
+    expect(root.querySelector('input')!.value).toBe('portraits/first')
+    expect(commit).not.toHaveBeenCalled()
+  } finally { dispose() }
+})
+
 it('selects the save name on opening and queues the atomically stored target only after commit succeeds', async () => {
   const root = document.createElement('div'); document.body.append(root)
   let saved: Json = { mount: 'output', prefix: 'before' }

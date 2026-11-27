@@ -344,7 +344,7 @@ export function SaveTargetSpace(props: {
     onCleanup(() => { live = false })
   }))
   const ready = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready').map((entry) => entry.id) ?? []
-  const noDefault = () => settings() !== undefined && settings()!.activeOutputMount === undefined
+  const noDefault = () => settings() !== undefined && !ready().includes(settings()!.activeOutputMount ?? '')
   const projectMount = () => settings()?.activeOutputMount ?? message(noDefault() ? 'saveTargetWidget.noOutputMount' : 'saveTargetWidget.projectDefault')
   const options = () => [
     { id: '', label: message('saveTargetWidget.projectDefaultIs', { mount: projectMount() }), closedLabel: message('saveTargetWidget.projectDefault') },
@@ -352,7 +352,7 @@ export function SaveTargetSpace(props: {
     ...(mount() !== null && !ready().includes(mount()!) ? [{ id: mount()!, label: message('saveTargetWidget.notHere', { id: mount()! }), closedLabel: mount()!, unavailable: true }] : []),
   ]
   const draft = () => saveTargetDraft({ stored: props.value ?? null, mount: mount(), prefix: prefix(),
-    ready: settings() === undefined || ready().length === 0 ? undefined : ready(), projectMount: projectMount() })
+    ready: settings() === undefined ? undefined : ready(), projectMount: projectMount() })
   createEffect(() => {
     const unchanged = mount() === sourceMount() && prefix() === sourcePrefix()
     const valuePreview = props.wired || blocked() || mountUnknown() || prefixUnknown() || unchanged ? undefined

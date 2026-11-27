@@ -7551,7 +7551,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const backend = props.app.backendForTab(at.tab)
           return backend.protocol === 'dinkster' ? backend.connection : undefined
         })
+        const [saveTargetMountVersion, setSaveTargetMountVersion] = createSolidSignal(0)
+        createEffect(() => {
+          const connection = saveTargetMounts()
+          if (connection === undefined) return
+          onCleanup(connection.onMountsChanged(() => setSaveTargetMountVersion((value) => value + 1)))
+        })
         const fetchSaveTargetMounts = createMemo(() => {
+          saveTargetMountVersion()
           const connection = saveTargetMounts()
           return connection === undefined ? undefined : () => connection.fetchMountSettings()
         })

@@ -1820,6 +1820,7 @@ export function App(props: {
         disabled: fix.state === 'storing',
         run: () => {
           if (fix.state === 'stale') app.problemFixes.recheck(tab, fix.key)
+          else if (fix.offered.kind === 'save-targets' && !fix.offered.defaultReady) openStorage(fix.offered.backend)
           else return app.problemFixes.apply(tab, [fix])
         },
       }

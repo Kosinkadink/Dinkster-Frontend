@@ -26,7 +26,7 @@ export interface ProblemFix {
 export function problemFixLabel(fix: ProblemFix, message: typeof t = t): string {
   return fix.state === 'storing' ? message('problemFix.storing')
     : fix.state === 'stale' ? message('problemFix.checkAgain')
-    : fix.offered.kind === 'save-targets' ? message('problemFix.useProjectDefaultForAll')
+    : fix.offered.kind === 'save-targets' ? message(fix.offered.defaultReady ? 'problemFix.useProjectDefaultForAll' : 'problems.action.modelStorage')
     : fix.offered.kind === 'rule' ? fix.offered.label
     : message('problemFix.useNumber', { value: String(fix.offered.after) })
 }
@@ -34,7 +34,8 @@ export function problemFixLabel(fix: ProblemFix, message: typeof t = t): string 
 export function problemFixLabels(fix: ProblemFix, message: typeof t = t): readonly string[] {
   return [fix.offered.kind === 'save-targets' ? message('problemFix.useProjectDefaultForAll')
     : fix.offered.kind === 'rule' ? fix.offered.label : message('problemFix.useNumber', { value: String(fix.offered.after) }),
-    message('problemFix.storing'), message('problemFix.checkAgain')]
+    message('problemFix.storing'), message('problemFix.checkAgain'),
+    ...(fix.offered.kind === 'save-targets' ? [message('problems.action.modelStorage')] : [])]
 }
 
 export const problemFixKey = (fix: StoredProblemFix): string => JSON.stringify([
@@ -132,8 +133,7 @@ export class ProblemFixes {
   forProblem(tab: Tab, diagnostic: Diagnostic): ProblemFix | undefined {
     const key = diagnostic.data?.['problemFixKey']
     const fix = typeof key === 'string' ? this.offers.get(tab.store)?.get(key) : undefined
-    return fix?.offered.kind === 'number' && this.app.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'ask' ||
-      fix?.offered.kind === 'save-targets' && !fix.offered.defaultReady && fix.state !== 'stale'
+    return fix?.offered.kind === 'number' && this.app.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'ask'
       ? undefined : fix
   }
 
@@ -141,10 +141,16 @@ export class ProblemFixes {
     const registry = this.app.registryForTab(tab)
     return this.scan(tab).map((fix) => {
       const { offered } = fix
-      if (offered.kind === 'save-targets') return diag('warning', 'environment', 'saveTarget.mountsMissing',
-        fix.message ?? t('problemFix.saveTargetsMissing'), { data: { problemFixKey: fix.key },
-          refs: offered.fixes.map((target) => ({ graphId: target.part.graphId, nodeId: target.part.nodeId,
-            valueKey: target.valueKey, portId: target.valueKey, direction: 'input' as const })) })
+      if (offered.kind === 'save-targets') {
+        const names = [...new Set(offered.fixes.map((target) => target.before.mount))]
+        const mounts = names.map((name) => JSON.stringify(name)).join(', ')
+        const missing = offered.defaultReady ? t('problemFix.saveTargetsMissing', { mounts })
+          : `${names.length === 1 ? t('saveTargetWidget.bothTitle', { id: names[0]! }) : t('problemFix.saveTargetsNoDefault', { mounts })} ${t('saveTargetWidget.noDefaultBody')}`
+        return diag('warning', 'environment', 'saveTarget.mountsMissing', fix.message ?? missing,
+          { data: { problemFixKey: fix.key },
+            refs: offered.fixes.map((target) => ({ graphId: target.part.graphId, nodeId: target.part.nodeId,
+              valueKey: target.valueKey, portId: target.valueKey, direction: 'input' as const })) })
+      }
       const node = tab.store.doc.graphs[offered.part.graphId]?.nodes[offered.part.nodeId]
       const title = node?.title || (node === undefined ? offered.part.nodeId : registry?.resolve(node.type)?.displayName ?? node.type)
       const text = offered.kind === 'rule' ? fix.message ?? offered.message
@@ -166,9 +172,18 @@ export class ProblemFixes {
   recheck(tab: Tab, key: string): void {
     const offers = this.offers.get(tab.store)
     if (offers?.get(key)?.state === 'storing') return
-    offers?.delete(key)
     const backend = key === 'save-targets' ? this.app.backendForTab(tab) : undefined
-    if (backend !== undefined) this.invalidateMounts(backend)
+    if (backend !== undefined) {
+      const held = offers?.get(key)
+      void this.readMounts(backend).then((settings) => {
+        if (settings === undefined || offers?.get(key) !== held) return
+        offers?.delete(key)
+        this.scan(tab)
+        this.changed.update((value) => value + 1)
+      })
+      return
+    }
+    offers?.delete(key)
     this.scan(tab)
     this.changed.update((value) => value + 1)
   }

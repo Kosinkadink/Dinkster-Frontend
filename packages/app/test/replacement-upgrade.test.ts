@@ -468,10 +468,10 @@ describe('native open-time replacement', () => {
     const diagnostics = () => app.problemFixes.diagnostics(tab)
     await vi.waitFor(() => expect(diagnostics().filter((problem) => problem.code === 'saveTarget.mountsMissing')).toHaveLength(1))
     const groupProblem = () => diagnostics().find((problem) => problem.code === 'saveTarget.mountsMissing')!
-    expect(app.problemFixes.forProblem(tab, groupProblem())).toBeUndefined()
+    expect(app.problemFixes.forProblem(tab, groupProblem())?.offered).toMatchObject({ kind: 'save-targets', defaultReady: false })
     mounts = { ...mounts, activeOutputMount: 'ready' }
     backend.connection.ingest({ type: 'mounts_changed' })
-    await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, groupProblem())?.state).toBe('offered'))
+    await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, groupProblem())?.offered).toMatchObject({ kind: 'save-targets', defaultReady: true }))
     const offered = app.problemFixes.scan(tab)
     expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'second', inputId: 'target',
       value: { mount: 'other', prefix: 'personal/movie' } } }).ok).toBe(true)
@@ -480,7 +480,7 @@ describe('native open-time replacement', () => {
     expect(tab.store.doc).toEqual(changed)
     expect(app.problemFixes.scan(tab).every((fix) => fix.state === 'stale')).toBe(true)
     for (const fix of offered) app.problemFixes.recheck(tab, fix.key)
-    await vi.waitFor(() => expect(app.problemFixes.scan(tab)).toHaveLength(2))
+    await vi.waitFor(() => expect(app.problemFixes.scan(tab).map((fix) => fix.state)).toEqual(['offered', 'offered']))
     const fresh = app.problemFixes.scan(tab)
     let release!: (settings: MountSettings) => void
     fetchMounts.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
@@ -509,6 +509,10 @@ describe('native open-time replacement', () => {
     expect(tab.store.doc).toEqual(changed)
     const unavailable = diagnostics().find((problem) => problem.code === 'saveTarget.mountsMissing')!
     expect(app.problemFixes.forProblem(tab, unavailable)?.state).toBe('stale')
+    fetchMounts.mockRejectedValueOnce(new Error('Mount snapshot still unavailable'))
+    app.problemFixes.recheck(tab, 'save-targets')
+    await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, diagnostics().find((problem) => problem.code === 'saveTarget.mountsMissing')!)?.state).toBe('stale'))
+    expect(tab.store.doc).toEqual(changed)
     app.problemFixes.recheck(tab, 'save-targets')
     await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, diagnostics().find((problem) => problem.code === 'saveTarget.mountsMissing')!)?.state).toBe('offered'))
   })
