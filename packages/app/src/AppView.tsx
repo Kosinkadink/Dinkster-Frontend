@@ -1732,6 +1732,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     const row = () => controlProps.flow.row
     const liveRow = (): Extract<ParamRow, { kind: 'live' }> => row() as Extract<ParamRow, { kind: 'live' }>
     const comboControl = (): boolean => liveRow().spec?.widgetType === 'COMBO'
+    const videoControl = (): boolean => liveRow().spec?.widgetType === 'VIDEO_EDIT'
+    const productControl = (): boolean => editableKinds.has(liveRow().spec?.widgetType ?? '') && !videoControl()
     const accessibleLabelId = `app-view-control-${createUniqueId()}`
     const label = (): string => {
       const current = row()
@@ -1831,7 +1833,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           <Match when={comboControl()}>
             <ComboControl row={liveRow()} />
           </Match>
-          <Match when={spec().widgetType === 'VIDEO_EDIT'}>
+          <Match when={videoControl()}>
             <ProductButton type="button" aria-label={message('appView.control.editVideo', { label: liveRow().label })} onClick={() => openVideoEditor(liveRow())}>{message('appView.control.editTrimCrop')}</ProductButton>
           </Match>
         </Switch>
@@ -1947,15 +1949,17 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           fallback={<p class="app-view-stale" data-testid="app-view-stale" role="status">{message('appView.state.unavailable', { reason: (row() as Extract<ParamRow, { kind: 'stale' }>).reason })}</p>}
         >
           <>
-            <AppWidgetPreview row={liveRow()} registry={widgetRegistry()} />
+            <Show when={!productControl()}>
+              <AppWidgetPreview row={liveRow()} registry={widgetRegistry()} />
+            </Show>
             <Show when={comboControl() && errors().get(rowKey(row().entry))}>
               {(text) => <ProductNotice tone="error" testId="app-view-error">{text()}</ProductNotice>}
             </Show>
             <Show
               when={editable(liveRow())}
               fallback={
-                <p class="app-view-readonly" data-testid="app-view-readonly" tabindex="0" aria-label={`${display(liveRow().value)}. ${readOnlyHint(liveRow())}`} data-tooltip-label={readOnlyHint(liveRow())}>
-                  {display(liveRow().value)}
+                <p class="app-view-readonly" data-testid="app-view-readonly" tabindex="0" aria-label={`${productControl() ? display(liveRow().value) : label()}. ${readOnlyHint(liveRow())}`} data-tooltip-label={readOnlyHint(liveRow())}>
+                  <Show when={productControl()}>{display(liveRow().value)}</Show>
                   <span class="app-view-hint">{readOnlyHint(liveRow())}</span>
                 </p>
               }
