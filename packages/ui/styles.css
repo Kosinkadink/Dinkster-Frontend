@@ -2288,7 +2288,7 @@ button.dinkster-row-main { cursor: pointer; }
   .dinkster-settings-group[aria-current]::after { position: absolute; right: var(--dinkster-space-12); bottom: 0; left: var(--dinkster-space-12); height: 2px; background: var(--dinkster-accent-foreground); content: ''; }
   .dinkster-settings-main { padding: var(--dinkster-space-12); }
   .dinkster-setting-row { display: flex; flex-wrap: wrap; gap: var(--dinkster-space-8); }
-  .dinkster-setting-copy { flex: 1 0 auto; max-width: 100%; }
+  .dinkster-setting-copy { flex: 1 0 96px; max-width: 100%; }
   .dinkster-setting-control { flex: none; margin-left: auto; max-width: 100%; }
   .dinkster-setting-row:has(.dinkster-switch) { flex-wrap: nowrap; }
   .dinkster-setting-row:has(.dinkster-switch) > .dinkster-setting-copy { flex: 1 1 0; }
