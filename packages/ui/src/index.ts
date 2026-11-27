@@ -1,5 +1,6 @@
 export * from './about.js'
 export * from './byte-size.js'
+export * from './color-input.js'
 export * from './account.js'
 export * from './canvas-color.js'
 export * from './canvas-field.js'

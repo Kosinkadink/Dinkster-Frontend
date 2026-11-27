@@ -43,10 +43,6 @@
   width: 110px;
 }
 
-.painter-toolbar .product-color-input {
-  width: 44px;
-}
-
 .painter-stage {
   display: grid;
   max-width: 100%;
