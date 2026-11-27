@@ -9,3 +9,9 @@
 .projects-page-first-run { height: 100%; padding: var(--dinkster-space-24); overflow: auto; }
 .projects-page-content { height: 100%; }
 .projects-page-detail { display: flex; flex-direction: column; gap: var(--dinkster-space-24); }
+.dinkster-projects-detail .setup-host { height: auto; grid-template-rows: max-content; }
+.dinkster-projects-detail .setup-host > :first-child { grid-row: 1; }
+.dinkster-project-header + .setup-host { margin-top: calc(-1 * var(--dinkster-space-8)); }
+@container project-detail (max-width: 640px) {
+  .setup-facts, .setup-facts dd { grid-template-columns: minmax(0, 1fr); gap: var(--dinkster-space-12); }
+}

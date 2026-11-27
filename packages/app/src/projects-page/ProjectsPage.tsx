@@ -265,6 +265,10 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
   const [count, setCount] = createSignal<number>()
   const [setupStatus, setSetupStatus] = createSignal<SetupStatus>()
   const [engine, setEngine] = createSignal<{ state?: EngineState; open?: PageInstallation; notSetUp: boolean }>({ notSetUp: false })
+  const openingLine = () => {
+    const opening = props.shell.opening()
+    return opening?.failed === undefined ? opening?.line : undefined
+  }
   // The editor's tooltips, so the frame's controls explain themselves here too.
   const tooltips = new TooltipController()
   tooltips.register({
@@ -356,13 +360,13 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
           <span class="status-item status-connection projects-page-status" data-state={engineDot(engine().state)}>
             <span class="status-connection-dot" aria-hidden="true" />
             <span class="status-connection-name">{message('projects.status.local')}</span>
-            <Show when={setupStatus()}>{(status) => <span>{message(status() === 'setting-up' ? 'shell.status.settingUp' : 'shell.status.notSetUp')}</span>}</Show>
+            <Show when={!openingLine() && setupStatus()}>{(status) => <span>{message(status() === 'setting-up' ? 'shell.status.settingUp' : 'shell.status.notSetUp')}</span>}</Show>
           </span>
-          <Show when={!setupStatus() && engine().state}><span class="status-item" data-testid="projects-engine-status">
-            {engine().notSetUp ? message('shell.status.notSetUp')
+          <Show when={openingLine() || (!setupStatus() && engine().state)}><span class="status-item" data-testid="projects-engine-status">
+            {openingLine() ?? (engine().notSetUp ? message('shell.status.notSetUp')
               : engine().state === 'ready' && engine().open
               ? message('projects.status.ready', { installation: engine().open!.name })
-              : message(ENGINE_WORDS[engine().state ?? 'stopped'])}
+              : message(ENGINE_WORDS[engine().state ?? 'stopped']))}
           </span></Show>
           <Show when={count() !== undefined}>
             <span class="status-item projects-page-count">{message('projects.status.count', { count: count()! })}</span>

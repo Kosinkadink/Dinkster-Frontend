@@ -8,6 +8,7 @@ import { DinksterConnection, type LibraryProject, type ProjectCreation } from '@
 import '../src/locale.js'
 import {
   processSource,
+  ProjectsPage,
   ProjectsView,
   type PageInstallation,
   type ProjectsPageShell,
@@ -265,6 +266,34 @@ it('shows the opening line on the opening row and cancels through the shell', as
   const cancel = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Cancel')!
   cancel.click()
   expect(navigation.cancelOpening).toHaveBeenCalledOnce()
+})
+
+it('uses the live opening line in the footer until opening ends, even with a stopped engine read', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const path = new URL(url, 'http://localhost').pathname
+    const body = path === '/supervisor/status' ? { state: 'stopped' }
+      : path === '/supervisor/installations' ? { installations: [{ root: stable.root }] }
+      : path === '/api/projects' ? { items: [], cursor: null }
+      : { available: false, signedIn: false, canStartSignIn: false, signInUnavailableReason: 'account-unavailable', profile: null, signIn: { state: 'idle' } }
+    return new Response(JSON.stringify(body))
+  }))
+  const [opening, setOpening] = createSignal<ReturnType<ProjectsPageShell['opening']>>()
+  const dispose = render(() => <ProjectsPage shell={{ ...shell(), opening }} />, document.body)
+  try {
+    await settle()
+    const status = () => document.querySelector('[data-testid="projects-engine-status"]')?.textContent
+    expect(status()).toBe('No engine is running')
+    for (const end of [undefined, { projectId: 'p-bookshop', line: 'Starting Nightly', failed: '' }]) {
+      setOpening({ projectId: 'p-bookshop', line: 'Starting Stable' })
+      expect(status()).toBe('Starting Stable')
+      setOpening({ projectId: 'p-bookshop', line: 'Starting Nightly' })
+      expect(status()).toBe('Starting Nightly')
+      setOpening(end)
+      expect(status()).toBe('No engine is running')
+    }
+  } finally {
+    dispose()
+  }
 })
 
 it('explains a failed open with the project name and tries again on the installation it runs on', async () => {
