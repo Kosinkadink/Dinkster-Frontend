@@ -556,14 +556,15 @@ export function storedNumberFixes(doc: WorkflowDocument, target: StepPlace, host
       field.numericConstraintsPending === true || view.connectivity.isInputConnected(path) || !Object.hasOwn(view.node.values, path)) return []
     const before = view.node.values[path]
     if (!isIntegerWidgetValue(before)) return []
-    const after = correctNumericValue(before, numericStepConstraints(widget))
+    const limits = numericStepConstraints(widget)
+    const after = correctNumericValue(before, limits)
     if (after === undefined || after === before) return []
     // Flattened fields keep their declaration scope; a repeated row's local
     // name is not necessarily its stored value key.
     for (const [prefix, context] of view.contexts) {
       const name = [...context.paths].find(([, key]) => key === path)?.[0]
       if (name === undefined) continue
-      const value = widget.widgetType === 'INT' ? BigInt(after) : after
+      const value = limits.integer ? BigInt(after) : after
       const owner = view.valueOwners.get(path) ?? { graphId: target.graphId, nodeId: target.nodeId, valueKey: path }
       if (doc.graphs[owner.graphId]?.nodes[owner.nodeId]?.values[owner.valueKey] !== before) return []
       return [{ kind: 'number', valueKey: path, owner, label: field.spec.displayName ?? field.spec.id, before, after,
