@@ -198,9 +198,10 @@ test('reviews template models without opening or submitting a workflow and revok
   expect(starts).toHaveLength(1)
   expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
   await captureProof(page, 'template-canvas-review.png')
-  await dialog.getByRole('button', { name: 'Try again', exact: true }).click()
-  await expect.poll(() => plans.length).toBe(plansBeforeCanvasReview + 1)
+  await expect(dialog.getByRole('button', { name: 'Download 1 model', exact: true })).toBeVisible()
+  expect(plans).toHaveLength(plansBeforeCanvasReview)
   expect(starts).toHaveLength(1)
+  started = false
   phase = 'downloading'
   jobId = 'canvas-job'
   await dialog.getByRole('button', { name: 'Download 1 model', exact: true }).click()
@@ -219,6 +220,7 @@ test('reviews template models without opening or submitting a workflow and revok
   await expect(banner).toBeVisible()
   await banner.getByRole('button', { name: 'Download models', exact: true }).click()
   await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Download 1 model', exact: true })).toBeVisible()
   await page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get().find((item) => item.protocol === 'dinkster')!
     ;(backend as unknown as { templatesEnabled: { set(enabled: boolean): void } }).templatesEnabled.set(false)

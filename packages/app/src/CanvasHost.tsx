@@ -7988,6 +7988,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               if (!tab) return
               const backend = props.app.backendForTab(tab)
               props.app.openModelDownloads(backend, missingModels(), { tab, workflowTitle: tab.title,
+                missing: missingModels(),
                 stillCurrent: () => backend.protocol === 'dinkster' && backend.templatesEnabled.get(),
               })
             }}
