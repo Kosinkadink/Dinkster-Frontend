@@ -1,5 +1,6 @@
 import { createSignal as coreSignal } from '@dinkster/core'
 import type { ConnectionStatus, DinksterConnection, MemoryStatus } from '@dinkster/client'
+import { RequestFailure } from '@dinkster/client'
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -53,7 +54,7 @@ it('ends initial loading after a telemetry failure, including after dismissal an
   const root = document.createElement('div'); document.body.append(root)
   const unmount = render(() => <ResourcesPanel backends={[{ id: 'local', label: 'Local', connection }]} activeBackendId="local" />, root)
   expect(root.textContent).toContain('Loading resources...')
-  reject!(new Error('Telemetry unavailable.')); await flush()
+  reject!(new RequestFailure('GET', '/memory/status', 503, 'Telemetry unavailable.')); await flush()
   expect(root.textContent).toContain('Telemetry unavailable.')
   expect(root.textContent).not.toContain('Loading resources...')
   root.querySelector<HTMLButtonElement>('[role="alert"] button')!.click()
@@ -121,7 +122,7 @@ it('preserves non-card and unmeasured budgets with exact sizes and automatic rem
   form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
   expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 8e9, ram: 1879048192, 'vram:cuda:1': 987654321, custom: '7G' })
   expect(field('System memory').value).toBe('1.8 GB')
-  updateRuntimeSetting.mockRejectedValueOnce(new Error('Exact budget rejected.'))
+  updateRuntimeSetting.mockRejectedValueOnce(new RequestFailure('PUT', '/api/settings', 400, 'Exact budget rejected.'))
   input('System memory', 'bad size'); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
   expect(root.textContent).toContain('Exact budget rejected.')
   expect(field('System memory').value).toBe('bad size')
@@ -243,7 +244,7 @@ it('preserves focused model rows across snapshots and immediately unloads the se
     fetchMemoryStatus: async () => payload,
     onMemoryStatus: (listener: (next: MemoryStatus) => void) => { push = listener; return () => {} },
     fetchRuntimeSettings: async () => ({ categories: { granted: ['memory-budgets'], available: ['memory-budgets'] }, settings: { 'memory-budgets': { value: {}, writable: true } } }),
-    updateRuntimeSetting: async () => { throw new Error('Server refused the memory limit.') },
+    updateRuntimeSetting: async () => { throw new RequestFailure('PUT', '/api/settings', 400, 'Server refused the memory limit.') },
     unloadMemory,
   } as unknown as DinksterConnection
   const root = document.createElement('div'); document.body.append(root)

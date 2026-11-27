@@ -3,7 +3,7 @@
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
-import { DinksterConnection, type Delegation, type PrincipalSummary } from '@dinkster/client'
+import { DinksterConnection, RequestFailure, type Delegation, type PrincipalSummary } from '@dinkster/client'
 import { AgentPermissionsPanel } from '../src/AgentPermissionsPanel.js'
 
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() }
@@ -144,13 +144,13 @@ describe('AgentPermissionsPanel', () => {
   })
 
   it('keeps old values and shows a row error when the PUT fails', async () => {
-    const { root } = mount(async () => [agent()], vi.fn(async () => { throw new Error('permission update failed') }))
+    const { root } = mount(async () => [agent()], vi.fn(async () => { throw new RequestFailure('PUT', '/api/principals/agent-one/permissions', 503) }))
     await flush()
     root.querySelector<HTMLButtonElement>('[data-category="execute"]')!.click()
     await flush()
 
     expect(root.querySelector('[data-category="execute"]')?.getAttribute('aria-checked')).toBe('false')
     expect(root.querySelector<HTMLButtonElement>('[data-category="execute"]')?.disabled).toBe(false)
-    expect(root.querySelector('[data-testid="agent-permissions-error"]')?.textContent).toBe('permission update failed')
+    expect(root.querySelector('[data-testid="agent-permissions-error"]')?.textContent).toBe('Permissions could not be saved. The engine reported an error.')
   })
 })

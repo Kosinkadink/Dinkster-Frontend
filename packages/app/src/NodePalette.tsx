@@ -197,7 +197,7 @@ export function NodePalette(props: {
       }
       return !typed && entry.kind === 'utility'
     })
-    if (filters.text !== '') return rankSearch(filters.text, pool, (entry) => entry.fields, { limit: 200 })
+    if (filters.text !== '') return rankSearch(filters.text, pool, (entry) => entry.fields, { limit: 200, nameOf: (entry) => entry.name })
     const recent = recentFirst(pool, (entry) => entry.type, props.recentTypes(), entries().length)
     const suggested = props.anchor.linkDrop === undefined ? undefined : props.anchor.suggestedNode?.type
     return suggested === undefined ? recent : [

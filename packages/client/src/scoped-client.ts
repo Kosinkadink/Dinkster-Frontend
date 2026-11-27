@@ -9,6 +9,7 @@
  */
 
 import type { Json, ScopedClient } from '@dinkster/core'
+import { RequestFailure, requestFetch, requestFailure } from './request-failure.js'
 
 export interface ScopedClientConfig {
   /** HTTP base, no trailing slash. '' = same origin (dev proxy). */
@@ -170,7 +171,7 @@ async function readBoundedRemoteChoicesBody(response: Response): Promise<Uint8Ar
 }
 
 export function createScopedClient(config: ScopedClientConfig): RefreshableScopedClient {
-  const fetchFn = config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
+  const fetchFn = requestFetch(config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init)))
   const ttl = config.ttlMs ?? DEFAULT_TTL_MS
   const clock = config.clock ?? Date.now
   const sleep = config.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
@@ -241,10 +242,11 @@ export function createScopedClient(config: ScopedClientConfig): RefreshableScope
         finishAttempt()
         if (controller.signal.aborted) throw abortError()
         if (timedOut) {
-          if (attempt >= maxRetries) throw attemptController.signal.reason
+          if (attempt >= maxRetries) throw error
         } else {
-          if (error instanceof DOMException && error.name === 'AbortError') throw abortError()
-          if (!(error instanceof TypeError) || attempt >= maxRetries) throw error
+          const cause = error instanceof RequestFailure ? error.cause : error
+          if (cause instanceof DOMException && cause.name === 'AbortError') throw abortError()
+          if (!(cause instanceof TypeError) || attempt >= maxRetries) throw error
         }
         const jitter = Math.floor(random() * Math.min(
           REMOTE_CHOICES_RETRY_CAP_MS,
@@ -257,7 +259,7 @@ export function createScopedClient(config: ScopedClientConfig): RefreshableScope
         finishAttempt()
         const retryable = RETRYABLE_REMOTE_CHOICES_STATUSES.has(response.status)
         if (!retryable || attempt >= maxRetries) {
-          throw new Error(`remote choices ${route}: HTTP ${response.status}`)
+          throw await requestFailure(response)
         }
         const jitter = Math.floor(random() * Math.min(
           REMOTE_CHOICES_RETRY_CAP_MS,
@@ -353,7 +355,7 @@ export function createScopedClient(config: ScopedClientConfig): RefreshableScope
       const principal = remoteChoicePartition.principalGeneration
       const promise = (async () => {
         const res = await fetchFn(url)
-        if (!res.ok) throw new Error(`query ${route}: HTTP ${res.status}`)
+        if (!res.ok) throw await requestFailure(res)
         const value: unknown = await res.json()
         if (principal !== remoteChoicePartition.principalGeneration) throw abortError()
         if (inFlight.get(url)?.token === token) cache.set(url, { value, at: clock() })

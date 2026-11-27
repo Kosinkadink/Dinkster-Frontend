@@ -23,6 +23,7 @@
 
 import { parseAssetTypeId } from '@dinkster/core'
 import type { FetchLike } from './connection-contract.js'
+import { RequestFailure, requestFetch, requestFailureReason } from './request-failure.js'
 import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
 // ---------------------------------------------------------------------------
@@ -216,7 +217,7 @@ function refusalOf(status: number, body: unknown): ValueRefusal {
     ? b['message']
     : typeof b?.['error'] === 'string'
       ? b['error']
-      : `HTTP ${status}`
+      : requestFailureReason(new RequestFailure('GET', '/api/values', status)) ?? 'The value could not be loaded.'
   const renditions = b?.['renditions'] !== undefined ? renditionsOf(b['renditions']) : undefined
   const rawKinds = b?.['renditions']
   const renditionKinds = Array.isArray(rawKinds) && rawKinds.every((kind) => typeof kind === 'string')
@@ -248,7 +249,7 @@ const isAbort = (error: unknown, signal?: AbortSignal): boolean =>
 const transportRefusal = (error: unknown, signal?: AbortSignal): ValueRefusal =>
   isAbort(error, signal)
     ? aborted()
-    : localRefusal('http-error', error instanceof Error ? error.message : String(error))
+    : localRefusal('http-error', requestFailureReason(error) ?? 'The engine did not answer.')
 
 async function responseJson(
   response: Response,
@@ -383,7 +384,7 @@ export class DinksterValuesClient {
   constructor(opts: { baseUrl: string; clientId: string; fetchFn?: FetchLike; lifetime?: AbortSignal }) {
     this.baseUrl = opts.baseUrl
     this.clientId = opts.clientId
-    this.fetchFn = opts.fetchFn ?? ((url, init) => fetch(url, init))
+    this.fetchFn = requestFetch(opts.fetchFn ?? ((url, init) => fetch(url, init)))
     this.lifetime = opts.lifetime
   }
 

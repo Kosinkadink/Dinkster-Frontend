@@ -7,6 +7,8 @@ import { useAppMessage } from './locale.js'
 import { ProductButton, ProductTextInput } from './ProductControls.js'
 import { CanvasClosedRow, ProductShortcut } from '@dinkster/ui'
 import { ProductNotice } from './ProductForm.js'
+import { RequestFailure } from '@dinkster/client'
+import { failureMessage } from './request-failure.js'
 
 /**
  * The view and lens bar at the top left of the canvas: the view button
@@ -66,7 +68,7 @@ export function CanvasViewControls(props: {
         setRefusal(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
       }
     } catch (error) {
-      if (live && owner === generation) setRefusal(error instanceof Error ? error.message : String(error))
+      if (live && owner === generation) setRefusal(error instanceof RequestFailure ? failureMessage(error) : error instanceof Error ? error.message : String(error))
     } finally {
       if (live && scope === scopeGeneration) setPending(false)
     }

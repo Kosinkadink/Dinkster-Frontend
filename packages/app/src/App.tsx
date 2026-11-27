@@ -6,6 +6,7 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { widgetValueText } from '@dinkster/canvas'
 import { BrandMark } from './BrandMark.js'
+import { failureMessage } from './request-failure.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
@@ -19,6 +20,8 @@ import BookOpen from 'lucide-solid/icons/book-open'
 import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
 import Users from 'lucide-solid/icons/users'
+import Workflow from 'lucide-solid/icons/workflow'
+import LayoutTemplate from 'lucide-solid/icons/layout-template'
 import AudioLines from 'lucide-solid/icons/audio-lines'
 import Box from 'lucide-solid/icons/box'
 import FileIcon from 'lucide-solid/icons/file'
@@ -47,7 +50,7 @@ import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductConfirmation, ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductConfirmation, ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, ProductTextButton, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import type { ShellNavigation } from './Shell.js'
@@ -56,7 +59,7 @@ import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
-import { TemplateGallery } from './TemplateGallery.js'
+import { TemplatesPage } from './TemplatesPage.js'
 import { EditorFirstRunSetup } from './EditorFirstRunSetup.js'
 import { NodeCatalogRecovery } from './NodeCatalogRecovery.js'
 import type { SetupStatus } from './SetupForm.js'
@@ -90,7 +93,7 @@ import { ResourcesPanel } from './ResourcesPanel.js'
 import { LearnPanel } from './help/LearnPanel.js'
 import { NodeHelpPanel } from './help/NodeHelpPanel.js'
 import { useAppMessage } from './locale.js'
-import { UniversalSearch, UniversalSearchTrigger } from './UniversalSearch.js'
+import { shortcutKeys, UniversalSearch, UniversalSearchTrigger } from './UniversalSearch.js'
 import { bindSearchCatalog, registerCoreSearchProviders } from './universal-search.js'
 import { NodeInstallPrompt } from './NodeInstallPrompt.js'
 import { ProjectNeedsPrompt } from './ProjectNeedsPrompt.js'
@@ -372,7 +375,7 @@ export function dispatchAppCommandKey(
   }
   const commandId = app.keybindings.match(event)
   if (shortcutSuppressed(event)) return
-  if (commandId !== 'search.open' && !hasActiveTab) return
+  if (!hasActiveTab && commandId !== 'search.open' && commandId !== 'workflow.new' && commandId !== 'workflow.openTemplateGallery') return
   const command = commandId ? app.commands.get(commandId) : undefined
   if (!command) return
   if (command.enabled?.() !== false) {
@@ -668,7 +671,7 @@ export function App(props: {
         if (app.pages.open(`board:${board.id}`)) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
       }).catch((reason: unknown) => {
         if (stillWanted() && app.backends.get().includes(backend)) app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag('error', 'validation', 'board.openFailed', `failed to open Board: ${reason instanceof Error ? reason.message : String(reason)}`),
+          diag('error', 'validation', 'board.openFailed', failureMessage(reason, 'The board could not be opened.')),
         ])
       })
       return
@@ -699,7 +702,7 @@ export function App(props: {
       if (entry.owner === undefined) return
       const ref = entry.ref as TemplateCollectionRef | undefined
       const opening = ref?.kind === 'remote'
-        ? app.openRemoteTemplate(ref.template, entry.title)
+        ? app.openRemoteTemplate(ref.template, entry.title, entry.owner)
         : ref?.kind === 'local'
           ? app.openTemplate(ref.pack, ref.id, entry.title, entry.owner)
           : Promise.resolve(false)
@@ -1601,7 +1604,7 @@ export function App(props: {
         const values = backend.connection.historyValues(run)
         setLoaded({ execution, values })
       } catch (error) {
-        if (alive) setLoadError(error instanceof Error ? error.message : String(error))
+        if (alive) setLoadError(failureMessage(error, message('runs.loadError')))
       } finally {
         if (alive) setLoading(false)
       }
@@ -1684,7 +1687,7 @@ export function App(props: {
       </div>
       <Show when={p.selected()}>
         <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
-        <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
+        <Show when={loadError()}>{(error) => <p role="status" title={error()}>{error()}</p>}</Show>
         <Show when={known()} fallback={<Show when={loaded()} fallback={<>
           {chosen()}
           <Show when={inspectOpen()}><div class="run-chosen-inspection" data-testid="run-inspection"><Facts /></div></Show>
@@ -1967,9 +1970,50 @@ export function App(props: {
     backendsTick()
     return backends().some((backend) => backend.templatesEnabled.get())
   })
+  const openTemplates = (backend: Backend | undefined = app.libraryBackend()): void => {
+    if (backend?.templatesEnabled.get()) app.pages.open('templates', backend.id)
+  }
+  onCleanup(app.frontendDoors.command('workflow.new', {
+    get label() { return message('templatesEntry.blank') },
+    run: () => { app.createWorkflow() },
+  }))
+  onCleanup(app.keybindings.register({ command: 'workflow.new', combo: 'Alt+N' }))
+  const documentKeys = (command: string): readonly string[] | undefined => {
+    settingsTick()
+    const combo = app.keybindings.combo(command)
+    return combo === undefined ? undefined : shortcutKeys(combo)
+  }
+  onCleanup(app.pages.register({
+    id: 'templates',
+    get title() { return message('templatesPage.title') },
+    icon: LayoutTemplate,
+    enabled: () => {
+      backendsTick()
+      const page = shellTabs().find((tab) => isPageTab(tab) && tab.pageId === 'templates')
+      return page && isPageTab(page)
+        ? backends().some((backend) => backend.id === page.parameters && backend.templatesEnabled.get())
+        : templatesAvailable()
+    },
+    component: (context) => {
+      const backend = app.backends.get().find((candidate) => candidate.id === context.tab.parameters)
+      if (backend?.protocol !== 'dinkster') return undefined
+      return <TemplatesPage app={app} backend={backend}
+        onOpen={(entry) => {
+          const ref = entry.ref as TemplateCollectionRef
+          return ref.kind === 'remote'
+            ? app.openRemoteTemplate(ref.template, entry.title, backend.id, context.tab)
+            : app.openTemplate(ref.pack, ref.id, entry.title, backend.id, context.tab)
+        }}
+        onBlank={() => {
+          const workflow = app.createWorkflow()
+          app.setTabTarget(workflow.id, backend.id)
+          context.replaceWithWorkflow(workflow)
+        }}
+        onOpenStorage={() => openStorage(backend)} />
+    },
+  }))
   createEffect(() => {
     if (!templatesAvailable()) {
-      app.templateGalleryOpen.set(false)
       return
     }
     const unregisterSetting = app.settings.register({
@@ -1979,11 +2023,12 @@ export function App(props: {
       category: 'templates', type: 'string', defaultValue: '',
     })
     const unregisterCommand = app.frontendDoors.command('workflow.openTemplateGallery', {
-      get label() { return t('command.workflow.openTemplateGallery') },
-      run: () => app.templateGalleryOpen.set(true),
-      enabled: () => app.activeTab() !== undefined && app.activeTab()?.execution === undefined && activeBackend().templatesEnabled.get(),
+      get label() { return message('templatesEntry.fromTemplate') },
+      run: () => openTemplates(),
+      enabled: () => app.libraryBackend()?.templatesEnabled.get() === true,
     })
-    onCleanup(() => { unregisterCommand(); unregisterSetting() })
+    const unregisterKeybinding = app.keybindings.register({ command: 'workflow.openTemplateGallery', combo: 'Alt+T' })
+    onCleanup(() => { unregisterKeybinding(); unregisterCommand(); unregisterSetting() })
   })
   // The center region resolves every editor through EditorRegistry rather
   // than shell JSX branches.
@@ -1991,7 +2036,6 @@ export function App(props: {
     const setupOwner = {}
     const tabs = useSignal(app.tabs)
     const globalActiveTabId = useSignal(app.activeTabId)
-    const galleryRequested = useSignal(app.templateGalleryOpen)
     const [documentRevision, setDocumentRevision] = createSolidSignal(0)
     const activeTabId = () => editorProps.host?.tabId() ?? globalActiveTabId()
     const activeEditorTab = () => tabs().find((tab) => tab.id === activeTabId())
@@ -2033,8 +2077,10 @@ export function App(props: {
       const root = tab.store.doc.graphs[tab.store.doc.root]
       return root !== undefined && Object.keys(root.nodes).length === 0
     }
-    const close = (): void => {
-      app.templateGalleryOpen.set(false)
+    const templatesEnabled = (): boolean => {
+      backendsTick()
+      const tab = activeEditorTab()
+      return tab !== undefined && app.backendForTab(tab).templatesEnabled.get()
     }
     return <div class="graph-editor-with-gallery">
       <div class="graph-editor-canvas">
@@ -2051,7 +2097,7 @@ export function App(props: {
             />
         </Show>
       </div>
-      <Show when={empty() && !galleryRequested() && !catalogSetupRequested()}>
+      <Show when={empty() && !catalogSetupRequested()}>
         <EditorFirstRunSetup backendUrl={activeBackend().baseUrl} onStatusChange={(status) => {
           setSetupEditors((current) => {
             const next = new Map(current)
@@ -2061,13 +2107,11 @@ export function App(props: {
           })
         }} />
       </Show>
-      <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
-        <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
-          {message('templateGallery.open')}
-        </ProductButton>
-      </Show>
-      <Show when={activeBackend().templatesEnabled.get()}>
-        <TemplateGallery app={app} visible={galleryRequested} onClose={close} />
+      <Show when={templatesEnabled() && activeEditorTab()?.execution === undefined && !sessionFailed() && empty()}>
+        <div class="template-empty-canvas" data-testid="template-empty-canvas">
+          <span>{message('templatesEntry.addNode')}</span>
+          <span>{message('templatesEntry.or')}{' '}<ProductTextButton label={message('templateGallery.open')} onClick={() => openTemplates(app.backendForTab(activeEditorTab()!))} /></span>
+        </div>
       </Show>
     </div>
   }
@@ -2940,6 +2984,15 @@ export function App(props: {
             onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
+            newItems={[
+              { label: message('templatesEntry.blank'), icon: Workflow, visible: true,
+                get keys() { return documentKeys('workflow.new') },
+                onSelect: () => { app.commands.get('workflow.new')!.run() } },
+              { label: message('templatesEntry.fromTemplate'), icon: LayoutTemplate,
+                get visible() { backendsTick(); return activeBackend().templatesEnabled.get() },
+                get keys() { return documentKeys('workflow.openTemplateGallery') },
+                onSelect: () => { app.commands.get('workflow.openTemplateGallery')?.run() } },
+            ]}
             canShare={(tab) => {
               if (isPageTab(tab)) {
                 const board = boardForTab(tab.id)
@@ -2953,7 +3006,7 @@ export function App(props: {
               app.showTransientStatus(message('shell.share.sharing', { title: tab.title }))
               const board = boardForTab(tab.id)
               const sharing = board ? app.boards.share(board.id).then(() => undefined, (reason: unknown) =>
-                reason instanceof Error ? reason.message : String(reason)) : app.shareActiveTab()
+                failureMessage(reason, 'The board could not be shared.')) : app.shareActiveTab()
               void sharing.then((error) => {
                 app.showTransientStatus(error === undefined
                   ? message('shell.share.shared', { title: tab.title })
