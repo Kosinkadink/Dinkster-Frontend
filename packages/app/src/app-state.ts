@@ -4704,28 +4704,30 @@ export class AppState {
     }
     for (const [id, tab] of live) {
       if (this.persistWatchers.has(id)) continue
-      const watcher = {
-        tab,
-        unsubscribe: tab.store.document.subscribe(() => {
-          // Signal notification snapshots its listeners, so an unsubscribe
-          // cannot cancel a callback already in flight: re-check ownership
-          // rather than trusting teardown ordering.
-          if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
-          const latest = this.lastEndedExecutionForTab(tab)
-          if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(id, latest.key))
-          for (const [key, cause] of this.keptNumberFixes.get(tab.store) ?? []) {
-            const { graphId, nodeId, valueKey } = cause.owner
-            if (tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[valueKey] !== cause.before)
-              this.keptNumberFixes.get(tab.store)!.delete(key)
-          }
-          this.documentPersistenceDirty.add(id)
-          reconcileGraphNavigation(tab)
-          this.markTabDirty(id)
-          this.schedulePersistTabs()
-          this.refreshWorkflowAssets(tab)
-        }),
-      }
-      this.persistWatchers.set(id, watcher)
+      const stopNoticeEdits = tab.store.onOp((op) => {
+        if (op.actorId === tab.store.actorId && !op.origin.startsWith('session.') && op.origin !== 'history.replay' &&
+          this.tabs.get().find((candidate) => candidate.id === id) === tab)
+          this.removeEditedNumberAdjustments(id, op.patch.map((patch) => patch.path))
+      })
+      const stopDocument = tab.store.document.subscribe(() => {
+        // Signal notification snapshots its listeners, so an unsubscribe
+        // cannot cancel a callback already in flight: re-check ownership
+        // rather than trusting teardown ordering.
+        if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
+        const latest = this.lastEndedExecutionForTab(tab)
+        if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(id, latest.key))
+        for (const [key, cause] of this.keptNumberFixes.get(tab.store) ?? []) {
+          const { graphId, nodeId, valueKey } = cause.owner
+          if (tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[valueKey] !== cause.before)
+            this.keptNumberFixes.get(tab.store)!.delete(key)
+        }
+        this.documentPersistenceDirty.add(id)
+        reconcileGraphNavigation(tab)
+        this.markTabDirty(id)
+        this.schedulePersistTabs()
+        this.refreshWorkflowAssets(tab)
+      })
+      this.persistWatchers.set(id, { tab, unsubscribe: () => { stopDocument(); stopNoticeEdits() } })
       this.refreshWorkflowAssets(tab)
     }
   }
@@ -5853,6 +5855,42 @@ export class AppState {
         dismissed: notice?.dismissed ?? false,
       })
     })
+  }
+
+  private removeEditedNumberAdjustments(tabId: string, paths: readonly (readonly (string | number)[])[]): void {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    if (notice === undefined) return
+    const affected = notice.adjustments.filter((adjustment) => adjustment.numberCauses?.some(({ owner }) =>
+      paths.some((path) => pathsOverlap(path, ['graphs', owner.graphId, 'nodes', owner.nodeId, 'values', owner.valueKey]))))
+    if (affected.length === 0) return
+    // The runner publishes its automatic batch's record after the operation.
+    // Wait for it so a successive correction is not mistaken for a personal edit.
+    queueMicrotask(() => this.adjustmentNotices.update((current) => {
+      const latest = current.get(tabId)
+      if (latest === undefined) return current
+      const removed = affected.filter((adjustment) => latest.adjustments.includes(adjustment) &&
+        !adjustment.numberCauses!.some(({ owner }) => {
+          const key = `${owner.graphId}/${owner.nodeId}#values.${owner.valueKey}`
+          const previous = notice.records.flatMap((record) => record.forward)
+            .filter((patch) => adjustmentKeys(patch, 'numberOutsideLimits').includes(key)).at(-1)
+          return previous !== undefined && previous.op !== 'remove' && latest.records.some((record, index) =>
+            index >= notice.records.length && latest.recordKinds[index] === 'numberOutsideLimits' && record.forward.some((patch) =>
+              patch.op !== 'add' && adjustmentKeys(patch, 'numberOutsideLimits').includes(key) && jsonSameValue(patch.oldValue, previous.value)))
+        }))
+      if (removed.length === 0) return current
+      const keys = new Set(removed.flatMap((adjustment) => adjustment.numberCauses!.map(({ owner }) =>
+        `${owner.graphId}/${owner.nodeId}#values.${owner.valueKey}`)))
+      const keep = (patch: PatchOp): boolean => !adjustmentKeys(patch, 'numberOutsideLimits').some((key) => keys.has(key))
+      const adjustments = latest.adjustments.filter((adjustment) => !removed.includes(adjustment))
+      const next = new Map(current)
+      if (adjustments.length === 0) next.delete(tabId)
+      else next.set(tabId, { ...latest, adjustments,
+        records: latest.records.map((record, index) => index < notice.records.length && latest.recordKinds[index] === 'numberOutsideLimits'
+          ? { ...record, forward: record.forward.filter(keep), inverse: record.inverse.filter(keep) } : record),
+        ...(latest.undone === undefined ? {} : { undone: { ...latest.undone, redo: latest.undone.redo.filter(keep) } }),
+      })
+      return next
+    }))
   }
 
   /** Whether the document still holds the notice's changes, holds what they replaced, or neither. */

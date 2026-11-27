@@ -400,13 +400,49 @@ describe('native open-time replacement', () => {
     await vi.waitFor(() => expect(knownTab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(8))
     expect(amount()).toBe(29)
     expect(tab.store.doc.graphs.g0!.nodes.first!.values.unrelated).toBe(29)
+    const tightenedPayload = { ...refreshedPayload, epoch: 3, nodes: { ...refreshedPayload.nodes,
+      Known: { ...refreshedPayload.nodes.Known, body: [{ kind: 'input', id: 'amount',
+        type: { kind: 'concrete', types: ['INT'] }, default: 0, widget: { type: 'NUMBER', min: 0, max: 4, step: 4 } }] },
+    } }
+    backend.registry.set(buildDinksterRegistry(backend.id, tightenedPayload))
+    await vi.waitFor(() => expect(knownTab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(4))
     expect(app.undoAdjustments(knownTab.id)).toBe(true)
     expect(knownTab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(29)
-    backend.registry.set(buildDinksterRegistry(backend.id, { ...refreshedPayload, epoch: 3 }))
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...tightenedPayload, epoch: 4 }))
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(knownTab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(29)
     expect(amount()).toBe(29)
     expect(tab.store.doc.graphs.g0!.nodes.first!.values.unrelated).toBe(29)
+  })
+
+  it.each([false, true])('removes personally edited numeric adjustments without disturbing the others, undone=%s', async (undone) => {
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...payload, nodes: { Current: {
+      body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } }],
+    } } }))
+    const source = document()
+    await app.openDocument({ ...source, graphs: { g0: { ...source.graphs.g0, links: {}, nodes: {
+      first: { id: 'first', type: 'Current', values: { amount: 14 } },
+      second: { id: 'second', type: 'Current', values: { amount: 29 } },
+    } } } }, 'Numbers')
+    const tab = app.activeTab()!
+    await vi.waitFor(() => expect(app.adjustmentNotices.get().get(tab.id)?.adjustments).toHaveLength(2))
+    if (undone) expect(app.undoAdjustments(tab.id)).toBe(true)
+    tab.store.dispatch({ command: 'node.move', params: { graphId: 'g0', positions: { first: { x: 280, y: 190 } } } })
+    expect(app.adjustmentNotices.get().get(tab.id)!.adjustments).toHaveLength(2)
+    const personal = undone ? 12 : 8
+    tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: 'amount', value: personal } })
+    await vi.waitFor(() => expect(app.adjustmentNotices.get().get(tab.id)!.adjustments.map((entry) => entry.nodeId)).toEqual(['second']))
+    expect(undone ? app.redoAdjustments(tab.id) : app.undoAdjustments(tab.id)).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(personal)
+    expect(tab.store.doc.graphs.g0!.nodes.second!.values.amount).toBe(undone ? 20 : 29)
+    // Ordinary history still restores the notice action, then the personal edit.
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(undone ? 14 : 12)
+    tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'second', inputId: 'amount', value: 4 } })
+    await vi.waitFor(() => expect(app.adjustmentNotices.get().has(tab.id)).toBe(false))
   })
 
   it('stores numeric fixes atomically, keeps later field edits on notice Undo, and does not repeat undone causes', async () => {
