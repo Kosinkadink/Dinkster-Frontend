@@ -18,6 +18,7 @@ import {
   type ActionHost,
   type CommandInvocation,
   type Json,
+  type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
 import { DinksterConnection } from '../src/index.js'
@@ -33,6 +34,114 @@ const types: Record<string, string> = {
 }
 
 describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
+  for (const depth of [1, 2] as const) {
+    it(`boundary/plain-pin/native-depth-${depth}`, async () => {
+      const connection = new DinksterConnection({ id: asConnectionId('pin-live'), baseUrl: LIVE_URL!, clientId: `pins-${process.pid}` })
+      const registry = await connection.fetchSchemas()
+      const primitive: NodeSchema = {
+        type: 'dinkster.utilities.primitive_float', displayName: 'Float', category: 'utilities', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+            widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
+          { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, knownValue: { input: 'value' } },
+        ],
+      }
+      const resolve = (type: string) => type === primitive.type ? primitive : registry.resolve(type)
+      const document = JSON.parse(readFileSync(new URL('./fixtures/boundary-sample.json', import.meta.url), 'utf8')) as WorkflowDocument
+      if (depth === 1) {
+        delete (document.graphs as Record<string, unknown>).portrait
+        for (const id of ['first', 'second']) Object.assign(document.graphs.root!.nodes[id]!, { type: '#detail' })
+      }
+      for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+        if (types[node.type]) Object.assign(node, { type: types[node.type] })
+      }
+      Object.assign(document.graphs.detail!.nodes, {
+        other: { ...structuredClone(document.graphs.detail!.nodes.sample), id: 'other' },
+        receiver: { id: 'receiver', type: 'boundary-sample.sink', values: {} },
+        otherReceiver: { id: 'otherReceiver', type: 'boundary-sample.sink', values: {} },
+      })
+      Object.assign(document.graphs.root!.nodes, {
+        literal: { id: 'literal', type: primitive.type, values: { value: 0.65 } },
+        runtime: { id: 'runtime', type: 'boundary-sample.float', values: {} },
+      })
+      const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, resolve) }))
+      const edit = (command: string, params: Record<string, Json>) => {
+        const outcome = store.dispatch({ command, params })
+        expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
+      }
+      const prefix = depth === 1 ? '' : 'detail.'
+      const imageNodes = [`first.${prefix}sample`, `first.${prefix}other`]
+      const run = async (doc: WorkflowDocument, numbers: readonly (number | null)[], images: readonly string[]) => {
+        const compiled = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' },
+          connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Pin workflow did not compile')
+        const submitted = await connection.submit(compiled.artifact)
+        expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
+        if (!submitted.ok) throw new Error('Pin workflow was refused')
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline) {
+          const job = await connection.fetchJob(submitted.execution.prompt)
+          if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
+          if (job?.state === 'completed') {
+            const outputs = job.outputs as unknown as Record<string, Record<string, { value: string }>>
+            expect(['first', 'second'].flatMap((instance) => ['receiver', 'otherReceiver'].map((node) =>
+              JSON.parse(outputs[`${instance}.${prefix}${node}`]!.received!.value)))).toEqual(numbers)
+            for (const instance of ['first', 'second']) for (const node of ['sample', 'other']) {
+              const nodeId = `${instance}.${prefix}${node}`
+              const query = { jobId: submitted.execution.prompt, nodeId, outputId: 'receipt' }
+              const peek = await connection.values().peek(query)
+              expect(peek.available, JSON.stringify(peek)).toBe(true)
+              if (!peek.available) throw new Error('Pin receipt is unavailable')
+              const rendition = await connection.values().rendition(query, 'text', { descriptor: peek.descriptor })
+              expect(rendition.available, JSON.stringify(rendition)).toBe(true)
+              if (!rendition.available) throw new Error('Pin receipt is unavailable')
+              const receipt = JSON.parse(new TextDecoder().decode(rendition.bytes)) as { image: number[] | null }
+              expect(receipt.image, nodeId).toEqual(images.includes(nodeId) ? [0.125, 0.25, 0.5] : null)
+            }
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        throw new Error('Pin workflow did not complete')
+      }
+      edit('boundary.addItem', { graphId: 'detail', side: 'inputs', itemId: 'number', node: 'receiver', port: 'number' })
+      edit('boundary.addBinding', { graphId: 'detail', itemId: 'number', node: 'otherReceiver', port: 'number' })
+      edit('boundary.addBinding', { graphId: 'detail', itemId: 'image', node: 'other', port: 'image' })
+      if (depth === 2) edit('boundary.addItem', { graphId: 'portrait', side: 'inputs', itemId: 'amount', node: 'detail', port: 'number' })
+      const field = depth === 1 ? 'number' : 'amount'
+      edit('link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'image' } })
+      edit('link.connect', { graphId: 'root', from: { node: 'literal', port: 'value' }, to: { node: 'first', port: field } })
+      await run(store.doc, [0.65, 0.65, null, null], imageNodes)
+      const disconnect = (port: string) => {
+        const link = Object.values(store.doc.graphs.root!.links).find((item) => 'port' in item.to && item.to.node === 'first' && item.to.port === port)!
+        edit('link.disconnect', { graphId: 'root', linkId: link.id })
+      }
+      disconnect(field)
+      edit('link.connect', { graphId: 'root', from: { node: 'runtime', port: 'number' }, to: { node: 'first', port: field } })
+      await run(store.doc, [0.9, 0.9, null, null], imageNodes)
+      disconnect(field)
+      expect(store.undo()).toBe(true)
+      expect(store.redo()).toBe(true)
+      await run(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, [null, null, null, null], imageNodes)
+      disconnect('image')
+      const shared = store.doc.graphs.detail
+      const outer = store.doc.graphs.portrait
+      edit('occurrence.localize', { graphId: 'root', nodeId: 'first' })
+      const copy = store.doc.graphs.root!.nodes.first!.type.slice(1)
+      edit('node.add', { graphId: copy, type: 'boundary-sample.image', position: { x: 0, y: 0 } })
+      const source = Object.values(store.doc.graphs[copy]!.nodes).find((node) => node.type === 'boundary-sample.image')!
+      edit('link.connect', { graphId: copy, from: { node: source.id, port: 'image' },
+        to: { node: depth === 1 ? 'sample' : 'detail', port: 'image' } })
+      expect(store.doc.graphs.detail).toEqual(shared)
+      expect(store.doc.graphs.portrait).toEqual(outer)
+      expect(store.undo()).toBe(true)
+      expect(store.redo()).toBe(true)
+      await run(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, [null, null, null, null], depth === 1 ? [imageNodes[0]!] : imageNodes)
+    }, 120_000)
+  }
+
   for (const depth of [1, 2]) {
     it(`boundary/buttons/native-depth-${depth}`, async () => {
       const connection = new DinksterConnection({ id: asConnectionId('button-live'), baseUrl: LIVE_URL!, clientId: `buttons-${process.pid}` })

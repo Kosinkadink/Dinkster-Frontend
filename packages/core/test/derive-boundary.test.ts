@@ -12,7 +12,7 @@ import type { BoundaryItem, GraphDef, Json, NodeData, WorkflowDocument } from '.
 import { compile } from '../src/compile/compile.js'
 import { asConnectionId, asNodeId, asPortId } from '../src/ids.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
-import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
+import { elaborateInterface, elabInputsOf, type LookupAnswerState } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { inputsOf, outputsOf, type GroupSpec, type NodeSchema } from '../src/schema/model.js'
 import { boundaryOf } from '../src/format/document.js'
@@ -729,6 +729,86 @@ describe('whole constructs on the subgraph node', () => {
     expect(callOf(both, { category: 'sd' }, ['category'])).toMatchObject({ state: 'waiting' })
     // Not shown on this node: the inner subgraph node's stored category is used.
     expect(callOf(outerOf([port('list', 's0', 'pick')]), {})).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+
+    for (const [depth, [schema, category, selection]] of ([
+      [picker!, 'category', 'lora'], [innerSchema, 'kind', 'pick'], [both, 'category', 'list'],
+    ] as const).entries()) {
+      const first = { values: { [category]: 'sd', [selection]: 'kept-first.safetensors' } }
+      const second = { values: { [category]: 'sdxl', [selection]: 'kept-second.safetensors' } }
+      const snapshot = structuredClone([first, second])
+      const run = (node: typeof first, held?: LookupAnswerState, wired = false) => {
+        const calls: unknown[] = []
+        const elaborated = elaborateInterface(schema, node, {
+          isInputConnected: (id) => wired && id === category, isOutputConnected: () => false,
+          inputPorts: () => wired ? [category] : [], outputPorts: () => [],
+        }, { lookupAnswers: (lookup, args) => { calls.push([lookup, args]); return held } })
+        return { row: elabInputsOf(elaborated).find((input) => input.spec.id === selection)!, calls }
+      }
+      for (const node of [first, second]) {
+        const args = [node.values[category]!]
+        const loading = run(node)
+        expect(loading.row.looked!.options).toMatchObject({ state: 'loading', call: { lookup: 'pack.loras', args } })
+        expect(loading.calls).toEqual([['pack.loras', args]])
+        const ready = run(node, { state: 'ready', answer: ['available.safetensors'] })
+        expect(ready.row.spec.widget!.options.options).toEqual(['available.safetensors'])
+        expect(ready.row.looked!.options).toMatchObject({ state: 'ready', call: { args } })
+        const stale = run(node, { state: 'stale', answer: ['old.safetensors'], reason: 'timeout' })
+        expect(stale.row.spec.widget!.options.options).toEqual(['old.safetensors'])
+        expect(stale.row.looked!.options).toMatchObject({ state: 'stale', reason: 'timeout', call: { args } })
+        const failed = run(node, { state: 'unavailable', reason: 'offline' })
+        expect(failed.row.looked!.options).toMatchObject({ state: 'unavailable', reason: 'offline', call: { args } })
+        expect(failed.row.spec.widget!.options).not.toHaveProperty('options')
+        const wired = run(node, { state: 'ready', answer: ['wrong-arguments.safetensors'] }, true)
+        expect(wired.row.looked!.options).toMatchObject({ state: 'waiting' })
+        expect(wired.calls).toEqual([])
+      }
+      expect([first, second]).toEqual(snapshot)
+      first.values[category] = 'sdxl'
+      expect(run(first).row.looked!.options).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
+      expect(second.values[selection]).toBe('kept-second.safetensors')
+      expect(first.values[selection]).toBe('kept-first.safetensors')
+
+      const outer = asDef({
+        id: 'gO', name: 'outer', links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+        nodes: { s0: { id: 's0', type: '#gW', values: { kind: 'sdxl' } } },
+        boundary: boundaryOf([port('category', 's0', 'kind'), port('list', 's0', 'pick')] as BoundaryItem[], []),
+      })
+      const document = {
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'remote-options', root: 'root', view: { graphs: {} },
+        graphs: {
+          root: asDef({ id: 'root', name: 'root', links: {}, nets: {}, reroutes: {}, nextOrdinal: 1, nodes: {
+            first: { id: 'first', type: ['Picker', '#gW', '#gO'][depth], values: first.values },
+            second: { id: 'second', type: ['Picker', '#gW', '#gO'][depth], values: second.values },
+          } }),
+          ...(depth > 0 ? { gW: { ...inner, reroutes: {} } } : {}), ...(depth > 1 ? { gO: outer } : {}),
+        },
+      } as unknown as WorkflowDocument
+      const resolver: SchemaResolver = (type) => type === 'Picker' ? { ...picker!, isOutputNode: true } : undefined
+      const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolver) }))
+      const values = (doc: WorkflowDocument) => {
+        const compiled = compile({ document: doc, revision: 1, resolve: resolver,
+          scope: { kind: 'full' }, connection: asConnectionId('lookup-grid'), schemaHash: 'lookup-grid' })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Remote options document did not compile')
+        const suffix = ['', '.p0', '.s0.p0'][depth]
+        return ['first', 'second'].map((instance) => compiled.artifact.prompt[`${instance}${suffix}`]!.inputs.lora)
+      }
+      expect(values(store.doc)).toEqual(['kept-first.safetensors', 'kept-second.safetensors'])
+      const before = store.doc
+      expect(store.dispatch({ command: 'node.setValue', params: {
+        graphId: 'root', nodeId: 'first', inputId: selection, value: 'edited-first.safetensors',
+      } }).ok).toBe(true)
+      expect(values(store.doc)).toEqual(['edited-first.safetensors', 'kept-second.safetensors'])
+      expect(store.doc.graphs.gW).toEqual(before.graphs.gW)
+      expect(store.doc.graphs.gO).toEqual(before.graphs.gO)
+      expect(store.undo()).toBe(true)
+      expect(values(store.doc)).toEqual(['kept-first.safetensors', 'kept-second.safetensors'])
+      expect(store.redo()).toBe(true)
+      const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc)))
+      expect(loaded.document, JSON.stringify(loaded.diagnostics)).toBeDefined()
+      expect(values(loaded.document!)).toEqual(['edited-first.safetensors', 'kept-second.safetensors'])
+    }
   })
 
   it('an automatic field shown on a subgraph node is worked out in the inner node with this instance\'s values', () => {
