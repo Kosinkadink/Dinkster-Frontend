@@ -183,7 +183,7 @@ function DownloadExample(props: {
         ...available(index % files.length),
         id: `model-${index}`,
         name: `model-${index + 1}.safetensors`,
-        metadata: 'Checkpoint - 2.25 GiB - Hugging Face, example/models',
+        metadata: `Checkpoint - ${formatByteSize(2.25 * 1024 ** 3)} - Hugging Face, example/models`,
         selected: selected().has(`model-${index}`),
         onSelect: (checked: boolean) => select(`model-${index}`, checked),
         initiallyExpanded: index === 0,
