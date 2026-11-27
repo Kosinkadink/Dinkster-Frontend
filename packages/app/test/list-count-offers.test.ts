@@ -98,6 +98,12 @@ it('uses a larger estimate atomically and remembers a manual answer per occurren
       if (nested) expect(read(saved, 85, ['right'])[0]?.count).toBe(85)
       expect(tab.store.undo()).toBe(true)
       expect(read(tab.store.doc, 85)[0]?.count).toBe(85)
+      expect((await app.dispatchTo(tab, useListCountEstimate('body', path, read(tab.store.doc, 85)[0]!))).ok).toBe(true)
+      expect(occurrenceDynamicView(tab.store.doc, schemas, path, tab.store.doc.root).values.get('unpack')?.['count']
+        ?? tab.store.doc.graphs.body!.nodes.unpack!.values['count']).toBe(85)
+      expect(read(tab.store.doc, 85)).toEqual([])
+      expect(tab.store.undo()).toBe(true)
+      expect(read(tab.store.doc, 85)[0]?.count).toBe(85)
     } finally { app.dispose() }
   }
 })

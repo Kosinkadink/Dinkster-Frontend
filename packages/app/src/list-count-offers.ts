@@ -17,12 +17,13 @@ export interface ListCountOffer {
 export function listCountOffers(
   document: WorkflowDocument, resolve: SchemaResolver, graphId: string, instancePath: readonly string[],
   estimateOf: OccurrenceListCountEstimate | undefined,
+  acceptField?: (nodeId: string, inputId: string) => boolean,
 ): readonly ListCountOffer[] {
   if (estimateOf === undefined) return []
   const graph = document.graphs[graphId]
   if (graph === undefined) return []
   const path = instancePath.map(asNodeId)
-  const solved = solveOccurrenceTypes(document, resolve, graphId, path, estimateOf)
+  let solved: ReturnType<typeof solveOccurrenceTypes>
   const occurrence = occurrenceDynamicView(document, resolve, path, path.length === 0 ? graphId : document.root)
   const connectivity = buildGraphConnectivity(graph)
   const offers: ListCountOffer[] = []
@@ -41,10 +42,12 @@ export function listCountOffers(
       ...base, isInputConnected: port => inputs.includes(port), inputPorts: () => inputs,
     }, { formulaContexts: contexts })
     for (const field of elabInputsOf(elaborated)) {
-      if (field.spec.listCountOf === undefined) continue
+      if (field.spec.listCountOf === undefined || acceptField?.(node.id, valueKeyOf(field)) === false) continue
       const prefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
       const source = contexts.get(prefix)?.paths.get(field.spec.listCountOf)
-      const fact = source === undefined ? undefined : solved?.listCountFactOf(node.id, 'input', source)
+      if (source === undefined) continue
+      solved ??= solveOccurrenceTypes(document, resolve, graphId, path, estimateOf)
+      const fact = solved?.listCountFactOf(node.id, 'input', source)
       if (fact?.kind !== 'estimate') continue
       const count = node.values[valueKeyOf(field)] ?? (field.spec.widget && effectiveWidgetDefault(field.spec.widget))
       const answer = document.view.graphs[graphId]?.nodes[node.id]?.listCountAnswers?.[listCountAnswerKey(instancePath, valueKeyOf(field))]
@@ -104,14 +107,16 @@ export function answerListCountValueEdits(
     const graph = document.graphs[graphId]
     if (graph === undefined || ancestors.includes(graphId)) return
     const view = occurrenceDynamicView(document, resolve, path)
-    for (const offer of listCountOffers(document, resolve, graphId, path, estimateOf)) {
-      const owner = view.valueOwners.get(offer.nodeId)?.get(offer.inputId)
-      const overridden = path.length > 0 && document.occurrenceListCounts?.[occurrenceKey({ instancePath: path.map(asNodeId), node: asNodeId(offer.nodeId) })]?.counts[offer.inputId] !== undefined
-      const matches = writes.some(write => write.path !== undefined
-        ? write.graphId === graphId && write.nodeId === offer.nodeId && write.inputId === offer.inputId && JSON.stringify(write.path) === JSON.stringify(path)
-        : !overridden && write.graphId === (owner?.graphId ?? graphId) && write.nodeId === (owner?.nodeId ?? offer.nodeId) &&
-          write.inputId === (owner?.valueKey ?? offer.inputId))
-      if (matches) answers.push({ command: 'view.answerListCountEstimate', params: {
+    const matches = (nodeId: string, inputId: string): boolean => {
+      const owner = view.valueOwners.get(nodeId)?.get(inputId)
+      const overridden = path.length > 0 && document.occurrenceListCounts?.[occurrenceKey({ instancePath: path.map(asNodeId), node: asNodeId(nodeId) })]?.counts[inputId] !== undefined
+      return writes.some(write => write.path !== undefined
+        ? write.graphId === graphId && write.nodeId === nodeId && write.inputId === inputId && JSON.stringify(write.path) === JSON.stringify(path)
+        : !overridden && write.graphId === (owner?.graphId ?? graphId) && write.nodeId === (owner?.nodeId ?? nodeId) &&
+          write.inputId === (owner?.valueKey ?? inputId))
+    }
+    for (const offer of listCountOffers(document, resolve, graphId, path, estimateOf, matches)) {
+      answers.push({ command: 'view.answerListCountEstimate', params: {
         graphId, nodeId: offer.nodeId, inputId: offer.inputId, instancePath: [...path], count: offer.count,
       } })
     }
@@ -121,5 +126,8 @@ export function answerListCountValueEdits(
     }
   }
   visit(document.root, [], [])
-  return answers.length === 0 ? invocation : { command: 'batch', params: { invocations: [invocation, ...answers] } as unknown as Json }
+  if (answers.length === 0) return invocation
+  const params = invocation.params as Record<string, Json> | undefined
+  const invocations = invocation.command === 'batch' && Array.isArray(params?.invocations) ? params.invocations : [invocation]
+  return { command: 'batch', params: { invocations: [...invocations, ...answers] } as unknown as Json }
 }
