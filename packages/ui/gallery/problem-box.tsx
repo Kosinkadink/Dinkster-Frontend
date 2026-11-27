@@ -29,6 +29,9 @@ import { deriveProblemProjection } from '../../app/src/problem-display.js'
 import { problemBoxLines, problemBoxRows } from '../../app/src/problem-box.js'
 import { ProblemsPanel } from '../../app/src/ProblemsPanel.js'
 import type { AppState } from '../../app/src/app-state.js'
+import { SettingsDialog } from '../../app/src/SettingsDialog.js'
+import { CommandRegistry, KeybindingRegistry, SettingsRegistry } from '../../app/src/settings.js'
+import { registerAutomaticFixSettings } from '../../app/src/automatic-fixes.js'
 
 /** Room under the nodes for their tabs, and under the lowest box, in px. */
 const TAB_ROOM = 24
@@ -199,6 +202,10 @@ export function ProblemBoxGallery(props: { theme: 'dark' | 'light' }) {
     return problemBoxGallery(tokens, measure, widgetMeasure)
   }
   const ids = cardsFor(defaultTokens).map((card) => card.id)
+  const settings = new SettingsRegistry({ getItem: () => null, setItem: () => {} })
+  registerAutomaticFixSettings(settings)
+  const commands = new CommandRegistry()
+  const keybindings = new KeybindingRegistry(settings)
   return (
     <div class="dinkster-canvas-examples">
         <For each={ids}>
@@ -211,6 +218,12 @@ export function ProblemBoxGallery(props: { theme: 'dark' | 'light' }) {
             />
           )}
         </For>
+        <figure class="dinkster-canvas-example" data-testid="automatic-fixes-settings">
+          <h3 class="dinkster-heading">Automatic fixes</h3>
+          <SettingsDialog settings={settings} commands={commands} keybindings={keybindings}
+            request={{ category: 'automaticFixes', id: 'automaticFixes.numberOutsideLimits' }} />
+          <figcaption class="dinkster-metadata">Personal settings, outside the workflow. Every kind starts on Apply; only the two wire-removal kinds offer a second choice.</figcaption>
+        </figure>
     </div>
   )
 }

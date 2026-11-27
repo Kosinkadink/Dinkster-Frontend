@@ -9,6 +9,7 @@ import '../src/locale.js'
 import { SettingsDialog } from '../src/SettingsDialog.js'
 import { LibraryStorageSettings } from '../src/LibraryStorageSettings.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY } from '../src/settings.js'
+import { registerAutomaticFixSettings } from '../src/automatic-fixes.js'
 
 const isolatedSettings = (): SettingsRegistry => new SettingsRegistry({ getItem: () => null, setItem: () => {} })
 
@@ -59,6 +60,44 @@ afterEach(() => {
 })
 
 describe('SettingsDialog search', () => {
+  it('persists personal fix choices independently and keeps the existing upgrade preference', async () => {
+    const data = new Map([[SETTINGS_STORAGE_KEY, JSON.stringify({ v: 1, values: { 'execution.reviewUpgrades': true } })]])
+    const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) } }
+    const settings = new SettingsRegistry(storage)
+    registerAutomaticFixSettings(settings)
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()}
+      keybindings={new KeybindingRegistry(settings)} request={{ category: 'automaticFixes', id: 'automaticFixes.numberOutsideLimits' }} />, root)
+    const row = (id: string) => root.querySelector<HTMLElement>(`[data-setting-id="${id}"]`)!
+    const choose = async (id: string, text: string, wire = false) => {
+      row(id).querySelectorAll<HTMLButtonElement>('[role="combobox"]')[wire ? 1 : 0]!.click()
+      await Promise.resolve()
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === text)!
+      expect(option).toBeDefined()
+      option.click()
+    }
+    expect(row('execution.reviewUpgrades').textContent).toContain('Ask me')
+    expect(row('execution.reviewUpgrades').textContent).toContain('Your setting')
+    expect(row('automaticFixes.numberOutsideLimits').textContent).toContain('Built-in value')
+    expect(row('automaticFixes.numberOutsideLimits').querySelectorAll('[role="combobox"]')).toHaveLength(1)
+    await choose('automaticFixes.numberOutsideLimits', 'Ask me')
+    await choose('automaticFixes.subgraphRowRemoved', 'Remove the wire', true)
+    await choose('automaticFixes.subgraphRowRemoved', 'Ask me')
+    expect(row('automaticFixes.numberOutsideLimits').textContent).toContain('Your setting')
+    expect(row('automaticFixes.listGrows').textContent).toContain('Built-in value')
+    const restored = new SettingsRegistry(storage, 'another-project')
+    registerAutomaticFixSettings(restored)
+    expect(restored.get('automaticFixes.numberOutsideLimits')).toBe('ask')
+    expect(restored.get('automaticFixes.subgraphRowRemoved')).toBe('ask-remove-wire')
+    expect(restored.get('automaticFixes.listGrows')).toBe('apply')
+    expect(restored.get('execution.reviewUpgrades')).toBe(true)
+    row('automaticFixes.numberOutsideLimits').querySelector<HTMLButtonElement>('[aria-label="Reset Number outside limits to default"]')!.click()
+    expect(row('automaticFixes.numberOutsideLimits').textContent).toContain('Built-in value')
+    expect(settings.get('automaticFixes.subgraphRowRemoved')).toBe('ask-remove-wire')
+    unmount()
+  })
+
   it.each([
     ['en', 'Wheel'],
     ['zh', '\u6eda\u8f6e'],

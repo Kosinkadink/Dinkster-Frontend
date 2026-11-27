@@ -1,6 +1,6 @@
 /**
- * Generic settings editor. Rendering switches only on the registry's public
- * type discriminator, so adding a setting never requires editing this dialog.
+ * Generic settings editor. Ordinary settings use the registry's public type
+ * discriminator; automatic fixes pair their policy with optional wire handling.
  *
  * This is a placement-agnostic BODY (registered as the 'settings' modal
  * panel): the shell's modal host (a native <dialog>) owns the backdrop,
@@ -13,6 +13,7 @@ import { activeLocale, type MessageParams } from '@dinkster/core'
 import type { DinksterConnection, PackSettings } from '@dinkster/client'
 import type { AppCommand, CommandRegistry, KeybindingRegistry, SettingDefinition, SettingsRegistry } from './settings.js'
 import { captureKeydown, initialSettingsCategory } from './settings.js'
+import { automaticFixKinds, automaticFixPreference, setAutomaticFixPreference, type AutomaticFixKind, type AutomaticFixPreference } from './automatic-fixes.js'
 import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel, type SettingsSearchItem } from './settings-search.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
@@ -188,6 +189,51 @@ function SettingField(props: {
   )
 }
 
+function AutomaticFixField(props: {
+  readonly kind: AutomaticFixKind
+  readonly settings: SettingsRegistry
+  readonly changed: () => void
+}) {
+  const message = useAppMessage()
+  const id = `setting-${props.kind.setting}`
+  const ids = productFieldIds(id)
+  const preference = () => { props.changed(); return automaticFixPreference(props.settings, props.kind) }
+  const asks = () => preference().startsWith('ask')
+  const removesWire = () => preference().endsWith('remove-wire')
+  const commit = (ask: boolean, remove: boolean) => setAutomaticFixPreference(props.settings, props.kind,
+    `${ask ? 'ask' : 'apply'}${remove ? '-remove-wire' : ''}` as AutomaticFixPreference)
+  return <ProductField
+    controlId={id}
+    class="automatic-fix-setting"
+    label={message(`automaticFixes.kind.${props.kind.id}`)}
+    description={message(preference() === 'apply' ? 'automaticFixes.builtIn' : 'automaticFixes.personal')}
+    dataAttributes={{ 'data-setting-id': props.kind.setting }}
+    actions={<Show when={preference() !== 'apply'}><ProductButton
+      type="button"
+      onClick={() => props.settings.reset(props.kind.setting)}
+      aria-label={message('settingsDialog.action.resetSettingAria', { name: message(`automaticFixes.kind.${props.kind.id}`) })}
+    >{message('settingsDialog.action.reset')}</ProductButton></Show>}
+  >
+    <ProductSelect id={id} ariaLabelledBy={ids.label} ariaDescribedBy={ids.description}
+      selectedId={asks() ? 'ask' : 'apply'}
+      options={[
+        { id: 'apply', label: message('automaticFixes.apply'), value: false },
+        { id: 'ask', label: message('automaticFixes.ask'), value: true },
+      ]}
+      onSelect={(option) => commit(option.value, removesWire())}
+    />
+    <Show when={props.kind.wire}><ProductSelect id={`${id}-wire`}
+      ariaLabel={message('automaticFixes.wireChoice', { kind: message(`automaticFixes.kind.${props.kind.id}`) })}
+      selectedId={removesWire() ? 'remove' : 'keep'}
+      options={[
+        { id: 'keep', label: message('automaticFixes.keepWire'), value: false },
+        { id: 'remove', label: message('automaticFixes.removeWire'), value: true },
+      ]}
+      onSelect={(option) => commit(asks(), option.value)}
+    /></Show>
+  </ProductField>
+}
+
 export function SettingsDialog(props: {
   readonly settings: SettingsRegistry
   readonly commands: CommandRegistry
@@ -283,7 +329,10 @@ export function SettingsDialog(props: {
     searchInput.focus()
   }
   const settingRow = (d: SettingDefinition) => {
-    return <SettingField definition={d} settings={props.settings} changed={changed} locale={locale} />
+    const kind = automaticFixKinds.find((kind) => kind.setting === d.id)
+    return kind === undefined
+      ? <SettingField definition={d} settings={props.settings} changed={changed} locale={locale} />
+      : <AutomaticFixField kind={kind} settings={props.settings} changed={changed} />
   }
   const keybindingRow = (command: AppCommand) => {
     const controlId = `keybinding-${command.id}`

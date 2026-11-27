@@ -243,6 +243,7 @@ import { resolveNodeOccurrence } from './problem-display.js'
 import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
+import { registerAutomaticFixSettings } from './automatic-fixes.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
 import { activeProjectId, migrateBrowserProjects, scopedSharedName, scopedStorageKey } from './projects.js'
@@ -3225,13 +3226,7 @@ export class AppState {
       type: 'boolean',
       defaultValue: false,
     })
-    this.settings.register({
-      id: 'execution.reviewUpgrades',
-      get name() { return t('shell.reviewUpgrades.label') },
-      get description() { return t('settings.execution.reviewUpgrades.description') },
-      type: 'boolean',
-      defaultValue: false,
-    })
+    registerAutomaticFixSettings(this.settings)
     this.settings.register({ id: 'canvas.bookmarkTransitions', get name() { return t('settings.canvas.bookmarkTransitions') }, type: 'boolean', defaultValue: true })
     this.settings.register({
       id: 'canvas.smoothWheelZoom',

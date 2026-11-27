@@ -250,15 +250,17 @@ it('renders backend targeting, review state and live shared-session tooltip hint
   expect(app.tabTargets.get().get(app.activeTab()!.id)).toBe(remote.id)
 
   expect(host.querySelector('[data-testid="review-upgrades-toggle"]')).toBeNull()
-  app.settingsOpenRequest.set({ category: 'execution', id: 'execution.reviewUpgrades' })
+  app.settingsOpenRequest.set({ category: 'automaticFixes', id: 'execution.reviewUpgrades' })
   app.modalPanel.set('settings')
   const review = host.querySelector<HTMLButtonElement>('#setting-execution\\.reviewUpgrades')!
   expect(review).not.toBeNull()
-  expect(review.getAttribute('aria-checked')).toBe('false')
+  expect(review.textContent).toContain('Apply')
   review.click()
+  ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Ask me')!.click()
   expect(app.settings.get('execution.reviewUpgrades')).toBe(true)
-  expect(review.getAttribute('aria-checked')).toBe('true')
+  expect(review.textContent).toContain('Ask me')
   review.click()
+  ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Apply')!.click()
   expect(app.settings.get('execution.reviewUpgrades')).toBe(false)
   app.modalPanel.set('')
 
