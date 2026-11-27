@@ -61,6 +61,7 @@ import type {
   OuterName,
   OuterScope,
   OutputSpec,
+  RecordField,
   SectionSpec,
   TypeChoiceSpec,
   TypeExpr,
@@ -71,7 +72,7 @@ import { canonicalTypeIdOf, isAssetWidgetInput, isFormulaSpec, isLookupSpec, sco
 import { typeExprFromDinksterWire } from './dinkster-wire.js'
 import { recordFieldTypeFits } from './type-relations.js'
 import { isAssetRefValue, readWhenUnset, sentSpecOf, sentWhenUnset } from './widget-defaults.js'
-import { normalizeComboOption } from './combo-options.js'
+import { normalizeComboOption, normalizedComboOptions } from './combo-options.js'
 import { isCanonicalUnsafeInteger, numericStepConstraints, OFFSET_UNKNOWN } from './numeric-step.js'
 
 // ---------------------------------------------------------------------------
@@ -579,6 +580,8 @@ export interface ElaboratedInterface {
    * leader, with the start key the node shows for each (view mode only).
    */
   readonly unstoredChoices?: Readonly<Record<string, string>>
+  /** Declared record selections whose missing or path-only value needs a saved snapshot. */
+  readonly unstoredRecordSelections?: Readonly<Record<string, string>>
   /**
    * Groups that grow by hand and take part in the node with fewer stored
    * members than their minimum, with the members that reach it (view mode only).
@@ -994,6 +997,7 @@ function elaboratePass(
   const outputMembers: Record<string, string[]> = {}
   const choices: Record<string, string> = {}
   const unstoredChoices: Record<string, string> = {}
+  const unstoredRecordSelections: Record<string, string> = {}
   const unstoredMinimums: Record<string, MaterializeFrame> = {}
   const constructs = new Set<string>()
   const groupPaths = new Set<string>()
@@ -2624,8 +2628,40 @@ function elaboratePass(
         if (oldType !== undefined && canonicalTypeIdOf(oldType) === undefined) throw new Error('Saved record selection requires a resolved type.')
         if (saved !== undefined && typeof saved['name'] !== 'string') throw new Error('Saved record selection requires a field name.')
         let current: TypeExpr | undefined = source.spec.type
-        for (const key of path) current = current?.kind === 'record' ? current.fields.find((field) => field.id === key)?.type : undefined
-        if (current !== undefined && (oldType === undefined || recordFieldTypeFits(current, oldType))) return current
+        const names: string[] = []
+        for (const key of path) {
+          const field: RecordField | undefined = current?.kind === 'record' ? current.fields.find((field) => field.id === key) : undefined
+          if (field !== undefined) names.push(field.name)
+          current = field?.type
+        }
+        const fits = current !== undefined && (oldType === undefined || recordFieldTypeFits(current, oldType))
+        if (selector?.kind === 'input' && selector.spec.widget !== undefined) {
+          const widget = selector.spec.widget
+          const choices = normalizedComboOptions(widget)
+          const matching = choices.find((option) => {
+            if (typeof option.value !== 'string') return false
+            try {
+              const candidate = JSON.parse(option.value)
+              if (candidate === null || Array.isArray(candidate) || typeof candidate.name !== 'string' || !Array.isArray(candidate.path)) return false
+              const declared = typeExprFromDinksterWire(candidate.type)
+              return current !== undefined && recordFieldTypeFits(current, declared) && recordFieldTypeFits(declared, current) &&
+                candidate.path.length === path.length && candidate.path.every((key: unknown, index: number) => key === path[index])
+            } catch { return false }
+          })
+          if (!census && view && fits && (saved === undefined || !Object.hasOwn(node.values, type.index)) && typeof matching?.value === 'string') {
+            unstoredRecordSelections[type.index] = matching.value
+          }
+          if (fits || oldType !== undefined) {
+            const label = fits ? names.join(' / ') : `${saved!['name']} (removed)`
+            const shown = { value: stored, label }
+            const presented = fits && matching !== undefined
+              ? choices.map((option) => option === matching ? shown : option)
+              : [...choices.filter((option) => option.value !== stored), shown]
+            const index = items.indexOf(selector)
+            items[index] = { ...selector, spec: { ...selector.spec, widget: { ...widget, options: { ...widget.options, options: presented } } } }
+          }
+        }
+        if (fits) return current!
         if (oldType === undefined) throw new Error('The selected record field is no longer declared.')
         const message = current === undefined ? `Record field '${saved!['name']}' was removed.`
           : `Record field '${saved!['name']}' changed type from ${canonicalTypeIdOf(oldType)} to ${canonicalTypeIdOf(current)}.`
@@ -2715,6 +2751,7 @@ function elaboratePass(
     ...(Object.keys(outputMembers).length > 0 ? { outputMembers } : {}),
     ...(Object.keys(choices).length > 0 ? { choices } : {}),
     ...(Object.keys(unstoredChoices).length > 0 ? { unstoredChoices } : {}),
+    ...(Object.keys(unstoredRecordSelections).length > 0 ? { unstoredRecordSelections } : {}),
     ...(Object.keys(unstoredMinimums).length > 0 ? { unstoredMinimums } : {}),
     constructs: [...constructs],
     groups: [...constructs].filter((path) => groupPaths.has(path)),
