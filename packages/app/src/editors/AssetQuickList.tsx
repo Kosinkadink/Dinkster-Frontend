@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, type Component } from 'solid-js'
-import { assetMultiSelect, type CollectionEntry, type WidgetSpec, type TypeExpr } from '@dinkster/core'
+import { assetMultiSelect, isAssetWidgetInput, type CollectionEntry, type WidgetSpec, type TypeExpr } from '@dinkster/core'
 import { CanvasRowField, CanvasRowPopup, ProductButton, ProductSegmented } from '@dinkster/ui'
 import { CollectionPanel } from '../CollectionPanel.js'
 import { ProductNotice } from '../ProductForm.js'
@@ -18,7 +18,7 @@ import type { WidgetEditorImplementationProps } from '../WidgetEditorController.
 import { placeRow, rowPlacement, visibleCanvas } from './row-placement.js'
 
 export function assetQuickListAllowed(spec: WidgetSpec | undefined, type: TypeExpr | undefined, mergeableTypes?: readonly string[]): boolean {
-  return spec?.widgetType === 'ASSET' && spec.selection !== true && !spec.kind?.startsWith('model/') &&
+  return spec !== undefined && isAssetWidgetInput({ widget: spec }) && spec.selection !== true && !spec.kind?.startsWith('model/') &&
     !(type !== undefined && assetMultiSelect(type, mergeableTypes))
 }
 
