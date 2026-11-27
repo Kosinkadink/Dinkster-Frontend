@@ -948,14 +948,20 @@ describe('what a press may write', () => {
     }
   })
 
-  it('keeps decoded asset facts unknown with a stored reference and rolls back earlier writes', async () => {
+  it('reads held decoded facts after staged picks and rolls back writes when facts are unknown', async () => {
     addSchema('test.decoded_asset_fact', [
       { kind: 'input', id: 'image', type: { kind: 'concrete', types: ['ASSET'] } },
       { kind: 'input', id: 'marker', type: { kind: 'concrete', types: ['INT'] }, default: 41 },
+      { kind: 'input', id: 'after', type: { kind: 'concrete', types: ['INT'] }, default: 83 },
       { kind: 'button', id: 'read', label: 'Read width', steps: [
         { step: 'set', field: 'marker', value: { value: 23 } },
         { step: 'set', field: 'marker', value: { formula: 'width(image)' } },
+        { step: 'openPicker', field: 'image' },
+        { step: 'set', field: 'after', value: { formula: 'width(image) + height(image) + frames(image)' } },
       ] },
+      ...['fps', 'duration'].map((fact) => ({ kind: 'button', id: fact, label: fact, steps: [
+        { step: 'set', field: 'marker', value: { formula: `${fact}(image)` } },
+      ] })),
     ])
     const doc = documentOf({ n1: { type: 'test.decoded_asset_fact', values: {
       image: { digest: `blake3:${'a'.repeat(64)}`, name: '640x480.png', size: 123, mediaType: 'image/png', virtualPath: 'input/640x480.png' }, marker: 41,
@@ -964,6 +970,28 @@ describe('what a press may write', () => {
     expect(await runPress(session, at('read'), hostOf())).toMatchObject({ kind: 'failed', message: 'Nothing was changed. A value this button needs is not known yet.' })
     expect(session.doc).toEqual(doc)
     expect(session.canUndo).toBe(false)
+    const picked = { digest: `blake3:${'b'.repeat(64)}`, name: 'another.png', size: 456, mediaType: 'image/png', virtualPath: '' }
+    const host = hostOf({
+      fileFacts: (digest) => digest === picked.digest
+        ? { width: 13, height: 11, frames: 1, fps: 30, duration: 4 }
+        : { width: 7, height: 5, frames: 3, fps: 25, duration: 2 },
+      openPicker: async () => picked,
+    })
+    expect(buttonAvailability(doc, at('read'), host)).toEqual({ enabled: true })
+    expect(await runPress(session, at('read'), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ image: picked, marker: 7, after: 25 })
+    const after = session.doc
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(doc)
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(session.doc).toEqual(after)
+    for (const [fact, value] of [['fps', 30], ['duration', 4]] as const) {
+      expect(await runPress(session, at(fact), host)).toMatchObject({
+        kind: 'failed', message: `Nothing was changed. marker takes a whole number; the button gave ${value}.`,
+      })
+      expect(session.doc).toEqual(after)
+    }
   })
 
   it('reads connected types without execution values and refreshes facts after Disconnect', async () => {

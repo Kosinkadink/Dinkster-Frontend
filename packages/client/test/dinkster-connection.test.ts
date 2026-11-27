@@ -3443,6 +3443,33 @@ describe('workflow library wire', () => {
     expect(await missing.fetchAssetBytes(DIGEST)).toBeUndefined()
   })
 
+  it('reads metadata in the selected scope without cached authority or a scope fallback', async () => {
+    const answer = { digest: DIGEST, metadata: { facts: { width: 13, height: 7, frames: 1 } } }
+    let status = 200
+    const { conn, requests } = submitHarness(() => jsonResponse(status, status === 200 ? answer : {}))
+    const controller = new AbortController()
+    await expect(conn.fetchAssetMetadata(DIGEST, { scope: 'shared:board/A & B', signal: controller.signal })).resolves.toEqual(answer)
+    expect(requests[0]).toEqual({
+      url: `http://test/api/assets/${encodeURIComponent(DIGEST)}/metadata?scope=shared%3Aboard%2FA+%26+B`,
+      init: { cache: 'no-store', signal: controller.signal },
+    })
+    status = 404
+    await expect(conn.fetchAssetMetadata(DIGEST, { scope: 'shared:board/B' })).resolves.toBeUndefined()
+    status = 403
+    await expect(conn.fetchAssetMetadata(DIGEST, { scope: 'shared:board/B' })).rejects.toThrow('403')
+    expect(requests).toHaveLength(3)
+    expect(requests.slice(1).map(({ url }) => new URL(url).searchParams.get('scope'))).toEqual(['shared:board/B', 'shared:board/B'])
+    status = 400
+    await expect(conn.fetchAssetMetadata(DIGEST, { scope: '' })).rejects.toThrow('400')
+    expect(new URL(requests.at(-1)!.url).searchParams.get('scope')).toBe('')
+    status = 200
+    await expect(conn.fetchAssetMetadata(DIGEST)).resolves.toEqual(answer)
+    expect(requests.at(-1)).toEqual({ url: `http://test/api/assets/${encodeURIComponent(DIGEST)}/metadata`, init: undefined })
+    const { conn: cancelled } = submitHarness((_url, init) => { init?.signal?.throwIfAborted(); return jsonResponse(200, answer) })
+    controller.abort(new Error('file context retired'))
+    await expect(cancelled.fetchAssetMetadata(DIGEST, { scope: 'shared:board/A', signal: controller.signal })).rejects.toThrow('file context retired')
+  })
+
   it('cancels an asset byte read while the response body is pending', async () => {
     let started!: () => void
     const reading = new Promise<void>((resolve) => { started = resolve })

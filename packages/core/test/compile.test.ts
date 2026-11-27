@@ -554,6 +554,7 @@ describe('value handling', () => {
   })
 
   it('passes on what a tapped automatic field shows, warning on the field only when that is its default', () => {
+    const picked = { digest: `blake3:${'a'.repeat(64)}`, name: 'source.png', size: 12, mediaType: 'image/png', virtualPath: '' }
     const resolve: CompileInput['resolve'] = (type) => {
       const schema = backendResolve(type)
       if (type !== 'EmptyImage' || schema === undefined) return schema
@@ -562,21 +563,27 @@ describe('value handling', () => {
         batch_size: { lookup: 'sizes.batch', args: ['width'] },
         height: { formula: 'missing_name' },
       }
-      const body = schema.body.map((row) =>
-        row.kind !== 'input' || automatic[row.id] === undefined ? row : { ...row, automatic: automatic[row.id] })
+      const body = [
+        ...schema.body.map((row) =>
+          row.kind !== 'input' || automatic[row.id] === undefined ? row : { ...row, automatic: automatic[row.id] }),
+        { kind: 'input', id: 'file', type: { kind: 'concrete', name: 'ASSET' }, optional: true },
+        { kind: 'input', id: 'decoded', type: { kind: 'concrete', name: 'INT' }, optional: false,
+          widget: { widgetType: 'INT', options: {}, default: 0 }, automatic: { formula: 'width(file)' } },
+      ]
       return { ...schema, body } as NodeSchema
     }
-    const tapped = (tap: string, lookupAnswers?: CompileInput['lookupAnswers']) => {
+    const tapped = (tap: string, lookupAnswers?: CompileInput['lookupAnswers'], fileFacts?: CompileInput['fileFacts']) => {
       const doc = mutableWorkflow('exec-basic')
       const graph = (doc['graphs'] as Mutable)['g0'] as Mutable
       const nodes = graph['nodes'] as Mutable
-      ;(nodes['n0'] as Mutable)['values'] = { width: 24 }
+      ;(nodes['n0'] as Mutable)['values'] = { width: 24, file: picked }
       nodes['n2'] = { id: 'n2', type: 'EmptyImage', title: 'Retime 2', values: { width: 8, height: 64, batch_size: 1, color: 0 } }
       graph['links'] = {
         l2: { id: 'l2', from: { node: 'n2', port: 'out0' }, to: { node: 'n1', port: 'images' } },
         l3: { id: 'l3', from: { node: 'n0', tap }, to: { node: 'n2', port: 'width' } },
       }
-      const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve), ...(lookupAnswers !== undefined ? { lookupAnswers } : {}) })
+      const result = compile({ ...compileInput(doc as unknown as WorkflowDocument, { kind: 'full' }, resolve),
+        ...(lookupAnswers !== undefined ? { lookupAnswers } : {}), ...(fileFacts !== undefined ? { fileFacts } : {}) })
       expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
       if (!result.ok) return undefined
       return {
@@ -591,6 +598,11 @@ describe('value handling', () => {
     // Every value passed on is kept with the run, keyed as the run records the field's own node.
     const tapOf = (inputId: string, value: Json) => [{ runtimeNodeId: 'n0', inputId, value, receiverRuntimeId: 'n2', receiver: 'Retime 2' }]
     expect(tapped('color')).toEqual({ width: 48, warnings: [], taps: tapOf('color', 48) })
+    expect(tapped('decoded', undefined, (digest) => digest === picked.digest ? { width: 13 } : undefined))
+      .toEqual({ width: 13, warnings: [], taps: tapOf('decoded', 13) })
+    expect(tapped('decoded')).toEqual({ width: 0, taps: tapOf('decoded', 0), warnings: [
+      ['Could not work out decoded. Retime 2 gets the default, 0.', { node: 'n0', port: 'decoded' }],
+    ] })
     // A kept answer is what the row shows, fresh or not.
     expect(tapped('batch_size', answer({ state: 'ready', answer: 3 }))).toEqual({ width: 3, warnings: [], taps: tapOf('batch_size', 3) })
     expect(tapped('batch_size', answer({ state: 'stale', answer: 4, reason: 'failed' }))).toEqual({ width: 4, warnings: [], taps: tapOf('batch_size', 4) })

@@ -1221,6 +1221,77 @@ describe('automatic values', () => {
     })
   })
 
+  it('shares held file facts across formulas and lookup arguments without reading a wired or unchosen file', () => {
+    const video = { digest: `blake3:${'a'.repeat(64)}`, name: 'clip.mp4', size: 12, mediaType: 'video/mp4', virtualPath: '' }
+    const image = { ...video, digest: `blake3:${'b'.repeat(64)}`, name: 'image.png', mediaType: 'image/png' }
+    const audio = { ...video, digest: `blake3:${'c'.repeat(64)}`, name: 'audio.wav', mediaType: 'audio/wav' }
+    const fileFacts = new Map([
+      [video.digest, { width: 16, frames: 7, fps: 25 }],
+      [image.digest, { width: 13, frames: 1 }],
+      [audio.digest, { duration: 0.3 }],
+    ])
+    const file = socketInput('file', 'ASSET')
+    const rows: BodyRow[] = [
+      file,
+      intInput('w', { automatic: { formula: 'width(file)' } }),
+      intInput('count', { automatic: { formula: 'frames(file)' } }),
+      intInput('rate', { automatic: { lookup: 'video.rate_of', args: [{ formula: 'fps(file)' }] } }),
+      intInput('seconds', {
+        type: { kind: 'concrete', name: 'FLOAT' },
+        widget: { widgetType: 'FLOAT', options: {}, default: -1 },
+        automatic: { formula: 'duration(file)' },
+      }),
+    ]
+    const options = {
+      fileFacts: (digest: string) => fileFacts.get(digest),
+      lookupAnswers: (_name: string, args: readonly unknown[]) => ({ state: 'ready' as const, answer: args[0] as number }),
+    }
+    const automatic = (picked: typeof video | null, connectivity = EMPTY_CONNECTIVITY) =>
+      elabInputsOf(elaborateInterface(schemaOf(rows), { values: { file: picked } }, connectivity, options))
+        .filter((input) => input.automatic !== undefined).map((input) => input.automatic!)
+    const answers = (picked: typeof video | null, connectivity = EMPTY_CONNECTIVITY) =>
+      automatic(picked, connectivity).map((outcome) => outcome.value)
+    expect(answers(video)).toEqual([16, 7, 25, -1])
+    expect(answers({ ...video, name: 'renamed.png', mediaType: 'image/png' })).toEqual([16, 7, 25, -1])
+    expect(answers(image)).toEqual([13, 1, 0, -1])
+    expect(answers(audio)).toEqual([0, 0, 0, 0.3])
+    expect(answers({ ...video, digest: `blake3:${'d'.repeat(64)}` })).toEqual([0, 0, 0, -1])
+    expect(answers(null)).toEqual([0, 0, 0, -1])
+    expect(answers(video, connectedInputs('file'))).toEqual([0, 0, 0, -1])
+    for (const picked of [null, { ...video, digest: `blake3:${'d'.repeat(64)}` }, { ...video, digest: `blake3:${'e'.repeat(64)}`, mediaType: 'text/plain' }]) {
+      expect(automatic(picked)[0]).toEqual({ value: 0, state: 'default', reason: 'unknown' })
+    }
+    expect(automatic(video, connectedInputs('file'))[0]).toEqual({ value: 0, state: 'default', reason: 'unknown' })
+    expect(automatic(audio)[3]).toMatchObject({ value: 0.3, state: 'worked-out' })
+
+    for (const width of [13.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const invalid = elaborateInterface(schemaOf(rows), { values: { file: image } }, EMPTY_CONNECTIVITY, {
+        fileFacts: () => ({ width }),
+      })
+      expect(elabInputsOf(invalid).find((input) => input.spec.id === 'w')!.automatic)
+        .toEqual({ value: 0, state: 'default', reason: 'unknown' })
+    }
+
+    const defaultFile = { ...file, widget: { widgetType: 'ASSET', options: {}, default: image } }
+    const defaulted = elaborateInterface(schemaOf([defaultFile, rows[1]!]), { values: {} }, EMPTY_CONNECTIVITY, options)
+    expect(elabInputsOf(defaulted).find((input) => input.spec.id === 'w')!.automatic)
+      .toEqual({ value: 13, state: 'worked-out' })
+
+    const grouped = schemaOf([
+      file,
+      { ...recordGroup('clips', { min: 1 }), member: rows },
+      choiceOf('pick', [{ key: 'yes', rows: [file] }, { key: 'no', rows: [] }]),
+      intInput('chosenWidth', { automatic: { formula: 'width(pick.file)' } }),
+    ])
+    const nested = elaborateInterface(grouped, {
+      values: { file: video, 'clips.item0.file': image, 'pick.file': video },
+      dynamic: { clips: { members: ['item0'] }, pick: { selected: 'no' } },
+    }, EMPTY_CONNECTIVITY, { ...options, promoteGhosts: false })
+    expect(elabInputsOf(nested).find((input) => input.spec.id === 'clips.item0.w')!.automatic?.value).toBe(13)
+    expect(elabInputsOf(nested).find((input) => input.spec.id === 'chosenWidth')!.automatic)
+      .toMatchObject({ state: 'default', reason: 'unknown' })
+  })
+
   it('works out a fixed field only for its open field, without a warning, while the fixed value stays in use', () => {
     const doubled = intInput('doubled', {
       automatic: { formula: 'rate * 2' },

@@ -3956,8 +3956,10 @@ export class DinksterConnection {
     }) : []
   }
 
-  async fetchAssetMetadata(digest: string): Promise<unknown | undefined> {
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}/metadata`)
+  async fetchAssetMetadata(digest: string, options?: { readonly scope: string; readonly signal?: AbortSignal }): Promise<unknown | undefined> {
+    const query = options === undefined ? '' : `?${new URLSearchParams({ scope: options.scope })}`
+    const res = await this.fetchFn(`${this.baseUrl}/api/assets/${encodeURIComponent(digest)}/metadata${query}`,
+      options === undefined ? undefined : { cache: 'no-store', ...(options.signal === undefined ? {} : { signal: options.signal }) })
     if (res.status === 404 || res.status === 415 || res.status === 501) return undefined
     if (!res.ok) throw new Error(`GET asset metadata failed: ${res.status}`)
     return res.json()
