@@ -755,6 +755,8 @@ export interface NodeViewState {
    * input/value key. Absent = the height the widget declares.
    */
   readonly textLines?: Readonly<Record<string, number>>
+  /** Estimate answered by hand, keyed by the concrete instance path and count field. */
+  readonly listCountAnswers?: Readonly<Record<string, number>>
   /** The open node's preview is folded to its caption row. */
   readonly previewFolded?: boolean
   /**
@@ -786,6 +788,10 @@ export interface NodeViewState {
   readonly color?: string
   readonly ext?: ExtData
 }
+
+/** A count field is answered independently in each concrete instance. */
+export const listCountAnswerKey = (instancePath: readonly string[], input: string): string =>
+  JSON.stringify([instancePath, input])
 
 /** A visual grouping rectangle. Membership is stored separately in its graph view. */
 export interface GroupViewState {

@@ -54,7 +54,7 @@ import {
   isCompleteAssetRef,
   schemaResolverForCommand,
 } from './command-support.js'
-import { boundaryItems, withBoundaryItems } from '../format/document.js'
+import { boundaryItems, listCountAnswerKey, withBoundaryItems } from '../format/document.js'
 import { documentPrimitiveResolver } from '../compile/compile.js'
 import { solveOccurrenceTypes } from '../compile/occurrence-solve.js'
 import { primitiveOf } from '../primitive.js'
@@ -1970,6 +1970,30 @@ const viewSetWidgetRepresentation: CommandDefinition = {
   },
 }
 
+const viewAnswerListCountEstimate: CommandDefinition = {
+  id: 'view.answerListCountEstimate',
+  run(doc, params, tx) {
+    if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.nodeId !== 'string' ||
+        typeof params.inputId !== 'string' || params.inputId === '' || !Array.isArray(params.instancePath) ||
+        !params.instancePath.every((hop) => typeof hop === 'string') ||
+        typeof params.count !== 'number' || !Number.isSafeInteger(params.count) || params.count < 0) {
+      return [err('params.invalid', 'view.answerListCountEstimate: expected a count field, instance path and nonnegative whole count')]
+    }
+    const graph = params.instancePath.length === 0 ? doc.graphs[params.graphId]
+      : graphAtInstancePath(doc, (params.instancePath as string[]).map(asNodeId))
+    if (graph?.id !== params.graphId || graph.nodes[params.nodeId] === undefined)
+      return [err('node.missing', 'view.answerListCountEstimate: the node occurrence is gone')]
+    ensureViewGraph(tx, params.graphId)
+    const view = tx.current.view.graphs[params.graphId]!.nodes[params.nodeId]
+    const key = listCountAnswerKey(params.instancePath as string[], params.inputId)
+    if (view?.listCountAnswers?.[key] === params.count) return []
+    tx.set(['view', 'graphs', params.graphId, 'nodes', params.nodeId], {
+      ...view, listCountAnswers: { ...view?.listCountAnswers, [key]: params.count },
+    } as unknown as Json)
+    return []
+  },
+}
+
 // ---------------------------------------------------------------------------
 // view.setTextBoxLines {graphId, nodeId, inputId, lines: number | null}
 //
@@ -2829,6 +2853,7 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   viewSetNodeColor,
   viewSetNodeVideo,
   viewSetWidgetRepresentation,
+  viewAnswerListCountEstimate,
   viewSetTextBoxLines,
   viewSetPreviewFolded,
   viewSetSectionCollapsed,

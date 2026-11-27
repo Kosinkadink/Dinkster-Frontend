@@ -134,6 +134,8 @@ export interface AskRequest {
 export interface ActionHost {
   readonly commands: ReadonlyMap<string, CommandDefinition>
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
+  /** Held estimate on an incoming list; never reads pack values or starts a lookup. */
+  listCountEstimateOf?(doc: WorkflowDocument, target: StepPlace, port: string): number | undefined
   /** The schema of a node of `graphId` as the canvas resolves it; also asked for a node AddNode creates. */
   schemaOf(doc: WorkflowDocument, graphId: string, node: NodeData): NodeSchema | undefined
   /** A renderer host places additions using its measured node and wire geometry. */
@@ -675,11 +677,26 @@ type Action =
 
 function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace, actor: string | undefined, host: ActionHost): CommandInvocation[] {
   const view = action.kind === 'value' || action.kind === 'mode' ? viewOf(doc, target, host) ?? refuse('The node is gone.') : undefined
+  const answers: CommandInvocation[] = []
+  if (action.kind === 'value' && action.value !== undefined) {
+    const field = inputAt(view!, action.path)
+    if (field?.spec.listCountOf !== undefined) {
+      const prefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
+      const source = view!.contexts.get(prefix)?.paths.get(field.spec.listCountOf)
+      const estimate = source === undefined ? undefined : host.listCountEstimateOf?.(doc, target, source)
+      const stored = view!.node.values[valueKeyOf(field)] ?? (field.spec.widget && effectiveWidgetDefault(field.spec.widget))
+      if (estimate !== undefined && (typeof stored !== 'number' || estimate > stored)) {
+        answers.push({ command: 'view.answerListCountEstimate', params: {
+          graphId: target.graphId, nodeId: target.nodeId, instancePath: target.instancePath ?? [], inputId: action.path, count: estimate,
+        } })
+      }
+    }
+  }
   if (action.kind === 'value' && isOccurrenceListCount(view!, target, action.path)) {
     return [{ command: 'occurrence.setListCount', params: {
       graphId: target.graphId, nodeId: target.nodeId, instancePath: target.instancePath!, inputId: action.path,
       ...(action.value === undefined ? {} : { value: action.value }),
-    } }]
+    } }, ...answers]
   }
   const owner = action.kind === 'value' || action.kind === 'mode'
     ? view!.valueOwners.get(action.path) : undefined
@@ -691,7 +708,7 @@ function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace,
     case 'value':
       return [action.value === undefined
         ? { command: 'node.setValues', params: { graphId, nodeId, values: {}, unset: [path] } }
-        : { command: 'node.setValue', params: { graphId, nodeId, inputId: path, value: action.value } }]
+        : { command: 'node.setValue', params: { graphId, nodeId, inputId: path, value: action.value } }, ...answers]
     case 'mode':
       return [{ command: 'node.setController', params: { graphId, nodeId, inputId: path, mode: action.mode } }]
     case 'materialize': {

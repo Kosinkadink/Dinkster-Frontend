@@ -1141,6 +1141,8 @@ button.dinkster-row-main { cursor: pointer; }
 .button-box:has(.button-box-cancel) { align-items: center; }
 .button-box:has(.button-box-cancel) .button-box-icon { margin-top: 0; }
 .button-box-cancel { flex: none; margin: -4px -4px -4px auto; pointer-events: auto; }
+.count-estimate-box { max-width: none; }
+.count-estimate-action { pointer-events: auto; }
 .button-ask-form { width: calc(var(--dinkster-space-32) * 7); }
 .button-ask-title { margin: 0 0 var(--dinkster-space-4); }
 .button-ask-missing { margin: var(--dinkster-space-4) 0 0; color: var(--dinkster-text-secondary); }

@@ -72,6 +72,7 @@ import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
 import { FixesNoticeGallery } from './fixes-notice.js'
 import { RowFilePreviewsGallery } from './row-file-previews.js'
+import { CountEstimatesGallery } from './count-estimates.js'
 
 type Theme = 'dark' | 'light'
 
@@ -813,6 +814,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'fixes-notice'}>
           <FixesNoticeGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'small-flow-nodes'}>
+          <CountEstimatesGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'row-file-previews'}>
           <RowFilePreviewsGallery theme={theme()} registry={registry} />

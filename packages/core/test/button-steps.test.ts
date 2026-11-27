@@ -1637,13 +1637,15 @@ describe('steps inside a subgraph occurrence', () => {
           binds: { kind: 'port' as const, node: asNodeId('inner'), port: asPortId('count') } }] : [] },
       } }, occurrenceListCounts: Object.fromEntries(owners.map((owner, i) =>
         [occurrenceKey(owner), { owner, graphId: asGraphDefId('g1'), counts: { count: i === 0 ? 3 : 1 } }])) }
-      const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve), ask: async () => ({ new_count: 2 }) })
+      const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve), ask: async () => ({ new_count: 2 }),
+        listCountEstimateOf: () => 85 })
       const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
       const target = { graphId: 'g1', nodeId: 'inner', instancePath: ['left'], button: 'set_count' }
       expect(await runPress(session, target, host)).toMatchObject({ kind: 'done', notes: [] })
       expect(session.doc.graphs).toEqual(doc.graphs)
       expect(session.doc.occurrenceListCounts?.[occurrenceKey(owners[0]!)]?.counts).toEqual({ count: 2 })
       expect(session.doc.occurrenceListCounts?.[occurrenceKey(owners[1]!)]?.counts).toEqual({ count: 1 })
+      expect(session.doc.view.graphs.g1?.nodes.inner?.listCountAnswers).toEqual({ '[["left"],"count"]': 85 })
       expect(session.undo()).toBe(true)
       expect(session.doc).toEqual(doc)
       expect(session.canUndo).toBe(false)

@@ -75,7 +75,7 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart, CountEstimateBox } from '@dinkster/ui'
 import {
   defaultValuesOf,
   hasKnownLinkDropAnchorType,
@@ -158,6 +158,7 @@ import type { RowLookups } from './WidgetEditorController.js'
 import { panelDockZone, setPanelOpen } from './panel-location.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
 import { liveExactnessFor, recordedListCountEstimates } from './companion-display.js'
+import { listCountOffers, useListCountEstimate, type ListCountOffer } from './list-count-offers.js'
 import { drawnAnewInputs, RunStandingMemory, runStandingFor } from './run-problem-standing.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
@@ -2155,6 +2156,32 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // Bumped when the scene is rebuilt, so the box follows a moved node.
   const [problemBoxTick, setProblemBoxTick] = createSolidSignal(0)
   let problemBoxElement: HTMLDivElement | undefined
+  const [problemBoxHeight, setProblemBoxHeight] = createSolidSignal(0)
+  const [countOfferHeights, setCountOfferHeights] = createSolidSignal<ReadonlyMap<ListCountOffer, number>>(new Map())
+  const countOfferState = createMemo(() => {
+    docTick(); executions(); overlayPins(); comparisonCompilesChanged()
+    const tab = activeTab()
+    const held = registry()
+    if (tab === undefined || tab.execution !== undefined || held === undefined) return undefined
+    const document = tab.store.doc
+    const graphId = currentGraphId(tab)
+    const path = viewInstancePath(tab) ?? []
+    const execution = props.app.executionForTab(tab)
+    const comparison = props.app.previewComparisonCompile(tab)
+    const estimates = recordedListCountEstimates({ execution, frozen: false, live: comparison?.ok ? comparison.artifact : undefined })
+    return { tab, graphId, path, offers: listCountOffers(document, documentResolver(document, held.resolve), graphId, path, estimates) }
+  })
+  const countOfferPlacement = (offer: ListCountOffer) => {
+    sceneVersion(); editorViewport(); problemBoxTick()
+    const place = problemBoxHost?.place(offer.nodeId)
+    if (place === undefined) return undefined
+    const canvas = canvasClientRect()
+    const earlier = countOfferState()?.offers ?? []
+    const height = earlier.slice(0, earlier.indexOf(offer)).filter(item => item.nodeId === offer.nodeId)
+      .reduce((sum, item) => sum + (countOfferHeights().get(item) ?? 0) + 8, 0)
+    const problemHeight = problemBox()?.nodeId === offer.nodeId ? problemBoxHeight() + 8 : 0
+    return { x: place.x + canvas.left, y: place.y + canvas.top + problemHeight + height, width: place.maxWidth }
+  }
   /** The box a pointer press outside closed, so the same press on its tab does not reopen it. */
   let problemBoxPointerClose: { readonly nodeId: string; readonly at: number } | undefined
   let problemBoxHost: {
@@ -4591,8 +4618,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         return tab === undefined ? undefined : JSON.stringify([tab.id, tab.store.doc.lineage, currentGraphId(tab), viewInstancePath(tab)])
       },
       place: (nodeId) => {
-        const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
-        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport(), canvasEl.clientWidth, detailMinScale())
+        const stored = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+        if (stored === undefined) return undefined
+        const resized = resizingNode()
+        const node = resized?.id === nodeId ? resized : stored
+        const box = dragged({ x: node.x, y: node.y, width: node.layout.width, height: node.layout.height }, nodeId)
+        const moved = { ...node, x: box.x, y: box.y }
+        return problemBoxPlacement(moved, renderer.getNodeBadgeLayout(moved), renderer.getViewport(), canvasEl.clientWidth, detailMinScale())
       },
       lines: (nodeId) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
@@ -8137,7 +8169,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             <Show when={placement()}>
               {(at) => (
                 <NodeProblemBox
-                  ref={(element) => { problemBoxElement = element }}
+                  ref={(element) => {
+                    problemBoxElement = element
+                    const observer = new ResizeObserver(() => setProblemBoxHeight(element.getBoundingClientRect().height))
+                    observer.observe(element)
+                    setProblemBoxHeight(element.getBoundingClientRect().height)
+                    onCleanup(() => observer.disconnect())
+                  }}
                   x={at().x}
                   y={at().y}
                   maxWidth={at().maxWidth}
@@ -8177,6 +8215,29 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           )
         }}
       </Show>
+
+      <For each={countOfferState()?.offers ?? []}>
+        {(offer) => <Show when={countOfferPlacement(offer)}>{(at) => <CountEstimateBox
+          x={at().x} y={at().y} width={at().width}
+          message={offer.limit === undefined
+            ? message(offer.sources.includes('asset') ? 'listCount.estimate.asset' : 'listCount.estimate.run', { count: offer.count })
+            : message('listCount.estimate.limit', { count: offer.count, limit: offer.limit })}
+          action={message('listCount.estimate.use', { count: offer.count })} disabled={offer.limit !== undefined}
+          ref={(element) => {
+            const observer = new ResizeObserver(() => setCountOfferHeights(previous => new Map(previous).set(offer, element.getBoundingClientRect().height)))
+            observer.observe(element)
+            onCleanup(() => {
+              observer.disconnect()
+              setCountOfferHeights(previous => { const next = new Map(previous); next.delete(offer); return next })
+            })
+          }}
+          onAction={() => {
+            const current = countOfferState()
+            if (current === undefined || !current.offers.includes(offer) || offer.limit !== undefined) return
+            void props.app.dispatchTo(current.tab, useListCountEstimate(current.graphId, current.path, offer))
+          }}
+        />}</Show>}
+      </For>
 
       <Show when={badgePopover()}>
         {(p) => (

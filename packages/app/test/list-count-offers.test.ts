@@ -1,0 +1,59 @@
+import { readFileSync } from 'node:fs'
+import { expect, it } from 'vitest'
+import {
+  asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, boundaryOf, coreCommandRegistry,
+  createLocalSession, documentResolver, occurrenceDynamicView, parseDinksterSchema, semanticHashOf,
+  type NodeSchema, type OccurrenceListCountEstimate, type WorkflowDocument,
+} from '@dinkster/core'
+import { listCountOffers, useListCountEstimate } from '../src/list-count-offers.js'
+
+it('uses a larger estimate atomically and remembers a manual answer per occurrence across reload', () => {
+  const wire = JSON.parse(readFileSync(new URL('../../core/test/fixtures/flow_schemas.json', import.meta.url), 'utf8'))
+  const parsed = parseDinksterSchema('dinkster.utilities.unpack', wire['dinkster.utilities.unpack']).schema!
+  const unpack = { ...parsed, body: parsed.body.map(row => row.kind === 'input' && row.id === 'count'
+    ? { ...row, listCountOf: 'list' } : row) }
+  const source: NodeSchema = { ...parsed, type: 'source', body: [
+    { kind: 'output', id: 'out', type: { kind: 'list', element: { kind: 'concrete', name: 'INT' } } },
+  ] }
+  const schemas = (type: string) => type === unpack.type ? unpack : type === source.type ? source : undefined
+  for (const nested of [false, true]) {
+    const body = { id: asGraphDefId('body'), name: 'Body', nextOrdinal: 1, nets: {}, reroutes: {},
+      nodes: { source: { id: asNodeId('source'), type: source.type, values: {} },
+        unpack: { id: asNodeId('unpack'), type: unpack.type, values: { count: 3 } } },
+      links: { l: { id: asLinkId('l'), from: { node: asNodeId('source'), port: asPortId('out') },
+        to: { node: asNodeId('unpack'), port: asPortId('list') } } }, boundary: boundaryOf([], []) }
+    const document: WorkflowDocument = { format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('offers'),
+      root: asGraphDefId(nested ? 'root' : 'body'), graphs: { body, ...(nested ? { root: {
+        id: asGraphDefId('root'), name: 'Root', nextOrdinal: 1, nets: {}, reroutes: {}, links: {}, nodes: {
+          left: { id: asNodeId('left'), type: '#body', values: {} },
+          right: { id: asNodeId('right'), type: '#body', values: {} },
+        },
+      } } : {}) }, view: { graphs: {} } }
+    const path = nested ? ['left'] : []
+    const session = createLocalSession(document, coreCommandRegistry([], schemas), { schemaResolverFor: doc => documentResolver(doc, schemas) })
+    const read = (doc: WorkflowDocument, count: number | undefined, at = path) => {
+      const estimate: OccurrenceListCountEstimate = () => count === undefined ? undefined
+        : { kind: 'estimate', count, sources: ['last-run'] }
+      return listCountOffers(doc, documentResolver(doc, schemas), 'body', at, estimate)
+    }
+    const offer = read(session.doc, 85)[0]!
+    expect(offer).toMatchObject({ nodeId: 'unpack', inputId: 'count', count: 85 })
+    expect(session.dispatch(useListCountEstimate('body', path, offer)).ok).toBe(true)
+    expect(occurrenceDynamicView(session.doc, schemas, path, session.doc.root).values.get('unpack')?.['count']
+      ?? session.doc.graphs.body!.nodes.unpack!.values['count']).toBe(85)
+    expect(read(session.doc, 85)).toEqual([])
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(document)
+    const hash = semanticHashOf(session.doc)
+    expect(session.dispatch({ command: 'view.answerListCountEstimate', params: {
+      graphId: 'body', nodeId: 'unpack', instancePath: path, inputId: 'count', count: 85,
+    } }).ok).toBe(true)
+    expect(semanticHashOf(session.doc)).toBe(hash)
+    const reloaded = JSON.parse(JSON.stringify(session.doc)) as WorkflowDocument
+    expect(read(reloaded, 85)).toEqual([])
+    expect(read(reloaded, 86)[0]?.count).toBe(86)
+    expect(read(reloaded, 900)[0]).toMatchObject({ count: 900, limit: 512 })
+    for (const count of [3, 1, 0, undefined]) expect(read(reloaded, count)).toEqual([])
+    if (nested) expect(read(reloaded, 85, ['right'])[0]?.count).toBe(85)
+  }
+})

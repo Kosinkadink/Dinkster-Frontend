@@ -9,6 +9,8 @@ import {
   normalizeComboOption,
   occurrenceDynamicView,
   runPress,
+  semanticHashOf,
+  solveOccurrenceTypes,
   type ActionHost,
   type AskRequest,
   type ButtonAvailability,
@@ -29,6 +31,7 @@ import type { AppState, Tab } from './app-state.js'
 import { canvasMeasures } from './canvas-measures.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { desktopSaveBridge } from './desktop-bridge.js'
+import { recordedListCountEstimates } from './companion-display.js'
 
 /** The box under a button's line: a note or skip (circled i), or a failure (warning triangle). */
 export interface ButtonBox {
@@ -150,6 +153,16 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     return {
       ...lookOf(place),
       commands: coreCommandRegistry([], resolve),
+      listCountEstimateOf(doc, target, port) {
+        if (semanticHashOf(doc) !== semanticHashOf(tab.store.doc)) return undefined
+        const execution = app.executionForTab(tab)
+        const comparison = app.previewComparisonCompile(tab)
+        const estimateOf = recordedListCountEstimates({ execution, frozen: false, live: comparison?.ok ? comparison.artifact : undefined })
+        if (estimateOf === undefined) return undefined
+        const fact = solveOccurrenceTypes(doc, documentResolver(doc, resolve), target.graphId,
+          (target.instancePath ?? []).map(asNodeId), estimateOf)?.listCountFactOf(asNodeId(target.nodeId), 'input', port)
+        return fact?.kind === 'estimate' ? fact.count : undefined
+      },
       positionAddedNode(doc, target, node, to, source) {
         const graph = doc.graphs[target.graphId]!
         const measuring = { ...doc, graphs: { ...doc.graphs, [target.graphId]: { ...graph, nodes: { ...graph.nodes, [node.id]: node } } } }

@@ -613,6 +613,9 @@ function checkNodeView(c: ShapeChecker, v: unknown, path: string): void {
   if (v['textLines'] !== undefined && c.obj(v['textLines'], `${path}.textLines`)) {
     for (const [k, lines] of Object.entries(v['textLines'])) c.num(lines, `${path}.textLines.${k}`)
   }
+  if (v['listCountAnswers'] !== undefined && c.obj(v['listCountAnswers'], `${path}.listCountAnswers`)) {
+    for (const [k, count] of Object.entries(v['listCountAnswers'])) c.int(count, `${path}.listCountAnswers.${k}`, 0)
+  }
   c.optBool(v['previewFolded'], `${path}.previewFolded`)
   c.optBool(v['minimizedPreviewOpen'], `${path}.minimizedPreviewOpen`)
   if (v['histogramVisibility'] !== undefined && c.obj(v['histogramVisibility'], `${path}.histogramVisibility`)) {
