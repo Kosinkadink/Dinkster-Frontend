@@ -1491,6 +1491,12 @@ test('Asset selection instructions stay readable for the rail and single or mult
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
       await page.mouse.move(0, 0)
+      if (mode !== 'rail') {
+        const editor = page.getByTestId('asset-editor')
+        for (const action of [editor.getByTestId('asset-upload-trigger'), editor.getByRole('button', { name: 'Cancel', exact: true }), editor.getByTestId('asset-apply')]) {
+          await expect(action).toBeInViewport({ ratio: 1 })
+        }
+      }
       await screenshot(page, `asset-selection-${mode}-${width}`)
     }
     if (mode !== 'rail') {
