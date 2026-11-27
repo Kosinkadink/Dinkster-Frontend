@@ -763,10 +763,14 @@ it('keeps the project name and exact template choice through picker cancellation
   const search = document.querySelector<HTMLInputElement>('input[type="search"]')!
   search.value = 'photos'
   search.dispatchEvent(new Event('input', { bubbles: true }))
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await settle()
+  expect(search.value).toBe('photos')
+  expect(tile('photos starter')).toBe(document.activeElement)
+  tile('photos starter').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   expect(search.value).toBe('')
   expect(document.querySelector('[data-testid="project-template-picker"]')).not.toBeNull()
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   expect(document.querySelector('[role="group"][aria-label="Template"]')?.textContent).toContain('lines starter')
   button('Create')!.click()
   await settle()
@@ -790,6 +794,8 @@ it('revokes a pending template choice when the feature turns off without creatin
   button('Choose')!.click()
   await settle()
   button('Use template')!.click()
+  button('Use template')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  expect(document.querySelector('[data-testid="project-template-picker"]')).not.toBeNull()
   enabled = false
   window.dispatchEvent(new Event('focus'))
   await settle()

@@ -1550,6 +1550,7 @@
   "templatesPage.downloading": "\u6b63\u5728\u4e0b\u8f7d {count} \u4e2a\u6a21\u578b\uff0c{percent}%",
   "templatesPage.downloadingModel": "\u6b63\u5728\u4e0b\u8f7d",
   "templatesPage.empty": "\u6682\u65e0\u6a21\u677f\u3002\u6dfb\u52a0\u7684\u5305\u53ef\u4ee5\u63d0\u4f9b\u6a21\u677f\u3002",
+  "templatesPage.loadFailed": "\u65e0\u6cd5\u52a0\u8f7d\u6a21\u677f",
   "templatesPage.from": "\u6765\u6e90",
   "templatesPage.here": "\u5df2\u6709",
   "templatesPage.hereCount": "\u672c\u673a\u5df2\u6709 {count}/{total}",

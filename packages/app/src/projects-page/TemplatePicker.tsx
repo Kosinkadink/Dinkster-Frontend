@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import type { CollectionEntry, SchemaResolver, WorkflowDocument } from '@dinkster/core'
 import { ProductButton, ProductErrorBanner, ProductTemplateDetail, ProductTemplatesPage, type ProductTemplateEntry } from '@dinkster/ui'
 import { normalizeTemplateSearch, type TemplateCollectionRef } from '../collections.js'
@@ -91,17 +91,6 @@ export function TemplatePicker(props: {
       }).catch(() => { /* Choosing reports an unavailable document. */ })
     }
   })
-  onMount(() => {
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || pending()) return
-      event.preventDefault()
-      event.stopPropagation()
-      if (search() !== '') setSearch('')
-      else props.onCancel()
-    }
-    window.addEventListener('keydown', escape)
-    onCleanup(() => window.removeEventListener('keydown', escape))
-  })
   const tile = (entry: CollectionEntry): ProductTemplateEntry => ({ id: entry.id, name: entry.title, family: family(entry), picture: entry.thumbUrl ?? pictures().get(entry.id) })
   const drawing = (entry: ProductTemplateEntry) => <Show when={documents().get(entry.id)} keyed>{(body) => props.drawing(body, props.catalog.resolve)}</Show>
   const choose = async (entry: CollectionEntry) => {
@@ -122,6 +111,7 @@ export function TemplatePicker(props: {
   return <section class="templates-page dinkster-root" data-testid="project-template-picker">
     <Show when={error()}><ProductErrorBanner onDismiss={() => setError('')}>{error()}</ProductErrorBanner></Show>
     <ProductTemplatesPage title={message('projects.new.chooseTemplate')} groups={groups()} group={group()} onGroup={setGroup}
+      onCancel={props.onCancel} pending={pending()}
       searchLabel={message('templatesPage.search')} search={search()} onSearch={(value) => { if (search().trim() === '' && value.trim() !== '') setGroup('all'); setSearch(value) }}
       leave={<ProductButton disabled={pending()} onClick={props.onCancel}>{message('projects.action.cancel')}</ProductButton>}
       templates={shown().map(tile)} selected={current()?.id} onSelect={(id) => { setSelected(id); setView('result') }}

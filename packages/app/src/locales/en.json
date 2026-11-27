@@ -1541,6 +1541,7 @@
   "templatesPage.downloading": "Downloading {count, plural, one {# model} other {# models}}, {percent}%",
   "templatesPage.downloadingModel": "Downloading",
   "templatesPage.empty": "No templates yet. Packs you add can bring their own.",
+  "templatesPage.loadFailed": "Could not load templates",
   "templatesPage.from": "From",
   "templatesPage.here": "Here",
   "templatesPage.hereCount": "{count} of {total} on this computer",
