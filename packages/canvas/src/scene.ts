@@ -1450,12 +1450,19 @@ export function buildScene(input: BuildSceneInput): Scene {
     const pin = node?.layout.pins.find((p) => p.widgetTap === true && p.address.port === inputId)
     return pin?.type
   }
+  const parentRerouteTypes = new Map<string, TypeExpr>()
+  for (const link of effective?.projectedParentLinks ?? []) {
+    if (link.to.graphId !== def.id || !isRerouteRef(link.to.endpoint)) continue
+    const type = parentInputTypes.get(link.identity)
+    if (type !== undefined) parentRerouteTypes.set(link.to.endpoint.reroute, type)
+  }
   const tracedType = (from: LinkEndpoint): TypeExpr | undefined => {
     if (isWidgetTapRef(from)) {
       return widgetTapType(from.node, from.tap)
     }
     const trace = traceEndpoint(def, from, rerouteIndex)
     if (trace.kind === 'tapValue') return widgetTapType(trace.node, trace.input)
+    if (trace.kind === 'undriven') return parentRerouteTypes.get(trace.reroute)
     if (trace.kind !== 'output') return undefined
     return outputType(trace.ref)
   }

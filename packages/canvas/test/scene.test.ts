@@ -120,13 +120,13 @@ describe('buildScene', () => {
     })
     expect(occurrenceLoad.diagnostics).toEqual([])
     const occurrences = occurrenceLoad.document!
-    const parentRecord = (node: string, current = occurrences) => buildScene({
+    const parentRecord = (node: string, current = occurrences, linkId = 'boundary:inputs:incoming') => buildScene({
       document: current, graphId: 'body', tokens: defaultTokens, measure, widgetMeasure,
       resolve: documentResolver(current, (type) => type === 'Make' ? source : type === 'Other'
         ? { ...source, type: 'Other', body: [{ kind: 'output', id: 'record', type: otherRecord }] }
         : { ...sink, body: [{ kind: 'input', id: 'value', type: subset, optional: false }] }),
       occurrence: { owner: { instancePath: [], node: asNodeId(node) }, plannerAvailable: true },
-    }).links.find((link) => link.id === 'boundary:inputs:incoming')?.fromType
+    }).links.find((link) => link.id === linkId)?.fromType
     expect(parentRecord('first')).toEqual(record)
     expect(parentRecord('second')).toEqual(otherRecord)
     const disconnected = { ...occurrences, graphs: { ...occurrences.graphs,
@@ -145,6 +145,29 @@ describe('buildScene', () => {
     } }
     expect(parentRecord('first', junction)).toEqual(record)
     expect(parentRecord('second', junction)).toEqual(otherRecord)
+    expect(parentRecord('first', junction, 'feed')).toEqual(record)
+    expect(parentRecord('second', junction, 'feed')).toEqual(otherRecord)
+    const chain: WorkflowDocument = { ...junction, graphs: { ...junction.graphs,
+      body: { ...junction.graphs.body!,
+        reroutes: { ...junction.graphs.body!.reroutes, tail: { id: asRerouteId('tail') } },
+        links: {
+          middle: { id: asLinkId('middle'), from: { reroute: asRerouteId('junction') }, to: { reroute: asRerouteId('tail') } },
+          feed: { ...junction.graphs.body!.links.feed!, from: { reroute: asRerouteId('tail') } },
+        },
+      },
+    } }
+    expect(parentRecord('first', chain, 'feed')).toEqual(record)
+    expect(parentRecord('second', chain, 'feed')).toEqual(otherRecord)
+    const locallyDriven: WorkflowDocument = { ...chain, graphs: { ...chain.graphs,
+      body: { ...chain.graphs.body!,
+        nodes: { ...chain.graphs.body!.nodes, local: { id: asNodeId('local'), type: 'Other', values: {} } },
+        links: { ...chain.graphs.body!.links,
+          local: { id: asLinkId('local'), from: { node: asNodeId('local'), port: asPortId('record') },
+            to: { reroute: asRerouteId('junction') } },
+        },
+      },
+    } }
+    expect(parentRecord('first', locallyDriven, 'feed')).toEqual(otherRecord)
   })
 
   it('keeps mapped Save wires on their real inputs through folding and undo', () => {
