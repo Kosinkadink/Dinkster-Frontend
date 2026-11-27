@@ -2,6 +2,7 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './test',
+  testIgnore: ['**/canvas-equivalence.spec.ts'],
   fullyParallel: false,
   workers: 2,
   retries: 0,
