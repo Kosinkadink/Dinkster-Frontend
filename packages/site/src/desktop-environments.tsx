@@ -542,12 +542,9 @@ function Environments() {
             {...attrs}
             value={values()[props.field]}
             disabled={busy()}
-            onChange={(event) => change(props.field, event.currentTarget.value)}
-          >
-            <For each={props.options}>
-              {([value, label]) => <option value={value}>{label}</option>}
-            </For>
-          </ProductSelect>
+            onChange={(value) => change(props.field, value)}
+            options={props.options.map(([value, label]) => ({ value, label }))}
+          />
         )}
       </ProductField>
     )
@@ -651,28 +648,15 @@ function Environments() {
                 {...attrs}
                 value={values().selected}
                 disabled={busy()}
-                onChange={(event) =>
+                onChange={(value) =>
                   select(
                     environments().find(
-                      (entry) => entry.id === event.currentTarget.value,
+                      (entry) => entry.id === value,
                     ),
                   )
                 }
-              >
-                <option value="" selected={!values().selected}>
-                  New local environment
-                </option>
-                <For each={environments().filter((entry) => entry.root)}>
-                  {(entry) => (
-                    <option
-                      value={entry.id}
-                      selected={values().selected === entry.id}
-                    >
-                      {entry.name}
-                    </option>
-                  )}
-                </For>
-              </ProductSelect>
+                options={[{ value: '', label: 'New local environment' }, ...environments().filter((entry) => entry.root).map((entry) => ({ value: entry.id, label: entry.name }))]}
+              />
             )}
           </ProductField>
           <Text field="name" label="Environment name" maxLength={128} />
@@ -1158,14 +1142,11 @@ function Environments() {
                 {...attrs}
                 value={remote().channel}
                 disabled={busy()}
-                onChange={(event) =>
-                  setRemote({ ...remote(), channel: event.currentTarget.value })
+                onChange={(value) =>
+                  setRemote({ ...remote(), channel: value })
                 }
-              >
-                <For each={channels}>
-                  {([value, label]) => <option value={value}>{label}</option>}
-                </For>
-              </ProductSelect>
+                options={channels.map(([value, label]) => ({ value, label }))}
+              />
             )}
           </ProductField>
           <ProductButton

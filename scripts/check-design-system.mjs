@@ -8,7 +8,8 @@ const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const stylesheet = resolve(repository, 'packages/ui/styles.css')
 const primitiveTags = new Map(
   [
-    ['controls.tsx', new Set(['button', 'input', 'textarea', 'select'])],
+    ['controls.tsx', new Set(['button', 'input', 'textarea'])],
+    ['select.tsx', new Set(['button', 'input'])],
     ['canvas-field.tsx', new Set(['button', 'input'])],
     ['canvas-list.tsx', new Set(['button', 'input'])],
     ['fixes-notice.tsx', new Set(['button'])],

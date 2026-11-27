@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { chooseOption } from '../../e2e/choices.js'
 import {
   canvasGalleryPages,
   galleryWidgetInputs,
@@ -1290,9 +1291,10 @@ for (const theme of ['dark', 'light'] as const) {
           page.getByRole('heading', { name: label, exact: true }),
         ).toBeVisible()
         if (input) {
-          await page
-            .getByRole('combobox', { name: 'Widget kind', exact: true })
-            .selectOption(input.id)
+          await chooseOption(
+            page.getByRole('combobox', { name: 'Widget kind', exact: true }),
+            input.id,
+          )
           await expect(
             page.locator('figure.dinkster-canvas-example canvas').first(),
           ).toHaveAttribute('data-ready', `${id}-${theme}`)

@@ -83,21 +83,20 @@ describe('RegionIterationInspector', () => {
     expect(root.textContent).toContain('Progress: 38%')
     expect(root.querySelector('progress')).toHaveProperty('value', 0.375)
 
-    const selects = root.querySelectorAll('select')
-    selects[0]!.value = JSON.stringify([{ nodeId: 'outer', iteration: 1 }])
-    selects[0]!.dispatchEvent(new Event('change', { bubbles: true }))
+    const iterationSelect = root.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Iteration"]')!
+    iterationSelect.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find((entry) => entry.textContent === 'Iteration 2')!.click()
     await vi.waitFor(() => expect(root.textContent).toContain('Cached or coalesced'))
     expect(peek).toHaveBeenLastCalledWith(
       { jobId: 'job-7', nodeId: 'outer[1]/source', outputId: 'value' },
       { signal: expect.any(AbortSignal) },
     )
 
-    selects[0]!.value = JSON.stringify([{ nodeId: 'outer', iteration: 0 }])
-    selects[0]!.dispatchEvent(new Event('change', { bubbles: true }))
+    iterationSelect.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find((entry) => entry.textContent === 'Iteration 1')!.click()
     await vi.waitFor(() => expect(root.textContent).toContain('Renamed source'))
-    const nodeSelect = root.querySelectorAll('select')[1]!
-    nodeSelect.value = 'outer[0]/sink'
-    nodeSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    root.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Body node"]')!.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find((entry) => entry.textContent === 'Output sink')!.click()
     expect(root.textContent).toContain('This body node has no inspectable outputs.')
   })
 
@@ -109,9 +108,8 @@ describe('RegionIterationInspector', () => {
     mount(peek)
     await vi.waitFor(() => expect(peek).toHaveBeenCalledTimes(1))
     const firstSignal = peek.mock.calls[0]![1]?.signal
-    const iterationSelect = root.querySelector('select')!
-    iterationSelect.value = JSON.stringify([{ nodeId: 'outer', iteration: 1 }])
-    iterationSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    root.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Iteration"]')!.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find((entry) => entry.textContent === 'Iteration 2')!.click()
     expect(firstSignal?.aborted).toBe(true)
     await vi.waitFor(() => expect(root.textContent).toContain('Value is no longer retained'))
     resolveOld({ available: true, descriptor: { typeId: 'INT', fingerprint: 'stale', value: 99 }, renditions: [] })
