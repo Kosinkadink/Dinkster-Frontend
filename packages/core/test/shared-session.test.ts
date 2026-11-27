@@ -31,7 +31,7 @@ import {
 import { createLocalSession, type SessionOp, type WirePatchOp } from '../src/commands/session.js'
 import { planClipboardPaste, serializeSelection, type DinksterClipboardEnvelope } from '../src/clipboard.js'
 import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
-import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
+import { asGraphDefId, asLineageId, asNodeId, asPortId, occurrenceKey } from '../src/ids.js'
 import { lifecycleFlattenFingerprint, lifecycleSelectionFingerprint, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
 import type { NodeSchema } from '../src/schema/model.js'
 import { boundaryOf, boundaryItems } from '../src/format/document.js'
@@ -1062,6 +1062,56 @@ describe('shared DocumentSession', () => {
     expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual(editor)
     expect(session.doc.view.graphs.g0?.nodes.n2?.size).toEqual(size)
     session.close()
+  })
+
+  it('rebases manual occurrence counts without overriding newly known incoming lengths', async () => {
+    const list = { kind: 'list' as const, element: { kind: 'concrete' as const, name: 'STRING' } }
+    const source: NodeSchema = { type: 'Texts', displayName: 'Texts', category: '', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'texts', type: list, optional: false, widget: { widgetType: 'LIST', options: {}, default: [] } }] }
+    const unpack: NodeSchema = { type: 'Unpack', displayName: 'Unpack', category: '', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'list', type: list, optional: true },
+        { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, optional: false, listCountOf: 'list',
+          widget: { widgetType: 'INT', options: { min: 0, max: 512 }, default: 0 } }] }
+    const resolve = (type: string) => type === source.type ? source : type === unpack.type ? unpack : undefined
+    const owner = { instancePath: [asNodeId('left')], node: asNodeId('inner') }
+    const key = occurrenceKey(owner)
+    const initial = doc({ g0: graph({ id: 'g0', nodes: {
+      left: node('left', '#g1'), right: node('right', '#g1'),
+      source: { ...node('source', 'Texts'), values: { texts: ['a', 'b', 'c'] } },
+    } }), g1: graph({ id: 'g1', nodes: { inner: node('inner', 'Unpack') },
+      boundary: boundaryOf([{ id: asPortId('list'), binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('list') } }], []) }) })
+    for (const { known, introduced } of [{ known: false, introduced: false }, { known: true, introduced: false }, { known: true, introduced: true }]) {
+      let available = true
+      const start = introduced ? { ...initial, graphs: { ...initial.graphs, g0: { ...initial.graphs.g0!, nodes: {
+        left: initial.graphs.g0!.nodes.left!, right: initial.graphs.g0!.nodes.right!,
+      } } } } : initial
+      const { conn, session, conflicts } = await makeShared('actorA', start, () => (type) => available ? resolve(type) : undefined)
+      const gate = deferred()
+      conn.postHook = () => { conn.postHook = undefined; return gate.promise }
+      expect(session.dispatch({ command: 'occurrence.setListCount', params: { graphId: 'g1', nodeId: 'inner',
+        instancePath: ['left'], inputId: 'count', value: 2 } }).ok).toBe(true)
+      expect(session.doc.occurrenceListCounts?.[key]?.counts.count).toBe(2)
+      await until(() => conn.postedOps.length === 1)
+      const foreign = createLocalSession(start, coreCommandRegistry([], resolve), { schemaResolverFor: () => resolve })
+      let patch: readonly WirePatchOp[] = []
+      foreign.onOp((op) => { patch = op.patch })
+      const connect = { command: 'link.connect', params: { graphId: 'g0',
+        from: { node: introduced ? 'n100' : 'source', tap: 'texts' }, to: { node: 'left', port: 'list' } } }
+      expect(foreign.dispatch(introduced ? { command: 'batch', params: { invocations: [
+        { command: 'node.add', params: { graphId: 'g0', type: 'Texts', values: { texts: ['a', 'b', 'c'] }, position: { x: 0, y: 0 } } },
+        connect,
+      ] } } : known ? connect : setTitle('right', 'Peer title')).ok).toBe(true)
+      available = false
+      conn.appendForeign('peer', [...patch])
+      expect(session.doc.occurrenceListCounts?.[key]?.counts.count).toBe(known ? 3 : 2)
+      expect(session.doc.graphs.g1).toEqual(initial.graphs.g1)
+      gate.resolve()
+      await session.settle()
+      expect(session.doc.occurrenceListCounts?.[key]?.counts.count).toBe(known ? 3 : 2)
+      expect(Object.keys(session.doc.occurrenceListCounts ?? {})).toEqual([key])
+      expect(conflicts).toHaveLength(introduced ? 1 : 0)
+      session.close()
+    }
   })
 
   it('rebases pending intentions over a foreign op and wins the stale-base race', async () => {

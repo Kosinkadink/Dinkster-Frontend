@@ -34,7 +34,7 @@ import { innerConstructAddress, matchBoundaryItem, outerConstructAddress } from 
 import { effectiveOccurrenceTopology, occurrenceMemberReferenced, type EffectiveLink } from '../compile/effective-topology.js'
 import { occurrenceDynamicView, type ValueOwner } from '../compile/occurrence-view.js'
 import type { ControllerMode, GraphDef, Json, NodeData, WorkflowDocument } from '../format/document.js'
-import { asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, sameEndpoint, type LinkEndpoint } from '../ids.js'
+import { asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, occurrenceKey, portAddressKey, sameEndpoint, type LinkEndpoint } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { buildRerouteIndex, traceEndpoint } from '../reroute.js'
 import { boundaryItems, resolveDynamicAddress } from '../format/document.js'
@@ -535,6 +535,9 @@ function buttonOf(view: View, target: PressTarget): { readonly spec: ButtonSpec;
 const inputAt = (view: View, path: string): ElaboratedInput | undefined =>
   elabInputsOf(view.elaborated).find((input) => valueKeyOf(input) === path)
 
+const isOccurrenceListCount = (view: View, target: StepPlace, path: string): boolean =>
+  (target.instancePath?.length ?? 0) > 0 && inputAt(view, path)?.spec.listCountOf !== undefined
+
 /** Route construct state and member addresses through the same boundary mapping as values. */
 function constructOwnerOf(doc: WorkflowDocument, target: StepPlace, address: string, host: ActionHost): ValueOwner {
   const resolveNode = documentNodeResolver(doc, host.schemaResolverFor?.(doc) ?? (() => undefined))
@@ -664,8 +667,15 @@ type Action =
     }
 
 function invocationsOf(action: Action, doc: WorkflowDocument, target: StepPlace, actor: string | undefined, host: ActionHost): CommandInvocation[] {
+  const view = action.kind === 'value' || action.kind === 'mode' ? viewOf(doc, target, host) ?? refuse('The node is gone.') : undefined
+  if (action.kind === 'value' && isOccurrenceListCount(view!, target, action.path)) {
+    return [{ command: 'occurrence.setListCount', params: {
+      graphId: target.graphId, nodeId: target.nodeId, instancePath: target.instancePath!, inputId: action.path,
+      ...(action.value === undefined ? {} : { value: action.value }),
+    } }]
+  }
   const owner = action.kind === 'value' || action.kind === 'mode'
-    ? (viewOf(doc, target, host) ?? refuse('The node is gone.')).valueOwners.get(action.path) : undefined
+    ? view!.valueOwners.get(action.path) : undefined
   const { graphId, nodeId } = owner ?? target
   const path = owner?.valueKey ?? (action.kind === 'value' || action.kind === 'mode' ? action.path : '')
   switch (action.kind) {
@@ -1497,7 +1507,8 @@ class Press {
       }
       if (built.length === 0) continue
       dispatchOn(live, built, this.session.allocationActor)
-      if ((action.kind === 'value' || action.kind === 'mode') && (this.target.instancePath?.length ?? 0) > 0) {
+      if ((action.kind === 'value' || action.kind === 'mode') && (this.target.instancePath?.length ?? 0) > 0 &&
+          !(action.kind === 'value' && isOccurrenceListCount(view, this.target, action.path))) {
         const owner = view.valueOwners.get(action.path) ?? this.target
         if (owner.graphId !== live.doc.root) {
           this.sharedWrites.push({ graphId: owner.graphId, nodeId: owner.nodeId,
@@ -1515,6 +1526,10 @@ class Press {
     const writes = new Map<string, string>()
     for (const action of this.actions) {
       if (action.kind !== 'value' && action.kind !== 'mode') continue
+      if (action.kind === 'value' && isOccurrenceListCount(this.view, this.target, action.path)) {
+        writes.set(`${JSON.stringify([this.target.instancePath, this.target.nodeId])} counts:${action.path}`, JSON.stringify(action.value) ?? 'unset')
+        continue
+      }
       const owner = this.view.valueOwners.get(action.path)
       const { graphId, nodeId } = owner ?? this.target
       const path = owner?.valueKey ?? action.path
@@ -1643,6 +1658,12 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
         gone = true
         continue
       }
+      const countOwner = occurrenceKey({ instancePath: (place.instancePath ?? []).map(asNodeId), node: asNodeId(place.nodeId) })
+      const oldCounts = was.doc.occurrenceListCounts?.[countOwner]?.counts ?? {}
+      const newCounts = now.doc.occurrenceListCounts?.[countOwner]?.counts ?? {}
+      for (const field of new Set([...Object.keys(oldCounts), ...Object.keys(newCounts)])) {
+        if (oldCounts[field] !== newCounts[field]) edited.get(key)!.add(`values:${field}`)
+      }
       for (const store of ['values', 'controllers'] as const) {
         const old = was.node[store] ?? {}
         const next = now.node[store] ?? {}
@@ -1651,15 +1672,17 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
         }
       }
       for (const field of new Set([...was.valueOwners.keys(), ...now.valueOwners.keys()])) {
+        const localCount = isOccurrenceListCount(was, place, field) && isOccurrenceListCount(now, place, field)
         const oldOwner = was.valueOwners.get(field)
         const newOwner = now.valueOwners.get(field)
         if (JSON.stringify(oldOwner) !== JSON.stringify(newOwner)) {
-          edited.get(key)!.add(`values:${field}`)
+          if (!localCount) edited.get(key)!.add(`values:${field}`)
           edited.get(key)!.add(`controllers:${field}`)
         } else if (oldOwner !== undefined && newOwner !== undefined) {
           const oldNode = was.doc.graphs[oldOwner.graphId]?.nodes[oldOwner.nodeId]
           const newNode = now.doc.graphs[newOwner.graphId]?.nodes[newOwner.nodeId]
           for (const store of ['values', 'controllers'] as const) {
+            if (localCount && store === 'values') continue
             if (JSON.stringify(oldNode?.[store]?.[oldOwner.valueKey]) !== JSON.stringify(newNode?.[store]?.[newOwner.valueKey])) {
               edited.get(key)!.add(`${store}:${field}`)
             }

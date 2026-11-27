@@ -17,7 +17,7 @@ import { compile, documentResolver } from '../src/compile/compile.js'
 import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
 import { diag } from '../src/diagnostics.js'
 import type { GraphDef, Json, NodeData, WorkflowDocument } from '../src/format/document.js'
-import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, isPortEndpoint } from '../src/ids.js'
+import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, isPortEndpoint, occurrenceKey } from '../src/ids.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
@@ -1623,6 +1623,57 @@ describe('steps outside the workflow', () => {
 })
 
 describe('steps inside a subgraph occurrence', () => {
+  it('sets unknown list counts on concrete occurrences, independently of promotions and sibling presses', async () => {
+    const original = SCHEMAS.get('dinkster.utilities.unpack')!
+    const type = 'test.list_count_unpack'
+    SCHEMAS.set(type, { ...original, type, body: original.body.map((item) =>
+      item.kind === 'input' && item.id === 'count' ? { ...item, listCountOf: 'list' } : item) })
+    for (const promoted of [false, true]) {
+      const root = documentOf({ left: { type: '#g1', values: { count: 3 } }, right: { type: '#g1', values: { count: 1 } } })
+      const inner = documentOf({ inner: { type, values: { count: 4 } } }).graphs.g0!
+      const owners = ['left', 'right'].map((id) => ({ instancePath: [asNodeId(id)], node: asNodeId('inner') }))
+      const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: { ...inner, id: asGraphDefId('g1'),
+        boundary: { body: promoted ? [{ kind: 'input' as const, id: asPortId('count'), promoted: true,
+          binds: { kind: 'port' as const, node: asNodeId('inner'), port: asPortId('count') } }] : [] },
+      } }, occurrenceListCounts: Object.fromEntries(owners.map((owner, i) =>
+        [occurrenceKey(owner), { owner, graphId: asGraphDefId('g1'), counts: { count: i === 0 ? 3 : 1 } }])) }
+      const host = hostOf({ schemaResolverFor: (current) => documentResolver(current, resolve), ask: async () => ({ new_count: 2 }) })
+      const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+      const target = { graphId: 'g1', nodeId: 'inner', instancePath: ['left'], button: 'set_count' }
+      expect(await runPress(session, target, host)).toMatchObject({ kind: 'done', notes: [] })
+      expect(session.doc.graphs).toEqual(doc.graphs)
+      expect(session.doc.occurrenceListCounts?.[occurrenceKey(owners[0]!)]?.counts).toEqual({ count: 2 })
+      expect(session.doc.occurrenceListCounts?.[occurrenceKey(owners[1]!)]?.counts).toEqual({ count: 1 })
+      expect(session.undo()).toBe(true)
+      expect(session.doc).toEqual(doc)
+      expect(session.canUndo).toBe(false)
+      expect(await runSteps(session, owners.map((owner, i) => ({ graphId: 'g1', nodeId: 'inner', instancePath: owner.instancePath,
+        prefix: '', steps: decodeSteps([{ step: 'set', field: 'count', value: { value: i === 0 ? 2 : 0 } }]) })), host))
+        .toMatchObject({ kind: 'done', notes: [] })
+      expect(session.doc.graphs).toEqual(doc.graphs)
+      const compiled = compile({ document: session.doc, revision: 1, resolve,
+        scope: { kind: 'partial', targets: owners }, connection: asConnectionId('test'), schemaHash: 'test', graphFeatures: ['regions'] })
+      expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error(JSON.stringify(compiled.diagnostics))
+      expect(compiled.artifact.dinksterGraph?.nodes['left.inner']).toMatchObject({ outputMembers: { items: ['0', '1'] } })
+      expect(compiled.artifact.dinksterGraph?.nodes['right.inner']).toMatchObject({ outputMembers: { items: [] } })
+      expect(session.undo()).toBe(true)
+      expect(session.doc).toEqual(doc)
+      expect(session.canUndo).toBe(false)
+      const fallback = promoted ? 3 : 4
+      expect(session.dispatch({ command: 'occurrence.setListCount', params: { graphId: 'g1', nodeId: 'inner',
+        instancePath: ['left'], inputId: 'count', value: fallback } }).ok).toBe(true)
+      const answer = later<Readonly<Record<string, Json>> | undefined>()
+      const waiting = runPress(session, target, { ...host, ask: () => answer.promise })
+      expect(session.dispatch({ command: 'occurrence.setListCount', params: { graphId: 'g1', nodeId: 'inner',
+        instancePath: ['left'], inputId: 'count' } }).ok).toBe(true)
+      const reset = session.doc
+      answer.settle({ new_count: 2 })
+      expect(await waiting).toMatchObject({ kind: 'done', skipped: [{ id: 'count', why: 'edited' }] })
+      expect(session.doc).toEqual(reset)
+    }
+  })
+
   it('sets a promoted Unpack count without changing another occurrence or its definition', async () => {
     const root = documentOf({
       left: { type: '#g1', values: { count: 3 } },

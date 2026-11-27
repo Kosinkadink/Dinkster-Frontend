@@ -27,8 +27,8 @@ import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, elabInputsOf, elaborateInterface, inGoneMember, valueKeyOf } from '../schema/elaborate.js'
 import type { Json, JsonObject } from '../format/document.js'
 import { groupAllocationFloor } from '../group-alloc.js'
-import { asNodeId, asPortId, isPortEndpoint, isRerouteRef, isWidgetTapRef, sameEndpoint, samePortRef, type LinkEndpoint, type PortRef } from '../ids.js'
-import { subgraphDefIdOf } from '../invariants.js'
+import { asNodeId, asPortId, isPortEndpoint, isRerouteRef, isWidgetTapRef, occurrenceKey, sameEndpoint, samePortRef, type LinkEndpoint, type PortRef } from '../ids.js'
+import { graphAtInstancePath, subgraphDefIdOf } from '../invariants.js'
 import { allocateOne, graphAllocator } from './alloc.js'
 import { buildRerouteIndex, rerouteDriverOf, wouldCreateRerouteCycle, wouldCreateTapCycle } from '../reroute.js'
 import { createTransactionBuilder, executeCommand, type CommandDefinition, type CommandExecutionContext, type TransactionBuilder } from './contract.js'
@@ -56,6 +56,7 @@ import {
 } from './command-support.js'
 import { boundaryItems, withBoundaryItems } from '../format/document.js'
 import { documentPrimitiveResolver } from '../compile/compile.js'
+import { solveOccurrenceTypes } from '../compile/occurrence-solve.js'
 import { primitiveOf } from '../primitive.js'
 
 // Finite only (CO2): NaN/Infinity are not JSON and would poison geometry.
@@ -774,6 +775,72 @@ function nodeSetValueOf(resolve?: SchemaResolver): CommandDefinition {
         params.value,
       )
       removeWiresOfGoneMembers(doc, params.graphId as string, params.nodeId, tx, context, resolve)
+      return []
+    },
+  }
+}
+
+function occurrenceSetListCountOf(resolve?: SchemaResolver): CommandDefinition {
+  return {
+    id: 'occurrence.setListCount',
+    prepareForSharedReplay(doc, params, context) {
+      if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.nodeId !== 'string') return undefined
+      const resolver = schemaResolverForCommand(doc, context, resolve)
+      if (resolver === undefined) return undefined
+      const schemas: Record<string, NodeSchema> = {}
+      for (const graph of Object.values(doc.graphs)) for (const node of Object.values(graph.nodes)) {
+        const schema = resolver(node.type)
+        if (schema !== undefined) schemas[node.type] = schema
+      }
+      return { ok: true, params: { ...params, schemaSnapshot: schemas as unknown as Json } }
+    },
+    run(doc, params, tx, context) {
+      if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.nodeId !== 'string' ||
+          typeof params.inputId !== 'string' || !Array.isArray(params.instancePath) || params.instancePath.length === 0 ||
+          !params.instancePath.every((hop) => typeof hop === 'string')) {
+        return [err('params.invalid', 'occurrence.setListCount: params must include graphId, nodeId, inputId and a nonempty instancePath')]
+      }
+      const instancePath = (params.instancePath as string[]).map(asNodeId)
+      const graph = graphAtInstancePath(doc, instancePath)
+      const node = graph?.nodes[params.nodeId]
+      if (graph?.id !== params.graphId || node === undefined) return [err('occurrence.missing', 'occurrence.setListCount: node occurrence is gone')]
+      const snapshot = params.schemaSnapshot
+      const resolver: SchemaResolver | undefined = context.kind === 'shared-replay'
+        ? isObj(snapshot) ? (type) => snapshot[type] as unknown as NodeSchema | undefined : undefined
+        : schemaResolverForCommand(doc, context, resolve)
+      const schema = resolver?.(node.type)
+      const input = schema && inputsOf(schema).find((input) => input.id === params.inputId && input.listCountOf !== undefined)
+      if (input === undefined) return [err('input.notListCount', 'occurrence.setListCount: field is not a declared list count')]
+      let value = params.value
+      const min = input.widget?.options['min']
+      const max = input.widget?.options['max']
+      if (value !== undefined && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 ||
+          typeof min === 'number' && value < min || typeof max === 'number' && value > max)) {
+        return [err('value.invalid', 'occurrence.setListCount: count is outside the declared limits')]
+      }
+      let missingSchema = false
+      const countResolver: SchemaResolver = (type) => {
+        const schema = resolver!(type)
+        if (schema === undefined && subgraphDefIdOf(type) === undefined) missingSchema = true
+        return schema
+      }
+      const known = solveOccurrenceTypes(doc, countResolver, graph.id, instancePath)?.listCountOf(node.id, 'input', input.listCountOf!)
+      if (context.kind === 'shared-replay' && missingSchema) return [err('schema.missing', 'occurrence.setListCount: incoming count needs a declaration unavailable to this edit')]
+      if (known !== undefined) {
+        if (typeof min === 'number' && known < min || typeof max === 'number' && known > max) return []
+        value = known
+      }
+      const owner = { instancePath, node: node.id }
+      const key = occurrenceKey(owner)
+      const state = tx.current.occurrenceListCounts?.[key]
+      if (state?.counts[params.inputId] === value) return []
+      if (value === undefined) {
+        tx.remove(['occurrenceListCounts', key, 'counts', params.inputId])
+        if (Object.keys(tx.current.occurrenceListCounts![key]!.counts).length === 0) tx.remove(['occurrenceListCounts', key])
+      } else {
+        if (tx.current.occurrenceListCounts === undefined) tx.set(['occurrenceListCounts'], {})
+        tx.set(['occurrenceListCounts', key], { owner, graphId: graph.id, counts: { ...state?.counts, [params.inputId]: value } } as unknown as Json)
+      }
       return []
     },
   }
@@ -2727,6 +2794,7 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   nodeMove,
   selectionMove,
   nodeSetValueOf(),
+  occurrenceSetListCountOf(),
   imageApplyAssetOf(),
   ...registeredExtensionCommands(),
   textSplice,
@@ -2881,11 +2949,13 @@ export function coreCommandRegistry(
       candidate.id !== 'node.setController' &&
       candidate.id !== 'node.setValue' &&
       candidate.id !== 'node.setValues' &&
+      candidate.id !== 'occurrence.setListCount' &&
       candidate.id !== 'image.applyAsset' &&
       candidate.id !== 'image.compositorApply'),
     nodeSetControllerOf(resolve),
     nodeSetValueOf(resolve),
     nodeSetValuesOf(resolve),
+    occurrenceSetListCountOf(resolve),
     imageApplyAssetOf(resolve),
     ...registeredExtensionCommands(resolve),
     ...extra,
