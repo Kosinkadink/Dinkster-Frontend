@@ -1,10 +1,10 @@
-import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component } from 'solid-js'
+import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component, type JSX } from 'solid-js'
 import { assetMultiSelect, formatByteSize, rankSearch, type CollectionEntry, type CollectionPageRequest, type JsonObject } from '@dinkster/core'
-import { ProductModelList, ProductTextInput, type ProductModel, type ProductModelVersion } from '@dinkster/ui'
+import { ProductModelList, ProductTextButton, ProductTextInput, type ProductModel, type ProductModelVersion } from '@dinkster/ui'
 import type { AssetGuessCandidate } from '@dinkster/client'
 import { failureMessage } from '../request-failure.js'
 import { FileImportError } from '../desktop-bridge.js'
-import { Check, RotateCw, Upload, X } from 'lucide-solid'
+import { Check, RotateCw, X } from 'lucide-solid'
 import { AssetBrowserNavigation } from '../asset-browser/AssetBrowserNavigation.js'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
 import { assetSourcesStatus, assetUploadPolicy, committableAssetRef, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
@@ -22,7 +22,7 @@ import { PreviewDownload } from '../PreviewDownload.js'
 import { VideoPreview } from '../VideoPreview.js'
 import { AudioRecorder } from '../AudioRecorder.js'
 import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
-import { ProductButton } from '../ProductControls.js'
+import { ProductButton, ProductFileInput } from '../ProductControls.js'
 import { ProductSelect } from '../ProductSelect.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { AssetSelectionDetails, LogicalModelVariantFacts } from '../asset-browser/rail.js'
@@ -163,6 +163,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     props.app.tabs.get().includes(ed.tab) && props.app.backendForTab(ed.tab) === uploadBackend &&
     props.app.registryForTab(ed.tab) === openedRegistry && activeProjectId() === project
   const [destination, setDestination] = createSolidSignal(readUploadDestination(String(uploadBackend.id), project))
+  const [destinationOpen, setDestinationOpen] = createSolidSignal(false)
   const [uploadedLocation, setUploadedLocation] = createSolidSignal('')
   let assetUploadInput: HTMLInputElement | undefined
   let assetUploadTrigger: HTMLButtonElement | undefined
@@ -663,6 +664,46 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
 
   implementationProps.setDismissBlocked(assetUploading)
   implementationProps.setRequestClose((finish) => { assetUploadAbort?.abort(); finish() })
+  const renderFooter = (summary?: JSX.Element, validFolder: () => boolean = () => true) => <ProductActionFooter
+    status={<div class="asset-import-line">
+      <Show when={!usesLogicalModelSource()}>
+        <ProductTextButton data-testid="asset-upload-trigger" ref={(element) => { assetUploadTrigger = element }}
+          label={assetUploading() ? 'Uploading...' : message('assets.quickList.add')}
+          disabled={assetUploading() || !validFolder()} onClick={() => assetUploadInput?.click()} />
+        {summary}
+        <Show when={assetUploadLimitLabel}>{(label) => <span>{message('uploadDestination.limit', { limit: label() })}</span>}</Show>
+      </Show>
+    </div>}>
+    <ProductFileInput ref={(element) => { assetUploadInput = element }} multiple={assetMulti}
+      accept={Array.isArray(ed.spec?.options['accept']) ? (ed.spec!.options['accept'] as string[]).join(',') : ''}
+      disabled={assetUploading() || usesLogicalModelSource() || !validFolder()}
+      onCancel={() => { setDestination(readUploadDestination(String(uploadBackend.id), project)); restoreAssetUploadFocus() }}
+      onChange={(event) => {
+        const files = Array.from(event.currentTarget.files ?? [])
+        event.currentTarget.value = ''
+        uploadFiles(files)
+      }} />
+    <button type="button" onClick={abortAssetUploadAndClose}>Cancel</button>
+    <button type="button" class="primary" data-testid="asset-apply" disabled={assetUploading()}
+      onClick={() => {
+        if (!pickerContextCurrent()) { setAssetError(message('widgetEditor.commitRefused')); return }
+        const selection = assetSelection()
+        if (!assetMulti) { commitEditorValue(selection[0] ?? null); return }
+        const committed = usesLogicalModelSource()
+          ? selection.filter((ref, index) => selection.findIndex((candidate) => candidate.digest === ref.digest) === index)
+          : selection
+        commitEditorValue(assetScalarMerge && committed.length === 0 ? null : [...committed])
+      }}>
+      <Icon icon={Check} /> {assetMulti
+        ? `Use ${assetSelection().length} ${assetSelection().length === 1 ? assetVocabulary().singular : assetVocabulary().plural}`
+        : `Use ${assetVocabulary().singular}`}
+    </button>
+  </ProductActionFooter>
+  const destinationPicker = {
+    get expanded() { return destinationOpen() },
+    onToggle: () => setDestinationOpen((open) => !open),
+    footer: renderFooter,
+  }
   return (
     <>
           {/* Escape and outside dismissal refuse while an upload batch runs;
@@ -670,7 +711,13 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               upload before closing. The host's window-capture dismissal runs
               before this body sees the event, so the refusal is advertised
               through data-dismiss-blocked. */}
-          <div class="widget-editor asset-editor widget-modal-editor" classList={{ 'asset-file-picker': !usesLogicalModelSource() }} data-testid="asset-editor" data-dismiss-blocked={assetUploading() ? 'uploading' : undefined}>
+          <div class="widget-editor asset-editor widget-modal-editor" classList={{ 'asset-file-picker': !usesLogicalModelSource() }} data-testid="asset-editor" data-dismiss-blocked={assetUploading() ? 'uploading' : undefined}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && !event.defaultPrevented && destinationOpen()) {
+                event.preventDefault(); event.stopPropagation(); setDestinationOpen(false)
+                queueMicrotask(() => assetUploadTrigger?.parentElement?.querySelector<HTMLButtonElement>('[aria-expanded]')?.focus())
+              }
+            }}>
             <div class="asset-editor-scroll" ref={assetScroll}>
             <div class="asset-editor-context" data-testid="asset-schema-metadata" aria-label="Asset requirements">
               <strong>{assetMulti ? `Multiple ${assetVocabulary().plural}` : `Single ${assetVocabulary().singular}`}</strong>
@@ -951,73 +998,13 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 }
               }} />
             </Show>
-            <Show when={!classifiedLatent && !usesLogicalModelSource() && uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined} keyed>
-              {(backend) => <UploadDestination connection={backend.connection} machine={backend.label} value={destination()}
-                disabled={assetUploading()} onChange={setDestination} />}
-            </Show>
             <Show when={uploadedLocation()}><ProductNotice tone="status">{uploadedLocation()}</ProductNotice></Show>
             </div>
-            <ProductActionFooter
-              status={<span role="status">{assetUploading() ? `Uploading ${assetVocabulary().uploadPlural}...` : assetUploadLimitLabel !== undefined ? `Uploads up to ${assetUploadLimitLabel}` : ''}</span>}
-            >
-              <button
-                ref={(element) => { assetUploadTrigger = element }}
-                type="button"
-                class="asset-upload-trigger"
-                data-testid="asset-upload-trigger"
-                aria-label={`Upload ${assetVocabulary().uploadSingular}`}
-                disabled={assetUploading() || usesLogicalModelSource()}
-                onClick={() => assetUploadInput?.click()}
-              >
-                <Icon icon={Upload} /> {assetUploading() ? 'Uploading...' : assetMulti ? `Upload ${assetVocabulary().uploadPlural}...` : `Upload ${assetVocabulary().uploadSingular}...`}
-              </button>
-              <input
-                ref={(element) => { assetUploadInput = element }}
-                type="file"
-                hidden
-                multiple={assetMulti}
-                accept={Array.isArray(ed.spec?.options['accept']) ? (ed.spec!.options['accept'] as string[]).join(',') : ''}
-                disabled={assetUploading() || usesLogicalModelSource()}
-                onCancel={() => {
-                  setDestination(readUploadDestination(String(uploadBackend.id), project))
-                  restoreAssetUploadFocus()
-                }}
-                onChange={(event) => {
-                  const files = Array.from(event.currentTarget.files ?? [])
-                  event.currentTarget.value = ''
-                  uploadFiles(files)
-                }}
-              />
-              {/* Cancel stays enabled DURING an upload as the lock's escape
-                  hatch: it aborts the pending batch, then closes (staging
-                  discarded, stored value untouched). */}
-              <button type="button" onClick={abortAssetUploadAndClose}>Cancel</button>
-              <button
-                type="button"
-                class="primary"
-                data-testid="asset-apply"
-                disabled={assetUploading()}
-                onClick={() => {
-                  if (!pickerContextCurrent()) {
-                    setAssetError(message('widgetEditor.commitRefused'))
-                    return
-                  }
-                  const selection = assetSelection()
-                  if (!assetMulti) {
-                    commitEditorValue(selection[0] ?? null)
-                    return
-                  }
-                  const committed = usesLogicalModelSource()
-                    ? selection.filter((ref, index) => selection.findIndex((candidate) => candidate.digest === ref.digest) === index)
-                    : selection
-                  commitEditorValue(assetScalarMerge && committed.length === 0 ? null : [...committed])
-                }}
-              >
-                <Icon icon={Check} /> {assetMulti
-                  ? `Use ${assetSelection().length} ${assetSelection().length === 1 ? assetVocabulary().singular : assetVocabulary().plural}`
-                  : `Use ${assetVocabulary().singular}`}
-              </button>
-            </ProductActionFooter>
+            <Show when={!classifiedLatent && !usesLogicalModelSource() && uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined}
+              keyed fallback={renderFooter()}>
+              {(backend) => <UploadDestination connection={backend.connection} machine={backend.label} value={destination()}
+                disabled={assetUploading()} onChange={setDestination} picker={destinationPicker} />}
+            </Show>
           </div>
 
     </>

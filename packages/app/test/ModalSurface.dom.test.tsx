@@ -686,7 +686,7 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).not.toContain('per file')
     expect(mounted.root.querySelectorAll('[data-testid="logical-model-conflict"]')).toHaveLength(0)
     expect(mounted.root.querySelector('input[aria-label="Search models"]')).not.toBeNull()
-    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')?.disabled).toBe(true)
+    expect(mounted.root.querySelector('[data-testid="asset-upload-trigger"]')).toBeNull()
     expect(mounted.connection.listMountEntries).toHaveBeenCalledWith('left', expect.objectContaining({
       kind: 'model/checkpoint', recursive: true,
     }))
@@ -1157,7 +1157,9 @@ describe('ASSET widget modal integration', () => {
     }
     const backend = { protocol: 'dinkster', baseUrl: '', connection: {
       ...assetLocationMethods,
-      fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false, importMount: 'capture' }),
+      listMounts: async () => [],
+      fetchMountSettings: async () => ({ mounts: [{ id: 'capture', mode: 'readwrite' }], mountChangesAllowed: false, importMount: 'capture' }),
+      fetchMountLocations: async () => ({ mounts: [], activeMounts: [{ id: 'capture', mode: 'readwrite', state: 'ready', path: '/imports' }], importMount: 'capture' }),
       uploadNamedAsset,
     }, registry: { listCollections: () => [] } }
     const app = {
@@ -1178,8 +1180,9 @@ describe('ASSET widget modal integration', () => {
     const trigger = root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')!
     expect(trigger).not.toBeNull()
     expect(trigger.type).toBe('button')
-    expect(trigger.getAttribute('aria-label')).toBe('Upload file')
+    expect(trigger.textContent).toBe('Add a file from this computer')
     expect(trigger.disabled).toBe(false)
+    expect(root.querySelector('[data-testid="upload-destination"]')).toBeNull()
     expect(input.hidden).toBe(true)
     expect(input.accept).toBe('application/octet-stream')
     expect(input.multiple).toBe(false)
@@ -1191,6 +1194,27 @@ describe('ASSET widget modal integration', () => {
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(document.activeElement).toBe(trigger)
 
+    const change = () => root.querySelector<HTMLButtonElement>('[data-testid="upload-destination-summary"] button')!
+    change().click()
+    const folder = root.querySelector<HTMLInputElement>('[data-testid="upload-destination-folder"]')!
+    folder.value = '../outside'; folder.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(folder.getAttribute('aria-invalid')).toBe('true')
+    expect(trigger.disabled).toBe(true)
+    expect(document.getElementById(folder.getAttribute('aria-describedby')!)?.textContent).toContain('Enter a folder inside this Mount.')
+    expect(root.querySelector('.asset-error')).toBeNull()
+    folder.value = 'scene/reference'; folder.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(folder.hasAttribute('aria-invalid')).toBe(false)
+    expect(trigger.disabled).toBe(false)
+    expect(root.querySelector('[data-testid="upload-destination-summary"]')?.textContent).toContain('copied to capture/scene/reference/')
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    folder.dispatchEvent(escape)
+    expect(escape.defaultPrevented).toBe(true)
+    expect(root.querySelector('[data-testid="upload-destination"]')).toBeNull()
+    expect(close).not.toHaveBeenCalled()
+    change().click()
+    expect(root.querySelector<HTMLInputElement>('[data-testid="upload-destination-folder"]')?.value).toBe('scene/reference')
+    change().click()
+
     trigger.blur()
     Object.defineProperty(input, 'value', { configurable: true, writable: true, value: 'C:\\fakepath\\byte-proof.bin' })
     Object.defineProperty(input, 'files', { configurable: true, value: [file] })
@@ -1201,7 +1225,7 @@ describe('ASSET widget modal integration', () => {
     expect(trigger.disabled).toBe(true)
     await vi.waitFor(() => expect(uploadNamedAsset).toHaveBeenCalledOnce())
     expect(uploadNamedAsset.mock.calls[0]?.[0]).toBe(file)
-    expect(uploadNamedAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', name: 'byte-proof.bin', mount: 'capture' })
+    expect(uploadNamedAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', name: 'byte-proof.bin', mount: 'capture', folder: 'scene/reference' })
     expect(new Uint8Array(await (uploadNamedAsset.mock.calls[0]?.[0] as File).arrayBuffer())).toEqual(bytes)
     expect(dispatchTo).not.toHaveBeenCalled()
     expect(close).not.toHaveBeenCalled()
@@ -1286,7 +1310,8 @@ describe('ASSET widget modal integration', () => {
     expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GB per file')
     expect(root.querySelector('.asset-browser-section')?.getAttribute('aria-label')).toBe('Latents')
     expect(root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')?.getAttribute('aria-label')).toBe('Search latents')
-    expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')?.textContent).toContain('Upload latent')
+    expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')?.textContent).toBe('Add a file from this computer')
+    expect(root.querySelector('[data-testid="upload-destination-summary"]')).toBeNull()
 
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
     const incompatible = new File([new Uint8Array([1, 2, 3])], 'wrong.png', { type: 'image/png' })

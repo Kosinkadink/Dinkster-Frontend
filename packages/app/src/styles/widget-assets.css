@@ -429,6 +429,13 @@
 .assets-panel .collection-details { display: none; }
 .asset-editor .collection-footer { flex-wrap: wrap; flex: none; }
 .asset-editor > .product-action-footer { flex: none; padding-top: var(--dinkster-space-8); }
+.asset-editor > .product-action-footer .product-action-status { flex: 1; }
+.asset-editor > .product-action-footer .product-action-buttons { flex: none; }
+.asset-destination-settings { flex: none; }
+.asset-import-line { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-4) var(--dinkster-space-8); }
+.asset-destination-summary { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: var(--dinkster-space-8); }
+.asset-destination-summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-destination-summary > button { flex: none; }
 .asset-rail-summary { display: grid; gap: 2px; margin-bottom: var(--dinkster-space-8); }
 .asset-rail-summary strong { min-width: 0; overflow-wrap: anywhere; }
 .asset-rail-summary span { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }

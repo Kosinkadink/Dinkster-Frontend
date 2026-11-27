@@ -1,5 +1,6 @@
-import { createEffect, createSignal, createUniqueId, onCleanup, Show, untrack } from 'solid-js'
+import { createEffect, createSignal, createUniqueId, onCleanup, Show, untrack, type JSX } from 'solid-js'
 import type { DinksterConnection, MountLocations, MountSettings } from '@dinkster/client'
+import { ProductCheckbox as SharedCheckbox, ProductField as SharedField, ProductPanel, ProductTextButton, ProductTextInput as SharedTextInput } from '@dinkster/ui'
 import { ProductButton, ProductCheckbox, ProductTextInput } from './ProductControls.js'
 import { ProductField, ProductNotice } from './ProductForm.js'
 import { ProductSelect } from './ProductSelect.js'
@@ -12,6 +13,11 @@ export function UploadDestination(props: {
   readonly value: UploadDestinationChoice
   readonly disabled?: boolean
   readonly onChange: (value: UploadDestinationChoice) => void
+  readonly picker?: {
+    readonly expanded: boolean
+    readonly onToggle: () => void
+    readonly footer: (summary: JSX.Element, validFolder: () => boolean) => JSX.Element
+  }
 }) {
   const message = useAppMessage()
   const id = createUniqueId()
@@ -43,7 +49,12 @@ export function UploadDestination(props: {
     settings()?.mounts.some((configured) => configured.id === mount.id && configured.mode === 'readwrite')) ?? []
   const selected = () => writable().find((mount) => mount.id === (props.value.mount || locations()?.importMount))
   const unavailable = () => settings() !== undefined && locations() !== undefined && Boolean(props.value.mount) && selected() === undefined
-  return <section class="runtime-settings-body upload-destination" data-testid="upload-destination">
+  const folderError = () => {
+    const folder = props.value.folder ?? ''
+    return folder !== '' && (folder.includes('\\') || folder.split('/').some((part) => part === '' || part === '.' || part === '..'))
+      ? message('uploadDestination.folderError') : undefined
+  }
+  return <Show when={props.picker} keyed fallback={<section class="runtime-settings-body upload-destination" data-testid="upload-destination">
     <ProductField controlId={`${id}-mount`} label={message('uploadDestination.folder')} layout="stack"
       description={message('uploadDestination.machine', { machine: props.machine })}>
       <ProductSelect id={`${id}-mount`} testId="upload-destination-mount" selectedId={props.value.mount ?? ''}
@@ -69,5 +80,30 @@ export function UploadDestination(props: {
     <Show when={settings()?.restartRequired}><ProductNotice tone="warning">{message('uploadDestination.restart')}</ProductNotice></Show>
     <Show when={unavailable()}><ProductNotice tone="error">{message('uploadDestination.missing', { mount: props.value.mount! })}</ProductNotice></Show>
     <Show when={error()}><ProductNotice tone="warning">{error()} <ProductButton type="button" disabled={props.disabled} onClick={() => void load()}>{message('projectFolders.refresh')}</ProductButton></ProductNotice></Show>
-  </section>
+  </section>}>{(picker) => <>
+    <Show when={picker.expanded}>
+      <div class="asset-destination-settings" data-testid="upload-destination">
+        <ProductPanel fill="quiet">
+          <SharedField label={message('uploadDestination.mountLabel')} layout="inline">{(attributes) => <ProductSelect id={attributes.id}
+            ariaDescribedBy={attributes['aria-describedby']} ariaLabel={message('uploadDestination.mountLabel')} testId="upload-destination-mount"
+            selectedId={selected()?.id ?? ''} disabled={props.disabled === true}
+            options={writable().map((mount) => ({ id: mount.id, value: mount.id, label: mount.id }))}
+            onSelect={(option) => props.onChange({ ...props.value, mount: option.value, folder: '' })} />}</SharedField>
+          <SharedField label={message('uploadDestination.folderLabel')} layout="inline" {...(folderError() ? { error: folderError()! } : {})}>
+            {(attributes) => <SharedTextInput {...attributes} data-testid="upload-destination-folder" value={props.value.folder ?? ''}
+              disabled={props.disabled === true} onInput={(event) => props.onChange({ ...props.value, folder: event.currentTarget.value })} />}
+          </SharedField>
+          <SharedField layout="self-labeled">{(attributes) => <SharedCheckbox {...attributes}
+            data-testid="upload-destination-remember" label={message('uploadDestination.remember')} checked={props.value.remember}
+            disabled={props.disabled === true} onChange={(event) => props.onChange({ ...props.value, remember: event.currentTarget.checked })} />}</SharedField>
+        </ProductPanel>
+      </div>
+    </Show>
+    {picker.footer(<span class="asset-destination-summary" data-testid="upload-destination-summary">
+      <Show when={selected()} fallback={<span>{error() || message('uploadDestination.defaultUnavailable')}</span>}>{(mount) =>
+        <span>{message('uploadDestination.copiedTo', { path: `${mount().id}/${props.value.folder ? `${props.value.folder}/` : ''}` })}</span>}
+      </Show>{' '}
+      <ProductTextButton label={message('uploadDestination.change')} aria-expanded={picker.expanded} disabled={props.disabled === true} onClick={picker.onToggle} />
+    </span>, () => folderError() === undefined)}
+  </>}</Show>
 }
