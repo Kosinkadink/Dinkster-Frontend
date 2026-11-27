@@ -4,10 +4,10 @@ Runs combines execution rows and output previews. This workflow is the
 default scope and lists the active workflow's executions. Selecting a run
 also selects it in Log and in loop iteration inspection. All workflows shows
 browser queued/running runs followed by backend stored finished runs, retaining
-search, paging, open, resubmit, delete and guarded Clear finished actions. Clearing
+search, paging, open, resubmit, delete and immediate Clear finished actions. Clearing
 or deleting confirmed-absent stored records removes their finished runs from
 both scopes without clearing canvas results. Queued and running runs stay.
-Clear finished covers every workflow on that backend; its confirmation says
+Clear finished covers every workflow on that backend without asking;
 saved files stay, because history deletion removes records, not files. Legacy
 backends use browser execution history instead.
 

@@ -6,6 +6,7 @@ import {
   CanvasCurvePlot,
   CanvasEditorButtons,
   CanvasEditorChoice,
+  CanvasEditorControls,
   CanvasEditorLine,
   CanvasEditorNote,
   CanvasEditorNumber,
@@ -1134,6 +1135,7 @@ type CameraState = 'off' | 'starting' | 'live' | 'capturing' | 'error'
 export function WebcamSpace(props: {
   readonly value: Json | undefined
   readonly ports: WebcamPorts
+  readonly measured?: (height: number) => void
   readonly wired: boolean
   readonly readOnly?: boolean
   /** What the wire brought in the last run, when it is known. */
@@ -1144,6 +1146,7 @@ export function WebcamSpace(props: {
   const message = useAppMessage()
   const [camera, setCamera] = createSignal<CameraState>('off')
   const [error, setError] = createSignal<string>()
+  const [videoReady, setVideoReady] = createSignal(false)
   let stream: MediaStream | undefined
   let video: HTMLVideoElement | undefined
   let abort: AbortController | undefined
@@ -1154,6 +1157,7 @@ export function WebcamSpace(props: {
   const live = () => camera() === 'live' || camera() === 'capturing'
   const release = () => {
     cameraRequest++
+    setVideoReady(false)
     abort?.abort()
     abort = undefined
     for (const track of stream?.getTracks() ?? []) track.stop()
@@ -1222,11 +1226,18 @@ export function WebcamSpace(props: {
     return stored() === undefined ? message('inNodeWebcam.nothingStored') : message('inNodeWebcam.stored', { name: stored()!.name ?? stored()!.digest })
   }
   const noteTone = () => stored() === undefined ? 'muted' : undefined
+  const problem = () => !props.wired && (error() !== undefined || props.ports.upload === undefined)
+  const pictureHasContent = () => live() ? videoReady() : pictureMessage() === undefined && camera() !== 'starting' && shown() !== undefined
+  const problemNote = () => <CanvasEditorNote tone={error() === undefined ? 'warning' : 'problem'} details={{ label: message('runs.details'),
+    title: message(error() === undefined ? 'inNodeWebcam.native' : camera() === 'error' ? 'inNodeWebcam.unavailableTitle' : 'inNodeWebcam.captureFailedTitle'),
+    ...(error() === undefined ? {} : { body: [error(), ...(props.ports.upload === undefined ? [message('inNodeWebcam.native')] : [])].join('\n') }) }}>
+    {message(error() === undefined ? 'inNodeEditor.nativeShort' : camera() === 'error' ? 'inNodeWebcam.unavailableShort' : 'inNodeWebcam.captureFailedShort')}
+  </CanvasEditorNote>
   return (
     <>
       <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}
         loading={camera() === 'starting'}
-        {...(pictureMessage() === undefined ? {} : { message: pictureMessage()! })}>
+        message={problem() && !pictureHasContent() ? problemNote() : pictureMessage()}>
         <Show when={live()} fallback={
           <Show when={pictureMessage() === undefined && camera() !== 'starting' ? shown() : undefined}>
             {(url) => <img src={url()} alt={message('webcam.preview')} />}
@@ -1236,9 +1247,10 @@ export function WebcamSpace(props: {
             video = element
             element.srcObject = stream ?? null
             void element.play().catch(() => undefined)
-          }} muted playsinline autoplay />
+          }} onLoadedData={() => setVideoReady(true)} onEmptied={() => setVideoReady(false)} muted playsinline autoplay />
         </Show>
       </CanvasEditorPicture>
+      <CanvasEditorControls measured={props.measured}>
       <CanvasEditorButtons buttons={live()
         ? [
             { label: message(camera() === 'capturing' ? 'webcam.capturing' : 'webcam.capture'), icon: canvasEditorIcons.capture,
@@ -1247,21 +1259,9 @@ export function WebcamSpace(props: {
           ]
         : [{ label: message('inNodeWebcam.start'), icon: canvasEditorIcons.capture,
             disabled: props.wired || props.readOnly || camera() === 'starting' || props.ports.upload === undefined, onClick: () => void start() }]} />
-      <Show when={!props.wired && error() !== undefined} fallback={
-        <Show when={!props.wired && props.ports.upload === undefined} fallback={
-          <Show when={note()}>{(text) => <CanvasEditorNote tone={noteTone()}>{text()}</CanvasEditorNote>}</Show>
-        }>
-          <CanvasEditorNote tone="warning" details={{ label: message('runs.details'), title: message('inNodeWebcam.native') }}>
-            {message('inNodeEditor.nativeShort')}
-          </CanvasEditorNote>
-        </Show>
-      }>
-        <CanvasEditorNote tone="problem" details={{ label: message('runs.details'),
-          title: message(camera() === 'error' ? 'inNodeWebcam.unavailableTitle' : 'inNodeWebcam.captureFailedTitle'),
-          body: [error(), ...(props.ports.upload === undefined ? [message('inNodeWebcam.native')] : [])].join('\n') }}>
-          {message(camera() === 'error' ? 'inNodeWebcam.unavailableShort' : 'inNodeWebcam.captureFailedShort')}
-        </CanvasEditorNote>
-      </Show>
+      <Show when={problem() && pictureHasContent()}>{problemNote()}</Show>
+      <Show when={note()}>{(text) => <CanvasEditorNote tone={noteTone()}>{text()}</CanvasEditorNote>}</Show>
+      </CanvasEditorControls>
     </>
   )
 }
