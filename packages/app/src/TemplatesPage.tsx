@@ -315,6 +315,7 @@ export function TemplatesPage(props: {
       setRequirements((previous) => new Map([...previous, [entry.id, requirements]]))
       props.app.openModelDownloads(owner, requirements, {
         workflowTitle: entry.title, signal: controller.signal, stillCurrent: current,
+        missing: requirements.filter((requirement) => missing(entry).some((model) => model.name === requirement.name)),
       })
     } catch {
       if (current()) setError(message('templatesPage.reviewError', { name: entry.title }))

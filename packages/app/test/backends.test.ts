@@ -252,6 +252,10 @@ describe('addBackend / removeBackend', () => {
         path: selection.destination, reused: false, renamed: false }]
       await app.modelDownloadsFor(backend).refresh()
       expect(state.get()?.job?.status).toBe('completed')
+      app.openModelDownloads(backend, [requirement], { missing: [requirement] })
+      expect(app.assetConsent.get()?.models?.[0]?.job).toBeUndefined()
+      await app.assetConsent.get()!.reviewModel!(0)
+      expect(app.assetConsent.get()?.models?.[0]?.plan?.status).toBe('consent-required')
       app.removeBackend(backend.id)
       expect(app.assetConsent.get()).toBeUndefined()
       expect(state.get()).toBeUndefined()
