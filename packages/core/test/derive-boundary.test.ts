@@ -1866,6 +1866,54 @@ describe('Boundary sample acceptance compilation', () => {
       expect(store.doc).toEqual(edited)
     })
 
+    it(`boundary/whole-construct/linked-outside/${context}`, () => {
+      for (const [construct, inputId, receivingId] of [
+        ['layers', 'layers.layer0.strength', 'layers.layer2.strength'],
+        ['mode', 'mode.mix', 'mode.mix'],
+      ] as const) for (const [type, port, expected] of [
+        ['dinkster.utilities.primitive_float', 'value', 0.65], ['FloatSource', 'number', ['outside', 0]],
+      ] as const) {
+        const document = boundarySample(level)
+        Object.assign(document.graphs.root!.nodes, { outside: { id: 'outside', type, values: { value: 0.65 } } })
+        const store = storeFor(document)
+        if (construct === 'layers') for (const nodeId of ['first', 'second']) {
+          edit(store, 'dynamic.materialize', { graphId: 'root', nodeId,
+            frames: [{ construct, members: ['layer0'] }] })
+        }
+        edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId, value: 0.2 })
+        edit(store, 'node.setValue', { graphId: 'root', nodeId: 'second', inputId, value: 0.8 })
+        const original = store.doc
+        const baseline = prompt(original)
+        const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+        edit(store, 'link.connect', { graphId: 'root', from: { node: 'outside', port },
+          to: { node: 'first', port: inputId } })
+        const connected = store.doc
+        const check = (current: WorkflowDocument, linked: boolean) => {
+          const compiled = prompt(current)
+          expect(compiled[path]).toEqual({ ...baseline[path]!, inputs: {
+            ...baseline[path]!.inputs, [receivingId]: linked ? expected : 0.2,
+          } })
+          expect(compiled[second]).toEqual(baseline[second])
+          expect(compiled[second]!.inputs[receivingId]).toBe(0.8)
+          expect(current.graphs.root!.nodes.first!.values[inputId]).toBe(0.2)
+          expect(current.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+          expect(current.graphs.detail).toEqual(original.graphs.detail)
+          expect(current.graphs.portrait).toEqual(original.graphs.portrait)
+        }
+        check(connected, true)
+        check(loadDocument(JSON.parse(JSON.stringify(connected))).document!, true)
+        const link = Object.values(connected.graphs.root!.links).find((item) =>
+          'port' in item.to && item.to.node === 'first' && item.to.port === inputId)!
+        edit(store, 'link.disconnect', { graphId: 'root', linkId: link.id })
+        check(store.doc, false)
+        check(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, false)
+        expect(store.undo()).toBe(true)
+        check(store.doc, true)
+        expect(store.redo()).toBe(true)
+        check(store.doc, false)
+      }
+    })
+
     it(`boundary/multi-row-member/${context}`, () => {
       const store = storeFor(boundarySample(level))
       edit(store, 'dynamic.materialize', { graphId: 'root', nodeId: 'first', frames: [{ construct: 'layers', members: ['layer0'] }] })
