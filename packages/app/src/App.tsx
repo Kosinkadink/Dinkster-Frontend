@@ -4,6 +4,7 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
+import { widgetValueText } from '@dinkster/canvas'
 import { BrandMark } from './BrandMark.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
@@ -44,9 +45,9 @@ import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostCo
 import { builtinEditorBindings, builtinEditorRoles } from './builtin-bindings.js'
 import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
-import { ProductActionFooter, ProductNotice } from './ProductForm.js'
+import { ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
+import { ProductConfirmation, ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import type { ShellNavigation } from './Shell.js'
@@ -478,7 +479,10 @@ export function App(props: {
       // back to its plain text.
       widgetReadout: (row, value) => {
         try {
-          return widgets.viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.readout?.(value, row.spec)
+          const readout = widgets.viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.readout?.(value, row.spec)
+          if (readout !== undefined) return readout
+          const summary = widgetValueText(widgets, row.viewId, value, row.spec)
+          return summary === null ? [] : summary === undefined ? undefined : [summary]
         } catch {
           return undefined
         }
@@ -503,7 +507,6 @@ export function App(props: {
   const problems = useSignal(app.problems)
   const queueRefusal = useSignal(app.queueRefusal)
   const solveDiagnostics = useSignal(app.solveDiagnostics)
-  const migrationNotices = useSignal(app.migrationNotices)
   const logs = useSignal(app.logs)
   const overlayPins = useSignal(app.overlayPins)
   const lenses = useSignal(app.lenses)
@@ -682,38 +685,59 @@ export function App(props: {
     }
     if (sourceId !== 'runs' || entry.owner === undefined) return
     const runId = runIdOfEntry(entry)
-    if (actionId === 'delete') void app.deleteHistoryRun(runId, entry.owner)
+    if (actionId === 'delete' && !deletingRun()) {
+      setDeleteRunError('')
+      setPendingDeleteRun({ owner: entry.owner, id: entry.id, runId, name: entry.title })
+    }
     if (actionId === 'open') void app.openRunWorkflow(runId, entry.owner)
     if (actionId === 'resubmit') void app.resubmitRunWorkflow(runId, entry.owner)
   }
-  // Clearing the whole runs scope is destructive: the button arms on the
-  // first click ("Confirm clear") and executes only on a second click
-  // within the arming window - no native dialogs, no accidental wipes.
-  // Both clicks act on the COMMITTED page's owner (the backend whose runs
-  // are actually on screen, handed over by CollectionPanel) - never on
-  // whatever backend is current when the click lands. While a replacement
-  // page is in flight the panel disables the button AND reports no owner,
-  // so old items lingering during a backend switch can never route a
-  // clear to the incoming backend; if the page owner changes between arm
-  // and confirm, the confirm re-arms instead of clearing a scope the user
-  // never looked at.
-  const [clearArmed, setClearArmed] = createSolidSignal(false)
-  let clearArmTimer: ReturnType<typeof setTimeout> | undefined
-  let clearArmOwner: string | undefined
-  const librarySourceAction = (sourceId: string, actionId: string, owner?: string): void => {
-    if (sourceId !== 'runs' || actionId !== 'clear') return
-    if (owner === undefined) return
-    if (!clearArmed() || clearArmOwner !== owner) {
-      clearArmOwner = owner
-      setClearArmed(true)
-      if (clearArmTimer !== undefined) clearTimeout(clearArmTimer)
-      clearArmTimer = setTimeout(() => setClearArmed(false), 4000)
-      return
-    }
-    if (clearArmTimer !== undefined) clearTimeout(clearArmTimer)
-    setClearArmed(false)
-    void app.clearRunHistory(owner)
+  const [pendingDeleteRun, setPendingDeleteRun] = createSolidSignal<{ owner: string; id: string; runId: string; name: string }>()
+  const [deletingRun, setDeletingRun] = createSolidSignal(false)
+  const [deleteRunError, setDeleteRunError] = createSolidSignal('')
+  const confirmDeleteRun = async (): Promise<void> => {
+    const target = pendingDeleteRun()
+    if (!target || deletingRun()) return
+    setDeletingRun(true)
+    setDeleteRunError('')
+    try {
+      await app.deleteHistoryRun(target.runId, target.owner)
+      setPendingDeleteRun(undefined)
+    } catch (cause) {
+      setDeleteRunError(message('runs.delete.failed', { name: target.name, reason: cause instanceof Error ? cause.message : String(cause) }))
+    } finally { setDeletingRun(false) }
   }
+  createEffect(() => {
+    if (!deletingRun() && pendingDeleteRun()?.owner !== activeBackend().id) setPendingDeleteRun(undefined)
+  })
+  // The confirmation keeps the committed collection page's owner, never
+  // routing a clear to a backend selected while that page is being replaced.
+  const [pendingClear, setPendingClear] = createSolidSignal<{ owner: string; name: string }>()
+  const [clearing, setClearing] = createSolidSignal(false)
+  const [clearError, setClearError] = createSolidSignal('')
+  const librarySourceAction = (sourceId: string, actionId: string, owner?: string): void => {
+    if (sourceId !== 'runs' || actionId !== 'clear' || owner === undefined || clearing()) return
+    const backend = backends().find((candidate) => candidate.id === owner)
+    if (backend) {
+      setClearError('')
+      setPendingClear({ owner, name: backend.label })
+    }
+  }
+  const confirmClear = async (): Promise<void> => {
+    const target = pendingClear()
+    if (!target || clearing()) return
+    setClearing(true)
+    setClearError('')
+    try {
+      await app.clearRunHistory(target.owner)
+      setPendingClear(undefined)
+    } catch (cause) {
+      setClearError(message('runs.clear.failed', { reason: cause instanceof Error ? cause.message : String(cause) }))
+    } finally { setClearing(false) }
+  }
+  createEffect(() => {
+    if (!clearing() && pendingClear()?.owner !== activeBackend().id) setPendingClear(undefined)
+  })
   const multiBackend = () => backends().length > 1
 
   // Pending close is validated by (id, DocumentSession): a same-id
@@ -1633,6 +1657,7 @@ export function App(props: {
       onCopyJobId={() => { const jobId = record()?.jobId; if (jobId !== undefined) void navigator.clipboard?.writeText(jobId) }}
       onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
+      <Show when={pendingDeleteRun()?.owner === p.entry.owner && pendingDeleteRun()?.id === p.entry.id} fallback={<>
       <div class="run-row-line">
         <span class="run-row-thumbnail" aria-hidden="true">
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
@@ -1656,6 +1681,12 @@ export function App(props: {
         }</Show>}>
           {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />}
         </Show>
+      </Show>
+      </>}>
+        <ProductConfirmation title={message('runs.delete.title', { name: pendingDeleteRun()!.name })}
+          consequence={message('runs.delete.consequence')} actionLabel={message('runs.chosen.delete')}
+          intent="remove" surface="inherit" pending={deletingRun()} error={deleteRunError()}
+          onCancel={() => { setDeleteRunError(''); setPendingDeleteRun(undefined) }} onConfirm={() => void confirmDeleteRun()} />
       </Show>
     </div>
   }
@@ -1702,17 +1733,18 @@ export function App(props: {
         </RunSection>
       </Show>
       <Show when={shownRunScope() === 'workflow'} fallback={<>
-        <Show when={clearArmed() && clearArmOwner === activeBackend().id}>
-          <ProductNotice tone="info" testId="runs-clear-confirmation">{message('runs.clear.confirmation')}</ProductNotice>
-        </Show>
         <h3 class="run-section-title">{message('runs.section.finished')}</h3>
+        <Show when={pendingClear()}>{(target) => <ProductConfirmation
+          title={message('runs.clear.title', { backend: target().name })} consequence={message('runs.clear.confirmation')}
+          actionLabel={message('runs.clear.action')} intent="remove" pending={clearing()} error={clearError()}
+          onCancel={() => { setClearError(''); setPendingClear(undefined) }} onConfirm={() => void confirmClear()} />}</Show>
         <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
             ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
           entryContent={(entry, selected) => <StoredRun entry={entry()} selected={selected} />}
           onAction={libraryEntryAction}
-          sourceActions={[{ sourceId: 'runs', id: 'clear', label: message(clearArmed() ? 'runs.clear.confirm' : 'runs.clear.action') }]}
+          sourceActions={pendingClear() ? [] : [{ sourceId: 'runs', id: 'clear', label: message('runs.clear.action') }]}
           onSourceAction={librarySourceAction} />
       </>}>
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>
@@ -1762,13 +1794,12 @@ export function App(props: {
   }
   const problemsIndicator = (): PanelIndicator | undefined => {
     const list = problemDiagnostics()
-    const notice = migrationNotices().get(activeTabId())
     const missingPackCount = new Set(importedNodes().filter((node) => node.status === 'installable').map((node) => node.pack)).size
-    if (list.length === 0 && notice === undefined && missingPackCount === 0) return undefined
+    if (list.length === 0 && missingPackCount === 0) return undefined
     const severity = list.some((d) => d.severity === 'error')
       ? 'error'
-      : missingPackCount > 0 || list.some((d) => d.severity === 'warning') || notice?.entries.some((d) => d.severity === 'warning') ? 'warning' : 'info'
-    const count = list.length + (notice === undefined ? 0 : 1) + missingPackCount
+      : missingPackCount > 0 || list.some((d) => d.severity === 'warning') ? 'warning' : 'info'
+    const count = list.length + missingPackCount
     return {
       count,
       severity,
@@ -1880,7 +1911,6 @@ export function App(props: {
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
         importedNodes={importedNodes}
-        migrationNotice={() => migrationNotices().get(activeTabId())}
         compatSkips={() => activeBackend().compatSkips.get()}
         packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
         selection={selectionContext} />,
@@ -3091,42 +3121,30 @@ export function App(props: {
       <ImportAssetResolutionDialog app={app} />
       <Show when={pendingClose()} keyed>
         {(pending) => (
-          <ModalSurface
+          <ProductConfirmationDialog
             title={message('shell.close.title', { title: pending.title })}
-            ariaLabel={message('shell.close.confirm', { title: pending.title })}
+            consequence={message('shell.close.consequence')}
             modalId="close-tab"
             testId="close-tab-dialog"
-            closeLabel={message('shell.close.cancel')}
-            onRequestClose={() => setPendingClose(undefined)}
-          >
-            <div class="close-tab-confirm">
-              <p>{message('shell.close.confirm', { title: pending.title })}</p>
-              <ProductActionFooter>
-                <ProductButton type="button" autofocus onClick={() => setPendingClose(undefined)}>{message('shell.action.cancel')}</ProductButton>
-                <SharedProductButton intent="remove" fill="solid" onClick={confirmPendingClose}>{message('shell.close.discard')}</SharedProductButton>
-              </ProductActionFooter>
-            </div>
-          </ModalSurface>
+            intent="remove"
+            actionLabel={message('shell.close.discard')}
+            onCancel={() => setPendingClose(undefined)}
+            onConfirm={confirmPendingClose}
+          />
         )}
       </Show>
       <Show when={pendingCloseOthers()} keyed>{(pending) => (
-        <ModalSurface
-          title={message('shell.workflowTabs.closeOthers')}
-          ariaLabel={message('shell.workflowTabs.closeOthers')}
+        <ProductConfirmationDialog
+          title={message('shell.close.othersTitle', { count: pending.length })}
+          consequence={message('shell.close.othersConsequence', { count: pending.filter(isDirty).length })}
           modalId="close-other-tabs"
           testId="close-other-tabs-dialog"
-          closeLabel={message('shell.close.cancel')}
-          onRequestClose={() => setPendingCloseOthers(undefined)}
-        >
-          <div class="close-tab-confirm">
-            <p>{message('shell.close.othersConfirm')}</p>
-            <ul><For each={pending.filter(isDirty)}>{(tab) => <li>{tab.title}</li>}</For></ul>
-            <ProductActionFooter>
-              <ProductButton type="button" autofocus onClick={() => setPendingCloseOthers(undefined)}>{message('shell.action.cancel')}</ProductButton>
-              <SharedProductButton intent="remove" fill="solid" onClick={confirmCloseOthers}>{message('shell.close.discard')}</SharedProductButton>
-            </ProductActionFooter>
-          </div>
-        </ModalSurface>
+          items={pending.filter(isDirty).map((tab) => ({ name: tab.title, outcome: message('shell.close.unsaved') }))}
+          intent="remove"
+          actionLabel={message('shell.close.discard')}
+          onCancel={() => setPendingCloseOthers(undefined)}
+          onConfirm={confirmCloseOthers}
+        />
       )}</Show>
       <h1 class="visually-hidden">{message('shell.applicationTitle')}</h1>
       <ProductWindowToolbar title={message('shell.applicationControls')} platform="linux" service={servicesLabel()}

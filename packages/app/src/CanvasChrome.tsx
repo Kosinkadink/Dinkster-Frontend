@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, For, on, onCleanup, Show, type JSX } from 'solid-js'
 import type { CommandOutcome } from '@dinkster/core'
 import { AppWindow, Bookmark, ChevronDown, Focus, Frame, Layers, Map as MapIcon, MessageCircleWarning, Palette, Route, Workflow, type LucideIcon } from 'lucide-solid'
 import { APP_EDITOR_KIND, GRAPH_EDITOR_KIND } from './editors.js'
@@ -174,6 +174,7 @@ export function CanvasCornerControls(props: {
   readonly shortcuts?: { readonly zoomIn?: string | undefined; readonly zoomOut?: string | undefined }
   readonly ref?: (element: HTMLDivElement) => void
   readonly minimapRef?: (element: HTMLCanvasElement) => void
+  readonly children?: JSX.Element
   readonly onToggleMinimap: () => void
   readonly onToggleSetting: (id: string) => void
   readonly onOpenMenu: (menu: CanvasCornerMenu) => void
@@ -224,6 +225,7 @@ export function CanvasCornerControls(props: {
   })
   return (
     <div ref={props.ref} class="canvas-corner-controls" data-minimap-size={props.size} data-menu-open={props.menu === undefined ? undefined : 'true'}>
+      {props.children}
       <canvas
         ref={props.minimapRef}
         class="minimap"

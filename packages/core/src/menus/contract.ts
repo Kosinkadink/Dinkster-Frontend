@@ -66,6 +66,8 @@ export type MenuTarget =
       readonly kind: 'widget'
       readonly nodeId: string
       readonly inputId: string
+      /** Shared field line containing this row, keyed by its first input. */
+      readonly line?: { readonly key: string; readonly folded: boolean }
       /**
        * Canonical value owner when the row PRESENTS forwarded state (a
        * subgraph instance surfacing another node's family member). Items
@@ -88,6 +90,7 @@ export type MenuTarget =
       readonly construct?: true
     }
   | { readonly kind: 'group'; readonly groupId: string }
+  | { readonly kind: 'line'; readonly nodeId: string; readonly key: string; readonly folded: boolean }
   | {
       /** A group's add row, by the group's flattened id. */
       readonly kind: 'growth'

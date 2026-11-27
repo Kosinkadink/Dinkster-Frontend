@@ -241,6 +241,7 @@ for (const width of [1280, 390]) {
       await page.goto(`/#${section}`)
       await page.evaluate(() => document.fonts.ready)
       await expect(page.getByRole('main')).toBeVisible()
+      if (section === 'confirmations') expect(await page.evaluate(() => window.scrollY)).toBe(0)
       if (section === 'lists') {
         const heading = page.getByRole('list', { name: 'Storage model folders', exact: true }).locator('.dinkster-row-heading')
         const name = await heading.locator('strong').boundingBox()
@@ -545,6 +546,10 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
     await button.evaluate((element) => element.matches(':focus-visible')),
   ).toBe(true)
   await expect(button).toHaveCSS('outline-width', '1px')
+  await expect(button).toHaveCSS(
+    'outline-color',
+    await token(page, '--dinkster-text-secondary'),
+  )
   await expect(samples).toHaveScreenshot('buttons-focus.png')
   await button.hover()
   await page.mouse.down()
@@ -616,6 +621,33 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
     page.getByRole('link', { name: 'Forms', exact: true }),
   ).toBeInViewport()
   await expect(page).toHaveScreenshot('frame-stays-when-scrolled.png')
+})
+
+test('model rows distinguish keyboard focus from selection in both themes', async ({ page }) => {
+  for (const [theme, keyboard, selected] of [
+    ['dark', 'rgb(164, 181, 183)', 'rgb(50, 230, 197)'],
+    ['light', 'rgb(88, 99, 109)', 'rgb(7, 113, 105)'],
+  ] as const) {
+    await page.goto(`/?theme=${theme}#models`)
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme
+      document.querySelector<HTMLElement>('.dinkster-root')!.dataset.theme = theme
+    }, theme)
+    const row = page.getByRole('button', { name: /^Detail Tweaker XL/ }).first()
+    await row.focus()
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Tab')
+    await expect(row).toBeFocused()
+    await expect(row).toHaveCSS('outline-color', keyboard)
+    await expect(row).toHaveCSS('outline-width', '1px')
+    await expect(row).toHaveAttribute('aria-pressed', 'false')
+    await page.keyboard.press('Enter')
+    await expect(row).toHaveAttribute('aria-pressed', 'true')
+    expect(await row.evaluate((element) =>
+      getComputedStyle(element, '::before').backgroundColor,
+    )).toBe(selected)
+    await expect(row).toHaveCSS('outline-color', keyboard)
+  }
 })
 
 test('page field borders show focus without a second ring', async ({
@@ -1047,13 +1079,17 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await page.goto('/#confirmations')
   const opener = page.getByRole('button', { name: 'Review removal' })
   await opener.click()
-  const dialog = page.getByRole('dialog', { name: 'Remove item?' })
+  const dialog = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
   await expect(dialog).toBeVisible()
   await expect(
-    dialog.getByRole('button', { name: 'Remove item', exact: true }),
+    dialog.getByRole('button', { name: 'Remove backend', exact: true }),
   ).toBeVisible()
   await expect(page).toHaveScreenshot('dialog-open.png', { fullPage: true })
-  await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused()
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+  await opener.click()
   await page.keyboard.press('Shift+Tab')
   expect(
     await dialog.evaluate((element) =>
@@ -1068,7 +1104,7 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(dialog).toHaveCount(0)
   await opener.click()
   const remove = dialog.getByRole('button', {
-    name: 'Remove item',
+    name: 'Remove backend',
     exact: true,
   })
   await remove.focus()
@@ -1092,6 +1128,41 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(page).toHaveScreenshot('dialog-open-390.png')
 })
 
+test('pending confirmation dismissal controls dim without a page root and recover when work ends', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') })
+  await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'))
+  await page.goto('/#confirmations')
+  // The app mounts dialogs outside a page root; the gallery body normally masks that context.
+  await page.evaluate(() => document.body.classList.remove('dinkster-root'))
+  const opener = page.getByRole('button', { name: 'Review working', exact: true })
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
+  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true })
+  const close = dialog.getByRole('button', { name: 'Close', exact: true })
+  const action = dialog.getByRole('button', { name: 'Remove backend', exact: true })
+  for (const control of [cancel, close]) {
+    await expect(control).toBeDisabled()
+    await expect(control).toHaveCSS('opacity', '0.45')
+    await control.dispatchEvent('click')
+    await expect(dialog).toBeVisible()
+  }
+  await expect(action).toHaveAttribute('aria-busy', 'true')
+  await expect(action).toHaveCSS('opacity', '1')
+  await expect(action.locator('.dinkster-spinner')).toBeVisible()
+  for (let press = 0; press < 4; press += 1) await page.keyboard.press('Escape')
+  await page.mouse.click(1, 1)
+  await expect(dialog).toBeVisible()
+  await page.clock.runFor(600)
+  for (const control of [cancel, close]) {
+    await expect(control).toBeEnabled()
+    await expect(control).toHaveCSS('opacity', '1')
+  }
+  await expect(action).not.toHaveAttribute('aria-busy', 'true')
+  await cancel.click()
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+})
+
 test('wide dialogs use their own width and preserve narrow margins and dismissal', async ({
   page,
 }) => {
@@ -1099,10 +1170,10 @@ test('wide dialogs use their own width and preserve narrow margins and dismissal
   for (const width of [1280, 800, 390]) {
     await page.setViewportSize({ width, height: 900 })
     await page.getByRole('button', { name: 'Review removal' }).click()
-    const regular = page.getByRole('dialog', { name: 'Remove item?' })
-    await expect(regular).toHaveAttribute('data-size', 'default')
+    const regular = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
+    await expect(regular).toHaveAttribute('data-size', 'confirmation')
     const regularBounds = (await regular.boundingBox())!
-    if (width >= 800) expect(regularBounds.width).toBe(480)
+    if (width >= 800) expect(regularBounds.width).toBe(460)
     else {
       expect(regularBounds.x).toBeGreaterThanOrEqual(16)
       expect(regularBounds.width).toBeGreaterThanOrEqual(width - 36)

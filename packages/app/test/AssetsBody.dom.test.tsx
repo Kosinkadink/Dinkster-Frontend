@@ -83,9 +83,10 @@ describe('Assets dock body', () => {
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <AssetEntrySelection entry={entry()} adapters={[]} backendId="native" connection={connection()} visibilityConnection={connection()} backendUrl="" onVisibilityChanged={changed} />, root)
     try {
-      const button = () => root.querySelector<HTMLButtonElement>('[data-testid="model-visibility-action"] button:last-child')!
+      const button = () => [...root.querySelectorAll<HTMLButtonElement>('[data-testid="model-visibility-action"] button')].find((row) => row.textContent === 'Hide in this project')!
       button().click(); button().click()
-      expect(button().disabled).toBe(true)
+      expect(button().getAttribute('aria-disabled')).toBe('true')
+      expect(button().getAttribute('aria-busy')).toBe('true')
       if (change === 'engine') setConnection(second)
       else setEntry(item('second.safetensors'))
       finish(); await Promise.resolve(); await Promise.resolve()
@@ -109,7 +110,7 @@ describe('Assets dock body', () => {
       const action = () => root.querySelector<HTMLElement>('[data-testid="model-visibility-action"]')!
       const button = (text: string) => [...action().querySelectorAll<HTMLButtonElement>('button')].find((row) => row.textContent === text)!
       button('Hide in this project').click()
-      expect(action().textContent).toContain('No files will be deleted')
+      expect(action().textContent).toContain('no files are deleted')
       expect(hideModel).not.toHaveBeenCalled()
       button('Cancel').click()
       expect(hideModel).not.toHaveBeenCalled()

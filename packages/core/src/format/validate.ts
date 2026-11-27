@@ -608,6 +608,11 @@ function checkNodeView(c: ShapeChecker, v: unknown, path: string): void {
       if (c.obj(s, `${path}.sections.${k}`)) c.bool(s['collapsed'], `${path}.sections.${k}.collapsed`)
     }
   }
+  if (v['lines'] !== undefined && c.obj(v['lines'], `${path}.lines`)) {
+    for (const [k, line] of Object.entries(v['lines'])) {
+      if (c.obj(line, `${path}.lines.${k}`)) c.bool(line['folded'], `${path}.lines.${k}.folded`)
+    }
+  }
   checkEditorViews(c, v, path)
   c.optStr(v['color'], `${path}.color`)
   c.optExt(v['ext'], `${path}.ext`)
@@ -645,6 +650,13 @@ function checkGraphView(c: ShapeChecker, v: unknown, path: string): void {
   }
   if (v['groups'] !== undefined && c.obj(v['groups'], `${path}.groups`)) {
     for (const [k, g] of Object.entries(v['groups'])) checkGroupView(c, k, g, `${path}.groups.${k}`)
+  }
+  if (v['groupMembership'] !== undefined && c.obj(v['groupMembership'], `${path}.groupMembership`)) {
+    for (const kind of ['nodes', 'reroutes', 'groups', 'boundary']) {
+      const members = v['groupMembership'][kind]
+      if (c.obj(members, `${path}.groupMembership.${kind}`))
+        for (const [id, parent] of Object.entries(members)) c.str(parent, `${path}.groupMembership.${kind}.${id}`, { nonEmpty: true })
+    }
   }
   if (v['groupSeq'] !== undefined) c.int(v['groupSeq'], `${path}.groupSeq`, 0)
   if (v['collapsedNets'] !== undefined && c.arr(v['collapsedNets'], `${path}.collapsedNets`)) {

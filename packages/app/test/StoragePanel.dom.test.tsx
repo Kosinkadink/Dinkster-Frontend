@@ -193,12 +193,14 @@ it('groups model grants under one folder and switches project membership without
     locations: [{ ...location, enabled: true, active: true, mounts: all.slice(0, 3).map((row) => row.id) }],
     revision: 'revision', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
   }
+  let refuseRemoval = true
   const connection = {
     fetchMountSettings: async () => settings,
     fetchMountLocations: async () => ({ mounts: all }),
     fetchModelSettings: async () => models,
     onMountsChanged: () => () => {},
     updateProjectFolders: async (ids: readonly string[], output: string) => {
+      if (!ids.includes('plates') && refuseRemoval) throw new Error('Folder changes are temporarily unavailable.')
       settings = { mounts: ids.map((id) => all.find((row) => row.id === id)!), outputMount: output, mountChangesAllowed: true }
     },
   } as unknown as DinksterConnection
@@ -242,7 +244,15 @@ it('groups model grants under one folder and switches project membership without
   expect(assetsOpened).toEqual(['renders', 'plates'])
   root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] [aria-haspopup="menu"]')!.click()
   ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Stop using')!.click()
-  expect(root.textContent).toContain('No files will be deleted')
+  expect(root.textContent).toContain('No files are deleted')
+  expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
+  expect(root.querySelector('[data-model-location="models"]')?.textContent).toContain('Checkpoints3')
+  ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using this folder')!.click()
+  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"]')?.textContent).toContain('Folder changes are temporarily unavailable.'))
+  expect(root.querySelector('[data-mount-id="plates"]')?.textContent).toContain('"plates" is still used by this project.')
+  expect(root.textContent).toContain('3 folders used by this project')
+  expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
+  refuseRemoval = false
   ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using this folder')!.click()
   await vi.waitFor(() => expect(root.textContent).toContain('2 folders used by this project'))
   expect(root.querySelector('[data-mount-id="plates"] button:not([aria-haspopup])')).toBeNull()
@@ -326,4 +336,35 @@ it('selects the default save folder from a writable mount menu', async () => {
   ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent === 'Save new files here')!.click()
   await vi.waitFor(() => expect(root.querySelector('[data-mount-id="exports"]')?.textContent).toContain('New saves go here'))
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).not.toContain('New saves go here')
+})
+
+it('keeps a pending folder removal visible when edit controls are activated', async () => {
+  let finish!: () => void
+  const gate = new Promise<void>((resolve) => { finish = resolve })
+  const mounts: MountDescriptor[] = [
+    { id: 'renders', mode: 'readwrite', state: 'ready' },
+    { id: 'plates', mode: 'read', state: 'ready' },
+  ]
+  const connection = {
+    fetchMountSettings: async () => ({ mounts, outputMount: 'renders', mountChangesAllowed: true }),
+    fetchMountLocations: async () => ({ mounts }),
+    fetchModelSettings: async () => ({ settings: { locations: [] }, locations: [], changesAllowed: true }),
+    onMountsChanged: () => () => {},
+    updateProjectFolders: async () => gate,
+  } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
+  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"]')).not.toBeNull())
+  root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] [aria-haspopup="menu"]')!.click()
+  ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Stop using')!.click()
+  ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using this folder')!.click()
+  try {
+    for (const control of [...root.querySelectorAll<HTMLButtonElement>('button')].filter((button) => button.textContent === 'Default save folder' || button.textContent === 'Add').reverse()) {
+      control.click()
+      expect(root.querySelector('.dinkster-confirmation [aria-busy="true"]')).not.toBeNull()
+    }
+  } finally {
+    finish()
+    await vi.waitFor(() => expect(root.querySelector('.dinkster-confirmation')).toBeNull())
+  }
 })

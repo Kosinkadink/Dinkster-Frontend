@@ -14,6 +14,22 @@ const SELECTION_DEFAULTS: Record<string, string> = {
 
 describe('Dinkster schema wire', () => {
 
+  it('keeps portable Mount inputs and their legacy string union without accepting other sockets', () => {
+    const decode = (type: unknown) => parseDinksterSchema('Save', { body: [
+      { kind: 'input', id: 'mount', type, required: false, default: null, widget: { type: 'MOUNT' } },
+    ] } as never)
+    for (const type of [concrete('MOUNT'), concrete('STRING'),
+      { kind: 'union', types: ['MOUNT', 'STRING'] }, { kind: 'union', types: ['STRING', 'MOUNT'] }]) {
+      const { schema, diagnostics } = decode(type)
+      expect(diagnostics).toEqual([])
+      expect(inputsOf(schema!)[0]).toMatchObject({ id: 'mount', widget: { widgetType: 'MOUNT', default: null } })
+    }
+    for (const type of [concrete('INT'), { kind: 'union', types: ['MOUNT', 'INT'] },
+      { kind: 'union', types: ['MOUNT', 'STRING', 'INT'] }, { kind: 'list', element: concrete('MOUNT') }]) {
+      expect(decode(type).schema).toBeUndefined()
+    }
+  })
+
   it('decodes a Switch selector as its pick and group of branches, and refuses the two-branch form', () => {
     // The engine's schema_to_wire output for a Switch.
     const body = [
@@ -60,6 +76,25 @@ describe('Dinkster schema wire', () => {
     expect(count!['displayName']).toBeUndefined()
     expect(plain).toMatchObject({ displayName: 'Plain', visible: false })
     expect(out).toMatchObject({ labelFormula: { formula: 'mode' }, visible: false })
+  })
+
+  it('keeps read-only, disabled and the reason on an input as declared, literal or formula', () => {
+    const { schema, diagnostics } = parseDinksterSchema('Blocked', { body: [
+      { kind: 'input', id: 'x', type: concrete('INT'), readOnly: { formula: 'locked' } },
+      { kind: 'input', id: 'y', type: concrete('INT'), disabled: true, disabledReason: 'Set by the preset' },
+      { kind: 'input', id: 'z', type: concrete('INT'), disabled: { formula: 'x > 0' }, disabledReason: { formula: 'reason' } },
+      { kind: 'input', id: 'plain', type: concrete('INT') },
+    ] } as never)
+    expect(diagnostics).toEqual([])
+    const [x, y, z, plain] = schema!.body as unknown as Record<string, unknown>[]
+    expect(x).toMatchObject({ readOnly: { formula: 'locked' } })
+    expect(x).not.toHaveProperty('disabled')
+    expect(y).toMatchObject({ disabled: true, disabledReason: 'Set by the preset' })
+    expect(y).not.toHaveProperty('readOnly')
+    expect(z).toMatchObject({ disabled: { formula: 'x > 0' }, disabledReason: { formula: 'reason' } })
+    for (const key of ['readOnly', 'disabled', 'disabledReason']) expect(plain).not.toHaveProperty(key)
+    const wrong = parseDinksterSchema('Wrong', { body: [{ kind: 'input', id: 'x', type: concrete('INT'), readOnly: 'yes' }] } as never)
+    expect(wrong.schema).toBeUndefined()
   })
 
   it.each([
