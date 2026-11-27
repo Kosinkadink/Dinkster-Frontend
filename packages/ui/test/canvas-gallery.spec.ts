@@ -50,6 +50,14 @@ test('copy amounts and Stop stay readable without widening the node', async ({ p
     expect(after.width).toBe(before!.width)
     expect(after.height).toBeLessThan(before!.height)
   }
+  const waiting = page.locator('figure').filter({ has: page.getByText('Waiting in a narrow node', { exact: true }) })
+  const stop = waiting.getByRole('button', { name: 'Stop', exact: true })
+  await expect(stop).toBeVisible()
+  const status = (await waiting.getByRole('status').boundingBox())!
+  const stopBox = (await stop.boundingBox())!
+  expect(stopBox.x + stopBox.width).toBeLessThanOrEqual(status.x + status.width)
+  await stop.click()
+  await expect(waiting.getByRole('status')).toHaveCount(0)
 })
 
 test('choosing a fixes Review entry selects its named example on the canvas', async ({

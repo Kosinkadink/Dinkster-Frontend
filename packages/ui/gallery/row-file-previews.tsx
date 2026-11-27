@@ -58,6 +58,7 @@ const examples: readonly FileExample[] = [
   { title: 'Copying a video', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 340, copy: 'copying' },
   { title: 'Copying in a narrow node', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 184, copy: 'copying' },
   { title: 'Waiting to publish a video', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 340, copy: 'waiting' },
+  { title: 'Waiting in a narrow node', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 184, copy: 'waiting' },
   { title: 'Checking a video', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 340, copy: 'checking' },
 ]
 

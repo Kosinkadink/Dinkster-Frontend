@@ -1309,7 +1309,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-canvas-file-copy-amount { margin-left: auto; }
 .dinkster-canvas-file-copy-amount:empty { display: none; }
 .dinkster-canvas-file-copy-label[data-hidden='true'] { flex: none; width: 0; }
-.dinkster-canvas-file-copy-controls { flex: 1; }
+.dinkster-canvas-file-copy-controls { flex: 1; min-width: min-content; }
 .dinkster-canvas-file-copy-controls > .dinkster-product-progress { flex: 1; min-width: var(--dinkster-space-16); height: calc(var(--dinkster-border-width) * 2); }
 .dinkster-canvas-file-copy-controls > .dinkster-canvas-side-link { flex: none; white-space: nowrap; }
 .dinkster-canvas-file-copy[data-phase='copying'] { flex-direction: column; align-items: stretch; gap: 0; height: calc(2 * (var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width))); }
