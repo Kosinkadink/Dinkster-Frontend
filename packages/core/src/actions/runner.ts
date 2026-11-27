@@ -584,7 +584,12 @@ export function storedRuleFixes(doc: WorkflowDocument, target: StepPlace, host: 
   const failed = new Set(view.elaborated.diagnostics.filter((diagnostic) => diagnostic.code === 'node.rule.failed')
     .map((diagnostic) => diagnostic.data?.['rule']))
   if (failed.size === 0) return []
-  const stamp = JSON.stringify([doc.root, doc.graphs, view.schema])
+  const incoming = elabInputsOf(view.elaborated).filter((field) => view.connectivity.isInputConnected(valueKeyOf(field)))
+    .map((field) => {
+      const path = valueKeyOf(field)
+      return { path, value: view.incomingValue(path), type: view.incomingType(path) }
+    })
+  const stamp = JSON.stringify([doc.root, doc.graphs, view.schema, incoming])
   return (view.schema.validate ?? []).flatMap((rule, index): StoredRuleFix[] => {
     if (!failed.has(index) || rule.fix.length === 0 || !rule.fixLabel?.trim()) return []
     const diagnostic = view.elaborated.diagnostics.find((candidate) => candidate.code === 'node.rule.failed' && candidate.data?.['rule'] === index)!

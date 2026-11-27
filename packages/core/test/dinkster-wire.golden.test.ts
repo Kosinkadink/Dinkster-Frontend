@@ -15,7 +15,7 @@ const SELECTION_DEFAULTS: Record<string, string> = {
 describe('Dinkster schema wire', () => {
 
   it('requires a declared action label for a rule fix and preserves its exact words', () => {
-    const fix = [{ step: 'Set', row: 'width', value: { value: 512 } }]
+    const fix = [{ step: 'set', field: 'width', value: { value: 512 } }]
     const decode = (rule: Record<string, unknown>) => parseDinksterSchema('Resize', {
       body: [{ kind: 'input', id: 'width', type: concrete('INT') }],
       validate: [{ check: { formula: 'width > 0' }, message: '  Width must be positive.  ', ...rule }],

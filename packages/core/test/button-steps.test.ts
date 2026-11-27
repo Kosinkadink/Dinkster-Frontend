@@ -177,6 +177,25 @@ describe('one press is one undo step, or nothing', () => {
     expect(await pending).toMatchObject({ kind: 'failed', message: stale })
     expect(session.doc).toEqual(meanwhile)
     expect(valuesOf(session)).toEqual({ width: 17, cap: 6, amount: 14 })
+
+    const sourceBody = [
+      { kind: 'input', id: 'cap', type: { kind: 'concrete', types: ['INT'] }, default: 9 },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] }, knownValue: { input: 'cap' } },
+    ]
+    addSchema('test.rule-source', sourceBody)
+    SCHEMAS.set(type, schema)
+    const wired = sessionOf(documentOf({ n1: { type, values: { width: 17, amount: 14 } }, source: { type: 'test.rule-source' } },
+      link('cap-wire', ['source', 'out'], ['n1', 'cap'])))
+    const wiredOffer = storedRuleFixes(wired.doc, target, host)[0]!
+    addSchema('test.rule-source', [{ ...sourceBody[0], default: 8 }, sourceBody[1]])
+    const wiredBefore = wired.doc
+    expect(await applyStoredProblemFixes(wired, [wiredOffer], host, { staleMessage: stale }))
+      .toMatchObject({ kind: 'failed', message: stale })
+    expect(wired.doc).toEqual(wiredBefore)
+    expect(wired.canUndo).toBe(false)
+    expect(await applyStoredProblemFixes(wired, [storedRuleFixes(wired.doc, target, host)[0]!], host))
+      .toMatchObject({ kind: 'done' })
+    expect(valuesOf(wired)).toEqual({ width: 7, amount: 14 })
   })
 
   it('corrects stored numbers through steps in one undo, leaving wired values, specials and decimals alone', async () => {
