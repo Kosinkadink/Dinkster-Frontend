@@ -792,7 +792,7 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.root.querySelectorAll('[data-testid="asset-match-candidate"]')).toHaveLength(1)
     expect(row.textContent).toContain(candidate.name)
     expect(row.textContent).toContain(candidate.virtualPath)
-    expect(row.querySelector('.asset-match-candidate-size')!.textContent).toBe('120.6 KB')
+    expect(row.querySelector('.asset-match-candidate-size')!.textContent).toBe('121 KB')
     expect(row.textContent).toContain(candidate.digest)
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     row.click()
