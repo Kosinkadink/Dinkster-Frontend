@@ -139,13 +139,19 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         expect(store.redo()).toBe(true); expect(store.doc).toEqual(disconnected)
       }
       await run('disconnected', store.doc, { [first]: '6', [second]: '2' })
-      if (depth === 0) return
+      if (depth === 0) {
+        edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: ['asset'] })
+        await run('intrinsic-fallback', store.doc, { [first]: '9', [second]: '2' })
+        return
+      }
       edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: [key] })
       await run('outer-fallback', store.doc, { [first]: depth === 1 ? '3' : '4', [second]: '2' })
       if (depth === 2) {
         edit(store, 'node.setValues', { graphId: 'portrait', nodeId: 'detail', values: {}, unset: ['photo'] })
         await run('middle-fallback', store.doc, { [first]: '3', [second]: '2' })
       }
+      edit(store, 'node.setValues', { graphId: 'detail', nodeId: 'sample', values: {}, unset: ['asset'] })
+      await run('intrinsic-fallback', store.doc, { [first]: '9', [second]: '2' })
       const fan = storeFor({ ...changed, graphs: { ...changed.graphs, detail: { ...changed.graphs.detail!, nodes: {
         ...changed.graphs.detail!.nodes, other: { id: asNodeId('other'), type, values: { asset: asset('8') } },
       } } } })
