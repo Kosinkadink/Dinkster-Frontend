@@ -145,7 +145,9 @@ export class ProblemFixes {
         const names = [...new Set(offered.fixes.map((target) => target.before.mount))]
         const mounts = names.map((name) => JSON.stringify(name)).join(', ')
         const missing = offered.defaultReady ? t('problemFix.saveTargetsMissing', { mounts })
-          : `${names.length === 1 ? t('saveTargetWidget.bothTitle', { id: names[0]! }) : t('problemFix.saveTargetsNoDefault', { mounts })} ${t('saveTargetWidget.noDefaultBody')}`
+          : `${names.length === 1
+            ? t(offered.defaultMount === undefined ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.bothUnavailableTitle', { id: names[0]!, mount: offered.defaultMount ?? '' })
+            : t(offered.defaultMount === undefined ? 'problemFix.saveTargetsNoDefault' : 'problemFix.saveTargetsUnavailableDefault', { mounts, mount: offered.defaultMount ?? '' })} ${t('saveTargetWidget.noDefaultBody')}`
         return diag('warning', 'environment', 'saveTarget.mountsMissing', fix.message ?? missing,
           { data: { problemFixKey: fix.key },
             refs: offered.fixes.map((target) => ({ graphId: target.part.graphId, nodeId: target.part.nodeId,

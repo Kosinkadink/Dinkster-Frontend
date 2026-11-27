@@ -469,6 +469,11 @@ describe('native open-time replacement', () => {
     await vi.waitFor(() => expect(diagnostics().filter((problem) => problem.code === 'saveTarget.mountsMissing')).toHaveLength(1))
     const groupProblem = () => diagnostics().find((problem) => problem.code === 'saveTarget.mountsMissing')!
     expect(app.problemFixes.forProblem(tab, groupProblem())?.offered).toMatchObject({ kind: 'save-targets', defaultReady: false })
+    expect(groupProblem().message).toContain('"absent" is missing and this project has no output mount.')
+    mounts = { ...mounts, activeOutputMount: 'offline', mounts: [...mounts.mounts,
+      { id: 'offline', mode: 'readwrite', state: 'offline' }] }
+    backend.connection.ingest({ type: 'mounts_changed' })
+    await vi.waitFor(() => expect(groupProblem().message).toContain('"absent" is missing and this project\'s output mount "offline" is not available.'))
     mounts = { ...mounts, activeOutputMount: 'ready' }
     backend.connection.ingest({ type: 'mounts_changed' })
     await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, groupProblem())?.offered).toMatchObject({ kind: 'save-targets', defaultReady: true }))

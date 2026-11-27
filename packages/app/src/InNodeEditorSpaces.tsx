@@ -376,7 +376,8 @@ export function SaveTargetSpace(props: {
     <CanvasEditorNote tone={mountTone() === 'warning' ? 'warning' : 'problem'} details={{
       label: message('runs.details'),
       title: failed() ? message('mountWidget.error') : mountStops()
-        ? message(mountGone() ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.noDefaultTitle', mountWords())
+        ? message(mountGone() ? settings()?.activeOutputMount === undefined ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.bothUnavailableTitle'
+          : 'saveTargetWidget.noDefaultTitle', mountWords())
         : mountGone() ? message('saveTargetWidget.missingTitle', mountWords()) : message('saveTargetWidget.noMounts'),
       body: message(mountStops() || !mountGone() ? 'saveTargetWidget.noDefaultBody' : 'saveTargetWidget.missingBody', mountWords()),
       ...(mountGone() && !noDefault() && !mountBlocked() ? { action: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } } }

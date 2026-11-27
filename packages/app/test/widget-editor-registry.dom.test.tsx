@@ -213,7 +213,7 @@ it('opens Storage for a missing target until the project output is writable, the
   try {
     await vi.waitFor(() => expect(details()).toBeDefined())
     details().click()
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('"renders" is missing and this project has no output mount.')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(`"renders" is missing and this project's output mount "output" is not available.`)
     const storage = document.querySelector<HTMLButtonElement>('[role="dialog"] button')!
     expect(storage.textContent).toBe('Open Storage')
     storage.click()
