@@ -1370,6 +1370,8 @@ button.dinkster-row-main { cursor: pointer; }
 .problem-box-line { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--dinkster-space-4); box-sizing: border-box; min-height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); padding: calc(var(--dinkster-space-4) / 2) calc(var(--dinkster-space-4) + var(--dinkster-space-4) / 2 + var(--dinkster-border-width)); }
 .problem-box-line[data-stacked-actions='true'] { flex-wrap: nowrap; }
 .problem-box-actions { display: flex; flex: none; flex-direction: column; align-items: flex-end; margin-left: auto; }
+.problem-box-line[data-actions-below='true'] { display: grid; grid-template-columns: var(--dinkster-space-12) minmax(0, 1fr); }
+.problem-box-line[data-actions-below='true'] .problem-box-actions { grid-column: 2; }
 .problem-box-line + .problem-box-line { border-top: var(--dinkster-border-width) solid var(--dinkster-border-faint); }
 .problem-box-line[data-highlighted='true'] { background: var(--dinkster-surface-selected); }
 .problem-box-icon { flex: none; width: var(--dinkster-space-12); height: var(--dinkster-space-12); margin-top: calc((var(--dinkster-input-canvas-height) - var(--dinkster-space-12)) / 2); stroke-width: 2; }
@@ -1381,6 +1383,7 @@ button.dinkster-row-main { cursor: pointer; }
 .problem-box-line[data-kind='warning'] .problem-box-message { color: var(--dinkster-warning-foreground); }
 .problem-box-action { flex: none; margin-left: auto; padding: calc((var(--dinkster-input-canvas-height) - var(--dinkster-type-canvas-line)) / 2) 0; border: 0; border-radius: var(--dinkster-radius-small); background: transparent; color: var(--dinkster-text-primary); font: inherit; white-space: nowrap; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
 .problem-box-action:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
+.problem-box-action:disabled { color: var(--dinkster-text-disabled); text-decoration: none; cursor: default; }
 .dinkster-problem-box-frame { position: relative; }
 .dinkster-fixes-notice { position: relative; display: grid; justify-items: center; gap: var(--dinkster-space-4); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .dinkster-fixes-line { max-width: 100%; white-space: nowrap; }

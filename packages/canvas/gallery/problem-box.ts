@@ -35,7 +35,8 @@ export interface ProblemBoxGalleryLine {
   readonly rowName?: string
   readonly message: string
   /** Action labels, each a button under the message. */
-  readonly actions: readonly string[]
+  readonly actions: readonly { readonly label: string; readonly disabled?: boolean }[]
+  readonly actionsBelow?: boolean
 }
 
 export interface ProblemBoxGalleryBox {
@@ -241,7 +242,7 @@ const line = (
   kind,
   ...(row === undefined ? {} : { row, rowName: row }),
   message,
-  actions,
+  actions: actions.map((label) => ({ label })),
 })
 
 const EDIT = 'Edit field'
@@ -289,7 +290,28 @@ export function problemBoxGallery(
     { id: 'latent', schema: schema('GalleryLoadLatent', 'Load latent', [out('samples', 'LATENT', 'samples')]), x: column(1) },
   ]
   const switchWires: readonly Wire[] = [[['load', 'image'], ['switch', 'branch.branch0']], [['latent', 'samples'], ['switch', 'branch.branch1']]]
+  const getItem = schema('GalleryGetItem', 'Get item', [
+    pin('list', 'IMAGE', 'list'), field('item', 'item', 'INT', 7), out('image', 'IMAGE', 'image'),
+  ])
+  const fixCards = [
+    { id: 'ask-me-fix', value: 7, message: 'Only 4 items are known.', action: 'Use the last item',
+      caption: 'Ask me keeps item 7. The fix sits on its own line below the warning. Pressing it stores item 4 in one undo step.' },
+    { id: 'storing-fix', value: 7, message: 'Only 4 items are known.', action: 'Storing...', disabled: true,
+      caption: 'While the fix is storing, its action is disabled so a second press cannot start another write. Everything or nothing is stored.' },
+    { id: 'stale-fix', value: 6, message: 'Could not apply this fix. The workflow changed.', action: 'Check again',
+      caption: 'The offered fix no longer matches. The newer item 6 stays. Check again refreshes the problem without running the old fix.' },
+  ] as const
   return [
+    ...fixCards.map((card): ProblemBoxGalleryCard => ({
+      id: card.id, caption: card.caption,
+      scene: scene([{ id: 'pick', schema: getItem, x: LEFT, values: { item: card.value } }]),
+      badges: { pick: [warnings(1)] }, rowMarks: { pick: { item: 'warning' } },
+      boxes: [{ nodeId: 'pick', nodeTitle: 'Get item', lines: [{
+        ...line('warning', 'item', card.message), actionsBelow: true,
+        actions: [{ label: card.action, disabled: 'disabled' in card && card.disabled }],
+      }] }],
+      width: BOXED,
+    })),
     solverCard('type-warning', 'An image sent to samples that needs latent data. The same warning names the node in Problems and the row once in its own box. The wire and its handle are warning yellow.', [
       { id: 'load', schema: loadImage, x: column(0) },
       { id: 'decode', schema: latentSink, x: column(1) },

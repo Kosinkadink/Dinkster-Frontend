@@ -24,7 +24,8 @@ import {
   problemBoxGallery,
   type ProblemBoxGalleryCard,
 } from '../../canvas/gallery/problem-box.js'
-import { ProblemBox, ProductPanel } from '../src/index.js'
+import { ProblemBox, ProductButton, ProductList, ProductListRow, ProductPanel } from '../src/index.js'
+import { ProductPanelHeader } from '../../app/src/ProductSurfaces.js'
 import { deriveProblemProjection } from '../../app/src/problem-display.js'
 import { problemBoxLines, problemBoxRows } from '../../app/src/problem-box.js'
 import { ProblemsPanel } from '../../app/src/ProblemsPanel.js'
@@ -161,7 +162,7 @@ function ProblemBoxCard(props: {
               label={`Problems of ${placed.box.nodeTitle}`}
               lines={placed.box.lines.map((line) => ({
                 ...line,
-                actions: line.actions.map((label) => ({ id: label, label })),
+                actions: line.actions.map((action) => ({ id: action.label, ...action })),
               }))}
               {...(highlighted()[placed.box.nodeId] === undefined ? {} : { highlighted: highlighted()[placed.box.nodeId]! })}
               x={placed.x}
@@ -218,6 +219,26 @@ export function ProblemBoxGallery(props: { theme: 'dark' | 'light' }) {
             />
           )}
         </For>
+        <For each={[true, false]}>{(offered) => (
+          <figure class="dinkster-canvas-example" data-testid={offered ? 'fix-all-offered' : 'fix-all-unavailable'}>
+            <ProductPanel>
+              <ProductPanelHeader title="Problems / This workflow" actions={
+                <Show when={offered}><ProductButton intent="add" fill="solid">Fix all</ProductButton></Show>
+              } />
+              <ProductList label="Problems in this workflow">
+                <ProductListRow title="Get item: item 7 exceeds 4." description="Use the last item." />
+                <Show when={offered} fallback={
+                  <ProductListRow title="Validation failed; this rule has no fix." description="Edit field" />
+                }>
+                  <ProductListRow title="Sampler: steps exceeds 10000." description="Use 10000." />
+                </Show>
+              </ProductList>
+            </ProductPanel>
+            <figcaption class="dinkster-metadata">{offered
+              ? 'Fix all is offered across the workflow because every open Ask me problem has an immediate fix. The fixed-order batch stores all or nothing in one undo step.'
+              : 'Fix all is absent when a problem has no immediate fix. Downloads, installs, secrets, pickers and questions never run through Fix all.'}</figcaption>
+          </figure>
+        )}</For>
         <figure class="dinkster-canvas-example dinkster-automatic-fixes-example" data-testid="automatic-fixes-settings">
           <h3 class="dinkster-heading">Automatic fixes</h3>
           <SettingsDialog settings={settings} commands={commands} keybindings={keybindings}

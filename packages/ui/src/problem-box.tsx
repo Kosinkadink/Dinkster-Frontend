@@ -14,6 +14,7 @@ export type ProblemBoxKind = 'error' | 'warning'
 export interface ProblemBoxViewAction {
   readonly id: string
   readonly label: string
+  readonly disabled?: boolean
 }
 
 export interface ProblemBoxViewLine {
@@ -26,6 +27,8 @@ export interface ProblemBoxViewLine {
   readonly rowName?: string
   readonly message: string
   readonly actions: readonly ProblemBoxViewAction[]
+  /** Stored-value fixes sit below their message; navigation actions stay beside it. */
+  readonly actionsBelow?: boolean
 }
 
 export function ProblemBox(props: {
@@ -77,6 +80,7 @@ export function ProblemBox(props: {
             data-testid="problem-box-line"
             data-kind={line.kind}
             data-stacked-actions={line.actions.length > 1 ? 'true' : undefined}
+            data-actions-below={line.actionsBelow ? 'true' : undefined}
             data-row={line.row}
             data-highlighted={props.highlighted === line.key ? 'true' : undefined}
             onPointerEnter={() => props.onPointLine?.(line)}
@@ -101,6 +105,7 @@ export function ProblemBox(props: {
                       type="button"
                       class="problem-box-action"
                       data-testid={`problem-box-${action.id}`}
+                      disabled={action.disabled}
                       onClick={() => props.onAction?.(line, action.id)}
                     >
                       {action.label}
