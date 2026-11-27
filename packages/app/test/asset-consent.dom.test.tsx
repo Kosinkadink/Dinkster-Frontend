@@ -92,6 +92,7 @@ it('renders plan answers, selected filesystem capacity, and independent download
       expect(root.textContent).toContain(reason)
     expect(button('Download 2 models').disabled).toBe(true)
     expect(root.textContent).toContain('1000 B free')
+    expect(root.textContent).toContain('Untick some models or free up space.')
     button('Select none').click()
     expect(button('Download 0 models').disabled).toBe(true)
     expect(rows().filter((row) => row.querySelector<HTMLInputElement>('input')?.checked)).toHaveLength(0)
@@ -100,6 +101,7 @@ it('renders plan answers, selected filesystem capacity, and independent download
     const second = rows()[2]!.querySelector<HTMLInputElement>('input[type="checkbox"]')!
     second.click()
     expect(button('Download 1 model').disabled).toBe(false)
+    expect(root.textContent).not.toContain('Untick some models or free up space.')
     expect(button('Select all')).toBeDefined()
     expect(root.textContent).toContain('600 B to download')
     second.click()
@@ -117,6 +119,10 @@ it('renders plan answers, selected filesystem capacity, and independent download
     rows()[1]!.querySelector<HTMLButtonElement>('button')!.click()
     await vi.waitFor(() => expect(rows()[1]!.dataset['state']).toBe('failed'))
     expect(rows()[2]!.dataset['state']).toBe('downloading')
+    rows()[2]!.querySelector<HTMLButtonElement>('button')!.click()
+    await vi.waitFor(() => expect(rows()[2]!.dataset['state']).toBe('failed'))
+    expect(button('Download 2 models')).toBeUndefined()
+    expect(root.textContent).not.toContain('to download')
     expect(button('Run')).toBeUndefined()
     answers[0] = { status: 'consent-required' }
     controller.invalidate(requirements[0]!)

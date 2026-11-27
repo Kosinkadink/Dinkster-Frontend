@@ -14,6 +14,7 @@ import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 import { isNativeProjectBackend } from './desktop-bridge.js'
 import { activeProjectId } from './projects.js'
+import { ProductDisclosure } from '@dinkster/ui'
 
 export interface ProblemsDisclosure {
   readonly expanded: (key: string) => boolean
@@ -214,8 +215,19 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
       { data: { providers: pack.providers } },
     )),
   ])
+  const missingModels = createMemo(() => {
+    const diagnostics = filterDiagnostics(props.diagnostics())
+    if (!diagnostics.some((entry) => entry.code === 'model.availability.missing' || entry.code === 'asset.availability.missing')) return undefined
+    const tab = tabs().find((candidate) => candidate.id === activeTabId())
+    if (!tab) return undefined
+    const missing = props.app.missingWorkflowModels(tab)
+    if (!missing?.models.length) return undefined
+    const entries = missing.diagnostics.filter((entry) => diagnostics.includes(entry))
+    return entries.length ? { tab, models: missing.models, diagnostics: entries } : undefined
+  })
   const groups = createMemo(() => {
-    return groupProblemDiagnostics(filterDiagnostics([...props.diagnostics(), ...packDiagnostics()]), props.app.activeTab()?.store.doc)
+    const folded = new Set(missingModels()?.diagnostics)
+    return groupProblemDiagnostics(filterDiagnostics([...props.diagnostics(), ...packDiagnostics()]).filter((entry) => !folded.has(entry)), props.app.activeTab()?.store.doc)
   })
 
   return (
@@ -299,8 +311,24 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
           </ProductActionFooter>
         </section>
       </Show>
+      <Show when={missingModels()}>{(missing) => (
+        <section class="problems-group" data-testid="workflow-model-problems">
+          <ProductDisclosure title={message(missing().models.length === 1 ? 'problems.modelsMissingOne' : 'problems.modelsMissing', { count: missing().models.length })}>
+            <For each={missing().diagnostics}>{(diagnostic) => (
+              <ProductButton variant="ghost" size="compact" onClick={() => activateProblem(props.app, diagnostic)}>
+                {diagnostic.message}
+              </ProductButton>
+            )}</For>
+          </ProductDisclosure>
+          <ProductActionFooter>
+            <ProductButton variant="secondary" size="compact" onClick={() => props.app.reviewModelDownload(missing().tab)}>
+              {message('problems.action.reviewModel')}
+            </ProductButton>
+          </ProductActionFooter>
+        </section>
+      )}</Show>
       <Show
-        when={migrationNotice() !== undefined || groups().length > 0}
+        when={missingModels() !== undefined || migrationNotice() !== undefined || groups().length > 0}
         fallback={<Show when={missingPacks().length === 0 && (!selectionOnly() || selectedContext() !== undefined)}><ProductEmptyState title={message('problems.empty')} /></Show>}
       >
         <Show when={migrationNotice()}>{(notice) => (
@@ -378,12 +406,6 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                           <code>{diagnostic.code}</code>
                           <Show when={diagnostic.data}><pre>{JSON.stringify(diagnostic.data, null, 2)}</pre></Show>
                           <Show when={diagnostic.anchor !== undefined}>
-                            <Show when={diagnostic.code === 'model.availability.missing' && diagnostic.data?.['plannable'] === true}>
-                              <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
-                                const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic)?.tab
-                                if (tab !== undefined) props.app.reviewModelDownload(tab, diagnostic)
-                              }}>{message('problems.action.reviewModel')}</ProductButton>
-                            </Show>
                             <Show when={diagnostic.code === 'model.availability.model-hidden' || diagnostic.code === 'model.availability.folder-disabled'}>
                               <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
                                 const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic)?.tab

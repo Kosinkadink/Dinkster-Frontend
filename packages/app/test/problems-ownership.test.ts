@@ -397,11 +397,13 @@ describe('workflow model presence', () => {
       { name: 'first.safetensors', kind: 'model/vae' },
     ])
     expect(request.workflowTitle).toBe(tab.title)
+    expect(request.focusedModel).toEqual({ name: 'second.safetensors', kind: 'model/checkpoint' })
     expect(request.retry).toBeUndefined()
     app.assetConsent.set(undefined)
     app.reviewModelDownload(tab)
     expect(app.assetConsent.get()?.models?.map((entry) => entry.requirement)).toEqual(request.models?.map((entry) => entry.requirement))
     expect(app.assetConsent.get()?.workflowTitle).toBe(tab.title)
+    expect(app.assetConsent.get()?.focusedModel).toBeUndefined()
     expect(app.assetConsent.get()?.retry).toBeUndefined()
     expect(app.store.executions.get().size).toBe(0)
     await app.dispatchTo(tab, { command: 'node.setValue', params: {

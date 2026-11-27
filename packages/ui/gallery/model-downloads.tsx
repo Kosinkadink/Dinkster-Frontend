@@ -182,6 +182,7 @@ function DownloadExample(props: {
         ...available(index % files.length),
         id: `model-${index}`,
         name: `model-${index + 1}.safetensors`,
+        metadata: 'Checkpoint - 2.25 GiB - Hugging Face, example/models',
         selected: selected().has(`model-${index}`),
         onSelect: (checked: boolean) => select(`model-${index}`, checked),
         initiallyExpanded: index === 0,
@@ -292,11 +293,12 @@ function DownloadExample(props: {
   }
   const allReady = () => props.scene === 'run' || props.scene === 'done'
   const count = () => selected().size
+  const insufficient = () => props.scene === 'many' && count() > 8
   const primary = () =>
     props.scene === 'ready' || props.scene === 'many'
       ? {
           label: `Download ${count()} ${count() === 1 ? 'model' : 'models'}`,
-          disabled: count() === 0,
+          disabled: count() === 0 || insufficient(),
           onClick: () => setAction(`Download requested for ${count()} models`),
         }
       : props.scene === 'run'
@@ -318,16 +320,19 @@ function DownloadExample(props: {
         }
         footer={
           action() ||
-          (props.scene === 'downloading' || props.scene === 'waiting'
-            ? 'You can close this. Downloads keep going and show under tasks in the status bar.'
-            : allReady()
-              ? '3 models ready.'
-              : props.scene === 'ready'
-                ? 'Nothing downloads until you press Download.'
-                : props.scene === 'failed'
-                  ? '2 of 3 models are ready.'
-                  : 'Nothing can be downloaded yet.')
+          (insufficient()
+            ? `${count() * 2.25} GiB to download, 20 GiB free. Untick some models or free up space.`
+            : props.scene === 'downloading' || props.scene === 'waiting'
+              ? 'You can close this. Downloads keep going and show under tasks in the status bar.'
+              : allReady()
+                ? '3 models ready.'
+                : props.scene === 'ready'
+                  ? 'Nothing downloads until you press Download.'
+                  : props.scene === 'failed'
+                    ? ''
+                    : 'Nothing can be downloaded yet.')
         }
+        footerWarning={insufficient()}
         closeLabel="Close"
         onClose={props.onClose}
         {...(props.scene === 'ready' || props.scene === 'many'
@@ -366,7 +371,16 @@ export function ModelDownloadsGallery() {
       <div class="dinkster-actions">
         <For each={scenes}>
           {([key, label]) => (
-            <ProductButton onClick={() => setScene(key)}>{label}</ProductButton>
+            <div class="dinkster-stack">
+              <ProductButton onClick={() => setScene(key)}>
+                {label}
+              </ProductButton>
+              <p class="dinkster-description">
+                {key === 'run'
+                  ? 'Opened after a run stopped for missing models.'
+                  : 'Opened from Problems: Download models.'}
+              </p>
+            </div>
           )}
         </For>
       </div>

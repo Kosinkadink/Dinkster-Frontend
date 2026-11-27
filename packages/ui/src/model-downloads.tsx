@@ -231,11 +231,24 @@ export function ProductModelDownloads(props: {
   readonly listLabel: string
   readonly rows: readonly ProductModelDownloadRow[]
   readonly footer: string
+  readonly footerWarning?: boolean
   readonly closeLabel: string
   readonly onClose: () => void
   readonly primary?: RowAction
   readonly selection?: RowAction
+  readonly focusedRow?: string
 }) {
+  let list!: HTMLUListElement
+  createEffect(() => {
+    const focused = props.focusedRow
+    if (focused !== undefined)
+      queueMicrotask(() => {
+        const row = Array.from(list.children).find(
+          (entry) => (entry as HTMLElement).dataset.model === focused,
+        )
+        row?.scrollIntoView({ block: 'nearest' })
+      })
+  })
   return (
     <section class="dinkster-model-downloads" data-testid="model-downloads">
       <div class="dinkster-model-download-summary">
@@ -249,11 +262,19 @@ export function ProductModelDownloads(props: {
           )}
         </Show>
       </div>
-      <ul class="dinkster-model-download-list" aria-label={props.listLabel}>
+      <ul
+        ref={list}
+        class="dinkster-model-download-list"
+        aria-label={props.listLabel}
+      >
         <Index each={props.rows}>{(row) => <ModelRow row={row()} />}</Index>
       </ul>
       <footer class="dinkster-model-download-footer">
-        <p class="dinkster-description" role="status">
+        <p
+          class="dinkster-description"
+          role="status"
+          data-warning={props.footerWarning === true}
+        >
           {props.footer}
         </p>
         <div class="dinkster-actions">

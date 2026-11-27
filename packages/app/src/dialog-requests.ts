@@ -40,6 +40,7 @@ export type ModelConsentState = ModelDownloadState
 
 export interface AssetConsentRequest {
   readonly workflowTitle?: string
+  readonly focusedModel?: ModelDownloadRequirement
   readonly modelDownloadController?: ModelDownloadsController
   readonly providerConnection?: ModelProviderConnection
   readonly providerChanged?: () => void
@@ -119,6 +120,7 @@ type SubmitOk = Extract<DinksterSubmitResult, { ok: true }>
  */
 export function installAssetConsent(p: {
   readonly workflowTitle?: string
+  readonly focusedModel?: ModelDownloadRequirement
   readonly modelReferences?: readonly ModelDownloadRequirement[]
   readonly slot: RequestSlot<AssetConsentRequest> & Pick<ReadonlySignal<AssetConsentRequest | undefined>, 'subscribe'>
   readonly signal?: AbortSignal
@@ -310,6 +312,7 @@ export function installAssetConsent(p: {
     }
     const request: AssetConsentRequest = { assets: requirements.length ? [] : remainingAssets, busy: false,
       ...(p.workflowTitle === undefined ? {} : { workflowTitle: p.workflowTitle }),
+      ...(p.focusedModel === undefined ? {} : { focusedModel: p.focusedModel }),
       ...(transfers ? { modelDownloadController: transfers } : {}),
       ...(p.modelDownloads?.connection.fetchModelSettings ? { fetchModelSettings: () => p.modelDownloads!.connection.fetchModelSettings!() } : {}),
       ...(result === undefined ? {} : { retry }),

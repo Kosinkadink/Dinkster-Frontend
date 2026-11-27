@@ -140,24 +140,28 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
       }
     }
   }))
-  const selected = () => models().filter((row) => !unchecked().has(keyOf(row)))
   const selectable = () => rows().filter((row) => row.state === 'available')
+  const selected = () => models().filter((row) => !unchecked().has(keyOf(row)) && selectable().some((entry) => entry.id === keyOf(row)))
   const allSelected = () => selectable().every((row) => row.selected)
   const totals = () => modelDownloadTotals(selected())
   const ready = () => models().length > 0 && models().every((row) => !row.pending && (row.plan?.status === 'local' || row.job?.status === 'completed'))
   const active = () => models().some((row) => row.queued || (row.job && !['completed', 'failed', 'cancelled'].includes(row.job.status)))
   const footer = () => active() ? message('modelDownloads.keepGoing') : totals().count ?
-    message(totals().freeBytes === undefined ? 'modelDownloads.total' : 'modelDownloads.totalFree', {
+    message(totals().insufficient ? totals().freeBytes === undefined ? 'modelDownloads.insufficientUnknown' : 'modelDownloads.insufficient' : totals().freeBytes === undefined ? 'modelDownloads.total' : 'modelDownloads.totalFree', {
       size: formatByteSize(totals().bytes), free: formatByteSize(totals().freeBytes ?? 0),
     }) : rows().some((row) => row.state === 'needs') ? message('modelDownloads.nothing') : ''
   const remaining = () => rows().filter((row) => row.state !== 'ready').length
+  const focusedRow = createMemo(() => props.request.focusedModel && models().every((row) =>
+    !row.pending && (row.plan !== undefined || row.job !== undefined || row.error !== undefined))
+    ? keyOf({ requirement: props.request.focusedModel, pending: false }) : undefined)
   return <ProductDialog title={message('modelDownloads.title')} onDismiss={props.onClose} size="wide">
     <ProductModelDownloads listLabel={message('modelDownloads.list')} summary={message(ready() ? 'modelDownloads.summaryReady' :
       rows().some((row) => row.state === 'needs' || row.state === 'failed') ?
         remaining() === 1 ? 'modelDownloads.summaryNeedsOne' : 'modelDownloads.summaryNeeds' :
         remaining() === 1 ? 'modelDownloads.summaryOne' : 'modelDownloads.summary',
     { name: props.request.workflowTitle ?? message('modelDownloads.workflow'), count: remaining() })}
-      rows={rows()} footer={footer()} closeLabel={message('modelDownloads.close')} onClose={props.onClose}
+      rows={rows()} footer={footer()} footerWarning={!active() && totals().insufficient} closeLabel={message('modelDownloads.close')} onClose={props.onClose}
+      {...(focusedRow() === undefined ? {} : { focusedRow: focusedRow()! })}
       {...(selectable().length > 1 ? { selection: {
         label: message(allSelected() ? 'modelDownloads.selectNone' : 'modelDownloads.selectAll'),
         onClick: () => {
@@ -168,7 +172,7 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
         },
       } } : {})}
       {...(selectable().length ? { primary: { label: message(totals().count === 1 ? 'modelDownloads.downloadOne' : 'modelDownloads.download', { count: totals().count }),
-        disabled: totals().count === 0 || totals().insufficient, onClick: () => { void props.request.downloadModels?.(models().flatMap((row, index) => !unchecked().has(keyOf(row)) ? [index] : [])) },
+        disabled: totals().count === 0 || totals().insufficient, onClick: () => { void props.request.downloadModels?.(models().flatMap((row, index) => selected().includes(row) ? [index] : [])) },
       } } : ready() && props.request.retry ? { primary: { label: message('modelDownloads.run'), onClick: () => { void props.request.retry?.([]) } } } : {})} />
   </ProductDialog>
 }

@@ -4312,27 +4312,28 @@ export class AppState {
     }).catch(unchecked)
   }
 
-  /** Review this workflow's missing models only while its checked document and backend remain current. */
-  reviewModelDownload(tab: Tab, diagnostic?: Diagnostic): void {
+  /** Missing model identities and their diagnostics from the current workflow checks. */
+  missingWorkflowModels(tab: Tab): { readonly models: readonly ModelDownloadRequirement[]; readonly diagnostics: readonly Diagnostic[] } | undefined {
     const check = this.workflowModelChecks.get(tab.store)
     const backend = this.backendForTab(tab)
     const current = (): boolean => !this.disposed && this.tabs.get().includes(tab) &&
       check?.document === tab.store.doc && check.backend === this.backendForTab(tab) && check.registry === this.registryForTab(tab)
-    if (!current() || backend.protocol !== 'dinkster') return
+    if (!current() || backend.protocol !== 'dinkster') return undefined
     const ownedProblems = this.problems.get().filter((entry) => entry.owner === tab.id)
     const problems = ownedProblems.filter((entry) =>
-      entry.code === 'model.availability.missing' && entry.data?.['plannable'] === true &&
-      entry.data['backend'] === backend.id && typeof entry.data['name'] === 'string' && typeof entry.data['kind'] === 'string')
+      entry.code === 'model.availability.missing' &&
+      entry.data?.['backend'] === backend.id && typeof entry.data['name'] === 'string' && typeof entry.data['kind'] === 'string')
     const registry = this.registryForTab(tab)
     const exactProblems = this.workflowAssetChecks.get(tab.store)?.backend === backend ? ownedProblems.filter((entry) =>
       entry.code === 'asset.availability.missing') : []
-    const exactModels = registry === undefined ? [] : workflowModelOccurrences(tab.store.doc, registry.resolve,
-      lookupAnswersOf(backend.lookups)).flatMap((occurrence) => occurrence.asset !== undefined &&
-      exactProblems.some((entry) => entry.data?.['digest'] === occurrence.asset!.digest) ? [{
-        name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset,
-      }] : [])
-    if (diagnostic !== undefined && !problems.some((entry) => entry === diagnostic) &&
-      !exactProblems.some((entry) => entry === diagnostic && exactModels.some((model) => model.asset.digest === entry.data?.['digest']))) return
+    const matches = (entry: Diagnostic, occurrence: WorkflowModelOccurrence): boolean => occurrence.asset !== undefined &&
+      entry.data?.['digest'] === occurrence.asset.digest && entry.data['graph'] === occurrence.graph &&
+      entry.data['node'] === occurrence.node && entry.data['input'] === occurrence.input
+    const exactOccurrences = registry === undefined ? [] : workflowModelOccurrences(tab.store.doc, registry.resolve,
+      lookupAnswersOf(backend.lookups)).filter((occurrence) => exactProblems.some((entry) => matches(entry, occurrence)))
+    const exactModels = exactOccurrences.map((occurrence): ModelDownloadRequirement => ({
+      name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset!,
+    }))
     const keys = new Set<string>()
     const models = [...problems.map((entry): ModelDownloadRequirement => ({
       name: entry.data!['name'] as string, kind: entry.data!['kind'] as string,
@@ -4342,13 +4343,30 @@ export class AppState {
       keys.add(key)
       return true
     })
-    if (models.length === 0) return
-    this.openModelDownloads(backend, models, { workflowTitle: tab.title, tab })
+    return { models, diagnostics: [...problems, ...exactProblems.filter((entry) =>
+      exactOccurrences.some((occurrence) => matches(entry, occurrence)))] }
+  }
+
+  /** Review this workflow's missing models only while its checked document and backend remain current. */
+  reviewModelDownload(tab: Tab, diagnostic?: Diagnostic): void {
+    const missing = this.missingWorkflowModels(tab)
+    if (!missing?.models.length || (diagnostic !== undefined && !missing.diagnostics.includes(diagnostic))) return
+    const registry = this.registryForTab(tab)
+    const exact = diagnostic?.code === 'asset.availability.missing' && registry !== undefined
+      ? workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(this.backendForTab(tab).lookups)).find((occurrence) =>
+        occurrence.asset?.digest === diagnostic.data?.['digest'] && occurrence.graph === diagnostic.data?.['graph'] &&
+        occurrence.node === diagnostic.data?.['node'] && occurrence.input === diagnostic.data?.['input']) : undefined
+    const focusedModel = exact ? { name: exact.name, kind: exact.kind, asset: exact.asset! } : (diagnostic && missing.models.find((model) => model.asset === undefined &&
+      model.name === diagnostic.data?.['name'] && model.kind === diagnostic.data?.['kind']))
+    this.openModelDownloads(this.backendForTab(tab), missing.models, { workflowTitle: tab.title, tab,
+      ...(focusedModel === undefined ? {} : { focusedModel }),
+    })
   }
 
   /** Review without submitting a run; supplied sources must come from authoritative model metadata. */
   openModelDownloads(backend: Backend, models: readonly (ModelDownloadRequirement & { readonly source?: string })[], options: {
     readonly workflowTitle?: string
+    readonly focusedModel?: ModelDownloadRequirement
     readonly tab?: Tab
     readonly signal?: AbortSignal
     readonly stillCurrent?: () => boolean
@@ -4378,6 +4396,7 @@ export class AppState {
       ...(tab ? [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate)] : [])]
     installAssetConsent({
       models, ...(workflowTitle === undefined ? {} : { workflowTitle }), slot: this.assetConsent,
+      ...(options.focusedModel === undefined ? {} : { focusedModel: options.focusedModel }),
       signal: options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal,
       beforeRetry: current,
       modelDownloads: { connection: backend.connection, controller: transfers, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
@@ -4454,9 +4473,12 @@ export class AppState {
     }).then(async (rows) => {
       if (signal.aborted) return unchecked()
       const missing = new Set(rows.filter((row) => row.status === 'missing').map((row) => row.digest))
+      const registry = this.registryForTab(tab)
+      const models = registry === undefined ? [] : workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(backend.lookups))
       publish(occurrences.filter(({ asset }) => missing.has(asset.digest)).map((occurrence) => {
         const { graph, node, input, index, asset } = occurrence
         const hint = this.workflowAssetLocations.get(tab.store)?.get(asset.digest) ?? savedAssetLocation(tab.store.doc, occurrence)
+        const model = models.find((entry) => entry.graph === graph && entry.node === node && entry.input === input && entry.asset?.digest === asset.digest)
         return diag('warning', 'validation', 'asset.availability.missing',
           `${asset.name} is missing on ${backend.label}: ${graph}/${node}/${input} [${index + 1}].`, {
             refs: [{ graphId: graph, nodeId: node, valueKey: input, direction: 'input' }],
@@ -4465,6 +4487,7 @@ export class AppState {
             } }),
             data: { name: asset.name, backend: backend.label, graph, node, input,
               digest: asset.digest, virtualPath: asset.virtualPath, index,
+              ...(model === undefined ? {} : { kind: model.kind }),
               ...(hint ? { lastKnownMachine: hint.machine, lastKnownPaths: [...hint.paths] } : {}) },
           })
       }))
