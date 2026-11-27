@@ -239,6 +239,7 @@ export interface WidgetEditorImplementationProps {
 }
 
 export interface WidgetEditorModalConfiguration {
+  title?: string
   displayType?: string
   help: JSX.Element
   dismissBlocked?: () => boolean
@@ -491,12 +492,12 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
           }
         >
           <ModalSurface
-                title={`${ed.label} ${modalDisplayType()}`}
-                ariaLabel={`Edit ${ed.label} ${modalDisplayType()}`}
-                describedBy="widget-editor-description"
+                title={props.modal?.title ?? `${ed.label} ${modalDisplayType()}`}
+                ariaLabel={props.modal?.title ?? `Edit ${ed.label} ${modalDisplayType()}`}
+                {...(props.modal?.help ? { describedBy: 'widget-editor-description' } : {})}
                 modalId={modalId}
                 testId="widget-modal-surface"
-                closeLabel={`Close ${ed.label} ${modalDisplayType()} editor`}
+                closeLabel={`Close ${props.modal?.title ?? `${ed.label} ${modalDisplayType()} editor`}`}
                 dismissBlocked={props.modal?.dismissBlocked?.() === true}
                 onRequestClose={() => {
                   if (props.modal?.onRequestClose !== undefined) {
@@ -509,9 +510,9 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
                   ? { onBackdropPointerDown: props.onAssetBackdropPointerDown }
                   : {})}
               >
-                <p id="widget-editor-description" class="widget-modal-help">
-                  {props.modal?.help}
-                </p>
+                <Show when={props.modal?.help}>
+                  <p id="widget-editor-description" class="widget-modal-help">{props.modal?.help}</p>
+                </Show>
                 <Show when={commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
                 <div class="widget-commit-content" inert={commitPending()} aria-busy={commitPending()}><EditorContent /></div>
           </ModalSurface>

@@ -656,6 +656,7 @@
   "assets.search.subfolders": "Search with subfolders",
   "assets.search.allMounts": "Search all mounts",
   "assets.selection.dimensions": "{width} x {height}",
+  "assets.selection.clear": "Clear selection",
   "assets.selection.picture": "Picture",
   "assets.selection.made": "Made",
   "assets.selection.folder": "Folder",

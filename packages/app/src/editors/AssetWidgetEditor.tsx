@@ -75,15 +75,21 @@ interface AssetPickerVocabulary {
   readonly singular: string
   readonly plural: string
   readonly titlePlural: string
-  readonly modalType: string
   readonly uploadSingular: string
   readonly uploadPlural: string
 }
 
 const withArticle = (noun: string): string => (/^[aeiou]/i.test(noun) ? `an ${noun}` : `a ${noun}`)
-const GENERIC_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'asset', plural: 'assets', titlePlural: 'Assets', modalType: 'asset', uploadSingular: 'file', uploadPlural: 'files' }
-const LATENT_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'latent', plural: 'latents', titlePlural: 'Latents', modalType: 'latent asset', uploadSingular: 'latent', uploadPlural: 'latents' }
-const MODEL_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'model', plural: 'models', titlePlural: 'Models', modalType: 'asset', uploadSingular: 'model file', uploadPlural: 'model files' }
+const GENERIC_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'asset', plural: 'assets', titlePlural: 'Assets', uploadSingular: 'file', uploadPlural: 'files' }
+const LATENT_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'latent', plural: 'latents', titlePlural: 'Latents', uploadSingular: 'latent', uploadPlural: 'latents' }
+const MODEL_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'model', plural: 'models', titlePlural: 'Models', uploadSingular: 'model file', uploadPlural: 'model files' }
+
+const assetPickerNoun = (kind: string | undefined): string =>
+  kind?.startsWith('model/') === true ? 'model'
+    : kind === 'data/latent' ? 'latent'
+      : kind === 'media/image' ? 'image'
+        : kind === 'media/video' ? 'video'
+          : kind === 'media/audio' ? 'audio' : 'file'
 
 const isAssetRef = (value: unknown): value is AssetRef => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -98,12 +104,11 @@ export function unresolvedAssetBasename(requested: string): string {
 
 export { mediaAcceptsFile } from '../asset-browser/helpers.js'
 
-function assetPickerState(state: CollectionPanelState, vocabulary: AssetPickerVocabulary) {
+function assetPickerState(state: CollectionPanelState, vocabulary: AssetPickerVocabulary, noun: string) {
   if (state.kind === 'loading') return <SearchState kind="loading" title={`Loading ${vocabulary.plural}`} detail={`Searching ${state.sourceLabel}.`} />
   if (state.kind === 'error') return <SearchState kind="error" title={`${vocabulary.titlePlural} unavailable`} detail={state.message ?? `Unable to load ${state.sourceLabel}.`} />
-  if (state.kind === 'no-compatible') return <SearchState kind="empty" title={`No available ${vocabulary.plural}`} detail="Choose another source or adjust the picker requirements." />
-  if (state.kind === 'no-match') return <SearchState kind="empty" title={`No matching ${vocabulary.plural}`} detail="Try another search or remove an active filter." />
-  return <SearchState kind="empty" title={`No ${vocabulary.plural} yet`} detail={`No matching ${vocabulary.plural} are available in ${state.sourceLabel}.`} />
+  const plural = noun === 'audio' ? noun : `${noun}s`
+  return <ProductEmptyState title={state.query ? `No ${plural} match "${state.query}".` : `No ${plural} found.`} />
 }
 
 interface AssetImplementationProps extends WidgetEditorImplementationProps {
@@ -768,17 +773,11 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
             <Show when={assetError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
             <div class="asset-editor-body">
             <section class="asset-browser-section" aria-label={assetVocabulary().titlePlural}>
-              <header class="asset-section-heading">
-                <div>
-                  <span class="asset-section-eyebrow">Browse</span>
-                  <h3>{assetVocabulary().titlePlural}</h3>
-                </div>
-                <Show when={usesLogicalModelSource()}>
-                  <button type="button" data-testid="logical-model-refresh" disabled={logicalModelsLoading()} onClick={() => { void loadLogicalModels(assetSources() ?? []) }}>
-                    <Icon icon={RotateCw} /> Refresh
-                  </button>
-                </Show>
-              </header>
+              <Show when={usesLogicalModelSource()}>
+                <ProductButton data-testid="logical-model-refresh" disabled={logicalModelsLoading()} onClick={() => { void loadLogicalModels(assetSources() ?? []) }}>
+                  <Icon icon={RotateCw} /> Refresh
+                </ProductButton>
+              </Show>
               <Show when={assetSourcesError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
               <Show when={mountDiscoveryError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
               <Show when={assetSourcesStatus(assetSources(), assetSourcesError()) === 'loading'}>
@@ -828,7 +827,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                     searchPriority="primary"
                     searchLabel={`Search ${assetVocabulary().plural}`}
                     searchPlaceholder={`Search ${assetVocabulary().plural}`}
-                    renderState={(state) => assetPickerState(state, assetVocabulary())}
+                    renderState={(state) => assetPickerState(state, assetVocabulary(), assetPickerNoun(assetBrowseKind()))}
                     entryFallback={(entry) => <AssetEntryFallback entry={entry} />}
                   />}>
                     <ProductTextInput type="search" aria-label={message('assets.models.search')} placeholder={message('assets.models.search')} value={modelQuery()}
@@ -862,7 +861,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
             <section class="asset-selection-summary" data-testid="asset-selection-summary" aria-label="Selection">
               <header class="asset-section-heading">
                 <div>
-                  <span class="asset-section-eyebrow">Selection</span>
                   <h3>{assetMulti
                     ? `${assetSelection().length} selected`
                     : assetSelection()[0]?.name ?? 'Nothing selected'}</h3>
@@ -955,7 +953,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 {(detail) => <LogicalModelVariantFacts detail={detail} />}
               </Show>
               <Show when={assetSelection().length > 0}>
-                {/* Remove only stages an empty selection: nothing commits
+                {/* Clearing only stages an empty selection: nothing commits
                     before the footer commit, Cancel restores the stored
                     value. */}
                 <button
@@ -965,7 +963,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                   disabled={assetUploading()}
                   onClick={() => { void stageAssetSelection(() => [], () => { setAssetSelectedItem(undefined); setAssetSelectedModel(undefined); setInspectedModel(undefined); clearAssetPreview() }) }}
                 >
-                  <Icon icon={X} /> Remove
+                  <Icon icon={X} /> {message('assets.selection.clear')}
                 </button>
               </Show>
             </section>
@@ -1009,7 +1007,6 @@ const AssetPickerWidgetEditor: Component<WidgetEditorProps & { commitImportedFil
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
   }
   const kind = () => typeof props.ed.spec?.kind === 'string' && props.ed.spec.kind !== '' ? props.ed.spec.kind : mediaKindForAccept(accept())
-  const vocabulary = () => kind()?.startsWith('model/') === true ? MODEL_ASSET_VOCABULARY : kind() === 'data/latent' ? LATENT_ASSET_VOCABULARY : GENERIC_ASSET_VOCABULARY
   const [dismissBlocked, setDismissBlocked] = createSolidSignal(false)
   const fileSelectionAllowed = () => kind() === 'model/vae' && props.ed.declaredType?.kind === 'union' &&
     props.ed.declaredType.names.includes('ASSET')
@@ -1071,10 +1068,10 @@ const AssetPickerWidgetEditor: Component<WidgetEditorProps & { commitImportedFil
       implementation={Implementation}
       modal={{
         type: 'ASSET',
-        displayType: kind() === 'data/latent' && props.ed.label.toLowerCase().includes('latent') ? 'asset' : vocabulary().modalType,
+        title: `Choose ${assetPickerNoun(kind())}`,
         dismissBlocked,
         onRequestClose: (close) => requestClose(close),
-        help: <>{props.ed.spec?.selection === true ? `Choose a source option for ${props.ed.label}.` : kind()?.startsWith('model/') === true ? `Browse models for ${props.ed.label}.` : `Browse or upload ${withArticle(vocabulary().singular)}${kind() === 'data/latent' ? '.' : ` for ${props.ed.label}.`}`} {' '}Cancel or close leaves the stored value unchanged.</>,
+        help: undefined,
       }}
     />
   )

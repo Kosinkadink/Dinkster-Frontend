@@ -416,6 +416,9 @@
 .asset-editor .collection-toolbar .product-select { width: auto; min-width: 120px; flex: 0 1 180px; }
 .asset-editor .collection-toolbar button { width: auto; flex: none; }
 .asset-editor .collection-toolbar input { width: auto; flex: 1 1 160px; min-width: 100px; }
+.asset-editor .collection-panel[data-search-priority='primary'] .collection-toolbar { flex-wrap: nowrap; align-items: center; }
+.asset-editor .collection-panel[data-search-priority='primary'] .collection-search-field { flex-basis: 0; }
+.asset-browser-section > [data-testid='logical-model-refresh'] { align-self: flex-end; }
 .asset-editor .collection-content { flex: none; flex-wrap: nowrap; overflow: visible; }
 .asset-editor .collection-items,
 .asset-editor .collection-state-list { min-width: 0; min-height: 0; max-height: none; overflow: visible; }

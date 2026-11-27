@@ -666,6 +666,7 @@
   "assets.search.allMounts": "搜索所有挂载",
   "assets.selection.picture": "图片",
   "assets.selection.dimensions": "{width} x {height}",
+  "assets.selection.clear": "清除选择",
   "assets.selection.made": "修改时间",
   "assets.selection.folder": "文件夹",
   "assets.selection.reveal": "在此电脑上显示",

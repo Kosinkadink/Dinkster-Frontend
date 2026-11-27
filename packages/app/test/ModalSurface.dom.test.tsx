@@ -357,7 +357,7 @@ describe('ASSET widget modal integration', () => {
       await vi.waitFor(() => expect(root.textContent).toContain('pictures/portraits, this folder only'))
       const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
       search.value = 'final'; search.dispatchEvent(new InputEvent('input', { bubbles: true }))
-      await vi.waitFor(() => expect(root.textContent).toContain('No matching assets'))
+      await vi.waitFor(() => expect(root.textContent).toContain('No images match "final".'))
       depth(true)
       await vi.waitFor(() => expect(root.textContent).toContain('portraits/nested/final.png'))
       expect(search.value).toBe('final')
@@ -832,7 +832,7 @@ describe('ASSET widget modal integration', () => {
     },
   )
 
-  it('stages an empty selection through Remove and only commits at the footer', async () => {
+  it('stages an empty selection through Clear selection and only commits at the footer', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
     const choices = await modelChoices(mounted.root, 2)
 
@@ -841,6 +841,7 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).not.toBeNull())
     const remove = mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')
     expect(remove).not.toBeNull()
+    expect(remove?.textContent).toContain('Clear selection')
     remove!.click()
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).toBeNull())
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
@@ -1066,7 +1067,7 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.root.querySelector('[data-testid="asset-selection-editor"]')).toBeNull()
     expect(mounted.root.textContent).toContain('vae.safetensors')
     expect(mounted.connection.listAssetSelections).not.toHaveBeenCalled()
-    mounted.root.querySelector<HTMLButtonElement>('[aria-label="Close Checkpoint asset editor"]')!.click()
+    mounted.root.querySelector<HTMLButtonElement>('[aria-label="Close Choose model"]')!.click()
     expect(mounted.close).toHaveBeenCalledOnce()
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     expect(initial.virtualPath).toBe('vae/vae.safetensors')
@@ -1305,7 +1306,10 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-search"]')).not.toBeNull())
 
     const dialog = root.querySelector<HTMLDialogElement>('[data-modal="widget-asset"]')!
-    expect(dialog.getAttribute('aria-label')).toBe('Edit Samples latent asset')
+    expect(dialog.getAttribute('aria-label')).toBe('Choose latent')
+    expect(root.querySelector('.widget-modal-help')).toBeNull()
+    expect(root.querySelector('.asset-section-eyebrow')).toBeNull()
+    await vi.waitFor(() => expect(root.textContent).toContain('No latents found.'))
     expect(root.querySelector('.asset-import-line')?.textContent).toContain('1 GB per file')
     expect(root.querySelector('.asset-browser-section')?.getAttribute('aria-label')).toBe('Latents')
     expect(root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')?.getAttribute('aria-label')).toBe('Search latents')
