@@ -87,15 +87,15 @@ export class ProblemFixes {
     }
   }
 
-  private saveTargets(tab: Tab): SaveTargetGroup | undefined {
+  private saveTargets(tab: Tab): SaveTargetGroup | null | undefined {
     const backend = this.app.backendForTab(tab)
-    if (backend === undefined || this.app.scanTabSaveTargetFixes(tab, new Set()).length === 0) return undefined
+    if (backend === undefined || this.app.scanTabSaveTargetFixes(tab, new Set()).length === 0) return null
     if (!this.mounts.has(backend)) void this.readMounts(backend)
     const settings = this.mounts.get(backend)?.settings
     if (settings === undefined) return undefined
     const ready = readyMounts(settings)
     const fixes = this.app.scanTabSaveTargetFixes(tab, ready)
-    return fixes.length === 0 ? undefined : { kind: 'save-targets', backend, fixes,
+    return fixes.length === 0 ? null : { kind: 'save-targets', backend, fixes,
       defaultMount: settings.activeOutputMount,
       defaultReady: settings.activeOutputMount !== undefined && ready.has(settings.activeOutputMount) }
   }
@@ -103,10 +103,12 @@ export class ProblemFixes {
   scan(tab: Tab): readonly ProblemFix[] {
     const live: { key: string; offered: ProblemFix['offered'] }[] = this.app.scanTabProblemFixes(tab)
       .map((offered) => ({ key: problemFixKey(offered), offered }))
-    const targets = this.saveTargets(tab)
-    if (targets !== undefined) live.push({ key: 'save-targets', offered: targets })
     let offers = this.offers.get(tab.store)
     if (offers === undefined) { offers = new Map(); this.offers.set(tab.store, offers) }
+    const targets = this.saveTargets(tab)
+    const held = offers.get('save-targets')?.offered
+    if (targets != null) live.push({ key: 'save-targets', offered: targets })
+    else if (targets === undefined && held?.kind === 'save-targets') live.push({ key: 'save-targets', offered: held })
     const keys = new Set(live.map(({ key }) => key))
     for (const key of offers.keys()) if (!keys.has(key) && offers.get(key)?.state !== 'storing') offers.delete(key)
     return live.map(({ key, offered }) => {

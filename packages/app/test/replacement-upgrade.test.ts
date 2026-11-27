@@ -499,6 +499,13 @@ describe('native open-time replacement', () => {
     mounts = { ...mounts, mounts: mounts.mounts.filter((mount) => mount.id === 'ready') }
     backend.connection.ingest({ type: 'mounts_changed' })
     await vi.waitFor(() => expect(diagnostics().filter((problem) => problem.code === 'saveTarget.mountsMissing')).toHaveLength(1))
+    fetchMounts.mockRejectedValueOnce(new Error('Mount snapshot unavailable'))
+    await app.problemFixes.apply(tab, app.problemFixes.scan(tab).filter((fix) => fix.offered.kind === 'save-targets'))
+    expect(tab.store.doc).toEqual(changed)
+    const unavailable = diagnostics().find((problem) => problem.code === 'saveTarget.mountsMissing')!
+    expect(app.problemFixes.forProblem(tab, unavailable)?.state).toBe('stale')
+    app.problemFixes.recheck(tab, 'save-targets')
+    await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, diagnostics().find((problem) => problem.code === 'saveTarget.mountsMissing')!)?.state).toBe('offered'))
   })
 
   it('stores a save-target-only fix and undoes it without an automatic-adjustment notice', async () => {
