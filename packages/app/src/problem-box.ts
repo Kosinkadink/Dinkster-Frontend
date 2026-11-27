@@ -81,7 +81,7 @@ export function problemBoxLines(
         kind: problem.kind,
         ...(problem.row === undefined ? {} : {
           row: problem.row,
-          ...(typeof nodeMessage === 'string' ? {} : { rowName: row?.name ?? rowName(problem.row) }),
+          ...(typeof nodeMessage === 'string' && diagnostic.code !== 'node.rule.failed' ? {} : { rowName: row?.name ?? rowName(problem.row) }),
         }),
         ...(diagnostic.code === 'compile.input.missing' && diagnostic.hiddenRequiredField !== undefined
           ? { rowName: diagnostic.hiddenRequiredField } : {}),
