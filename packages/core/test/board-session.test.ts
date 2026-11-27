@@ -109,10 +109,24 @@ describe('Board sessions', () => {
       expect(b.dispatch({ command: 'board.card.input', params: {
         id: 'card', input: { graphId: 'g0', nodeId: 'node', inputId: 'count' }, value: 4,
       } }).ok).toBe(true)
+      expect(a.dispatch({ command: 'board.card.controller', params: {
+        id: 'card', key: '["g0","node","prompt"]', mode: 'fixed',
+      } }).ok).toBe(true)
+      expect(b.dispatch({ command: 'board.card.controller', params: {
+        id: 'card', key: '["g0","node","count"]', mode: 'increment',
+      } }).ok).toBe(true)
       await Promise.all([a.settle(), b.settle()])
+      expect(b.doc.items['card']).toMatchObject({ controllers: {
+        '["g0","node","prompt"]': 'fixed', '["g0","node","count"]': 'increment',
+      } })
       expect(b.doc.items['card']).toMatchObject({ values: {
         '["g0","node","prompt"]': 'Rain at night', '["g0","node","count"]': 4,
       } })
+      expect(a.undo()).toBe(true)
+      await a.settle()
+      expect(a.doc.items['card']).toMatchObject({ controllers: { '["g0","node","count"]': 'increment' } })
+      const modes = a.doc.items['card']!
+      expect('controllers' in modes && Object.hasOwn(modes.controllers ?? {}, '["g0","node","prompt"]')).toBe(false)
       expect(a.undo()).toBe(true)
       await a.settle()
       expect(a.doc).toEqual(b.doc)
@@ -121,7 +135,12 @@ describe('Board sessions', () => {
       expect('values' in item && Object.hasOwn(item.values, '["g0","node","prompt"]')).toBe(false)
       expect(a.redo()).toBe(true)
       await a.settle()
+      expect(a.redo()).toBe(true)
+      await a.settle()
       expect(a.doc).toEqual(b.doc)
+      expect(b.doc.items['card']).toMatchObject({ controllers: {
+        '["g0","node","prompt"]': 'fixed', '["g0","node","count"]': 'increment',
+      } })
       expect(b.doc.items['card']).toMatchObject({ values: {
         '["g0","node","prompt"]': 'Rain at night', '["g0","node","count"]': 4,
       } })

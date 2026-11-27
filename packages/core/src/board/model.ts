@@ -9,7 +9,7 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import type { Json, JsonObject } from '../format/document.js'
+import type { ControllerMode, Json, JsonObject } from '../format/document.js'
 import { ownJson } from '../format/json.js'
 
 export const BOARD_FORMAT = 'dinkster-board'
@@ -83,6 +83,7 @@ export interface BoardCardItem {
   readonly source: BoardCardSource
   /** Card-owned overrides keyed by exposedKey, not values written into the source. */
   readonly values: JsonObject
+  readonly controllers?: Readonly<Record<string, ControllerMode>>
 }
 
 export type BoardItem = (BoardMediaItem | BoardNoteItem | BoardSectionItem | BoardCardItem) & {
@@ -226,7 +227,7 @@ export function readBoardItem(id: string, value: Json | undefined): BoardItem | 
   if (sectionId !== undefined && (typeof sectionId !== 'string' || !ITEM_ID.test(sectionId))) return fail('item.section', `${where}: sectionId must be an item id`)
   const membership = sectionId === undefined ? {} : { sectionId: sectionId as string }
   const kind = value['kind']
-  const content = kind === 'workflow' || kind === 'blueprint' ? ['name', 'source', 'values'] : [kind === 'note' ? 'text' : kind === 'section' ? 'name' : 'asset']
+  const content = kind === 'workflow' || kind === 'blueprint' ? ['name', 'source', 'values', 'controllers'] : [kind === 'note' ? 'text' : kind === 'section' ? 'name' : 'asset']
   if (Object.keys(value).some((key) => !['id', 'kind', 'rect', 'sectionId', ...content].includes(key))) return fail('item.invalid', `${where}: item contains unsupported fields`)
   const rect = readRect(value['rect'], where)
   if ('severity' in rect) return rect
@@ -237,7 +238,13 @@ export function readBoardItem(id: string, value: Json | undefined): BoardItem | 
     if ('severity' in source) return source
     const values = value['values']
     if (!isObject(values)) return fail('item.invalid', `${where}: card values must be an object`)
-    return { id, kind, rect, name, source, values, ...membership }
+    const controllers = value['controllers']
+    if (controllers !== undefined && (!isObject(controllers) || Object.values(controllers).some((mode) =>
+      typeof mode !== 'string' || !['fixed', 'increment', 'decrement', 'randomize'].includes(mode)))) {
+      return fail('item.invalid', `${where}: card controller modes are invalid`)
+    }
+    return { id, kind, rect, name, source, values, ...membership,
+      ...(controllers === undefined ? {} : { controllers: controllers as Readonly<Record<string, ControllerMode>> }) }
   }
   if (typeof kind === 'string' && isBoardMediaKind(kind)) {
     const asset = readAsset(value['asset'], where)

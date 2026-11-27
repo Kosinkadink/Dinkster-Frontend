@@ -9528,7 +9528,8 @@ export class AppState {
       }
       for (const step of steps) {
         const key = exposedKey(step)
-        if (!jsonSameValue(latest.values[key], card.values[key])) invalid.add(step)
+        if (!jsonSameValue(latest.values[key], card.values[key]) ||
+          latest.controllers?.[key] !== card.controllers?.[key]) invalid.add(step)
       }
     })
     return { dispose, apply: () => {

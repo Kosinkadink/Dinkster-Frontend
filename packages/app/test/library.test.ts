@@ -107,6 +107,66 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 }
 
 describe('Board card sources', () => {
+  it('keeps exposed after-run choices private, resets them with values, and ignores in-flight mode edits', async () => {
+    const { backend, tab } = await nativeSetup()
+    const registry = backend.registry.get()!
+    const schema = registry.resolve('test.numeric_union')!
+    backend.registry.set({ ...registry, resolve: (type) => type !== schema.type ? registry.resolve(type) : {
+      ...schema, body: schema.body.map((row) => row.kind === 'input' ? { ...row,
+        widget: { ...row.widget!, controller: 'after_generate', controllerInitial: 'increment' },
+      } : row),
+    } })
+    const input = { graphId: 'g0', nodeId: 'n0', inputId: 'frame_rate' }
+    let source = { ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0,
+      nodes: { n0: { id: 'n0', type: schema.type, values: { frame_rate: 25 }, controllers: { frame_rate: 'increment' } } }, links: {},
+    } }, ext: { 'dinkster.exposed': [input] } }
+    const original = tab.store.doc
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
+    vi.spyOn(backend.connection, 'fetchAssetText').mockImplementation(async () => JSON.stringify(source))
+    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
+    let count = 0
+    vi.spyOn(backend.connection, 'submit').mockImplementation(async () => ({ ok: true,
+      execution: { connection: backend.id, prompt: asPromptId(`mode-${++count}`) } }))
+    const board = app.boards.open(emptyBoard(), 'Modes', backend.baseUrl)
+    const selection = { project: activeProjectId(), baseUrl: backend.baseUrl, kind: 'workflow' as const,
+      source: { kind: 'library' as const, recordId: 'r1' }, name: 'Rate' }
+    const a = await app.boards.placeCard(board.id, selection, { x: 0, y: 0 })
+    const b = await app.boards.placeCard(board.id, selection, { x: 400, y: 0 })
+    const mode = (id: string, mode?: 'fixed' | 'increment' | 'decrement') =>
+      board.session.dispatch({ command: 'board.card.controller', params: { id, key: exposedKey(input), ...(mode ? { mode } : {}) } })
+    const snapshot = (id: string) => app.boards.loadCard(board.id, id, backend.registry.get()!.resolve)
+    mode(a, 'fixed')
+    const first = (await app.queueBoardCard(board, a))!
+    const second = (await app.queueBoardCard(board, b))!
+    app.store.apply({ kind: 'completed', execution: first, timestamp: 1 })
+    app.store.apply({ kind: 'completed', execution: second, timestamp: 2 })
+    expect((await snapshot(a)).graphs.g0!.nodes.n0!.values.frame_rate).toBe(25)
+    expect((await snapshot(b)).graphs.g0!.nodes.n0!.values.frame_rate).toBe(25.01)
+    source = { ...source, graphs: { g0: { ...source.graphs.g0, nodes: { n0: { ...source.graphs.g0.nodes.n0,
+      values: { frame_rate: 31 }, controllers: { frame_rate: 'decrement' },
+    } } } } }
+    expect((await snapshot(a)).graphs.g0!.nodes.n0!.controllers!.frame_rate).toBe('fixed')
+    expect((await snapshot(b)).graphs.g0!.nodes.n0!.controllers!.frame_rate).toBe('decrement')
+    board.session.dispatch({ command: 'board.card.input', params: { id: a, input, value: 40 } })
+    board.session.dispatch({ command: 'board.card.input', params: { id: a, input } })
+    expect((await snapshot(a)).graphs.g0!.nodes.n0!).toMatchObject({ values: { frame_rate: 31 }, controllers: { frame_rate: 'decrement' } })
+    const third = (await app.queueBoardCard(board, a))!
+    mode(a, 'fixed'); mode(a, 'decrement')
+    app.store.apply({ kind: 'completed', execution: third, timestamp: 3 })
+    expect((await snapshot(a)).graphs.g0!.nodes.n0!.values.frame_rate).toBe(31)
+    source = { ...source, ext: { 'dinkster.exposed': [] } }
+    await snapshot(a)
+    expect(board.session.doc.items[a]).toMatchObject({ controllers: {} })
+    const persisted = JSON.parse(JSON.stringify(board.session.doc))
+    app.boards.close(board.id)
+    const reopened = app.boards.open(persisted, 'Modes reopened', backend.baseUrl)
+    const fourth = (await app.queueBoardCard(reopened, a))!
+    app.store.apply({ kind: 'completed', execution: fourth, timestamp: 4 })
+    expect((await app.boards.loadCard(reopened.id, a, backend.registry.get()!.resolve)).graphs.g0!.nodes.n0!.values.frame_rate).toBe(30.99)
+    expect(source.graphs.g0.nodes.n0.values.frame_rate).toBe(31)
+    expect(tab.store.doc).toBe(original)
+  })
+
   it.each(['workflow', 'blueprint'] as const)('advances private %s seeds and dropdowns only on success, preserves in-flight edits, and persists them without source writes', async (kind) => {
     const { backend, tab } = await nativeSetup()
     const schema: NodeSchema = { type: 'CardControls', displayName: 'Card controls', category: 'test', source: 'v3', isOutputNode: true,
@@ -194,6 +254,20 @@ describe('Board card sources', () => {
     const eighth = (await app.queueBoardCard(reopened, a))!
     expect(submitted[8]).toEqual({ seed: kind === 'blueprint' ? 8 : 31, choice: 'beta' })
     app.store.apply({ kind: 'cancelled', execution: eighth, timestamp: 9 })
+    vi.mocked(backend.connection.fetchAssetText).mockImplementation(async () => JSON.stringify({ ...source,
+      ...(kind === 'workflow' ? { ext: { 'dinkster.exposed': [seedInput] } } : {}),
+    }))
+    reopened.session.dispatch({ command: 'board.card.controller', params: { id: a, key: exposedKey(seedInput), mode: 'fixed' } })
+    const ninth = (await app.queueBoardCard(reopened, a))!
+    app.store.apply({ kind: 'completed', execution: ninth, timestamp: 10 })
+    const held = await app.boards.loadCard(reopened.id, a, backend.registry.get()!.resolve)
+    expect(held.graphs[seedInput.graphId]!.nodes.n0!.values.seed).toBe(kind === 'blueprint' ? 8 : 31)
+    reopened.session.dispatch({ command: 'board.card.input', params: { id: a, input: seedInput } })
+    const tenth = (await app.queueBoardCard(reopened, a))!
+    expect(submitted[10]!.seed).toBe(31)
+    app.store.apply({ kind: 'completed', execution: tenth, timestamp: 11 })
+    expect((await app.boards.loadCard(reopened.id, a, backend.registry.get()!.resolve))
+      .graphs[seedInput.graphId]!.nodes.n0!.values.seed).toBe(32)
     expect(app.tabs.get()).toBe(tabs)
     expect(tab.store.doc).toBe(original)
     expect(source.graphs.g0.nodes.n0.values).toEqual({ seed: 31, choice: 'beta' })

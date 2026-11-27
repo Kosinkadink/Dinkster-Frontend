@@ -1,6 +1,6 @@
 import {
   BOARD_MAX_NAME, BOARD_MEDIA_TYPE, DocumentStore, boardMediaKindOf, buildGraphConnectivity, connectSharedBoardSession, coreCommandRegistry, createLocalBoardSession, createSignal, defaultValuesOf, documentResolver, elabInputsOf, elaborateInterface, exposedKey, exposedToJson, isValidCollabTitle, jsonSameValue, loadBoard, loadDocument, planBoardCommand, t, valueKeyOf,
-  type BoardAsset, type BoardCardItem, type BoardCardSource, type BoardDocument, type BoardItemInput, type BoardSession, type CollabSessionDescriptor, type Json, type NodeSchema, type SharedBoardSession, type WorkflowDocument,
+  type BoardAsset, type BoardCardItem, type BoardCardSource, type BoardDocument, type BoardItemInput, type BoardSession, type CollabSessionDescriptor, type ControllerMode, type Json, type NodeSchema, type SharedBoardSession, type WorkflowDocument,
 } from '@dinkster/core'
 import type { AssetUploadDestination, DinksterConnection, LibraryRecord } from '@dinkster/client'
 import type { CollabTransport } from './collab.js'
@@ -32,6 +32,7 @@ export interface BoardEntry {
 /** Apply exposed overrides and private advancing controls without changing source bytes. */
 export function applyCardInputs(document: WorkflowDocument, values: Readonly<Record<string, Json>>,
   resolve: (type: string) => NodeSchema | undefined,
+  controllers: Readonly<Record<string, ControllerMode>> = {},
 ): WorkflowDocument {
   const store = new DocumentStore(document, coreCommandRegistry([], documentResolver(document, resolve)))
   const pending = new Set(Object.keys(values))
@@ -56,6 +57,15 @@ export function applyCardInputs(document: WorkflowDocument, values: Readonly<Rec
     if (row.linked || row.derived) continue
     const result = store.dispatch({ command: 'node.setValue', params: {
       graphId: row.entry.graphId, nodeId: row.entry.nodeId, inputId: row.valueKey, value: values[key]!,
+    } })
+    if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+  }
+  for (const row of buildParamRows(store.doc, documentResolver(store.doc, resolve))) {
+    if (row.kind !== 'live' || row.linked || row.derived || row.spec?.controller !== 'after_generate') continue
+    const mode = controllers[exposedKey(row.entry)]
+    if (mode === undefined) continue
+    const result = store.dispatch({ command: 'node.setController', params: {
+      graphId: row.entry.graphId, nodeId: row.entry.nodeId, inputId: row.valueKey, mode,
     } })
     if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
   }
@@ -300,7 +310,7 @@ export class BoardWorkspace {
     const entry = this.mediaEntry(id)
     const card = entry.session.doc.items[cardId]
     if (!card || (card.kind !== 'workflow' && card.kind !== 'blueprint')) throw new Error('Card is no longer on this Board')
-    const snapshot = applyCardInputs(document, card.values, resolve)
+    const snapshot = applyCardInputs(document, card.values, resolve, card.controllers)
     const exposed = new Set(buildParamRows(snapshot, documentResolver(snapshot, resolve))
       .flatMap((row) => [exposedKey(row.entry), ...(row.kind === 'live' ? [exposedKey({ ...row.entry, inputId: row.valueKey })] : [])]))
     const fixed = new Set(cardControllerInputs(snapshot, resolve)
@@ -308,6 +318,9 @@ export class BoardWorkspace {
       .flatMap((input) => [exposedKey(input), input.key]))
     const values = Object.fromEntries(Object.entries(card.values).filter(([key]) => !fixed.has(key)))
     if (!jsonSameValue(card.values, values)) entry.session.dispatch({ command: 'board.card.inputs', params: { id: cardId, values } })
+    for (const key of Object.keys(card.controllers ?? {})) {
+      if (!exposed.has(key)) entry.session.dispatch({ command: 'board.card.controller', params: { id: cardId, key } })
+    }
     return snapshot
   }
 

@@ -112,7 +112,7 @@ export function BoardCard(props: {
     const schemas = registry()
     if (!document || !schemas) return { rows: [] as readonly ParamRow[] }
     try {
-      const snapshot = applyCardInputs(document, props.card.values, schemas.resolve)
+      const snapshot = applyCardInputs(document, props.card.values, schemas.resolve, props.card.controllers)
       return { rows: buildParamRows(snapshot, documentResolver(snapshot, schemas.resolve)) }
     } catch (reason) {
       return { rows: [] as readonly ParamRow[], error: reason instanceof Error ? reason.message : String(reason) }

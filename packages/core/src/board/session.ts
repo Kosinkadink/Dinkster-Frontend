@@ -71,6 +71,12 @@ function replayHistory(document: BoardDocument, operations: readonly PatchOp[]):
   const applied: PatchOp[] = []
   for (const operation of operations) {
     const current = getAtPath(cursor, operation.path)
+    if (operation.path.length === 3 && operation.path[0] === 'items' && operation.path[2] === 'controllers' &&
+      current !== null && typeof current === 'object' && !Array.isArray(current)) {
+      // Keep a shared mode container when undo/redo only owns one of its entries.
+      if (operation.op === 'remove' && jsonSameValue(operation.oldValue, {}) && Object.keys(current).length > 0) continue
+      if (operation.op === 'add' && jsonSameValue(operation.value, {})) continue
+    }
     if (operation.op === 'replace' && operation.path.length === 1 && operation.path[0] === 'order' &&
       Array.isArray(current) && Array.isArray(operation.oldValue) && Array.isArray(operation.value)) {
       const before = operation.oldValue as readonly string[]

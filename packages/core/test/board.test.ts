@@ -31,18 +31,27 @@ describe('board document', () => {
       const change = { text: 'Changed', options: [2, 5] }
       expect(store.dispatch({ command: 'board.card.input', params: { id: 'left', input, value: change } }).ok).toBe(true)
       change.options.push(9)
+      expect(store.dispatch({ command: 'board.card.controller', params: { id: 'left', key: exposedKey(input), mode: 'fixed' } }).ok).toBe(true)
       expect(store.dispatch({ command: 'board.card.input', params: { id: 'left', input: otherInput, value: null } }).ok).toBe(true)
       const reopened = new BoardStore(JSON.parse(JSON.stringify(store.doc)))
       expect(reopened.doc.items['left']).toMatchObject({ source, values: {
         [exposedKey(input)]: { text: 'Changed', options: [2, 5] }, [exposedKey(otherInput)]: null,
       } })
       expect(reopened.doc.items['right']).toEqual(before.items['right'])
+      expect(reopened.doc.items['left']).toMatchObject({ controllers: { [exposedKey(input)]: 'fixed' } })
       expect(sourceValues[exposedKey(input)]).toEqual({ text: 'Original', options: [1, 3] })
       expect(reopened.dispatch({ command: 'board.card.input', params: { id: 'left', input } }).ok).toBe(true)
       const reset = reopened.doc.items['left']!
       expect('values' in reset && Object.hasOwn(reset.values, exposedKey(input))).toBe(false)
+      expect('controllers' in reset && Object.hasOwn(reset.controllers ?? {}, exposedKey(input))).toBe(false)
+      expect(reopened.dispatch({ command: 'board.card.controller', params: { id: 'left', key: exposedKey(input), mode: 'increment' } }).ok).toBe(true)
+      expect(reopened.dispatch({ command: 'board.card.input', params: { id: 'left', input } }).ok).toBe(true)
+      expect(reopened.undo()).toBe(true)
+      expect(reopened.doc.items['left']).toMatchObject({ controllers: { [exposedKey(input)]: 'increment' } })
+      expect(reopened.undo()).toBe(true)
       expect(reopened.undo()).toBe(true)
       expect(reopened.doc).toEqual(store.doc)
+      expect(store.undo()).toBe(true)
       expect(store.undo()).toBe(true)
       expect(store.undo()).toBe(true)
       expect(store.doc).toEqual(before)

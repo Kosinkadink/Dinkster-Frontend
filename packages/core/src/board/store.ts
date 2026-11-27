@@ -8,7 +8,7 @@
 
 import { createSignal, type ReadonlySignal } from '../reactive/signal.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
-import type { Json, JsonObject } from '../format/document.js'
+import type { ControllerMode, Json, JsonObject } from '../format/document.js'
 import { applyOwnedOps, invertOps, type PatchOp } from '../commands/patch.js'
 import { jsonSameValue } from '../commands/store.js'
 import { exposedKey, type ExposedParameter } from '../format/exposed.js'
@@ -36,10 +36,15 @@ export type BoardCommandInvocation =
   | { readonly command: 'board.note.edit'; readonly params: { readonly id: string; readonly text: string } }
   | { readonly command: 'board.section.rename'; readonly params: { readonly id: string; readonly name: string } }
   | { readonly command: 'board.card.inputs'; readonly params: { readonly id: string; readonly values: JsonObject } }
+  | { readonly command: 'board.card.controller'; readonly params: {
+      readonly id: string
+      readonly key: string
+      readonly mode?: ControllerMode
+    } }
   | { readonly command: 'board.card.input'; readonly params: {
       readonly id: string
       readonly input: Pick<ExposedParameter, 'graphId' | 'nodeId' | 'inputId'>
-      /** Omit to use the source's value again; null is an explicit value. */
+      /** Omit to restore the source's value and controller mode; null is an explicit value. */
       readonly value?: Json
     } }
 
@@ -196,6 +201,21 @@ export function planBoardCommand(
       if (jsonSameValue(item.values, values)) return refuse('edit.none', 'the card already has those input values')
       return { ok: true, created: [], forward: [{ op: 'replace', path: ['items', id, 'values'], value: owned(values), oldValue: item.values }] }
     }
+    case 'board.card.controller': {
+      const { id, key, mode } = invocation.params
+      const item = board.items[id]
+      if (item === undefined) return missing(id)
+      if (item.kind !== 'workflow' && item.kind !== 'blueprint') return refuse('item.kind', `'${id}' is not a workflow or blueprint card`)
+      if (typeof key !== 'string' || key.length === 0) return refuse('input.invalid', 'card controller needs an input key')
+      const previous = item.controllers?.[key]
+      if (previous === mode) return refuse('edit.none', 'the card already has that controller mode')
+      const path = ['items', id, 'controllers', key]
+      const forward: PatchOp[] = item.controllers === undefined
+        ? [{ op: 'add', path: ['items', id, 'controllers'], value: {} }] : []
+      forward.push(mode === undefined ? { op: 'remove', path, oldValue: previous! }
+        : previous === undefined ? { op: 'add', path, value: mode } : { op: 'replace', path, value: mode, oldValue: previous })
+      return { ok: true, created: [], forward }
+    }
     case 'board.card.input': {
       const { id, input, value } = invocation.params
       const item = board.items[id]
@@ -204,14 +224,14 @@ export function planBoardCommand(
       if (![input.graphId, input.nodeId, input.inputId].every((part) => typeof part === 'string' && part.length > 0)) return refuse('input.invalid', 'card inputs need graph, node and input ids')
       const key = exposedKey(input)
       const previous = item.values[key]
-      if (jsonSameValue(previous, value)) return refuse('edit.none', 'the card already has that input value')
+      const resetMode = value === undefined && item.controllers?.[key] !== undefined
+      if (jsonSameValue(previous, value) && !resetMode) return refuse('edit.none', 'the card already has that input value')
       const path = ['items', id, 'values', key]
-      const op: PatchOp = value === undefined
-        ? { op: 'remove', path, oldValue: previous! }
-        : previous === undefined
-          ? { op: 'add', path, value: owned(value) }
-          : { op: 'replace', path, value: owned(value), oldValue: previous }
-      return { ok: true, created: [], forward: [op] }
+      const forward: PatchOp[] = jsonSameValue(previous, value) ? [] : [value === undefined
+        ? { op: 'remove', path, oldValue: previous! } : previous === undefined
+          ? { op: 'add', path, value: owned(value) } : { op: 'replace', path, value: owned(value), oldValue: previous }]
+      if (resetMode) forward.push({ op: 'remove', path: ['items', id, 'controllers', key], oldValue: item.controllers![key]! })
+      return { ok: true, created: [], forward }
     }
     default:
       return refuse('command.unknown', `unknown board command '${String((invocation as { readonly command?: unknown }).command)}'`)
