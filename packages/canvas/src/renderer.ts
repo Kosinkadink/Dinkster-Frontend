@@ -1073,6 +1073,7 @@ export class CanvasRenderer {
     private tokens: DesignTokens,
     private readonly paintWidget: WidgetPainter = defaultWidgetPainter,
   ) {
+    this.fixedDetailMinScale = tokens.detailMinScale
     this.loop = this.loop.bind(this)
     this.scheduleFrame()
   }
@@ -1103,6 +1104,7 @@ export class CanvasRenderer {
   setScene(scene: Scene): void {
     this.baseScene = scene
     this.replacePaintScene(this.sceneWithBodyRegions(scene))
+    this.refreshDetailMinScale()
     this.refreshConnectivity()
     this.canvasLayerNodes = Object.freeze(this.scene.nodes.map((node) => Object.freeze({
       id: node.id,
@@ -1393,10 +1395,48 @@ export class CanvasRenderer {
     this.invalidate()
   }
 
+  private fixedDetailMinScale: number
+  private automaticDetails = false
+  private viewportGesture = false
+  private detailSettleTimer: ReturnType<typeof setTimeout> | undefined
+  private readonly detailScaleListeners = new Set<(scale: number) => void>()
+
   setDetailMinScale(scale: number): void {
-    if (this.tokens.detailMinScale === scale) return
-    this.tokens = { ...this.tokens, detailMinScale: scale }
+    this.fixedDetailMinScale = scale
+    this.refreshDetailMinScale()
+  }
+
+  setDetailMode(mode: 'automatic' | 'fixed'): void {
+    this.automaticDetails = mode === 'automatic'
+    this.refreshDetailMinScale()
+  }
+
+  onDetailMinScaleChange(listener: (scale: number) => void): () => void {
+    this.detailScaleListeners.add(listener)
+    return () => this.detailScaleListeners.delete(listener)
+  }
+
+  setViewportGesture(active: boolean): void {
+    if (this.viewportGesture === active) return
+    this.viewportGesture = active
+    if (active) {
+      clearTimeout(this.detailSettleTimer)
+      this.detailSettleTimer = undefined
+    } else this.refreshDetailMinScale()
+  }
+
+  refreshDetailMinScale(): void {
+    if (this.automaticDetails && (this.viewportGesture || this.viewportAnimation !== undefined || this.detailSettleTimer !== undefined)) return
+    const { x, y, scale } = this.viewport
+    const count = this.automaticDetails ? this.scene.nodes.filter((node) =>
+      node.x * scale + x <= this.canvas.clientWidth && (node.x + node.layout.width) * scale + x >= 0 &&
+      node.y * scale + y <= this.canvas.clientHeight && (node.y + node.layout.height) * scale + y >= 0,
+    ).length : 0
+    const threshold = this.automaticDetails ? count <= 40 ? 0.15 : count <= 150 ? 0.22 : 0.3 : this.fixedDetailMinScale
+    if (this.tokens.detailMinScale === threshold) return
+    this.tokens = { ...this.tokens, detailMinScale: threshold }
     this.invalidate()
+    for (const listener of this.detailScaleListeners) listener(threshold)
   }
 
   setColors(colors: DesignTokens['colors'], typePaint?: Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'>): void {
@@ -2121,6 +2161,13 @@ export class CanvasRenderer {
     this.viewport = viewport
     this.dirty = true
     for (const cb of this.viewportListeners) cb(viewport)
+    clearTimeout(this.detailSettleTimer)
+    if (this.automaticDetails && !this.viewportGesture) {
+      this.detailSettleTimer = setTimeout(() => {
+        this.detailSettleTimer = undefined
+        this.refreshDetailMinScale()
+      }, 150)
+    }
   }
 
   /** Observe every viewport change (pan/zoom/fit/jump). Returns unsubscribe. */
@@ -2244,6 +2291,8 @@ export class CanvasRenderer {
 
   dispose(): void {
     this.cancelViewportAnimation()
+    clearTimeout(this.detailSettleTimer)
+    this.detailScaleListeners.clear()
     this.disposed = true
     if (this.rafId !== undefined) cancelAnimationFrame(this.rafId)
     this.rafId = undefined
@@ -2501,7 +2550,7 @@ export class CanvasRenderer {
     const overlay = this.overlay
     // Node/link bins prove transparency only when nothing else can paint
     // between them. Overlay transitions also invalidate cached empty tiles.
-    const skipEmpty = scale >= cache.detailMinScale && scale <= cache.detailMaxScale && this.getDetailLevel() !== 'overview' &&
+    const skipEmpty = scale <= cache.detailMaxScale && this.getDetailLevel() !== 'overview' &&
       this.scene.groups.length === 0 && this.scene.reroutes.length === 0 && this.scene.netStubs.length === 0 && this.scene.boundaryNodes.length === 0 &&
       !overlay.selection?.size && !overlay.ghostLink && !overlay.ghostLinks && !overlay.hoveredLine &&
       !overlay.marquee && !overlay.groupResizeGhost && !overlay.placementGhost
@@ -4129,7 +4178,7 @@ export class CanvasRenderer {
       const skippedRows = progress?.state === 'skipped'
       this.problemMarkAlpha = rowsAlpha
       const cache = canvasPaintTokens.graphCache
-      const cullFields = scale >= cache.detailMinScale && scale <= cache.detailMaxScale
+      const cullFields = scale <= cache.detailMaxScale
       const rowPad = structureCullPad(scale, t.pinRadius, detailLevel)
       for (const row of l.rows) {
         const rowY = node.y + row.y

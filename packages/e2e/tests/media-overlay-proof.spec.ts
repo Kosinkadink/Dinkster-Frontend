@@ -886,6 +886,7 @@ test('editors and media stay usable until the configured node details cutoff', a
         save: { position: { x: 400, y: 60 }, editors: { target: { unfolded: true } } },
       } } } },
     }, 'Editor zoom')
+    app.settings.set('canvas.detailMode', 'fixed')
     app.settings.set('canvas.detailMinPercent', 30)
     window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 20, scale: 0.4 })
   })

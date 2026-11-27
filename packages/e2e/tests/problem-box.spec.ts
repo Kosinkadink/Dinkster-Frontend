@@ -146,7 +146,10 @@ test('a problem outlines its row and the tab opens one box under the node', asyn
 
   // Zoomed out past the tabs, the open box is not drawn; it returns with them.
   const viewport = await page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
-  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 50))
+  await page.evaluate(() => {
+    window.__dinksterTest!.app.settings.set('canvas.detailMode', 'fixed')
+    window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 50)
+  })
   await page.evaluate((v) => window.__dinksterTest!.renderer!.setViewport({ ...v, scale: 0.4 }), viewport)
   await expect(box).toHaveCount(0)
   await page.evaluate((v) => window.__dinksterTest!.renderer!.setViewport(v), viewport)
