@@ -438,20 +438,20 @@
 }
 
 .tab.dragging {
-  position: relative;
-  z-index: 2;
-  opacity: var(--dinkster-interaction-disabled-opacity);
-  box-shadow: inset var(--dinkster-indicator-width) 0 var(--dinkster-border-focus);
-  cursor: grabbing;
+  opacity: 0;
+  flex: none;
+  width: var(--tab-drag-width);
+  min-width: 0;
+  max-width: none;
+  pointer-events: none;
 }
 
-.tab.dragging::before {
-  position: absolute;
-  inset: var(--dinkster-space-4) auto var(--dinkster-space-4) 0;
-  width: var(--dinkster-indicator-width);
-  border-radius: var(--dinkster-radius-small);
-  background: var(--dinkster-border-focus);
-  content: '';
+.tab.dragging:not([data-drop-index]) { display: none; }
+
+.tab-drop-slot {
+  flex: none;
+  width: var(--tab-drag-width);
+  pointer-events: none;
 }
 
 .tab-select {

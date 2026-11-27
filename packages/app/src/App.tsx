@@ -888,6 +888,7 @@ export function App(props: {
     readonly sourceGroupId: string
     readonly x: number
     readonly y: number
+    readonly width: number
     /** Reorder preview; set only while the pointer rides the source strip. */
     readonly order: readonly string[] | undefined
     readonly insertionIndex: number | undefined
@@ -895,6 +896,7 @@ export function App(props: {
     readonly dropTarget: SplitDropTarget | undefined
     /** Another group's strip the pointer is over. */
     readonly targetStripId: string | undefined
+    readonly targetStripIndex: number | undefined
     /** True when releasing here would do nothing (refused split, pop-out unavailable). */
     readonly refused: boolean
   } | undefined>(undefined)
@@ -1034,6 +1036,24 @@ export function App(props: {
       return
     }
     if ((down.target as Element | null)?.closest('.tab-close')) return
+    // Feedback parts the row. Hit-testing uses the unshifted centers, adjusted
+    // for scrolling, rather than measuring its own insertion gap.
+    const stripSlots = new Map([...stripElements.values()].map((element) => {
+      const row = element.querySelector<HTMLElement>('.workflow-tablist')!
+      const left = element.getBoundingClientRect().left
+      const slots = [...element.querySelectorAll<HTMLElement>('.tab')].map((item) => {
+        const rect = item.getBoundingClientRect()
+        return { id: item.dataset['tabId']!, left: rect.left - left + row.scrollLeft, right: rect.right - left + row.scrollLeft }
+      })
+      return [element, { row, slots }] as const
+    }))
+    const sourceSlot = stripSlots.get(strip)!.slots.find((slot) => slot.id === tab.id)!
+    const width = sourceSlot.right - sourceSlot.left
+    const slotsFor = (element: HTMLElement): readonly TabDragSlot[] => {
+      const snapshot = stripSlots.get(element)!
+      const offset = element.getBoundingClientRect().left - snapshot.row.scrollLeft
+      return snapshot.slots.map((slot) => ({ id: slot.id, left: slot.left + offset, right: slot.right + offset }))
+    }
     tabDragPointerId = pointerId
     let drag = beginTabDragModel(pointerId, tab.id, down.clientX)
     let captured = false
@@ -1044,10 +1064,7 @@ export function App(props: {
     const within = (rect: DOMRect, x: number, y: number, pad = 0): boolean =>
       x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad
     const stripInsertionIndex = (element: HTMLElement, clientX: number): number =>
-      Array.from(element.querySelectorAll<HTMLElement>('.tab')).filter((el) => {
-        const rect = el.getBoundingClientRect()
-        return clientX >= (rect.left + rect.right) / 2
-      }).length
+      slotsFor(element).filter((slot) => clientX >= (slot.left + slot.right) / 2).length
     const dispose = (): void => {
       if (disposed) return
       disposed = true
@@ -1064,11 +1081,7 @@ export function App(props: {
       const wasStarted = drag.started
       const elements = Array.from(strip.querySelectorAll<HTMLElement>('.tab'))
       const currentOrder = elements.map((element) => element.dataset['tabId']!)
-      const slots: readonly TabDragSlot[] = elements.map((element) => {
-        const rect = element.getBoundingClientRect()
-        return { id: element.dataset['tabId']!, left: rect.left, right: rect.right }
-      })
-      drag = moveTabDragModel(drag, event.pointerId, event.clientX, currentOrder, slots)
+      drag = moveTabDragModel(drag, event.pointerId, event.clientX, currentOrder, slotsFor(strip))
       if (!drag.started) return
       if (!wasStarted && !captured) {
         try {
@@ -1090,7 +1103,7 @@ export function App(props: {
       overSourceStrip = within(strip.getBoundingClientRect(), event.clientX, event.clientY, 24)
       if (!overSourceStrip) {
         for (const [gid, element] of stripElements) {
-          if (gid === groupId || !element.isConnected) continue
+          if (gid === groupId || !element.isConnected || !stripSlots.has(element)) continue
           if (within(element.getBoundingClientRect(), event.clientX, event.clientY, 8)) {
             stripTarget = { groupId: gid, index: stripInsertionIndex(element, event.clientX) }
             break
@@ -1119,10 +1132,12 @@ export function App(props: {
         sourceGroupId: groupId,
         x: event.clientX,
         y: event.clientY,
+        width,
         order: overSourceStrip ? preview.order : undefined,
         insertionIndex: overSourceStrip ? preview.insertionIndex : undefined,
         dropTarget: paneTarget,
         targetStripId: stripTarget?.groupId,
+        targetStripIndex: stripTarget?.index,
         refused,
       }))
     }
@@ -2788,7 +2803,10 @@ export function App(props: {
         data-testid="editor-group"
         data-group-id={p.groupId}
         data-focused={paneFocused() ? 'true' : 'false'}
-        style={paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }}
+        style={{
+          ...(paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }),
+          '--tab-drag-width': tabDrag() !== undefined ? `${tabDrag()!.width}px` : undefined,
+        }}
         onFocusIn={focusPane}
         ref={sectionElement}
       >
@@ -2799,6 +2817,7 @@ export function App(props: {
             activeId={group().activeTabId}
             draggedId={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.tabId : undefined}
             insertionIndex={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.insertionIndex : undefined}
+            dropIndex={tabDrag()?.targetStripId === p.groupId ? tabDrag()?.targetStripIndex : undefined}
             runState={(tab) => {
               executions()
               tabResultClears()
