@@ -275,6 +275,28 @@ describe('workflow model presence', () => {
   }
   const models = (tab: Tab) => app.problems.get().filter((entry) => entry.owner === tab.id && entry.code.startsWith('model.availability.'))
 
+  it('keeps the submitted model kind when schemas change before a missing-asset response', async () => {
+    const asset = { digest: 'blake3:' + 'b'.repeat(64), name: 'exact.safetensors', size: 731,
+      mediaType: 'application/octet-stream', virtualPath: 'models/exact.safetensors' }
+    const { backend, tab } = await setup({ model: asset }, [field('model', 'model/vae')])
+    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue('blake3:' + 'c'.repeat(64))
+    const submit = deferred<unknown>()
+    const submitSpy = vi.spyOn(backend.connection, 'submit').mockReturnValue(submit.promise as never)
+    const queueing = app.queueSelection(tab, ['n0'])
+    await callStarted(submitSpy)
+    const schema = { ...backend.registry.get()!.schemas.get('ModelLoader')!, body: [field('model', 'image')] }
+    backend.registry.set({ ...backend.registry.get()!, resolve: (type) => type === schema.type ? schema : undefined,
+      schemas: new Map([[schema.type, schema]]) })
+    submit.resolve({ ok: false, diagnostics: [], assetsMissing: { error: 'assets-missing', assets: [
+      { digest: asset.digest, name: asset.name, status: 'missing', sources: [], fetchable: true },
+    ] }, retryWithAssets: vi.fn() })
+    await queueing
+    expect(app.assetConsent.get()?.models?.map((row) => row.requirement)).toEqual([
+      { name: asset.name, kind: 'model/vae', asset },
+    ])
+    expect(app.assetConsent.get()?.assets).toEqual([])
+  })
+
   it('keeps every affected row when two fields and two nodes use the same missing model', async () => {
     const { backend } = await setup({ first: 'same.safetensors', second: 'same.safetensors' })
     await app.openDocument({ ...CHAIN_DOC, lineage: 'repeated-model', graphs: { g0: { ...CHAIN_DOC.graphs.g0,
@@ -358,17 +380,31 @@ describe('workflow model presence', () => {
     expect(app.store.executions.get().size).toBe(0)
   })
 
-  it('reviews only the selected model without a run and cancels when its document changes', async () => {
-    const { backend, tab } = await setup({ first: 'first.safetensors', second: 'second.safetensors' })
-    await vi.waitFor(() => expect(models(tab)).toHaveLength(2))
+  it('reviews the workflow models from either entry without a run and cancels when its document changes', async () => {
+    const { backend, tab } = await setup({ first: 'first.safetensors', second: 'second.safetensors',
+      repeated: 'first.safetensors', vae: 'first.safetensors' }, [
+      field('first'), field('second'), field('repeated'), field('vae', 'model/vae'),
+    ])
+    await vi.waitFor(() => expect(models(tab)).toHaveLength(4))
     const diagnostic = models(tab).find((entry) => entry.data?.['name'] === 'second.safetensors')!
     vi.spyOn(backend.connection, 'planModelDownload').mockResolvedValue({ status: 'destination-required' })
     vi.spyOn(backend.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'test', jobs: [] })
     app.reviewModelDownload(tab, diagnostic)
     const request = app.assetConsent.get()!
-    expect(request.models).toHaveLength(1)
-    expect(request.models?.[0]?.requirement).toEqual({ name: 'second.safetensors', kind: 'model/checkpoint' })
+    expect(request.models?.map((entry) => entry.requirement)).toEqual([
+      { name: 'first.safetensors', kind: 'model/checkpoint' },
+      { name: 'second.safetensors', kind: 'model/checkpoint' },
+      { name: 'first.safetensors', kind: 'model/vae' },
+    ])
+    expect(request.workflowTitle).toBe(tab.title)
+    expect(request.focusedModel).toEqual({ name: 'second.safetensors', kind: 'model/checkpoint' })
     expect(request.retry).toBeUndefined()
+    app.assetConsent.set(undefined)
+    app.reviewModelDownload(tab)
+    expect(app.assetConsent.get()?.models?.map((entry) => entry.requirement)).toEqual(request.models?.map((entry) => entry.requirement))
+    expect(app.assetConsent.get()?.workflowTitle).toBe(tab.title)
+    expect(app.assetConsent.get()?.focusedModel).toBeUndefined()
+    expect(app.assetConsent.get()?.retry).toBeUndefined()
     expect(app.store.executions.get().size).toBe(0)
     await app.dispatchTo(tab, { command: 'node.setValue', params: {
       graphId: 'g0', nodeId: 'n0', inputId: 'second', value: 'replacement.safetensors',
@@ -378,31 +414,37 @@ describe('workflow model presence', () => {
     expect(app.assetConsent.get()).toBeUndefined()
   })
 
-  it('reviews unique missing workflow models without running and revokes when templates turn off', async () => {
-    const { backend, tab, presence } = await setup({ first: 'same.safetensors', repeated: 'same.safetensors',
-      otherKind: 'same.safetensors', local: 'local.safetensors' },
-    [field('first'), field('repeated'), field('otherKind', 'model/vae'), field('local')])
-    presence.mockImplementation(async (wanted) => wanted.map((model) => ({ ...model,
-      status: model.name === 'local.safetensors' ? 'local' as const : 'missing' as const, plannable: true })))
+  it('locates the reviewed model field or its storage without letting an old request navigate', async () => {
+    const { backend, tab } = await setup({ first: 'first.safetensors', second: 'second.safetensors' }, [field('first'), field('second')])
     vi.spyOn(backend.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'test', jobs: [] })
-    backend.connection.ingest({ type: 'mounts_changed' })
-    await vi.waitFor(() => expect(models(tab)).toHaveLength(3))
+    vi.spyOn(backend.connection, 'planModelDownload').mockImplementation(async (requirement) =>
+      ({ status: requirement.name === 'second.safetensors' ? 'duplicate' : 'destination-required' }))
     app.reviewModelDownload(tab)
+    await app.assetConsent.get()!.reviewModel!(1)
+    const stale = app.assetConsent.get()!
+    app.assetConsent.set(undefined)
+    app.reviewModelDownload(tab)
+    const current = app.assetConsent.get()!
+    stale.locateModel!(1)
+    expect(app.assetConsent.get()).toBe(current)
+    expect(app.diagnosticFocus.get()).toBeUndefined()
+    await open('another-workflow')
+    app.assetConsent.get()!.locateModel!(1)
     expect(app.assetConsent.get()).toBeUndefined()
-    backend.templatesEnabled.set(true)
+    expect(app.activeTabId.get()).toBe(tab.id)
+    expect(app.diagnosticFocus.get()).toEqual({ tab, openAssetInput: 'second',
+      anchor: { occurrence: { instancePath: [], node: asNodeId('n0') } },
+    })
     app.reviewModelDownload(tab)
-    expect(app.assetConsent.get()?.models?.map((model) => model.requirement)).toEqual([
-      { name: 'same.safetensors', kind: 'model/checkpoint' },
-      { name: 'same.safetensors', kind: 'model/vae' },
-    ])
-    expect(app.assetConsent.get()?.retry).toBeUndefined()
+    await app.assetConsent.get()!.reviewModel!(0)
+    app.assetConsent.get()!.locateModel!(0)
+    expect(app.assetConsent.get()).toBeUndefined()
+    expect(app.storageOpenRequest.get()).toEqual({ id: backend.id, hiddenModels: false })
     expect(app.store.executions.get().size).toBe(0)
-    backend.templatesEnabled.set(false)
-    expect(app.assetConsent.get()).toBeUndefined()
   })
 
   it('checks active flattened model fields, not dormant choices, media, selections or digest references', async () => {
-    const { tab } = await setup({ 'files.model': 'active.safetensors', media: 'picture.png', selection: 'baked-in',
+    const { backend, tab } = await setup({ 'files.model': 'active.safetensors', media: 'picture.png', selection: 'baked-in',
       digest: { digest: 'blake3:' + 'a'.repeat(64), name: 'stored.safetensors', size: 1, mediaType: 'application/octet-stream', virtualPath: 'models/stored.safetensors' },
       'mode.offline': 'dormant.safetensors',
     }, [
@@ -413,6 +455,21 @@ describe('workflow model presence', () => {
     await vi.waitFor(() => expect(models(tab).filter((entry) => entry.code === 'model.availability.missing')).toHaveLength(1))
     expect(models(tab)[0]?.data?.['input']).toBe('files.model')
     expect(models(tab)[0]?.data?.['name']).toBe('active.safetensors')
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockResolvedValue([
+      { digest: 'blake3:' + 'a'.repeat(64), status: 'missing' },
+    ])
+    await app.openDocument({ ...tab.store.doc, lineage: 'digest-model-review' }, 'Digest models')
+    const reopened = app.activeTab()!
+    app.setTabTarget(reopened.id, backend.id)
+    await vi.waitFor(() => expect(app.problems.get().some((entry) => entry.owner === reopened.id &&
+      entry.code === 'asset.availability.missing')).toBe(true))
+    app.reviewModelDownload(reopened)
+    expect(app.assetConsent.get()?.models?.map((entry) => entry.requirement)).toEqual([
+      { name: 'active.safetensors', kind: 'model/checkpoint' },
+      { name: 'stored.safetensors', kind: 'model/checkpoint', asset: tab.store.doc.graphs['g0']!.nodes['n0']!.values['digest'] },
+    ])
+    expect(app.assetConsent.get()?.retry).toBeUndefined()
+    expect(app.store.executions.get().size).toBe(0)
   })
 
   it('ignores an old document response and refreshes mount changes without acquiring anything', async () => {

@@ -58,8 +58,8 @@ test('reviews template models without opening or submitting a workflow and revok
   })
   await page.route('/api/models/downloads?*', (route) => route.fulfill({ json: { instance: 'test', jobs: [
     ...(started ? [job()] : []),
-    { ...job(), jobId: 'other-project', project: 'another-project', received: 900 },
-    { ...job(), jobId: 'other-kind', kind: 'model/checkpoint', received: 900 },
+    { ...job(), jobId: 'other-project', project: 'another-project', destination: '/other-project/model', mount: 'other-project', received: 900 },
+    { ...job(), jobId: 'other-kind', kind: 'model/checkpoint', destination: '/other-kind/model', mount: 'other-kind', received: 900 },
   ] } }))
   await page.route('/api/models/downloads/plan*', (route) => {
     plans.push(route.request().postDataJSON())
@@ -89,18 +89,16 @@ test('reviews template models without opening or submitting a workflow and revok
   await expect(page.getByRole('button', { name: 'Download 1 model', exact: true })).toBeVisible()
   await captureProof(page, 'template-download-before.png')
   await page.getByRole('button', { name: 'Download 1 model', exact: true }).click()
-  const dialog = page.getByTestId('asset-consent-dialog')
+  const dialog = page.getByRole('dialog', { name: 'Download models', exact: true })
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText('missing.safetensors')
-  await expect(dialog.getByRole('button', { name: 'Run once', exact: true })).toHaveCount(0)
-  expect(plans).toEqual([])
+  await expect(dialog.getByRole('button', { name: 'Run', exact: true })).toHaveCount(0)
+  await expect.poll(() => plans).toEqual([{ name: 'missing.safetensors', kind: 'model/vae', project: 'default', scope: 'local' }])
   expect(starts).toEqual([])
   await captureProof(page, 'template-download-review.png')
-  await dialog.getByRole('button', { name: 'Review source', exact: true }).click()
-  await expect.poll(() => plans).toEqual([{ name: 'missing.safetensors', kind: 'model/vae', project: 'default', scope: 'local' }])
-  await dialog.getByRole('button', { name: 'Download', exact: true }).click()
-  await expect(dialog.getByTestId('model-consent-bytes')).toBeVisible()
-  await dialog.getByRole('button', { name: 'Dismiss', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Download 1 model', exact: true }).click()
+  await expect(dialog.locator('.dinkster-model-download-row')).toHaveAttribute('data-state', 'downloading')
+  await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
   const gallery = page.getByTestId('templates-page')
   await expect(gallery).toContainText('Downloading 1 model, 41%')
   const modelState = gallery.locator('.dinkster-template-model-state')
@@ -186,23 +184,23 @@ test('reviews template models without opening or submitting a workflow and revok
   await captureProof(page, 'template-canvas-missing-900.png')
   await page.setViewportSize({ width: 1440, height: 900 })
   const plansBeforeCanvasReview = plans.length
-  await banner.getByRole('button', { name: 'Review download', exact: true }).click()
+  await banner.getByRole('button', { name: 'Download models', exact: true }).click()
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText('missing.safetensors')
-  await expect(dialog.getByRole('button', { name: 'Run once', exact: true })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Run', exact: true })).toHaveCount(0)
   expect(plans).toHaveLength(plansBeforeCanvasReview)
   expect(starts).toHaveLength(1)
   expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
   await captureProof(page, 'template-canvas-review.png')
-  await dialog.getByRole('button', { name: 'Review source', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Try again', exact: true }).click()
   await expect.poll(() => plans.length).toBe(plansBeforeCanvasReview + 1)
   expect(starts).toHaveLength(1)
   phase = 'downloading'
   jobId = 'canvas-job'
-  await dialog.getByRole('button', { name: 'Download', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Download 1 model', exact: true }).click()
   await expect.poll(() => starts.length).toBe(2)
-  await expect(dialog.getByTestId('model-consent-bytes')).toBeVisible()
-  await dialog.getByRole('button', { name: 'Dismiss', exact: true }).click()
+  await expect(dialog.locator('.dinkster-model-download-row')).toHaveAttribute('data-state', 'downloading')
+  await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
   await expect(banner).toBeVisible()
   phase = 'completed'
   modelsPresent = true
@@ -213,7 +211,7 @@ test('reviews template models without opening or submitting a workflow and revok
   modelsPresent = false
   notifyMountsChanged()
   await expect(banner).toBeVisible()
-  await banner.getByRole('button', { name: 'Review download', exact: true }).click()
+  await banner.getByRole('button', { name: 'Download models', exact: true }).click()
   await expect(dialog).toBeVisible()
   await page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get().find((item) => item.protocol === 'dinkster')!
