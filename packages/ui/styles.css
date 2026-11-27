@@ -725,7 +725,7 @@ button.dinkster-row-main { cursor: pointer; }
 [data-density='site'] .dinkster-button[data-fill='solid'] { font-weight: var(--dinkster-weight-bold); }
 [data-density='site'] .dinkster-button[data-icon-only]:not(.dinkster-mobile-nav) { width: var(--dinkster-site-main-button-height); }
 [data-density='site'] .dinkster-row .dinkster-button { height: var(--dinkster-site-row-button-height); }
-[data-density='site'] .dinkster-input { min-height: var(--dinkster-site-field-height); height: var(--dinkster-site-field-height); padding-block: 0; border-radius: var(--dinkster-site-control-radius); }
+[data-density='site'] .dinkster-input:not(:where(.dinkster-dialog *)) { min-height: var(--dinkster-site-field-height); height: var(--dinkster-site-field-height); padding-block: 0; border-radius: var(--dinkster-site-control-radius); }
 [data-density='site'] .dinkster-textarea { height: auto; min-height: calc((var(--dinkster-type-body-line) + var(--dinkster-space-8) + var(--dinkster-border-width)) * 2); padding-block: var(--dinkster-space-8); }
 [data-density='site'] .dinkster-panel > .dinkster-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, var(--dinkster-site-field-max-width)); gap: var(--dinkster-space-16); align-items: center; padding: var(--dinkster-site-row-control-padding); }
 [data-density='site'] .dinkster-panel > .dinkster-field + .dinkster-field { border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
@@ -1978,7 +1978,7 @@ button.dinkster-row-main { cursor: pointer; }
 /* The one search surface: Ctrl+K search, node search and the Settings page share it. */
 .dinkster-search { position: relative; display: flex; min-width: 0; color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
 .dinkster-search-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; max-height: inherit; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); }
-.dinkster-search-field { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-8); min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-8) var(--dinkster-space-16); color: var(--dinkster-text-secondary); }
+.dinkster-search-field { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-8); min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-4) var(--dinkster-space-16); color: var(--dinkster-text-secondary); }
 .dinkster-search-input { flex: 1 1 calc(var(--dinkster-space-32) * 3); min-width: min(100%, calc(var(--dinkster-space-32) * 3)); padding: 0; border: 0; outline: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; font-size: var(--dinkster-type-section-size); line-height: var(--dinkster-type-section-line); caret-color: var(--dinkster-accent-foreground); }
 /* The caret is the field's focus mark; the global control ring would box the field inside its own panel. */
 .dinkster-search-field .dinkster-search-input:focus-visible { outline: 0; }
@@ -2151,4 +2151,3 @@ button.dinkster-row-main { cursor: pointer; }
 /* Dialog controls keep app sizing even inside the site's larger-control density. */
 .dinkster-dialog .dinkster-button { height: var(--dinkster-menu-row-height); min-height: 0; padding-block: 0; }
 .dinkster-dialog .dinkster-button[data-icon-only] { width: var(--dinkster-menu-row-height); max-width: var(--dinkster-menu-row-height); }
-.dinkster-dialog .dinkster-input:not(.dinkster-textarea) { height: var(--dinkster-space-32); min-height: 0; padding-block: 0; }

@@ -28,7 +28,7 @@
   flex: none;
   align-items: center;
   gap: var(--dinkster-space-12);
-  min-height: calc(var(--dinkster-input-primary-height) + var(--dinkster-space-8));
+  min-height: var(--dinkster-input-primary-height);
   padding-inline: var(--dinkster-space-16);
   color: var(--dinkster-text-muted);
   background: var(--dinkster-surface-inset);
@@ -39,7 +39,7 @@
   appearance: none;
   width: 100%;
   min-width: 0;
-  min-height: var(--dinkster-input-primary-height);
+  min-height: calc(var(--dinkster-input-primary-height) - var(--dinkster-border-width));
   padding: 0;
   color: var(--dinkster-text-primary);
   background: transparent;
