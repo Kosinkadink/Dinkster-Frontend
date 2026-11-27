@@ -7,6 +7,7 @@
 
 import { desktopSaveBridge } from './desktop-bridge.js'
 import { createAppPageTabs } from './app-page-tabs.js'
+import { isPageTab } from './page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
 import {
   CORE_VIRTUAL_NODE_KINDS,
@@ -266,6 +267,8 @@ import {
   type PersistedExecutionResult,
 } from './execution-result-persistence.js'
 import { COLLAB_SCOPE, httpCollabTransport, stableActorId, type CollabTransport } from './collab.js'
+import { BoardWorkspace } from './board-workspace.js'
+import { installBoardPages } from './BoardPage.js'
 import { PresenceChannel } from './collab-presence.js'
 import {
   connectSharedWorkerSession,
@@ -3004,6 +3007,8 @@ export class AppState {
   readonly tabs: Signal<readonly Tab[]> = createSignal<readonly Tab[]>([])
   readonly activeTabId: Signal<string> = createSignal('')
   readonly pages: ReturnType<typeof createAppPageTabs>
+  readonly boards: BoardWorkspace
+  private readonly uninstallBoardPages: () => void
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
   /**
@@ -3282,6 +3287,16 @@ export class AppState {
     this.deniedExtensionPrivileges = Object.freeze([...(options?.deniedExtensionPrivileges ?? [])])
     this.collabTransport = options?.collabTransport ?? httpCollabTransport()
     this.collabActorId = stableActorId()
+    const boardProject = activeProjectId()
+    this.boards = new BoardWorkspace({
+      transport: this.collabTransport,
+      actorId: this.collabActorId,
+      project: boardProject,
+      backend: () => this.collabBackend()?.baseUrl,
+      mediaConnection: (baseUrl) => activeProjectId() === boardProject
+        ? this.backends.get().find((backend) => backend.baseUrl === baseUrl)?.connection : undefined,
+      onConflict: (id, message) => this.reportProblems(id, [diag('warning', 'collab', 'board.session.conflict', message)]),
+    })
     this.workspaceEvents = options?.workspaceEvents ?? (
       typeof globalThis.SharedWorker === 'function' && typeof globalThis.BroadcastChannel === 'function'
         ? new BroadcastChannel(scopedSharedName('dinkster-workspace-executions'))
@@ -3359,6 +3374,7 @@ export class AppState {
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.appView.enabled', get name() { return t('settings.features.appView') }, type: 'boolean', defaultValue: false })
+    this.settings.register({ id: 'features.board.enabled', get name() { return t('settings.features.board') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({
       id: 'execution.previews',
@@ -3405,6 +3421,7 @@ export class AppState {
         ({ id, placement, allowedPlacements, order })))
     this.editorSplits = new EditorSplitStore(this.settings)
     this.pages = createAppPageTabs(this)
+    this.uninstallBoardPages = installBoardPages(this)
     // Stale-modal guard (see modalPanel above): registry churn that removes
     // the open modal's panel - or moves it off 'modal' - closes the modal
     // state itself, so a later re-register can never resurrect the dialog.
@@ -3426,7 +3443,21 @@ export class AppState {
         if (execution) void this.cancelExecution(execution.ref)
       },
     })
-    register('workflow.save', 'command.workflow.save', 'Ctrl+S', () => { const tab = activeTabNow(); if (tab) void this.saveWorkflow(tab.id) }, () => {
+    register('workflow.save', 'command.workflow.save', 'Ctrl+S', () => {
+      const page = this.pages.tabs().find((tab) => tab.id === this.activeTabId.get())
+      if (page && isPageTab(page)) {
+        const descriptor = this.pages.descriptor(page.pageId)
+        if (descriptor?.dirty?.() === true) void descriptor.save?.()
+        return
+      }
+      const tab = activeTabNow()
+      if (tab) void this.saveWorkflow(tab.id)
+    }, () => {
+      const page = this.pages.tabs().find((tab) => tab.id === this.activeTabId.get())
+      if (page && isPageTab(page)) {
+        const descriptor = this.pages.descriptor(page.pageId)
+        return descriptor?.save !== undefined && descriptor.dirty?.() === true
+      }
       const tab = activeTabNow()
       return tab !== undefined && tab.execution === undefined && this.backendForTab(tab).protocol === 'dinkster'
     })
@@ -3812,6 +3843,8 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.uninstallBoardPages()
+    this.boards.dispose()
     for (const projects of this.modelDownloadControllers.values()) for (const controller of projects.values()) controller.dispose()
     this.modelDownloadControllers.clear()
     this.observedModelDownloads.clear()
@@ -6341,7 +6374,7 @@ export class AppState {
     do lineage = asLineageId(`${source.store.doc.lineage}-copy-${Date.now()}-${++newWorkflowOrdinal}`)
     while (this.tabs.get().some((tab) => tab.id === lineage))
     const backend = this.backendForTab(source)
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const prepared = this.prepareDocumentOpen({ ...source.store.doc, lineage }, copyTitle, backend)
     if (!prepared.ok) return undefined
     const copy = await this.publishOpenedDocument(prepared, backend, stillWanted, backend, true,
@@ -6723,7 +6756,7 @@ export class AppState {
    */
   async openExecutionView(ref: ExecutionRef): Promise<boolean> {
     if (this.disposed) return false
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const state = this.store.get(ref)
     const artifact = state?.artifact
     if (!artifact) return false
@@ -6827,12 +6860,14 @@ export class AppState {
   // -- Collaboration (shared sessions; docs/collaboration.md) ---------------
 
   /**
-   * The backend whose collab surface shared sessions use: the active tab's
-   * backend when it speaks dinkster, else the first dinkster backend. The surface
+   * Shared Boards use their owning backend, never a fallback server. Other
+   * tabs prefer their dinkster backend, else the first dinkster backend. The surface
    * is native-only (v1 servers have no session routes), so undefined means
    * "collaboration unavailable", which the panel says in words.
    */
   collabBackend(): Backend | undefined {
+    const board = this.boards.entries.get().find((entry) => `page:board:${entry.id}` === this.activeTabId.get())
+    if (board) return this.backends.get().find((backend) => backend.baseUrl === board.baseUrl && backend.protocol === 'dinkster')
     const active = this.activeTab()
     const preferred = active !== undefined ? this.backendForTab(active) : undefined
     if (preferred?.protocol === 'dinkster') return preferred
@@ -6843,12 +6878,15 @@ export class AppState {
     return this.collabTabs.get().get(tabId)
   }
 
-  /** The collab backend's joinable sessions in the app discovery scope. */
+  /** Joinable workflows and, when enabled, this project's Boards. */
   async listCollabSessions(): Promise<readonly CollabSessionDescriptor[]> {
     const backend = this.collabBackend()
     if (backend === undefined) return []
-    return (await this.collabTransport.list(backend.baseUrl, COLLAB_SCOPE))
-      .filter((descriptor) => (descriptor.documentKind ?? 'workflow') === 'workflow')
+    const [workflows, boards] = await Promise.all([
+      this.collabTransport.list(backend.baseUrl, COLLAB_SCOPE),
+      this.settings.get<boolean>('features.board.enabled') ? this.boards.discover() : [],
+    ])
+    return [...workflows.filter((descriptor) => (descriptor.documentKind ?? 'workflow') === 'workflow'), ...boards]
   }
 
   /**
@@ -6900,7 +6938,18 @@ export class AppState {
    * Join a discovered session. A tab already joined to it is focused instead
    * of joined twice (one membership per session per app).
    */
-  async joinCollabSession(sessionId: string): Promise<string | undefined> {
+  async joinCollabSession(sessionId: string, documentKind: 'workflow' | 'board' = 'workflow'): Promise<string | undefined> {
+    if (documentKind === 'board') {
+      if (!this.settings.get<boolean>('features.board.enabled')) return 'Boards are disabled'
+      const currentOpen = this.beginDocumentOpen()
+      const stillWanted = () => currentOpen() && this.settings.get<boolean>('features.board.enabled')
+      try {
+        const entry = await this.boards.join(sessionId, stillWanted)
+        if (!stillWanted()) return 'Board join was superseded'
+        this.pages.open(`board:${entry.id}`)
+        return undefined
+      } catch (error) { return error instanceof Error ? error.message : String(error) }
+    }
     const existing = [...this.collabTabs.get().entries()].find(([, s]) => s.descriptor.sessionId === sessionId)
     if (existing !== undefined) {
       this.activeTabId.set(existing[0])
@@ -7293,7 +7342,7 @@ export class AppState {
    * problems panel for review.
    */
   async openDocument(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject): Promise<readonly Diagnostic[]> {
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const prepared = this.prepareDocumentOpen(json, title, importVia, forkOnCollision, originalPrompt)
     if (!prepared.ok) return prepared.diagnostics
     const backend = importVia ?? this.backends.get()[0]!
@@ -7311,7 +7360,7 @@ export class AppState {
     const generation = this.workspaceAuthorityGeneration
     const project = activeProjectId()
     const backend = this.backendForTab(source)
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const prepared = this.prepareDocumentOpen(source.store.doc, title, backend, true)
     if (!prepared.ok) return false
     const recovered = await this.publishOpenedDocument(prepared, backend, stillWanted, backend)
@@ -7326,7 +7375,7 @@ export class AppState {
     return true
   }
 
-  private beginWorkflowOpen(): () => boolean {
+  beginDocumentOpen(): () => boolean {
     const intent = ++this.workflowOpenIntent
     const tabs = this.tabs.get()
     const sessions = tabs.map((tab) => ({ tab, revision: tab.store.revision, document: tab.store.doc, target: this.backendForTab(tab) }))
@@ -7912,7 +7961,7 @@ export class AppState {
    * through the schema-aware legacy translator.
    */
   async importWorkflowFile(file: Pick<File, 'name' | 'text'>, stillOwned: () => boolean = () => true, originalPrompt?: JsonObject): Promise<boolean> {
-    const current = this.beginWorkflowOpen()
+    const current = this.beginDocumentOpen()
     const destination = this.activeTab()
     const backend = destination === undefined ? this.backends.get()[0]! : this.backendForTab(destination)
     const stillWanted = () => current() && stillOwned() &&
@@ -8034,7 +8083,9 @@ export class AppState {
    */
   libraryBackend(): Extract<Backend, { protocol: 'dinkster' }> | undefined {
     const tab = this.activeTab()
-    const backend = tab ? this.backendForTab(tab) : this.backends.get()[0]
+    const board = this.boards.entries.get().find((entry) => `page:board:${entry.id}` === this.activeTabId.get())
+    const backend = board ? this.backends.get().find((candidate) => candidate.baseUrl === board.baseUrl)
+      : tab ? this.backendForTab(tab) : this.backends.get()[0]
     return backend !== undefined && backend.protocol === 'dinkster' ? backend : undefined
   }
 
@@ -8215,7 +8266,7 @@ export class AppState {
    * entry for transport/parse failures) when anything is missing.
    */
   async openFromLibrary(recordId: string, owner: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return false
     try {
@@ -8249,7 +8300,7 @@ export class AppState {
    * (owner) - pack/template ids are that backend's namespace.
    */
   async openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const backend = this.ownedLibraryBackend(owner)
     if (!backend?.templatesEnabled.get()) return false
     try {
@@ -8276,7 +8327,7 @@ export class AppState {
   }
 
   async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const backend = this.libraryBackend()
     if (backend?.protocol !== 'dinkster' || !backend.templatesEnabled.get()) return false
     const catalog = new RemoteTemplateCatalog(this.settings.get<string>('templates.registryUrl'))
@@ -8309,7 +8360,7 @@ export class AppState {
    * came from but is NOT library-linked - saving creates a fresh record.
    */
   async openRunWorkflow(runId: string, owner: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return false
     try {

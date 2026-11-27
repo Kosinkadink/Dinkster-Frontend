@@ -25,14 +25,14 @@ import FileIcon from 'lucide-solid/icons/file'
 import FileText from 'lucide-solid/icons/file-text'
 import Film from 'lucide-solid/icons/film'
 import type { LucideIcon } from 'lucide-solid'
-import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
+import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, coreOccurrencePlanner } from './CanvasHost.js'
 import { CanvasViewControls } from './CanvasChrome.js'
 import { ContextMenu } from './ContextMenu.js'
-import { formatCollectionDate, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
+import { boardsSource, formatCollectionDate, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard, ExecutionOpenButton, executionStatusLabel } from './ExecutionActivityCard.js'
 import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
@@ -204,7 +204,7 @@ const splitDropNextLayout = (layout: EditorLayout, target: SplitDropTarget, tabI
 }
 
 const APP_MENU_COMMAND_GROUPS = [
-  { group: '10-open', ids: ['workflow.open', 'workflow.importFile'] },
+  { group: '10-open', ids: ['workflow.open', 'workflow.importFile', 'board.new'] },
   { group: '20-write', ids: ['workflow.save', 'workflow.export'] },
   { group: '30-edit', ids: ['edit.undo', 'edit.redo', 'edit.selectAll', 'subgraph.manageDefinitions'] },
   { group: '40-view', ids: ['view.zoomIn', 'view.zoomOut', 'view.fitSelection', 'layout.customize'] },
@@ -508,6 +508,8 @@ export function App(props: {
   const dirtyTabs = useSignal(app.dirtyTabs)
   const tabResultClears = useSignal(app.clearedTabResults)
   const collabTabs = useSignal(app.collabTabs)
+  const boards = useSignal(app.boards.entries)
+  const boardForTab = (id: string) => boards().find((entry) => `page:board:${entry.id}` === id)
   const executions = useSignal(app.store.executions)
   const problems = useSignal(app.problems)
   const queueRefusal = useSignal(app.queueRefusal)
@@ -612,7 +614,7 @@ export function App(props: {
   })
   // Built-in browsable collections; sources are live (corpus re-read per
   // page), so one instance each for the app's lifetime is correct.
-  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app)]
+  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app), boardsSource(app)]
   const storedRuns = runsSource(app)
   const browserHistory = historySource(app)
   const libraryTemplatesEnabled = createMemo(() => {
@@ -621,7 +623,12 @@ export function App(props: {
     backendsTick()
     return app.libraryBackend()?.templatesEnabled.get() === true
   })
-  const librarySources = createMemo(() => builtinLibrarySources.filter((source) => source.id !== 'templates' || libraryTemplatesEnabled()))
+  const librarySources = createMemo(() => {
+    settingsTick()
+    return builtinLibrarySources.filter((source) =>
+      (source.id !== 'templates' || libraryTemplatesEnabled()) &&
+      (source.id !== 'boards' || app.settings.get<boolean>('features.board.enabled')))
+  })
   // The backend the library browses (the active tab's target). A memo so
   // the panel re-pages exactly when the resolved backend IDENTITY changes
   // (tab switch onto another backend, retarget, backend removal) - not on
@@ -637,13 +644,33 @@ export function App(props: {
   // (dis)connect/reload packs, executions arrive or change status, or the
   // library backend itself changes (remote sources now serve a different
   // backend's records - a stale mixed list must not linger).
+  const boardsLibraryChanged = useSignal(app.boards.libraryChanged)
   const libraryTick = (): number => {
     backendsTick()
     executions()
     libraryOwner()
+    boardsLibraryChanged()
     return 0
   }
   const activateLibraryEntry = (sourceId: string, entry: CollectionEntry): void => {
+    if (sourceId === 'boards') {
+      if (!app.settings.get<boolean>('features.board.enabled') || entry.owner === undefined) return
+      const backend = app.backends.get().find((candidate) => candidate.id === entry.owner && candidate.protocol === 'dinkster')
+      if (!backend) {
+        app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'library.ownerGone', 'the backend this entry came from is no longer connected')])
+        return
+      }
+      const stillWanted = app.beginDocumentOpen()
+      void app.boards.openSaved(entry.id, backend.baseUrl, stillWanted).then((board) => {
+        if (!stillWanted() || !app.backends.get().includes(backend) || !app.boards.entries.get().includes(board)) return
+        if (app.pages.open(`board:${board.id}`)) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
+      }).catch((reason: unknown) => {
+        if (stillWanted() && app.backends.get().includes(backend)) app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
+          diag('error', 'validation', 'board.openFailed', `failed to open Board: ${reason instanceof Error ? reason.message : String(reason)}`),
+        ])
+      })
+      return
+    }
     if (sourceId === 'workflows') {
       if (entry.owner === undefined) return
       void app.openFromLibrary(entry.id, entry.owner).then((ok) => {
@@ -1271,7 +1298,9 @@ export function App(props: {
     backendsTick()
     tabTargets()
     const tab = activeTab()
-    return tab ? app.backendForTab(tab) : backends()[0]!
+    const board = app.boards.entries.get().find((entry) => `page:board:${entry.id}` === activeTabId())
+    return board ? backends().find((backend) => backend.baseUrl === board.baseUrl) ?? backends()[0]!
+      : tab ? app.backendForTab(tab) : backends()[0]!
   }
 
   const servicesKind = (): 'qa' | 'custom' | undefined => {
@@ -2071,7 +2100,7 @@ export function App(props: {
    * editor consumed from double-firing as a command.
    */
   const onCommandKeyDown = (e: KeyboardEvent): void => {
-    dispatchAppCommandKey(app, e, activeTab() !== undefined)
+    dispatchAppCommandKey(app, e, shellTabs().some((tab) => tab.id === activeTabId()))
   }
   window.addEventListener('keydown', onCommandKeyDown)
   onCleanup(() => window.removeEventListener('keydown', onCommandKeyDown))
@@ -2868,9 +2897,9 @@ export function App(props: {
               return message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
                 state: status === undefined ? '' : executionStatusLabel(status).toLocaleLowerCase() })
             }}
-            isShared={(tab) => collabTabs().has(tab.id)}
+            isShared={(tab) => collabTabs().has(tab.id) || boardForTab(tab.id)?.shared !== undefined}
             renderLeading={(tab) => (
-              <Show when={collabTabs().get(tab.id)} keyed>
+              <Show when={collabTabs().get(tab.id) ?? boardForTab(tab.id)?.shared} keyed>
                 {(entry) => <TabCollabDot entry={entry} />}
               </Show>
             )}
@@ -2896,11 +2925,21 @@ export function App(props: {
             onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
-            canShare={(tab) => !isPageTab(tab) && tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
+            canShare={(tab) => {
+              if (isPageTab(tab)) {
+                const board = boardForTab(tab.id)
+                return board !== undefined && board.shared === undefined && backends().some((backend) =>
+                  backend.baseUrl === board.baseUrl && backend.protocol === 'dinkster')
+              }
+              return tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')
+            }}
             onShare={(tab) => {
               app.activeTabId.set(tab.id)
               app.showTransientStatus(message('shell.share.sharing', { title: tab.title }))
-              void app.shareActiveTab().then((error) => {
+              const board = boardForTab(tab.id)
+              const sharing = board ? app.boards.share(board.id).then(() => undefined, (reason: unknown) =>
+                reason instanceof Error ? reason.message : String(reason)) : app.shareActiveTab()
+              void sharing.then((error) => {
                 app.showTransientStatus(error === undefined
                   ? message('shell.share.shared', { title: tab.title })
                   : message('shell.share.failed', { error }))
@@ -3539,7 +3578,7 @@ export function App(props: {
  * transitions (connected -> reconnecting -> closed) mutate the session in
  * place and would otherwise never rerender the dot.
  */
-function TabCollabDot(props: { entry: CollabTabState }) {
+function TabCollabDot(props: { entry: { readonly session: Pick<SharedDocumentSession, 'status'> } }) {
   const message = useAppMessage()
   const status = useSignal(props.entry.session.status)
   return (

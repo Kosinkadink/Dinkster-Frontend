@@ -18,9 +18,11 @@ import {
   asNodeId,
   asPortId,
   diag,
+  emptyBoard,
   isValidActorId,
   planOccurrenceLinkMutation,
   type CollabClientOp,
+  type CollabDocumentKind,
   type CollabConnection,
   type CollabConnectionEvent,
   type CollabServerOp,
@@ -44,6 +46,8 @@ import { bindBrowserActor, COLLAB_ACTOR_ID_KEY, COLLAB_SCOPE, stableActorId, typ
 import { APP_EDITOR_KIND } from '../src/editors.js'
 import { flattenInvocation } from '../src/subgraph-lifecycle.js'
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
+import { BoardWorkspace } from '../src/board-workspace.js'
+import { activeProjectId } from '../src/projects.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -66,6 +70,7 @@ interface ServerSession {
   readonly sessionId: string
   readonly scope: string
   readonly documentId: string
+  readonly documentKind?: CollabDocumentKind
   snapshot: unknown
   snapshotRevision: number
   revision: number
@@ -182,16 +187,18 @@ class FakeCollabServer {
       sessionId: s.sessionId,
       scope: s.scope,
       documentId: s.documentId,
+      ...(s.documentKind === undefined ? {} : { documentKind: s.documentKind }),
       revision: s.revision,
       snapshotRevision: s.snapshotRevision,
     }
   }
 
-  createSession(scope: string, documentId: string, snapshot: unknown): ServerSession {
+  createSession(scope: string, documentId: string, snapshot: unknown, documentKind?: CollabDocumentKind): ServerSession {
     const session: ServerSession = {
       sessionId: `sess-${++this.n}`,
       scope,
       documentId,
+      ...(documentKind === undefined ? {} : { documentKind }),
       snapshot,
       snapshotRevision: 0,
       revision: 0,
@@ -206,7 +213,7 @@ class FakeCollabServer {
   readonly transport: CollabTransport = {
     create: async (baseUrl, args) => {
       this.createCalls.push({ baseUrl, scope: args.scope, documentId: args.documentId })
-      return this.descriptorOf(this.createSession(args.scope, args.documentId, args.snapshot))
+      return this.descriptorOf(this.createSession(args.scope, args.documentId, args.snapshot, args.documentKind))
     },
     list: async (_baseUrl, scope) =>
       [...this.sessions.values()].filter((s) => s.scope === scope).map((s) => this.descriptorOf(s)),
@@ -228,6 +235,227 @@ class FakeCollabServer {
     },
   }
 }
+
+describe('Board workspace collaboration', () => {
+  it('imports every media kind as one shared undoable edit without removing a foreign note', async () => {
+    const server = new FakeCollabServer()
+    const a = makeApp(server)
+    const b = makeApp(server)
+    const local = a.boards.open(emptyBoard(), 'References', 'http://collab')
+    const shared = await a.boards.share(local.id)
+    const joined = await b.boards.join(shared.shared!.descriptor.sessionId)
+    const connection = a.backends.get().find((backend) => backend.baseUrl === 'http://collab')!.connection
+    const files = [new File(['picture'], 'frame.png', { type: 'image/png' }),
+      new File(['video'], 'shot.webm', { type: 'video/webm' }), new File(['sound'], 'voice.wav', { type: 'audio/wav' })]
+    vi.spyOn(connection, 'uploadMediaAsset').mockImplementation(async (file) => ({
+      digest: `blake3:${String(files.indexOf(file) + 1).repeat(64)}`, name: `recorded-${file.name}`,
+      size: file.size, mediaType: file.type, virtualPath: `mounts/imports/${file.name}`,
+    }))
+    const ids = await a.boards.importMedia(shared.id, files.map((file, index) => ({ file,
+      ...(index === 0 ? { width: 300, height: 600 } : index === 1 ? { width: 1920, height: 1080, duration: 4 } : { duration: 3 }),
+    })), { x: 37, y: 91 })
+    await shared.shared!.session.settle()
+    await until(() => joined.session.doc.order.length === 3)
+    expect(ids.map((id) => shared.session.doc.items[id]!.kind)).toEqual(['picture', 'video', 'sound'])
+    expect(ids.map((id) => shared.session.doc.items[id]!.rect.x)).toEqual([37, 61, 85])
+    expect(ids.map((id) => shared.session.doc.items[id]!.rect.y)).toEqual([91, 115, 139])
+    expect(shared.session.doc.items[ids[0]!]!.rect).toMatchObject({ width: 280, height: 560 })
+    expect(shared.session.doc.items[ids[1]!]!.rect).toMatchObject({ width: 280, height: 157.5 })
+    expect(ids.map((id) => shared.session.doc.items[id])).toMatchObject(files.map((file, index) => ({
+      asset: { digest: `blake3:${String(index + 1).repeat(64)}`, name: `recorded-${file.name}`, mediaType: file.type },
+    })))
+    expect(joined.session.doc).toEqual(shared.session.doc)
+    joined.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'foreign-note', kind: 'note', text: 'Keep this', rect: { x: 500, y: 20, width: 150, height: 80 },
+    }] } })
+    await joined.shared!.session.settle()
+    await until(() => shared.session.doc.items['foreign-note'] !== undefined)
+    expect(shared.session.undo()).toBe(true)
+    await shared.shared!.session.settle()
+    await until(() => joined.session.doc.order.length === 1)
+    expect(shared.session.doc.order).toEqual(['foreign-note'])
+    expect(joined.session.doc).toEqual(shared.session.doc)
+  })
+
+  it('owns placed Assets, preserves their recorded origin and proportions, and refuses a mixed missing batch', async () => {
+    const app = makeApp(new FakeCollabServer())
+    const entry = app.boards.open(emptyBoard(), 'References', 'http://collab')
+    const connection = app.backends.get().find((backend) => backend.baseUrl === 'http://collab')!.connection
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let missing = false
+    vi.spyOn(connection, 'checkAssetAvailability').mockImplementation(async (digests) => {
+      await gate
+      return digests.map((digest, index) => ({ digest, status: missing && index === 1 ? 'missing' : 'available' }))
+    })
+    const assets = [{ digest: `blake3:${'1'.repeat(64)}`, name: 'Portrait', mediaType: 'image/png',
+      width: 300, height: 600, origin: { kind: 'produced' } },
+    { digest: `blake3:${'2'.repeat(64)}`, name: 'Sound', mediaType: 'audio/wav' }]
+    const source = { project: activeProjectId(), baseUrl: entry.baseUrl, assets }
+    await expect(app.boards.placeMedia(entry.id, { ...source, project: 'other-project' }, { x: 17, y: 29 })).rejects.toThrow('project and backend')
+    await expect(app.boards.placeMedia(entry.id, { ...source, baseUrl: 'http://elsewhere' }, { x: 17, y: 29 })).rejects.toThrow('project and backend')
+    const placing = app.boards.placeMedia(entry.id, source, { x: 17, y: 29 })
+    assets[0]!.origin!.kind = 'changed by caller'
+    release()
+    const ids = await placing
+    expect(entry.session.doc.items[ids[0]!]).toMatchObject({ asset: { origin: { kind: 'produced' } }, rect: { x: 17, y: 29, width: 280, height: 560 } })
+    expect(entry.session.undo()).toBe(true)
+    const before = entry.session.doc
+    missing = true
+    await expect(app.boards.placeMedia(entry.id, source, { x: 17, y: 29 })).rejects.toThrow('nothing was placed')
+    expect(entry.session.doc).toBe(before)
+    expect(entry.session.doc.order).toEqual([])
+  })
+
+  it.each(['failure', 'close', 'reopen', 'dispose', 'replace', 'cancel'] as const)('never places a partial or retired import on %s', async (action) => {
+    const app = makeApp(new FakeCollabServer())
+    const entry = app.boards.open(emptyBoard(), 'References', 'http://collab')
+    const connection = app.backends.get().find((backend) => backend.baseUrl === 'http://collab')!.connection
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let started!: () => void
+    const waiting = new Promise<void>((resolve) => { started = resolve })
+    let signal: AbortSignal | undefined
+    vi.spyOn(connection, 'uploadMediaAsset').mockImplementation(async (file, options) => {
+      if (file.name === 'second.png') {
+        signal = options.signal
+        started()
+        await gate
+        if (action === 'failure') throw new Error('upload refused')
+      }
+      return { digest: `blake3:${'1'.repeat(64)}`, name: file.name, size: file.size,
+        mediaType: file.type, virtualPath: `mounts/imports/${file.name}` }
+    })
+    const abort = new AbortController()
+    const importing = app.boards.importMedia(entry.id, ['first.png', 'second.png'].map((name) => ({ file: new File(['image'], name, { type: 'image/png' }) })), { x: 17, y: 29 }, {}, abort.signal)
+    const rejected = expect(importing).rejects.toThrow()
+    await waiting
+    let replacement = entry
+    if (action === 'close' || action === 'reopen') {
+      app.boards.close(entry.id)
+      expect(signal?.aborted).toBe(true)
+      if (action === 'reopen') replacement = app.boards.open(entry.session.doc, 'Reopened', entry.baseUrl)
+    } else if (action === 'dispose') {
+      app.dispose()
+      expect(signal?.aborted).toBe(true)
+    } else if (action === 'replace') replacement = await app.boards.share(entry.id)
+    else if (action === 'cancel') { abort.abort(); expect(signal?.aborted).toBe(true) }
+    release()
+    await rejected
+    expect(entry.session.doc.order).toEqual([])
+    expect(replacement.session.doc.order).toEqual([])
+  })
+
+  it('shares and joins a Board, isolates project discovery, and leaves with the latest document', async () => {
+    const server = new FakeCollabServer()
+    const a = makeApp(server)
+    const b = makeApp(server)
+    const document = emptyBoard()
+    const local = a.boards.open(document, 'References', 'http://collab')
+    expect(local.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'note-1', kind: 'note', text: 'Original', rect: { x: 10, y: 20, width: 120, height: 80 },
+    }] } }).ok).toBe(true)
+    const shared = await a.boards.share(document.lineage)
+    const sessionId = shared.shared!.descriptor.sessionId
+    expect(b.settings.get('features.board.enabled')).toBe(true)
+    b.settings.set('features.board.enabled', false)
+    expect(await b.listCollabSessions()).toEqual([])
+    expect(await b.joinCollabSession(sessionId, 'board')).toBe('Boards are disabled')
+    expect(b.boards.entries.get()).toEqual([])
+    b.settings.set('features.board.enabled', true)
+    expect((await b.listCollabSessions()).map((session) => session.sessionId)).toEqual([sessionId])
+    expect(await b.joinCollabSession(sessionId, 'board')).toBeUndefined()
+    const joined = b.boards.entries.get()[0]!
+    expect(joined.title).toBe('Board')
+    expect(b.activeTabId.get()).toBe(`page:board:${document.lineage}`)
+    expect(b.collabBackend()?.baseUrl).toBe('http://collab')
+    expect(b.activeTab()).toBeUndefined()
+    expect(await b.boards.join(sessionId)).toBe(joined)
+    expect((await b.boards.discover()).map((session) => session.sessionId)).toEqual([sessionId])
+    const otherProject = new BoardWorkspace({
+      transport: server.transport, project: 'another-project', actorId: 'other',
+      backend: () => 'http://collab', mediaConnection: () => undefined, onConflict: () => undefined,
+    })
+    try {
+      expect(await otherProject.discover()).toEqual([])
+      await expect(otherProject.join(sessionId)).rejects.toThrow('does not belong')
+      expect(shared.session.dispatch({ command: 'board.note.edit', params: { id: 'note-1', text: 'Shared text' } }).ok).toBe(true)
+      await until(() => joined.session.doc.items['note-1']?.kind === 'note' && joined.session.doc.items['note-1'].text === 'Shared text')
+      b.boards.leave(document.lineage)
+      const left = b.boards.entries.get()[0]!
+      expect(left.shared).toBeUndefined()
+      expect(left.session.doc).toEqual(shared.session.doc)
+      expect(left.session.canUndo).toBe(false)
+      expect(joined.shared!.session.status.get()).toBe('closed')
+      a.boards.close(document.lineage)
+      expect((await a.boards.join(sessionId)).title).toBe('References')
+      await a.boards.end(document.lineage)
+      expect(a.boards.entries.get()[0]!.shared).toBeUndefined()
+      expect(server.sessions.size).toBe(0)
+      a.dispose()
+      expect(shared.shared!.session.status.get()).toBe('closed')
+    } finally { otherProject.dispose() }
+  })
+
+  it('keeps edits and removes an unadopted publication when the Board changes during creation', async () => {
+    const server = new FakeCollabServer()
+    const app = makeApp(server)
+    const document = emptyBoard()
+    const entry = app.boards.open(document, 'References', 'http://collab')
+    const create = server.transport.create
+    let release!: () => void
+    const admission = new Promise<void>((resolve) => { release = resolve })
+    server.transport.create = async (baseUrl, args) => { await admission; return create(baseUrl, args) }
+    const sharing = app.boards.share(entry.id)
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'note-1', kind: 'note', text: 'Keep me', rect: { x: 10, y: 20, width: 120, height: 80 },
+    }] } })
+    release()
+    await expect(sharing).rejects.toThrow('Board changed')
+    expect(app.boards.entries.get()).toEqual([entry])
+    expect(entry.session.doc.items['note-1']).toMatchObject({ text: 'Keep me' })
+    expect(server.sessions.size).toBe(0)
+  })
+
+  it.each(['close', 'close-opened', 'dispose', 'dispose-binding', 'open-another-document'] as const)('cancels an in-flight Board join on %s', async (action) => {
+    const server = new FakeCollabServer()
+    const app = makeApp(server)
+    const document = emptyBoard()
+    const remote = server.createSession(app.boards.scope, document.lineage, document, 'board')
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let started!: () => void
+    const waiting = new Promise<void>((resolve) => { started = resolve })
+    const connect = server.transport.connect
+    let connection: FakeConn | undefined
+    server.transport.connect = (config) => {
+      connection = connect(config) as FakeConn
+      const fetchSnapshot = connection.fetchSnapshot.bind(connection)
+      connection.fetchSnapshot = async () => { started(); await gate; return fetchSnapshot() }
+      return connection
+    }
+    if (action === 'dispose-binding') server.transport.bindActor = async () => { started(); await gate; return 'actor' }
+    app.settings.set('features.board.enabled', true)
+    const joining = action === 'open-another-document'
+      ? app.joinCollabSession(remote.sessionId, 'board') : app.boards.join(remote.sessionId)
+    const rejected = action === 'open-another-document' ? undefined : expect(joining).rejects.toThrow('Board changed')
+    await waiting
+    let disconnected = false
+    try {
+      if (action === 'close-opened') app.boards.open(document, 'Opened while joining', 'http://collab')
+      if (action === 'open-another-document') app.beginDocumentOpen()
+      else if (action.startsWith('dispose')) app.dispose()
+      else app.boards.close(document.lineage)
+      expect(app.boards.entries.get()).toEqual([])
+      disconnected = connection === undefined || connection.closed
+    } finally { release() }
+    if (action === 'open-another-document') expect(await joining).toContain('Board changed')
+    else { await rejected; expect(disconnected).toBe(true) }
+    if (action === 'dispose-binding') expect(connection).toBeUndefined()
+    expect(app.boards.entries.get()).toEqual([])
+    expect(remote.connections.size).toBe(0)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Harness

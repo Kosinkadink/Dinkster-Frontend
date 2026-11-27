@@ -216,6 +216,9 @@ importers:
       '@dinkster/branding':
         specifier: workspace:*
         version: link:../../branding/tokens
+      '@dinkster/canvas':
+        specifier: workspace:*
+        version: link:../canvas
       '@dinkster/core':
         specifier: workspace:*
         version: link:../core
@@ -226,9 +229,6 @@ importers:
         specifier: ^1.9.4
         version: 1.9.14
     devDependencies:
-      '@dinkster/canvas':
-        specifier: workspace:*
-        version: link:../canvas
       '@dinkster/widgets':
         specifier: workspace:*
         version: link:../widgets
