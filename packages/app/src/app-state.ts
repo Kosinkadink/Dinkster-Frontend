@@ -3050,8 +3050,7 @@ export class AppState {
         entry.project === project && entry.name === requirement.name && entry.kind === requirement.kind &&
         entry.digest === requirement.asset?.digest)
       if (!job) return row
-      if (row && row.job?.jobId !== job.jobId && ['completed', 'cancelled', 'failed'].includes(job.status) &&
-        (row.pending || row.queued || !row.job || !['completed', 'cancelled', 'failed'].includes(row.job.status))) return row
+      if (row && row.job?.jobId !== job.jobId && ['completed', 'cancelled', 'failed'].includes(job.status)) return row
       if (row?.job?.jobId === job.jobId && !['completed', 'cancelled', 'failed'].includes(job.status) &&
         (['completed', 'cancelled', 'failed'].includes(row.job.status) || row.job.received > job.received)) return row
       return { requirement, pending: row?.pending ?? false, job }
