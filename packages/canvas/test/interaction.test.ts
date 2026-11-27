@@ -1617,6 +1617,72 @@ describe('small flow node wire gestures', () => {
   const resolve = (type: string) => flowSchemas.get(type) ?? historicalSchemas.get(type)
 
   it.each([
+    ['native.value', 'native.value', true, false],
+    ['registered.value', 'native.value', true, false],
+    ['native.value', 'registered.value', false, false],
+    ['unaccepted.value', 'native.value', false, false],
+    ['asset<native.value>', 'native.value', false, false],
+    ['list<registered.value>', 'list<native.value>', false, false],
+    ['list<native.value>', 'native.value', true, true],
+  ] as const)('uses catalog admission for a fresh %s -> %s replacement in either drag direction', (sourceType, targetType, accepted, acceptsList) => {
+    const schemas = new Map(['source', 'old', 'sink'].map((id) => {
+      const parsed = parseDinksterSchema(id, {
+        schemaVersion: 2, nodeType: id, version: 1, displayName: id,
+        interface: [], body: [{
+          kind: id === 'sink' ? 'input' : 'output', id: 'value',
+          type: { kind: 'concrete', types: [id === 'source' ? sourceType : targetType] },
+          ...(id === 'sink' && acceptsList ? { acceptsList: true } : {}),
+        }],
+      } as DinksterWireSchema)
+      return [id, parsed.schema!]
+    }))
+    const resolver = Object.assign((type: string) => schemas.get(type), {
+      typeAcceptance: () => ({ atoms: { 'native.value': ['native.value', 'registered.value'] }, assetDecoders: [], batchMerges: [] }),
+    })
+    for (const reverse of [false, true]) {
+      const loaded = loadDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'catalog-drag', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'Admission', nextOrdinal: 4, nodes: {
+          source: { id: 'source', type: 'source', values: {} },
+          old: { id: 'old', type: 'old', values: {} },
+          sink: { id: 'sink', type: 'sink', values: {} },
+        }, links: { original: { id: 'original', from: { node: 'old', port: 'value' }, to: { node: 'sink', port: 'value' } } }, nets: {}, reroutes: {} } },
+        view: { graphs: { g0: { nodes: {
+          source: { position: { x: 0, y: 200 } }, old: { position: { x: 0, y: 0 } }, sink: { position: { x: 400, y: 100 } },
+        } } } },
+      })
+      const store = new DocumentStore(loaded.document!, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: () => resolver }))
+      const before = store.doc
+      const scene = buildScene({ document: before, graphId: 'g0', resolve: resolver, tokens: defaultTokens,
+        measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.line', rows: 1 }) })
+      const source = scene.nodes.find((node) => node.id === 'source')!
+      const sink = scene.nodes.find((node) => node.id === 'sink')!
+      const output = source.layout.pins.find((pin) => pin.direction === 'out')!
+      const input = sink.layout.pins.find((pin) => pin.direction === 'in')!
+      const from = { x: source.x + source.layout.width, y: source.y + output.y }
+      const to = { x: sink.x, y: sink.y + input.y }
+      const start = reverse ? to : from
+      const end = reverse ? from : to
+      const harness = interactionHarness(scene, { dispatch: (invocation) => store.dispatch(invocation) })
+      harness.fire('pointerdown', start.x, start.y, { shiftKey: reverse })
+      harness.fire('pointermove', end.x, end.y)
+      harness.fire('pointerup', end.x, end.y)
+      if (accepted) {
+        expect(Object.values(store.doc.graphs.g0!.links).map((link) => [link.from, link.to]), `reverse=${reverse}`).toEqual([
+          [{ node: 'source', port: 'value' }, { node: 'sink', port: 'value' }],
+        ])
+        store.undo()
+        expect(store.doc.graphs.g0!.links).toEqual(before.graphs.g0!.links)
+        expect(store.doc.graphs.g0!.nodes).toEqual(before.graphs.g0!.nodes)
+      } else {
+        expect(store.doc).toEqual(before)
+      }
+      harness.controller.dispose()
+    }
+  })
+
+  it.each([
     ['dinkster.utilities.or_else', 'values.2', 'PrimitiveInt', false],
     ['dinkster.utilities.or_else', 'values.2', 'EmptyImage', true],
     ['dinkster.utilities.only_if', 'condition', 'PrimitiveInt', false],

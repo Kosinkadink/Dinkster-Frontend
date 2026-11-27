@@ -537,6 +537,8 @@ export const GROUP_HEADER_HEIGHT = canvasPaintTokens.group.headerHeight
 
 export interface Scene {
   readonly graphId: string
+  /** The same pinned catalog authority used to validate this graph's wires. */
+  readonly typeAcceptance?: import('@dinkster/core').TypeAcceptance
   readonly nodes: readonly SceneNode[]
   readonly links: readonly SceneLink[]
   readonly reroutes: readonly SceneReroute[]
@@ -814,6 +816,7 @@ export function boundaryPositions(input: BuildSceneInput): ReturnType<BoundaryPo
 
 export function buildScene(input: BuildSceneInput): Scene {
   const def: GraphDef | undefined = input.document.graphs[input.graphId]
+  const typeAcceptance = input.resolve.typeAcceptance?.()
   const countDiagnostics: Diagnostic[] = []
   /**
    * A node's interface as drawn. A row hidden by its `visible` shows while it
@@ -942,6 +945,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   if (view !== undefined && input.layoutGeneration !== undefined && input.occurrence === undefined && input.occurrenceView === undefined &&
       positioned?.graph === def && graphMatchesSnapshot(positioned.graphSnapshot, def) &&
       positioned.graphs === input.document.graphs && positioned.documentExt === input.document.ext &&
+      positioned.scene.typeAcceptance === typeAcceptance &&
       positioned.seedControllerEnabled === input.seedControllerEnabled &&
       positioned.buttonNoticeHeights === input.buttonNoticeHeights &&
       positioned.listCountEstimateOf === input.listCountEstimateOf &&
@@ -2110,6 +2114,7 @@ export function buildScene(input: BuildSceneInput): Scene {
 
   const result: Scene = {
     graphId: input.graphId, nodes, links, reroutes, netStubs, groups, boundaryNodes,
+    ...(typeAcceptance === undefined ? {} : { typeAcceptance }),
     ...(graphView?.groupMembership === undefined ? {} : { groupMembership: graphView.groupMembership }),
     diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...automaticDiagnostics, ...countDiagnostics],
     ...(input.occurrence !== undefined ? { occurrence: { owner: input.occurrence.owner, bodyGraph: def.id } } : {}),

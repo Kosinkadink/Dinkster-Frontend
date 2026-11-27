@@ -44,7 +44,10 @@
  */
 
 import {
+  admittedInputType,
   canonicalTypeIdOf,
+  cardinalityOf,
+  catalogTypesCompatible,
   belongsToGroup,
   containingGroup,
   initialGroupMembership,
@@ -269,6 +272,13 @@ interface WidgetTapEndpointJson extends JsonObject {
 }
 
 type BoundaryEndpointJson = PortEndpointJson | WidgetTapEndpointJson
+
+/** Unknown catalog relations retain the solver's advisory compatibility. */
+const linkTypesCompatible = (scene: Scene, from: TypeExpr, to: TypeExpr, acceptsList = false): boolean => {
+  const input = admittedInputType(to, acceptsList, cardinalityOf(from))
+  return (scene.typeAcceptance === undefined ? undefined : catalogTypesCompatible(from, input, scene.typeAcceptance))
+    ?? typesCompatible(from, input)
+}
 
 /** A pending dynamic.materialize for one node, batched with the gesture's command. */
 export interface MaterializeStep {
@@ -2275,9 +2285,10 @@ export class InteractionController {
       ...(preserveInputDriver ? { preserveInputDriver: true } : {}),
       dropTargets: this.withBoundaryTargets(
         scene,
-        this.compatibleTargets(scene, hit.type, 'out', hit.node.id),
+        this.compatibleTargets(scene, hit.type, 'out', hit.node.id, undefined, hit.pin.acceptsList === true),
         hit.type,
         'out',
+        hit.pin.acceptsList === true,
       ),
       moved: false,
     }
@@ -2433,7 +2444,7 @@ export class InteractionController {
     for (const node of scene.nodes) {
       for (const pin of node.layout.pins) {
         if (pin.direction !== direction) continue
-        const ok = direction === 'in' ? typesCompatible(type, pin.type) : typesCompatible(pin.type, type)
+        const ok = direction === 'in' ? linkTypesCompatible(scene, type, pin.type, pin.acceptsList) : linkTypesCompatible(scene, pin.type, type)
         if (ok) keys.add(dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true))
       }
     }
@@ -2452,12 +2463,13 @@ export class InteractionController {
     keys: Set<string>,
     type: TypeExpr,
     seeking: 'in' | 'out',
+    acceptsList = false,
   ): Set<string> {
     const side = seeking === 'in' ? 'outputs' : 'inputs'
     const bnode = scene.boundaryNodes.find((b) => b.side === side)
     if (!bnode) return keys
     for (const pin of bnode.layout.pins) {
-      if (pin.portId === BOUNDARY_ADD_SLOT || side === 'outputs' || typesCompatible(pin.type, type)) {
+      if (pin.portId === BOUNDARY_ADD_SLOT || side === 'outputs' || linkTypesCompatible(scene, pin.type, type, acceptsList)) {
         keys.add(boundaryTargetKey(side, pin.portId))
       }
     }
@@ -2704,8 +2716,8 @@ export class InteractionController {
    * source under the same rule. Cycle-forming drops are rejected by the core
    * command, not predicted here.
    *
-   * COMBO is an ordinary concrete atom, so TypeExpr compatibility is
-   * the whole legal-drop decision.
+   * Catalog admission is checked before advisory TypeExpr compatibility,
+   * just as it is for saved wires.
    */
   private compatibleTargets(
     scene: Scene,
@@ -2713,13 +2725,14 @@ export class InteractionController {
     direction: 'in' | 'out',
     excludeNode: string,
     excludeReroute?: string,
+    acceptsList = false,
   ): Set<string> {
     const keys = new Set<string>()
     for (const node of scene.nodes) {
       if (node.id === excludeNode) continue
       for (const pin of node.layout.pins) {
         if (pin.direction !== direction) continue
-        const ok = direction === 'in' ? typesCompatible(type, pin.type) : typesCompatible(pin.type, type)
+        const ok = direction === 'in' ? linkTypesCompatible(scene, type, pin.type, pin.acceptsList) : linkTypesCompatible(scene, pin.type, type, acceptsList)
         if (ok) keys.add(dropTargetKey(node.id, pin.portId, direction, pin.widgetTap === true))
       }
       // A closed box takes a wire for a port it hides.
@@ -2727,7 +2740,7 @@ export class InteractionController {
         if (row.kind !== 'section') continue
         for (const port of row.hiddenPorts ?? []) {
           if (port.direction !== direction) continue
-          const ok = direction === 'in' ? typesCompatible(type, port.type) : typesCompatible(port.type, type)
+          const ok = direction === 'in' ? linkTypesCompatible(scene, type, port.type, port.acceptsList) : linkTypesCompatible(scene, port.type, type, acceptsList)
           if (ok) keys.add(dropTargetKey(node.id, port.portId, direction))
         }
       }
@@ -2735,7 +2748,7 @@ export class InteractionController {
     for (const r of scene.reroutes) {
       if (r.id === excludeReroute) continue
       const rType: TypeExpr = r.typeName ? { kind: 'concrete', name: r.typeName } : { kind: 'wildcard' }
-      const ok = direction === 'in' ? typesCompatible(type, rType) : typesCompatible(rType, type)
+      const ok = direction === 'in' ? linkTypesCompatible(scene, type, rType) : linkTypesCompatible(scene, rType, type, acceptsList)
       if (ok) keys.add(rerouteTargetKey(r.id))
     }
     return keys
