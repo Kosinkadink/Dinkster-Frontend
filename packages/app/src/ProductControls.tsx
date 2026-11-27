@@ -1,4 +1,5 @@
 import { splitProps, type JSX } from 'solid-js'
+import { ProductActionLabel } from '@dinkster/ui'
 
 export type ProductButtonVariant = 'primary' | 'secondary' | 'accent' | 'danger' | 'ghost'
 export type ProductControlSize = 'control' | 'compact'
@@ -7,8 +8,9 @@ export function ProductButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>
   readonly variant?: ProductButtonVariant
   readonly size?: ProductControlSize
   readonly loading?: boolean
+  readonly labels?: readonly string[] | undefined
 }) {
-  const [local, button] = splitProps(props, ['variant', 'size', 'loading', 'class', 'children', 'disabled'])
+  const [local, button] = splitProps(props, ['variant', 'size', 'loading', 'class', 'children', 'disabled', 'labels'])
   return (
     <button
       {...button}
@@ -17,7 +19,7 @@ export function ProductButton(props: JSX.ButtonHTMLAttributes<HTMLButtonElement>
       data-size={local.size ?? 'control'}
       aria-busy={local.loading === true ? 'true' : button['aria-busy']}
       disabled={local.disabled === true || local.loading === true}
-    >{local.children}</button>
+    ><ProductActionLabel labels={local.labels}>{local.children}</ProductActionLabel></button>
   )
 }
 

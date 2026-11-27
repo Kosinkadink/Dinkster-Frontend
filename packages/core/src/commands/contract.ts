@@ -28,6 +28,7 @@ import type { Diagnostic } from '../diagnostics.js'
 import type { Json, JsonObject, WorkflowDocument } from '../format/document.js'
 import { ownJson } from '../format/json.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
+import type { NumericCorrection } from './collab-protocol.js'
 import { applyOwnedOps, invertOps, type PatchOp } from './patch.js'
 
 // ---------------------------------------------------------------------------
@@ -48,6 +49,8 @@ export interface CommandInvocation {
    * no translation); local sessions never set it.
    */
   readonly actor?: string
+  /** Presentation provenance for automatic corrections, not write authority. */
+  readonly numericCorrections?: readonly NumericCorrection[]
 }
 
 export type CommandOutcome =

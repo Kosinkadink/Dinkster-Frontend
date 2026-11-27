@@ -1,6 +1,6 @@
 /**
- * Generic settings editor. Rendering switches only on the registry's public
- * type discriminator, so adding a setting never requires editing this dialog.
+ * Generic settings editor. Ordinary settings use the registry's public type
+ * discriminator; automatic fixes pair their policy with optional wire handling.
  *
  * This is a placement-agnostic BODY (registered as the 'settings' modal
  * panel): the shell's modal host (a native <dialog>) owns the backdrop,
@@ -13,6 +13,7 @@ import { activeLocale, type MessageParams } from '@dinkster/core'
 import type { DinksterConnection, PackSettings } from '@dinkster/client'
 import type { AppCommand, CommandRegistry, KeybindingRegistry, SettingDefinition, SettingsRegistry } from './settings.js'
 import { captureKeydown, initialSettingsCategory } from './settings.js'
+import { automaticFixKinds, automaticFixLabel, automaticFixPreference, setAutomaticFixPreference, type AutomaticFixKind, type AutomaticFixPreference } from './automatic-fixes.js'
 import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel, type SettingsSearchItem } from './settings-search.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
@@ -22,7 +23,7 @@ import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { LibraryStorageSettings } from './LibraryStorageSettings.js'
-import { ProductButton, ProductShortcut } from '@dinkster/ui'
+import { ProductButton, ProductSelect as SharedProductSelect, ProductSettingsSection, ProductShortcut } from '@dinkster/ui'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import type { Backend } from './app-state.js'
@@ -189,6 +190,54 @@ function SettingField(props: {
   )
 }
 
+function AutomaticFixField(props: {
+  readonly kind: AutomaticFixKind
+  readonly settings: SettingsRegistry
+  readonly changed: () => void
+}) {
+  const message = useAppMessage()
+  const id = `setting-${props.kind.setting}`
+  const ids = productFieldIds(id)
+  const preference = () => { props.changed(); return automaticFixPreference(props.settings, props.kind) }
+  const asks = () => preference().startsWith('ask')
+  const removesWire = () => preference().endsWith('remove-wire')
+  const commit = (ask: boolean, remove: boolean) => setAutomaticFixPreference(props.settings, props.kind,
+    `${ask ? 'ask' : 'apply'}${remove ? '-remove-wire' : ''}` as AutomaticFixPreference)
+  return <ProductField
+    controlId={id}
+    class="automatic-fix-setting"
+    label={message(`automaticFixes.kind.${props.kind.id}`)}
+    description={automaticFixLabel(props.kind.id, removesWire(), message)}
+    dataAttributes={{ 'data-setting-id': props.kind.setting }}
+    actions={<Show when={preference() !== 'apply'}><ProductButton
+      type="button"
+      onClick={() => props.settings.reset(props.kind.setting)}
+      aria-label={message('settingsDialog.action.resetSettingAria', { name: message(`automaticFixes.kind.${props.kind.id}`) })}
+    >{message('settingsDialog.action.reset')}</ProductButton></Show>}
+  >
+    <SharedProductSelect id={id} aria-labelledby={ids.label} aria-describedby={ids.description}
+      value={asks() ? 'ask' : 'apply'}
+      options={[
+        { value: 'apply', label: message('automaticFixes.apply') },
+        { value: 'ask', label: message('automaticFixes.ask') },
+      ]}
+      onChange={(value) => commit(value === 'ask', removesWire())}
+    />
+    <Show when={props.kind.wire}><div class="automatic-fix-wire">
+      <label id={`${id}-wire-label`} class="product-field-label" for={`${id}-wire`}>{message(`automaticFixes.wire.${props.kind.id}`)}</label>
+      <SharedProductSelect id={`${id}-wire`}
+        aria-labelledby={`${id}-wire-label`}
+        value={removesWire() ? 'remove' : 'keep'}
+        options={[
+          { value: 'keep', label: message('automaticFixes.keepWire') },
+          { value: 'remove', label: message('automaticFixes.removeWire') },
+        ]}
+        onChange={(value) => commit(asks(), value === 'remove')}
+      />
+    </div></Show>
+  </ProductField>
+}
+
 export function SettingsDialog(props: {
   readonly settings: SettingsRegistry
   readonly commands: CommandRegistry
@@ -284,7 +333,10 @@ export function SettingsDialog(props: {
     searchInput.focus()
   }
   const settingRow = (d: SettingDefinition) => {
-    return <SettingField definition={d} settings={props.settings} changed={changed} locale={locale} />
+    const kind = automaticFixKinds.find((kind) => kind.setting === d.id)
+    return kind === undefined
+      ? <SettingField definition={d} settings={props.settings} changed={changed} locale={locale} />
+      : <AutomaticFixField kind={kind} settings={props.settings} changed={changed} />
   }
   const keybindingRow = (command: AppCommand) => {
     const controlId = `keybinding-${command.id}`
@@ -365,7 +417,22 @@ export function SettingsDialog(props: {
                     <For each={(changed(), props.commands.list())}>{keybindingRow}</For>
                   </div>
                 }>
-                  <For each={visible()}>{settingRow}</For>
+                  <Show when={category() === 'automaticFixes'} fallback={<For each={visible()}>{settingRow}</For>}>
+                    <div class="dinkster-stack">
+                      <For each={[
+                        { id: 'lists', kinds: ['listGrows', 'listShrinks', 'listShrinksWithWires', 'itemOutsideList'] },
+                        { id: 'values', kinds: ['unresolvedAutomatic', 'numberOutsideLimits'] },
+                        { id: 'nodes', kinds: ['nodeReplacement', 'switchBranchRemoved', 'subgraphRowRemoved', 'boundaryFieldRemoved'] },
+                      ]}>{(group) => <ProductSettingsSection title={message(`automaticFixes.group.${group.id}`)}>
+                        <div class="automatic-fix-fields">
+                          <For each={group.kinds}>{(id) => {
+                            const kind = automaticFixKinds.find((candidate) => candidate.id === id)!
+                            return <AutomaticFixField kind={kind} settings={props.settings} changed={changed} />
+                          }}</For>
+                        </div>
+                      </ProductSettingsSection>}</For>
+                    </div>
+                  </Show>
                 </Show>
               }>
                 <Show when={props.packSettings}>{(packSettings) =>

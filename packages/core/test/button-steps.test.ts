@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
+import { storedSaveTargetFixes, applyStoredProblemFixes, buttonAvailability, CONFLICT_MESSAGE, INSIDE_ONLY_MESSAGE, NO_WAIT_MESSAGE, runPress, runSteps, storedNumberFixes, storedRuleFixes, type ActionHost, type CallAnswer, type LookupResult, type PressTarget, type StepPart } from '../src/actions/runner.js'
 import { decodeSteps } from '../src/actions/steps.js'
 import type { CommandDefinition } from '../src/commands/contract.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
@@ -16,6 +16,7 @@ import { createLocalSession, type DocumentSession } from '../src/commands/sessio
 import { compile, documentResolver } from '../src/compile/compile.js'
 import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
 import { diag } from '../src/diagnostics.js'
+import { replayHistoryOps, type HistorySnapshotRecord } from '../src/commands/store.js'
 import type { GraphDef, Json, NodeData, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, isPortEndpoint } from '../src/ids.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
@@ -115,6 +116,237 @@ function later<T>(): { promise: Promise<T>; settle: (value: T) => void } {
 }
 
 describe('one press is one undo step, or nothing', () => {
+  it('changes missing named save targets to Project default atomically, preserving names and refusing stale mounts', async () => {
+    const type = 'test.save-target-fixes'
+    const target = (id: string) => ({ kind: 'input' as const, id, optional: true,
+      type: { kind: 'concrete' as const, name: 'dinkster.save_target' },
+      widget: { widgetType: 'SAVE_TARGET', options: {}, default: { mount: 'absent', prefix: 'default-name' } } })
+    SCHEMAS.set(type, { type, displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true, body: [
+      ...['first', 'second', 'available', 'project', 'empty', 'wired', 'unstored'].map(target),
+      { kind: 'input', id: 'amount', optional: true, type: { kind: 'concrete', name: 'INT' },
+        widget: { widgetType: 'INT', options: { min: 0, max: 20, step: 4 }, default: 0 } },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', name: 'dinkster.save_target' } },
+    ] })
+    const session = sessionOf(documentOf({ n1: { type, values: {
+      first: { mount: 'absent', prefix: 'renders/portrait' }, second: { mount: 'other', prefix: 'movie' },
+      available: { mount: 'ready', prefix: 'keep' }, project: { prefix: 'project-name' }, empty: null,
+      wired: { mount: 'absent', prefix: 'dormant' }, amount: 14,
+    } } }, link('feed', ['n1', 'out'], ['n1', 'wired'])))
+    const host = hostOf()
+    let mounts = new Set(['ready'])
+    const fixes = storedSaveTargetFixes(session.doc, at('unused'), host, mounts)
+    const original = session.doc
+    const numeric = storedNumberFixes(session.doc, at('unused'), host)
+    expect(await applyStoredProblemFixes(session, numeric, host, { saveTargets: { fixes, readyMounts: () => mounts } })).toEqual({ kind: 'done', skipped: [], notes: [] })
+    expect(valuesOf(session)).toEqual({
+      first: { prefix: 'renders/portrait' }, second: { prefix: 'movie' },
+      available: { mount: 'ready', prefix: 'keep' }, project: { prefix: 'project-name' }, empty: null,
+      wired: { mount: 'absent', prefix: 'dormant' }, amount: 12,
+    })
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(original)
+    expect(session.canUndo).toBe(false)
+    expect(await applyStoredProblemFixes(session, numeric, host, { saveTargets: { fixes, readyMounts: () => undefined } }))
+      .toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(original)
+    expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 16 } }).ok).toBe(true)
+    const changedNumber = session.doc
+    expect(await applyStoredProblemFixes(session, numeric, host, { saveTargets: { fixes, readyMounts: () => mounts } }))
+      .toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(changedNumber)
+    expect(session.undo()).toBe(true)
+    mounts = new Set(['ready', 'absent'])
+    expect(await applyStoredProblemFixes(session, numeric, host, { saveTargets: { fixes, readyMounts: () => mounts } })).toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(original)
+    mounts = new Set(['ready'])
+    expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'second', value: { mount: 'other', prefix: 'personal' } } }).ok).toBe(true)
+    const personal = session.doc
+    expect(await applyStoredProblemFixes(session, numeric, host, { saveTargets: { fixes, readyMounts: () => mounts } })).toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(personal)
+
+    const outer = documentOf({
+      left: { type: '#g1', values: { shown: { mount: 'absent', prefix: 'left' } } },
+      right: { type: '#g1', values: { shown: { mount: 'ready', prefix: 'right' } } },
+    })
+    const nested: WorkflowDocument = { ...outer, graphs: { ...outer.graphs, g1: {
+      ...documentOf({ n1: { type, values: { first: { mount: 'ready', prefix: 'inner' } } } }).graphs.g0!, id: asGraphDefId('g1'),
+      boundary: { body: [{ kind: 'input', id: asPortId('shown'),
+        binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('first') }, promoted: true }] },
+    } } }
+    const nestedHost = hostOf({ schemaResolverFor: (doc) => documentResolver(doc, resolve) })
+    const nestedSession = createLocalSession(nested, nestedHost.commands, { schemaResolverFor: nestedHost.schemaResolverFor! })
+    const nestedFixes = storedSaveTargetFixes(nestedSession.doc, { graphId: 'g1', nodeId: 'n1', instancePath: ['left'] }, nestedHost, mounts)
+    expect(await applyStoredProblemFixes(nestedSession, [], nestedHost, { saveTargets: { fixes: nestedFixes, readyMounts: () => mounts } })).toMatchObject({ kind: 'done' })
+    expect(valuesOf(nestedSession, 'left')).toEqual({ shown: { prefix: 'left' } })
+    expect(valuesOf(nestedSession, 'right')).toEqual({ shown: { mount: 'ready', prefix: 'right' } })
+    expect(nestedSession.doc.graphs.g1!.nodes.n1!.values).toEqual({ first: { mount: 'ready', prefix: 'inner' } })
+    expect(nestedSession.undo()).toBe(true)
+    expect(nestedSession.doc).toEqual(nested)
+    expect(nestedSession.canUndo).toBe(false)
+  })
+
+  it('stores mixed numeric and declared fixes atomically, refusing stale offers and conflicts', async () => {
+    const type = 'test.declared-fixes'
+    const schema = parseDinksterSchema(type, {
+      body: ['width', 'cap', 'amount'].map((id) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] },
+        default: 0, ...(id === 'amount' ? { widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } } : {}) })),
+      validate: [
+        { check: { formula: 'width <= cap' }, message: 'Width exceeds cap.', fixLabel: 'Use less than the cap',
+          fix: [{ step: 'set', field: 'width', value: { formula: 'cap - 1' } }] },
+        { check: { formula: 'width <= cap' }, message: 'Alternative width.', fixLabel: 'Use two less than the cap',
+          fix: [{ step: 'set', field: 'width', value: { formula: 'cap - 2' } }] },
+        { check: { formula: 'width > 0' }, message: 'Width must be positive.', fix: [] },
+      ],
+    } as never).schema!
+    SCHEMAS.set(type, schema)
+    const session = sessionOf(documentOf({ n1: { type, values: { width: 17, cap: 9, amount: 14 } } }))
+    const host = hostOf()
+    const target = { graphId: 'g0', nodeId: 'n1' }
+    const numeric = storedNumberFixes(session.doc, target, host)
+    const rules = storedRuleFixes(session.doc, target, host)
+    const original = session.doc
+    expect(rules.map((fix) => fix.label)).toEqual(['Use less than the cap', 'Use two less than the cap'])
+    expect(await applyStoredProblemFixes(session, [...numeric, ...rules], host)).toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(original)
+    expect(session.canUndo).toBe(false)
+
+    expect(session.dispatch({ command: 'node.setValue', params: { ...target, inputId: 'cap', value: 8 } }).ok).toBe(true)
+    const changed = session.doc
+    const stale = 'Could not apply this fix. The workflow changed.'
+    expect(await applyStoredProblemFixes(session, [...numeric, rules[0]!], host, { staleMessage: stale }))
+      .toMatchObject({ kind: 'failed', message: stale })
+    expect(session.doc).toEqual(changed)
+    const fresh = [...storedNumberFixes(session.doc, target, host), storedRuleFixes(session.doc, target, host)[0]!]
+    expect(await applyStoredProblemFixes(session, fresh, host)).toMatchObject({ kind: 'done', skipped: [] })
+    expect(valuesOf(session)).toEqual({ width: 7, cap: 8, amount: 12 })
+    expect(storedRuleFixes(session.doc, target, host)).toEqual([])
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(changed)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)).toEqual({ width: 7, cap: 8, amount: 12 })
+    expect(session.undo()).toBe(true)
+
+    SCHEMAS.set(type, { ...schema, validate: schema.validate!.map((rule) => ({ ...rule,
+      fix: [{ step: 'set', field: 'width', value: { value: 3 } }],
+    })) })
+    expect(await applyStoredProblemFixes(session, fresh, host, { staleMessage: stale }))
+      .toMatchObject({ kind: 'failed', message: stale })
+    expect(session.doc).toEqual(changed)
+
+    SCHEMAS.set(type, { ...schema, validate: [{ ...schema.validate![0]!,
+      fix: [{ step: 'set', field: 'width', value: { lookup: 'pack.width', args: [] } }],
+    }] })
+    const waiting = later<LookupResult>()
+    const lookupHost = hostOf({ lookup: () => waiting.promise })
+    const lookedUp = storedRuleFixes(session.doc, target, lookupHost)
+    expect(await applyStoredProblemFixes(session, lookedUp, lookupHost)).toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(changed)
+    const pending = applyStoredProblemFixes(session, lookedUp, lookupHost, { noWait: false, staleMessage: stale })
+    await Promise.resolve()
+    expect(session.dispatch({ command: 'node.setValue', params: { ...target, inputId: 'cap', value: 6 } }).ok).toBe(true)
+    const meanwhile = session.doc
+    waiting.settle({ state: 'ready', value: 5n })
+    expect(await pending).toMatchObject({ kind: 'failed', message: stale })
+    expect(session.doc).toEqual(meanwhile)
+    expect(valuesOf(session)).toEqual({ width: 17, cap: 6, amount: 14 })
+
+    const sourceBody = [
+      { kind: 'input', id: 'cap', type: { kind: 'concrete', types: ['INT'] }, default: 9 },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] }, knownValue: { input: 'cap' } },
+    ]
+    addSchema('test.rule-source', sourceBody)
+    SCHEMAS.set(type, schema)
+    const wired = sessionOf(documentOf({ n1: { type, values: { width: 17, amount: 14 } }, source: { type: 'test.rule-source' } },
+      link('cap-wire', ['source', 'out'], ['n1', 'cap'])))
+    const wiredOffer = storedRuleFixes(wired.doc, target, host)[0]!
+    addSchema('test.rule-source', [{ ...sourceBody[0], default: 8 }, sourceBody[1]])
+    const wiredBefore = wired.doc
+    expect(await applyStoredProblemFixes(wired, [wiredOffer], host, { staleMessage: stale }))
+      .toMatchObject({ kind: 'failed', message: stale })
+    expect(wired.doc).toEqual(wiredBefore)
+    expect(wired.canUndo).toBe(false)
+    expect(await applyStoredProblemFixes(wired, [storedRuleFixes(wired.doc, target, host)[0]!], host))
+      .toMatchObject({ kind: 'done' })
+    expect(valuesOf(wired)).toEqual({ width: 7, amount: 14 })
+
+    SCHEMAS.set(type, { ...schema, validate: [{ ...schema.validate![0]!, fix: [{ step: 'future-step' }] }] })
+    expect(storedRuleFixes(session.doc, target, host)).toEqual([])
+    expect(await applyStoredProblemFixes(session, storedNumberFixes(session.doc, target, host), host))
+      .toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ width: 17, cap: 6, amount: 12 })
+  })
+
+  it('corrects stored numbers through steps in one undo, leaving wired values, specials and decimals alone', async () => {
+    addSchema('test.numeric-fixes', [
+      ...['whole', 'wired', 'special', 'large'].map((id) => ({
+        kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 0,
+        widget: { type: 'NUMBER', min: id === 'large' ? '9007199254740993' : 0,
+          max: id === 'large' ? '9007199254741003' : 20, step: 4, special: [[-1, 'Off']] },
+      })),
+      { kind: 'input', id: 'decimal', type: { kind: 'concrete', types: ['FLOAT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: 10, step: 0.1 } },
+      { kind: 'input', id: 'clamped', type: { kind: 'concrete', types: ['FLOAT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: 10, step: 0.1 } },
+      { kind: 'input', id: 'late', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: { formula: 'wired' }, step: 4 } },
+      { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
+    ])
+    const session = sessionOf(documentOf({ n1: { type: 'test.numeric-fixes', values: {
+      whole: 14, wired: 99, special: -1, large: '9007199254740998', decimal: 7.53, clamped: 12.5, late: 29,
+    } } }, link('feed', ['n1', 'out'], ['n1', 'wired'])))
+    const original = session.doc
+    const host = hostOf()
+    const fixes = storedNumberFixes(session.doc, at('unused'), host)
+    let stored: HistorySnapshotRecord | undefined
+    let storedDocument: WorkflowDocument | undefined
+    expect(await applyStoredProblemFixes(session, fixes, host, { onStored: (record, document) => {
+      stored = record
+      storedDocument = document
+    } })).toMatchObject({ kind: 'done' })
+    expect(replayHistoryOps(storedDocument!, stored!.inverse).doc).toEqual(original)
+    expect(replayHistoryOps(original, stored!.forward).doc).toEqual(storedDocument)
+    expect(valuesOf(session)).toEqual({ whole: 12, wired: 99, special: -1, large: '9007199254740997', decimal: 7.53, clamped: 10, late: 29 })
+    expect(storedNumberFixes(session.doc, at('unused'), host)).toEqual([])
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(original)
+    expect(session.canUndo).toBe(false)
+    expect(session.redo()).toBe(true)
+    expect(valuesOf(session)['whole']).toBe(12)
+    expect(session.undo()).toBe(true)
+    expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'whole', value: 18 } }).ok).toBe(true)
+    const changed = session.doc
+    expect(await applyStoredProblemFixes(session, fixes, host, { staleMessage: 'The workflow changed.' }))
+      .toMatchObject({ kind: 'failed', message: 'The workflow changed.' })
+    expect(session.doc).toEqual(changed)
+    expect(valuesOf(session)['clamped']).toBe(12.5)
+    expect(await applyStoredProblemFixes(session, storedNumberFixes(session.doc, at('unused'), host), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)['whole']).toBe(16)
+    expect(session.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'feed' } }).ok).toBe(true)
+    expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'wired', value: 20 } }).ok).toBe(true)
+    expect(await applyStoredProblemFixes(session, storedNumberFixes(session.doc, at('unused'), host), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)['late']).toBe(20)
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)['late']).toBe(29)
+    expect(valuesOf(session)['wired']).toBe(20)
+
+    const outer = documentOf({ left: { type: '#g1', values: { shown: 14 } }, right: { type: '#g1', values: { shown: 18 } } })
+    const nested: WorkflowDocument = { ...outer, graphs: { ...outer.graphs, g1: {
+      ...documentOf({ n1: { type: 'test.numeric-fixes', values: { whole: 8 } } }).graphs.g0!, id: asGraphDefId('g1'),
+      boundary: { body: [{ kind: 'input', id: asPortId('shown'),
+        binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('whole') }, promoted: true }] },
+    } } }
+    const nestedHost = hostOf({ schemaResolverFor: (doc) => documentResolver(doc, resolve) })
+    const nestedSession = createLocalSession(nested, nestedHost.commands, { schemaResolverFor: nestedHost.schemaResolverFor! })
+    const nestedFixes = storedNumberFixes(nestedSession.doc, { graphId: 'g1', nodeId: 'n1', instancePath: ['left'] }, nestedHost)
+    expect(await applyStoredProblemFixes(nestedSession, nestedFixes, nestedHost)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(nestedSession, 'left')).toEqual({ shown: 12 })
+    expect(valuesOf(nestedSession, 'right')).toEqual({ shown: 18 })
+    expect(nestedSession.doc.graphs.g1!.nodes.n1!.values).toEqual({ whole: 8 })
+    expect(nestedSession.undo()).toBe(true)
+    expect(nestedSession.doc).toEqual(nested)
+    expect(nestedSession.canUndo).toBe(false)
+  })
+
   it('sets Unpack count independently in one undo step and refuses an over-limit count whole', async () => {
     const document = documentOf({
       n1: { type: 'dinkster.utilities.unpack', values: { count: 3 } },
