@@ -2017,6 +2017,9 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-model-download-destination-label > strong { color: var(--dinkster-text-primary); white-space: nowrap; }
 .dinkster-model-download-destination-path { overflow-wrap: anywhere; white-space: normal; }
 .dinkster-model-download-space { white-space: nowrap; }
+.dinkster-model-download-location { display: flex; justify-content: space-between; align-items: center; gap: var(--dinkster-space-16); }
+.dinkster-menu-item-copy:has(.dinkster-model-download-location) { flex: 1; }
+.dinkster-model-download-location > :last-child { color: var(--dinkster-text-secondary); white-space: nowrap; }
 .dinkster-model-download-summary { display: flex; align-items: start; justify-content: space-between; gap: var(--dinkster-space-12); }
 .dinkster-model-download-summary > p, .dinkster-model-download-footer > p { margin: 0; }
 .dinkster-model-download-list { display: grid; align-content: start; gap: var(--dinkster-space-8); min-height: 0; overflow-y: auto; margin: 0; padding: 0; list-style: none; }

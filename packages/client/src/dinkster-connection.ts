@@ -28,7 +28,7 @@ import { requestWithDeadline } from './request-deadline.js'
 import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
   type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
 import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs, decodeModelPresence, ModelDownloadBusyError,
-  type ModelRequirement, type ModelDownloadRequirement, type ModelDownloadPlan, type ModelDownloadJob, type ModelPresence } from './model-downloads.js'
+  type ModelRequirement, type ModelDownloadRequirement, type ModelDownloadPlan, type ModelDownloadJob, type ModelDownloadSpace, type ModelPresence } from './model-downloads.js'
 import {
   asPromptId,
   createSignal,
@@ -1026,7 +1026,7 @@ export interface ModelSettings {
 
 export interface ModelSettingsState {
   readonly settings: ModelSettings
-  readonly locations: readonly (ModelLocation & { readonly mounts: readonly string[]; readonly enabled: boolean; readonly active: boolean })[]
+  readonly locations: readonly (ModelLocation & { readonly mounts: readonly string[]; readonly enabled: boolean; readonly active: boolean; readonly space?: ModelDownloadSpace })[]
   readonly revision: string
   readonly project: string
   readonly changesAllowed: boolean
@@ -1060,7 +1060,17 @@ function decodeModelSettingsState(value: unknown): ModelSettingsState {
     const configured = locations.find((row) => row.id === parsed.id)
     if (configured === undefined || configured.path !== parsed.path || configured.mode !== parsed.mode ||
       configured.visibility !== parsed.visibility || configured.kind !== parsed.kind) return invalid()
-    return { ...parsed, mounts: raw['mounts'], enabled: raw['enabled'], active: raw['active'] }
+    const space = raw['space']
+    let measured: ModelDownloadSpace | undefined
+    if (space !== undefined) {
+      if (!record(space)) return invalid()
+      if (space['status'] === 'unavailable') measured = { status: 'unavailable' }
+      else if (space['status'] === 'available' && nonemptyString(space['filesystem']) && integerNonnegative(space['freeBytes']))
+        measured = { status: 'available', filesystem: space['filesystem'], freeBytes: space['freeBytes'] }
+      else return invalid()
+    }
+    return { ...parsed, mounts: raw['mounts'], enabled: raw['enabled'], active: raw['active'],
+      ...(measured === undefined ? {} : { space: measured }) }
   })
   if (facts.length !== locations.length || new Set(facts.map((row) => row.id)).size !== facts.length) return invalid()
   const hiddenModels = value['hiddenModels'] ?? []

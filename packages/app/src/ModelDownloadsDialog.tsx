@@ -98,7 +98,7 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
     const size = selection?.size ?? row.requirement.asset?.size
     const metadata = [!selection && kindLabel(row.requirement.kind), size !== undefined && formatByteSize(size),
       selection && (selection.provider === 'huggingface' ? 'Hugging Face' : 'Civitai'),
-      job?.status === 'completed' && (job.reused ? message('modelDownloads.reused') : message('modelDownloads.saved', { folder: (job.path ?? job.destination).replace(/[\\/][^\\/]*$/, '') })),
+      job?.status === 'completed' && job.reused && message('modelDownloads.reused'),
     ].filter(Boolean).join(' - ')
     const parent = selection?.destination.replace(/[\\/][^\\/]*$/, '')
     const root = selection && locations().find((location) => location.id === locationId() && location.mounts.includes(selection.mount))?.path.replace(/[\\/]+$/, '')
@@ -166,7 +166,7 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
   const ready = () => models().length > 0 && models().every((row) => !row.pending && (row.plan?.status === 'local' || row.job?.status === 'completed'))
   const active = () => models().some((row) => row.queued || (row.job && !['completed', 'failed', 'cancelled'].includes(row.job.status)))
   const footer = () => active() ? message('modelDownloads.keepGoing') : totals().count ?
-    message(totals().insufficient ? totals().freeBytes === undefined ? 'modelDownloads.insufficientUnknown' : 'modelDownloads.insufficient' : 'modelDownloads.total', {
+    message(totals().insufficient ? totals().freeBytes === undefined ? 'modelDownloads.insufficientUnknown' : locations().length > 1 ? 'modelDownloads.insufficientOtherLocation' : 'modelDownloads.insufficient' : 'modelDownloads.total', {
       size: formatByteSize(totals().bytes), free: formatByteSize(totals().freeBytes ?? 0),
     }) : rows().some((row) => row.state === 'needs') ? message('modelDownloads.nothing') : ''
   const remaining = () => rows().filter((row) => row.state !== 'ready').length
@@ -179,10 +179,13 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
         freeSpace: models().some((row) => row.pending) ? message('modelDownloads.lookingUp') : (() => {
           const mounts = locations().find((location) => location.id === locationId())?.mounts ?? []
           const plans = models().filter((row) => row.plan?.status === 'consent-required' && mounts.includes(row.plan.mount))
-          const space = modelDownloadTotals(plans).freeBytes
+          const observed = locations().find((location) => location.id === locationId())?.space
+          const space = modelDownloadTotals(plans).freeBytes ?? (observed?.status === 'available' ? observed.freeBytes : undefined)
           return space === undefined ? message('modelDownloads.spaceUnknown') : message('modelDownloads.free', { size: formatByteSize(space) })
         })(),
-        locations: locations().map((location) => ({ id: location.id, name: location.id, path: location.path })),
+        locations: locations().map((location) => ({ id: location.id, name: location.id, path: location.path,
+          freeSpace: location.space?.status === 'available' ? message('modelDownloads.free', { size: formatByteSize(location.space.freeBytes) }) : message('modelDownloads.spaceUnknown'),
+        })),
         onSelect: (location) => { void props.request.selectModelLocation?.(location) },
       }}
       notice={<><Show when={copyError()}><ProductErrorBanner onDismiss={() => setCopyError('')}>{copyError()}</ProductErrorBanner></Show>

@@ -46,8 +46,8 @@ it('renders plan answers, selected filesystem capacity, and independent download
       if (path.endsWith('/settings')) return Response.json({
         settings: { version: 1, downloadLocation: 'shared', locations: [location, shared, portable] },
         locations: [{ ...location, mounts: [], enabled: false, active: false },
-          { ...shared, mounts: ['root-1', 'root-2'], enabled: true, active: true },
-          { ...portable, mounts: ['portable-vae'], enabled: true, active: true }], revision: 'one', project: 'studio',
+          { ...shared, mounts: ['root-1', 'root-2'], enabled: true, active: true, space: { status: 'available', filesystem: 'shared-volume', freeBytes: 1000 } },
+          { ...portable, mounts: ['portable-vae'], enabled: true, active: true, space: { status: 'available', filesystem: 'portable', freeBytes: 100 } }], revision: 'one', project: 'studio',
         changesAllowed: true, restartRequired: false, pendingRemovals: [],
       })
       if (path.endsWith('/plan')) {
@@ -101,6 +101,8 @@ it('renders plan answers, selected filesystem capacity, and independent download
     await vi.waitFor(() => expect(clipboard).toHaveBeenCalledWith(`Revision: ${'a'.repeat(40)}\nSHA-256: ${'b'.repeat(64)}`))
     const chooseLocation = (id: string) => {
       root.querySelector<HTMLButtonElement>('button[aria-label="Save to"]')!.click()
+      expect(root.querySelector('[role="menu"]')?.textContent).toContain('shared1000 B free')
+      expect(root.querySelector('[role="menu"]')?.textContent).toContain('portable100 B free')
       ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]')].find((item) => item.textContent?.startsWith(id))!.click()
     }
     chooseLocation('portable')
@@ -115,7 +117,7 @@ it('renders plan answers, selected filesystem capacity, and independent download
       expect(root.textContent).toContain(reason)
     expect(button('Download 2 models').disabled).toBe(true)
     expect(root.textContent).toContain('1000 B free')
-    expect(root.textContent).toContain('Untick some models or free up space.')
+    expect(root.textContent).toContain('Save somewhere else or untick some models.')
     button('Select none').click()
     expect(button('Download 0 models').disabled).toBe(true)
     expect(rows().filter((row) => row.querySelector<HTMLInputElement>('input')?.checked)).toHaveLength(0)
@@ -124,7 +126,7 @@ it('renders plan answers, selected filesystem capacity, and independent download
     const second = rows()[2]!.querySelector<HTMLInputElement>('input[type="checkbox"]')!
     second.click()
     expect(button('Download 1 model').disabled).toBe(false)
-    expect(root.textContent).not.toContain('Untick some models or free up space.')
+    expect(root.textContent).not.toContain('Save somewhere else or untick some models.')
     expect(button('Select all')).toBeDefined()
     expect(root.querySelector('.dinkster-model-download-footer [role="status"]')?.textContent).toBe('600 B to download')
     second.click()
@@ -135,6 +137,8 @@ it('renders plan answers, selected filesystem capacity, and independent download
     expect(root.textContent).not.toContain(' free.')
     button('Download 2 models').click()
     await vi.waitFor(() => expect(rows().filter((row) => row.dataset['state'] === 'downloading')).toHaveLength(2))
+    expect(root.querySelector('.dinkster-model-download-destination')?.textContent).toContain('Save to')
+    expect(root.querySelector('.dinkster-model-download-destination button')).toBeNull()
     button('Close').click()
     expect(slot.get()).toBeUndefined()
     open()
@@ -144,6 +148,7 @@ it('renders plan answers, selected filesystem capacity, and independent download
     expect(rows()[2]!.dataset['state']).toBe('downloading')
     rows()[2]!.querySelector<HTMLButtonElement>('button')!.click()
     await vi.waitFor(() => expect(rows()[2]!.dataset['state']).toBe('failed'))
+    expect(root.querySelector<HTMLButtonElement>('button[aria-label="Save to"]')).not.toBeNull()
     expect(button('Download 2 models')).toBeUndefined()
     expect(root.textContent).not.toContain('to download')
     expect(button('Run')).toBeUndefined()

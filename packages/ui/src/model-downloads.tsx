@@ -269,6 +269,7 @@ export function ProductModelDownloads(props: {
       readonly id: string
       readonly name: string
       readonly path: string
+      readonly freeSpace: string
     }[]
     readonly onSelect: (id: string) => void
   }
@@ -293,34 +294,49 @@ export function ProductModelDownloads(props: {
               destination().locations.find(
                 (location) => location.id === destination().selectedId,
               )
+            const label = () => (
+              <span class="dinkster-model-download-destination-label">
+                <span>{destination().label}</span>
+                <ProductIcon icon={Folder} />
+                <strong>{selected()?.name ?? destination().emptyLabel}</strong>
+                <span class="dinkster-model-download-destination-path">
+                  {selected()?.path}
+                </span>
+                <span class="dinkster-model-download-space">
+                  {destination().freeSpace}
+                </span>
+              </span>
+            )
             return (
               <div class="dinkster-model-download-destination">
-                <ProductMenu
-                  label={destination().label}
-                  triggerName={destination().label}
-                  fill="quiet"
-                  labelContent={
-                    <span class="dinkster-model-download-destination-label">
-                      <span>{destination().label}</span>
-                      <ProductIcon icon={Folder} />
-                      <strong>
-                        {selected()?.name ?? destination().emptyLabel}
-                      </strong>
-                      <span class="dinkster-model-download-destination-path">
-                        {selected()?.path}
-                      </span>
-                      <span class="dinkster-model-download-space">
-                        {destination().freeSpace}
-                      </span>
-                    </span>
+                <Show
+                  when={
+                    !props.rows.some(
+                      (row) =>
+                        row.state === 'downloading' || row.state === 'checking',
+                    )
                   }
-                  items={destination().locations.map((location) => ({
-                    label: location.name,
-                    description: location.path,
-                    checked: location.id === destination().selectedId,
-                    onSelect: () => destination().onSelect(location.id),
-                  }))}
-                />
+                  fallback={label()}
+                >
+                  <ProductMenu
+                    label={destination().label}
+                    triggerName={destination().label}
+                    fill="quiet"
+                    labelContent={label()}
+                    items={destination().locations.map((location) => ({
+                      label: location.name,
+                      labelContent: (
+                        <span class="dinkster-model-download-location">
+                          <span>{location.name}</span>
+                          <span>{location.freeSpace}</span>
+                        </span>
+                      ),
+                      description: location.path,
+                      checked: location.id === destination().selectedId,
+                      onSelect: () => destination().onSelect(location.id),
+                    }))}
+                  />
+                </Show>
               </div>
             )
           }}

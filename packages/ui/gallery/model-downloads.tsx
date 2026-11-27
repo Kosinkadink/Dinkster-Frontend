@@ -102,8 +102,18 @@ function DownloadExample(props: {
   const [stopped, setStopped] = createSignal(false)
   const [waitingStopped, setWaitingStopped] = createSignal(false)
   const locations = [
-    { id: 'shared', name: 'Shared models', path: '/models/shared' },
-    { id: 'portable', name: 'Portable models', path: '/media/portable/models' },
+    {
+      id: 'shared',
+      name: 'Shared models',
+      path: '/models/shared',
+      freeSpace: '20 GB free',
+    },
+    {
+      id: 'portable',
+      name: 'Portable models',
+      path: '/media/portable/models',
+      freeSpace: '200 MB free',
+    },
   ]
   const [locationId, setLocationId] = createSignal('shared')
   const destination = () =>
@@ -156,7 +166,7 @@ function DownloadExample(props: {
     ...files[index]!,
     state: 'ready',
     readyLabel: 'Ready',
-    metadata: `${files[index]!.metadata} - ${index === 1 ? 'an identical file was already here' : `saved to ${destination().path}/${files[index]!.folder}`}`,
+    metadata: `${files[index]!.metadata}${index === 1 ? ' - an identical file was already here' : ''}`,
   })
   const needs = (id: string, reason: string, label: string) => ({
     id,
@@ -373,7 +383,7 @@ function DownloadExample(props: {
         }
         footer={
           insufficient()
-            ? `${props.scene === 'many' ? count() * 2.25 : 6.8} GB to download, ${locationId() === 'portable' ? '200 MB' : '20 GB'} free. Untick some models or free up space.`
+            ? `${props.scene === 'many' ? count() * 2.25 : 6.8} GB to download, ${locationId() === 'portable' ? '200 MB' : '20 GB'} free. Save somewhere else or untick some models.`
             : action() ||
               (props.scene === 'downloading' || props.scene === 'waiting'
                 ? 'You can close this. Downloads keep going and show under tasks in the status bar.'
