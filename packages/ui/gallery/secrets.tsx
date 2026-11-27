@@ -18,7 +18,7 @@ export function SecretsGallery() {
             await new Promise<void>((resolve) => window.setTimeout(resolve, 600))
             if (reject()) {
               setReject(false)
-              throw new Error('Simulated refusal')
+              return 'Secret access is not permitted.'
             }
           }}
           onCancel={() => setOpen(false)}

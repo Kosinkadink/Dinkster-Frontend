@@ -8,7 +8,8 @@ export function ProductSecretDialog(props: {
   name: string
   contextKey: string
   canManageDeployment: boolean
-  onSave: (value: string, scope: 'account' | 'deployment') => Promise<void>
+  /** Return a safe engine refusal reason; thrown exceptions are never displayed. */
+  onSave: (value: string, scope: 'account' | 'deployment') => Promise<void | string>
   onSaved: () => void
   onCancel: () => void
 }) {
@@ -17,7 +18,7 @@ export function ProductSecretDialog(props: {
   const [value, setValue] = createSignal('')
   const [scope, setScope] = createSignal<'account' | 'deployment'>('account')
   const [pending, setPending] = createSignal(false)
-  const [failed, setFailed] = createSignal(false)
+  const [failure, setFailure] = createSignal<string>()
   let generation = 0
   let input: HTMLInputElement | undefined
   const clear = () => {
@@ -32,7 +33,7 @@ export function ProductSecretDialog(props: {
     clear()
     setScope('account')
     setPending(false)
-    setFailed(false)
+    setFailure(undefined)
   })
   onCleanup(() => {
     generation++
@@ -48,15 +49,19 @@ export function ProductSecretDialog(props: {
     if (value().length === 0 || pending()) return
     const attempt = generation
     setPending(true)
-    setFailed(false)
+    setFailure(undefined)
     try {
-      await props.onSave(value(), scope())
+      const reason = await props.onSave(value(), scope())
       if (attempt !== generation) return
+      if (typeof reason === 'string') {
+        setFailure(reason ? `${strings.secretSaveFailed} ${reason}` : strings.secretSaveFailed)
+        return
+      }
       clear()
       props.onSaved()
     } catch {
       // Neither server responses nor exceptions may echo a credential here.
-      if (attempt === generation) setFailed(true)
+      if (attempt === generation) setFailure(strings.secretSaveFailed)
     } finally {
       if (attempt === generation) setPending(false)
     }
@@ -64,21 +69,22 @@ export function ProductSecretDialog(props: {
   return (
     <ProductDialog title={strings.setSecretTitle.replace('{name}', props.name)} onDismiss={cancel} pending={pending()} size="confirmation"
       action={<ProductButton type="submit" form={formId} fill="solid" disabled={value().length === 0} pending={pending()}>
-        {pending() ? strings.secretSaving : failed() ? strings.tryAgain : strings.secretSave}
+        {pending() ? strings.secretSaving : failure() !== undefined ? strings.tryAgain : strings.secretSave}
       </ProductButton>}>
       <form id={formId} class="dinkster-stack" autocomplete="off" noValidate onSubmit={save} aria-busy={pending()}>
-        <Show when={failed()}>
-          <ProductErrorBanner onDismiss={() => setFailed(false)}>{strings.secretSaveFailed}</ProductErrorBanner>
+        <Show when={failure()}>
+          <ProductErrorBanner onDismiss={() => setFailure(undefined)}>{failure()}</ProductErrorBanner>
         </Show>
-        <p class="dinkster-description">{strings.secretHostOnly}</p>
-        <ProductField label={strings.secretScope}>
-          {(attributes) => <ProductSelect {...attributes} value={scope()} disabled={pending()} onChange={(event) => {
-            setScope(event.currentTarget.value === 'deployment' && props.canManageDeployment ? 'deployment' : 'account')
-          }}>
-            <option value="account">{strings.secretAccountScope}</option>
-            <Show when={props.canManageDeployment}><option value="deployment">{strings.secretDeploymentScope}</option></Show>
-          </ProductSelect>}
-        </ProductField>
+        <Show when={props.canManageDeployment}>
+          <ProductField label={strings.secretScope}>
+            {(attributes) => <ProductSelect {...attributes} value={scope()} disabled={pending()} onChange={(event) => {
+              setScope(event.currentTarget.value === 'deployment' ? 'deployment' : 'account')
+            }}>
+              <option value="account">{strings.secretAccountScope}</option>
+              <option value="deployment">{strings.secretDeploymentScope}</option>
+            </ProductSelect>}
+          </ProductField>
+        </Show>
         <ProductField label={strings.secretValue}>
           {(attributes) => <ProductTextInput {...attributes} ref={input} type="password" autocomplete="off" spellcheck={false}
             value={value()} disabled={pending()} onInput={(event) => setValue(event.currentTarget.value)} />}
