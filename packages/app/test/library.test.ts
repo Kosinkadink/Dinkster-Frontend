@@ -145,10 +145,18 @@ describe('Board Library persistence', () => {
     expect(reopened.session.undo()).toBe(true)
     expect(app.boards.isDirty(reopened.id)).toBe(false)
     expect(reopened.session.redo()).toBe(true)
+    await app.boards.rename(reopened.id, 'Renamed references')
     await Promise.all([app.boards.save(reopened.id), app.boards.save(reopened.id)])
     expect(saved.revision).toBe(3)
+    expect(saved.name).toBe('Renamed references')
     expect(app.boards.isDirty(reopened.id)).toBe(false)
     expect((await app.boards.openSaved(saved.id, baseUrl)).session.doc.items['note']).toMatchObject({ text: 'New version' })
+    await app.boards.rename(reopened.id, 'Name only')
+    expect(app.boards.isDirty(reopened.id)).toBe(true)
+    await app.boards.save(reopened.id)
+    expect(app.boards.isDirty(reopened.id)).toBe(false)
+    app.boards.close(reopened.id)
+    expect((await app.boards.openSaved(saved.id, baseUrl)).title).toBe('Name only')
   })
 
   it('refuses another saved record with the same document identity without redirecting its edits to the open record', async () => {
@@ -215,7 +223,7 @@ describe('Board Library persistence', () => {
     let release!: (digest: string) => void
     const waiting = new Promise<string>((resolve) => { release = resolve })
     const upload = vi.spyOn(connection, 'uploadAsset').mockReturnValue(waiting)
-    vi.spyOn(connection, 'createLibraryRecord').mockResolvedValue(record({ mediaType: BOARD_MEDIA_TYPE }))
+    vi.spyOn(connection, 'createLibraryRecord').mockImplementation(async (value) => record(value))
     const saving = app.boards.save(entry.id)
     await uploadStarted(upload)
     entry.session.dispatch({ command: 'board.item.add', params: { items: [

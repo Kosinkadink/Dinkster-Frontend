@@ -387,23 +387,22 @@ it('keeps the chosen installation, starting contents and one project identity ac
   button('Use this folder')!.click()
   document.querySelector<HTMLInputElement>('input[type="radio"][value="project"]')!.click()
   await settle()
-  const installation = document.querySelector<HTMLSelectElement>('#new-project-runs-on')!
-  installation.value = nightly.root
-  installation.dispatchEvent(new Event('change', { bubbles: true }))
+  const installation = document.querySelector<HTMLButtonElement>('#new-project-runs-on')!
+  installation.click()
+  ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Nightly - this computer')!.click()
   button('Create')!.click()
   await settle()
   expect(document.body.textContent).toContain('Could not finish creating the project. Your choices are kept. Try again.')
   expect(name.value).toBe('My film')
-  expect(installation.value).toBe(nightly.root)
+  expect(installation.textContent).toBe('Nightly - this computer')
   expect(document.querySelector<HTMLInputElement>('input[type="radio"][value="empty"]')!.disabled).toBe(true)
   installationsUnavailable = true
   globalThis.dispatchEvent(new Event('focus'))
   await settle()
-  expect(document.querySelector<HTMLSelectElement>('#new-project-runs-on')!.value).toBe(nightly.root)
+  expect(document.querySelector('#new-project-runs-on')!.textContent).toBe('Nightly - this computer')
   const copyLabel = [...document.querySelectorAll('label')].find((label) => label.htmlFor && label.textContent === 'Copy of a project')!
-  const copy = document.getElementById(copyLabel.htmlFor) as HTMLSelectElement
-  expect(copy.value).toBe('p-film')
-  expect([...copy.options].find((option) => option.value === 'p-film')?.textContent).toBe('Film grain tests')
+  const copy = document.getElementById(copyLabel.htmlFor) as HTMLButtonElement
+  expect(copy.textContent).toBe('Film grain tests')
   name.value = 'My revised film'
   name.dispatchEvent(new Event('input', { bubbles: true }))
   button('Create')!.click()
