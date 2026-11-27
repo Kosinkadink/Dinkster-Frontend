@@ -1752,6 +1752,16 @@ describe('Boundary sample acceptance compilation', () => {
 
     it(`boundary/whole-choice/${context}`, () => {
       const store = storeFor(boundarySample(level))
+      const original = store.doc
+      const native = boundarySampleSchema.body.find((row) => row.kind === 'choice' && row.id === 'mode')!
+      const forwarded = documentResolver(original, resolveBoundarySample)(level === 1 ? '#detail' : '#portrait')!
+        .body.find((row) => row.kind === 'choice' && row.id === 'mode')!
+      if (native.kind !== 'choice' || forwarded.kind !== 'choice') throw new Error('choice fixture missing')
+      const { outer: _choiceScope, ...choice } = forwarded
+      expect(choice).toEqual({ ...native, options: native.options.map((option) => ({ ...option,
+        rows: option.rows.map((row) => row.kind === 'input' && row.id === 'text'
+          ? { ...row, widget: { ...row.widget!, default: 'dormant inner text' } } : row),
+      })) })
       edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'mode.text', value: 'outer dormant text' })
       edit(store, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
       expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('outer dormant text')
@@ -1761,6 +1771,31 @@ describe('Boundary sample acceptance compilation', () => {
       expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('outer dormant text')
       const second = level === 1 ? 'second.sample' : 'second.detail.sample'
       expect(prompt(store.doc)[second]!.inputs['mode.text']).toBe('second text')
+      const selected = store.doc
+      const plain = storeFor(boundarySample(0))
+      edit(plain, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {
+        'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4,
+      } })
+      edit(plain, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'mode.text', value: 'outer dormant text' })
+      edit(plain, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
+      const reference = prompt(plain.doc).first!
+      for (const current of [selected, loadDocument(JSON.parse(JSON.stringify(selected))).document!]) {
+        const compiled = prompt(current)
+        expect(compiled[path]).toEqual(reference)
+        expect(compiled[path]!.slotVariants?.mode).toBe('text')
+        expect(compiled[path]!.inputs['mode.mix']).toBe(0.3)
+        expect(compiled[path]!.inputs['mode.text']).toBe('outer dormant text')
+        expect(compiled[second]).toEqual(prompt(original)[second])
+        expect(current.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+        expect(current.graphs.detail).toEqual(original.graphs.detail)
+        expect(current.graphs.portrait).toEqual(original.graphs.portrait)
+      }
+      expect(store.undo()).toBe(true)
+      expect(prompt(store.doc)[path]!.slotVariants?.mode).toBe('image')
+      expect(prompt(store.doc)[path]!.inputs).not.toHaveProperty('mode.text')
+      expect(store.doc.graphs.root!.nodes.first!.values['mode.text']).toBe('outer dormant text')
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(selected)
     })
 
     it(`boundary/counted-outputs/${context}`, () => {
@@ -1785,6 +1820,13 @@ describe('Boundary sample acceptance compilation', () => {
 
     it(`boundary/whole-group/${context}`, () => {
       const store = storeFor(boundarySample(level))
+      const original = store.doc
+      const native = boundarySampleSchema.body.find((row) => row.kind === 'group' && row.id === 'layers')!
+      const forwarded = documentResolver(original, resolveBoundarySample)(level === 1 ? '#detail' : '#portrait')!
+        .body.find((row) => row.kind === 'group' && row.id === 'layers')!
+      if (native.kind !== 'group' || forwarded.kind !== 'group') throw new Error('group fixture missing')
+      const { outer: _groupScope, ...group } = forwarded
+      expect(group).toEqual({ ...native, maxMembers: 6, interiorMembers: 2 })
       edit(store, 'dynamic.materialize', { graphId: 'root', nodeId: 'first', frames: [{ construct: 'layers', members: ['layer0', 'layer1'] }] })
       edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: { 'layers.layer0.strength': 0.2, 'layers.layer1.strength': 0.8 } })
       expect(prompt(store.doc)[path]!.inputs).toMatchObject({
@@ -1794,6 +1836,34 @@ describe('Boundary sample acceptance compilation', () => {
       expect(prompt(store.doc)[path]!.outputMembers?.layers).toEqual(['layer0', 'layer1', 'layer2', 'layer3'])
       const second = level === 1 ? 'second.sample' : 'second.detail.sample'
       expect(prompt(store.doc)[second]!.outputMembers?.layers).toEqual(['layer0', 'layer1'])
+      const beforeEdit = store.doc
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'layers.layer0.strength', value: 0.9 })
+      const edited = store.doc
+      const plain = storeFor(boundarySample(0))
+      edit(plain, 'dynamic.materialize', { graphId: 'root', nodeId: 'first', frames: [{ construct: 'layers', members: ['layer0', 'layer1', 'layer2', 'layer3'] }] })
+      edit(plain, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {
+        'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4,
+        'layers.layer2.strength': 0.9, 'layers.layer3.strength': 0.8,
+      } })
+      const reference = prompt(plain.doc).first!
+      for (const current of [edited, loadDocument(JSON.parse(JSON.stringify(edited))).document!]) {
+        const compiled = prompt(current)
+        expect(compiled[path]).toEqual(reference)
+        expect(compiled[path]!.inputs).toMatchObject({
+          'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4,
+          'layers.layer2.strength': 0.9, 'layers.layer3.strength': 0.8,
+        })
+        expect(compiled[path]!.outputMembers?.layers).toEqual(['layer0', 'layer1', 'layer2', 'layer3'])
+        expect(compiled[second]).toEqual(prompt(original)[second])
+        expect(current.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+        expect(current.graphs.detail).toEqual(original.graphs.detail)
+        expect(current.graphs.portrait).toEqual(original.graphs.portrait)
+      }
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(beforeEdit)
+      expect(prompt(store.doc)[path]!.inputs['layers.layer2.strength']).toBe(0.2)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(edited)
     })
 
     it(`boundary/multi-row-member/${context}`, () => {
