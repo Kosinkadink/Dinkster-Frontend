@@ -4496,7 +4496,7 @@ export class AppState {
         occurrence.node === diagnostic.data?.['node'] && occurrence.input === diagnostic.data?.['input']) : undefined
     const focusedModel = exact ? { name: exact.name, kind: exact.kind, asset: exact.asset! } : (diagnostic && missing.models.find((model) => model.asset === undefined &&
       model.name === diagnostic.data?.['name'] && model.kind === diagnostic.data?.['kind']))
-    this.openModelDownloads(this.backendForTab(tab), missing.models, { workflowTitle: tab.title, tab,
+    this.openModelDownloads(this.backendForTab(tab), missing.models, { workflowTitle: tab.title, tab, missing: missing.models,
       ...(focusedModel === undefined ? {} : { focusedModel }),
     })
   }
@@ -4505,6 +4505,7 @@ export class AppState {
   openModelDownloads(backend: Backend, models: readonly (ModelDownloadRequirement & { readonly source?: string })[], options: {
     readonly workflowTitle?: string
     readonly focusedModel?: ModelDownloadRequirement
+    readonly missing?: readonly ModelDownloadRequirement[]
     readonly tab?: Tab
     readonly signal?: AbortSignal
     readonly stillCurrent?: () => boolean
@@ -4524,6 +4525,7 @@ export class AppState {
     this.modelReview = controller
     const transfers = this.modelDownloadsFor(backend, project)
     transfers.ensure(models)
+    if (options.missing) transfers.ensure(options.missing, true)
     for (const requirement of models) {
       const row = this.modelDownloadStateFor(backend, requirement, project).get()
       if (requirement.source !== undefined && !row?.source && !row?.plan && !row?.job)
