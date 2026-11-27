@@ -158,7 +158,8 @@ import { drawnAnewInputs, RunStandingMemory, runStandingFor } from './run-proble
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { assetRowThumbnails, createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
-import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
+import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive, widgetEditorTarget } from './widget-editor-anchor.js'
+import { createAssetFieldImports } from './asset-field-imports.js'
 import { RowFocusOverlay, type RowFocusState, type RowRepresentation } from './editors/RowFocusOverlay.js'
 import type { RowBox } from './editors/row-placement.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
@@ -1763,6 +1764,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [linkConfirm, setLinkConfirm] = createSolidSignal<{ place: ButtonPlace; url: string; answer: (open: boolean) => void }>()
   const [buttonHover, setButtonHover] = createSolidSignal<{ place: ButtonPlace; box: ButtonBox }>()
   const [sceneVersion, setSceneVersion] = createSolidSignal(0)
+  let assetFieldTargetCurrent = (_editor: WidgetEditorState): boolean => false
+  const assetFieldImports = createAssetFieldImports(props.app, (ed) => assetFieldTargetCurrent(ed))
+  onCleanup(() => assetFieldImports.dispose())
   let clientRectToWorld = (_rect: DOMRect): { x: number; y: number; width: number; height: number } | undefined => undefined
   /** A button's line in world space; a menu button's is its whole node. */
   let buttonWorldRect = (_place: ButtonPlace): { x: number; y: number; width: number; height: number } | undefined => undefined
@@ -4747,6 +4751,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // something Solid guarantees, so the rebuild calls the helper directly
       // (untracked: the scene effect must not subscribe to overlay signals).
       untrack(() => refreshSceneOverlays(tab))
+      untrack(() => assetFieldImports.reconcile())
       untrack(() => refreshButtonPaint(tab))
       if (replaced) setSceneVersion((version) => version + 1)
       // Solver + widget-value diagnostics are derived per-build; replace
@@ -5744,6 +5749,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // Selector choices have a separate stored value even when their parent input is wired.
       return row.selector === undefined && (companionInputs.get(nodeId)?.has(row.address.port) === true ||
         Object.hasOwn(rowNodeOf(nodeId)?.wired ?? {}, row.valueKey))
+    }
+
+    assetFieldTargetCurrent = (ed) => {
+      const tab = activeTab()
+      if (ed.target.kind !== 'input' || tab === undefined || tab !== ed.tab || currentGraphId(tab) !== ed.graphId ||
+          JSON.stringify(viewInstancePath(tab) ?? []) !== JSON.stringify(ed.instancePath ?? [])) return false
+      const node = rowNodeOf(ed.target.nodeId)?.node
+      const match = node === undefined ? undefined : widgetEditorTarget(ed, [node])
+      return match !== undefined && !rowIsDriven(match.node.id, match.row)
     }
 
     // Tab never leaves the node: past its last stop it goes to the first. A
