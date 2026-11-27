@@ -1301,6 +1301,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     !frozen() &&
     !row.linked &&
     !row.derived &&
+    row.item.kept === undefined &&
     !row.item.readOnly &&
     !row.item.disabled &&
     row.spec !== undefined &&
@@ -1311,9 +1312,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       ? message('appView.readOnly.linked')
       : row.derived
         ? message('appView.readOnly.derived')
-        : row.item.disabled || row.item.readOnly
-          ? (row.item.disabled && row.item.disabledReason) || message('storagePanel.readOnly')
-          : message('appView.readOnly.unsupported')
+        : row.item.kept !== undefined
+          ? row.item.kept
+          : row.item.disabled || row.item.readOnly
+            ? (row.item.disabled && row.item.disabledReason) || message('storagePanel.readOnly')
+            : message('appView.readOnly.unsupported')
 
   const display = (value: Json | undefined): string => {
     return value === undefined ? message('appView.value.unset') : typeof value === 'string' ? value : JSON.stringify(value)

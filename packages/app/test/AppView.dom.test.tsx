@@ -41,6 +41,8 @@ describe('App View occurrence fields', () => {
     try {
       await vi.waitFor(() => expect(root.textContent).toContain('Pick 42'))
       expect(requests).toEqual(['gate_for'])
+      expect(root.querySelectorAll('[data-testid="app-view-row"] input, [data-testid="app-view-row"] select')).toHaveLength(0)
+      expect(root.textContent).toContain('Its wire gives nothing.')
       expect(app.activeTab()!.store.dispatch({ command: 'node.setValue', params: {
         graphId: 'root', nodeId: 'choice', inputId: 'seed', value: 3,
       } }).ok).toBe(true)
