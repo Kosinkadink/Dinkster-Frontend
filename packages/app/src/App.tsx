@@ -1051,6 +1051,7 @@ export function App(props: {
   }
   const beginTabDrag = (tab: AppTab, down: PointerEvent, groupId: string): void => {
     if (down.button !== 0) return
+    tooltips.hide()
     const strip = stripElements.get(groupId)
     if (strip === undefined) return
     const pointerId = down.pointerId
@@ -2253,11 +2254,16 @@ export function App(props: {
     }
   })
   const [panelDrag, setPanelDrag] = createSolidSignal<PanelDragModel>()
+  let panelDragWidth = 0
   let panelDragPointerId: number | undefined
   let disposePanelDrag: (() => void) | undefined
   const publishPanelDrag = (drag: PanelDragModel | undefined): void => {
     setPanelDrag(drag)
     const active = drag?.started === true && !drag.rolledBack
+    if (active) {
+      tooltips.hide()
+      bodyElement.style.setProperty('--tab-drag-width', `${panelDragWidth}px`)
+    } else bodyElement.style.removeProperty('--tab-drag-width')
     document.body.classList.toggle('panel-drag-active', active)
     document.body.classList.toggle('panel-drag-not-allowed', active && drag.preview?.allowed === false)
   }
@@ -2332,6 +2338,7 @@ export function App(props: {
     if (panelId === undefined || originZone === undefined || descriptor === undefined || snapshot === undefined) return
 
     disposePanelDrag?.()
+    panelDragWidth = target.getBoundingClientRect().width
     panelDragPointerId = pointerId
     let drag = beginPanelDragModel(
       pointerId,
@@ -2438,6 +2445,8 @@ export function App(props: {
     }
     const finish = (event: PointerEvent): void => {
       if (event.pointerId !== pointerId) return
+      // Restore the unshifted row before the release-time geometry check.
+      publishPanelDrag(undefined)
       const currentSnapshot = drag.started ? capturePanelDragSnapshot() : undefined
       const action = panelDragReleaseAction(drag, currentSnapshot === undefined ? undefined : {
         snapshot: currentSnapshot,
@@ -3314,6 +3323,7 @@ export function App(props: {
           >
             <DockZoneHost
               zone="left"
+              drag={panelDrag()}
               titleOnly={activityBarVisible()}
               ariaLabel={message('shell.primaryDockPanels')}
               sections={zoneSections('left')}
@@ -3393,6 +3403,7 @@ export function App(props: {
               />
               <DockZoneHost
                 zone="bottom"
+                drag={panelDrag()}
                 ariaLabel={message('shell.bottomPanels')}
                 sections={zoneSections('bottom')}
                 split={zoneSplit('bottom')}
@@ -3422,6 +3433,7 @@ export function App(props: {
               must not reopen the zone. */}
           <DockZoneHost
             zone="right"
+            drag={panelDrag()}
             ariaLabel={message('shell.inspectorPanels')}
             sections={zoneSections('right')}
             split={zoneSplit('right')}
@@ -3441,14 +3453,16 @@ export function App(props: {
             drag={drag()}
             ghostTitle={descriptor()?.title ?? drag().panelId}
             ghostIcon={descriptor()?.icon}
+            ghostActive={DOCK_ZONE_IDS.some((zone) => zoneSections(zone).some((section) => section.activeId === drag().panelId))}
           />
         )
       }}</Show>
       <Show when={tabDrag()}>{(drag) => (
-        <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused} />
+        <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused}
+          active={findGroup(displayLayout(), drag().sourceGroupId)?.activeTabId === drag().tabId} />
       )}</Show>
 
-      <Show when={tooltip()}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
+      <Show when={!panelDrag()?.started && tabDrag() === undefined ? tooltip() : undefined}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
       <Show when={queueRefusal() !== undefined && queueRefusal() === activeTab() && problemsIndicator()}>{(summary) => (
         <ProductEmptyState
           class="queue-refusal-toast"

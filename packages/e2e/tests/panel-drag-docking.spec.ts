@@ -107,6 +107,7 @@ test('right-zone tab drag previews from one geometry snapshot and persists on re
   const queue = rightTab(page, 'runs')
   const from = await center(outputs)
   const to = await center(queue)
+  const draggedWidth = (await outputs.boundingBox())!.width
   const storedBefore = await page.evaluate(() =>
     (window.__dinksterTest!.app as unknown as DockingTestApp).settings.get<string>('shell.dock.layout'))
 
@@ -146,9 +147,14 @@ test('right-zone tab drag previews from one geometry snapshot and persists on re
   })
 
   expect(moveReads).toBe(0)
-  await expect(page.getByTestId('panel-drag-target')).toHaveAttribute('data-kind', 'tab')
-  await expect(page.getByTestId('panel-drag-target')).toHaveAttribute('data-zone', 'right')
-  await expect(page.getByTestId('panel-drag-caret')).toBeVisible()
+  const slot = page.getByTestId('dock-zone-right').locator('.panel-tab-drop-slot')
+  await expect(slot).toBeVisible()
+  expect((await slot.boundingBox())!.width).toBeCloseTo(draggedWidth, 1)
+  const slotLeft = (await slot.boundingBox())!.x
+  await page.mouse.move(to.x - 10, to.y)
+  expect((await slot.boundingBox())!.x).toBe(slotLeft)
+  await expect(page.getByTestId('panel-drag-target')).toHaveCount(0)
+  await capture(page, 'panel-empty-insertion-slot')
   expect(await page.evaluate(() =>
     (window.__dinksterTest!.app as unknown as DockingTestApp).settings.get<string>('shell.dock.layout'))).toBe(storedBefore)
 
@@ -279,9 +285,11 @@ test('the hidden-tab tail of a strip appends without reading hidden tab boxes as
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
   await page.mouse.move(strip.x + strip.width - 2, strip.y + strip.height / 2, { steps: 4 })
-  const target = page.getByTestId('panel-drag-target')
-  await expect(target).toHaveAttribute('data-kind', 'tab')
-  await expect(target).toHaveAttribute('data-zone', 'right')
+  const slot = host.locator('.panel-tab-drop-slot')
+  await expect(slot).toBeVisible()
+  const gap = (await slot.boundingBox())!
+  expect(gap.x + gap.width).toBeLessThanOrEqual(strip.x + strip.width)
+  await capture(page, 'panel-hidden-tail-slot')
   await page.mouse.up()
 
   expect((await zoneOrder(page, 'right')).at(-1)).toBe('runs')

@@ -16,6 +16,7 @@ import {
 import { aggregatePanelIndicators, type PanelDescriptor, type PanelIndicator } from './panels.js'
 import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
+import type { PanelDragModel } from './panel-drag.js'
 import { useAppMessage } from './locale.js'
 import type { TooltipContent, VisibleTooltip } from './tooltips.js'
 import { ProductShortcut } from '@dinkster/ui'
@@ -422,6 +423,7 @@ function DockSectionDivider(props: {
  */
 function DockZoneSection(props: {
   readonly zone: DockZoneId
+  readonly drag: PanelDragModel | undefined
   readonly label: string
   /** Index of this section in the zone's DockZoneState.sections. */
   readonly section: number
@@ -498,6 +500,8 @@ function DockZoneSection(props: {
   let overflowRoot: HTMLDivElement | undefined
   let overflowButton: HTMLButtonElement | undefined
   const measureTabs = (): void => {
+    // Keep the pre-drag whole-tab fit while an insertion slot parts the row.
+    if (props.drag?.started && !props.drag.rolledBack) return
     if (props.titleOnly) {
       if (hiddenTabIds().size > 0) setHiddenTabIds(new Set<string>())
       return
@@ -564,7 +568,7 @@ function DockZoneSection(props: {
   })
   // Panel and active-tab changes can alter complete-tab fit without resizing
   // the strip itself, which the observer cannot see.
-  createEffect(on([() => props.panels, () => props.activeId, () => props.titleOnly], () => queueMicrotask(measureTabs)))
+  createEffect(on([() => props.panels, () => props.activeId, () => props.titleOnly, () => props.drag?.started], () => queueMicrotask(measureTabs)))
   // When resizing clears clipping, the hidden menu must not stay logically
   // open, or the next clip would show it without user activation.
   createEffect(() => {
@@ -598,6 +602,15 @@ function DockZoneSection(props: {
     >
       <ProductTabs
         class={`dock-zone-tabs${props.titleOnly ? ' dock-zone-title-only' : ''}`}
+        draggedId={props.drag?.started && !props.drag.rolledBack ? props.drag.panelId : undefined}
+        dropSlot={(() => {
+          const drag = props.drag
+          const target = drag?.preview?.target
+          if (!drag?.started || drag.rolledBack || props.titleOnly || drag.preview?.allowed !== true
+            || target?.kind !== 'tab' || target.zone !== props.zone || target.section !== props.section) return undefined
+          const remaining = props.panels.filter((panel) => panel.id !== drag.panelId)
+          return { beforeId: remaining[target.index]?.id }
+        })()}
         ariaLabel={props.label}
         selectedId={props.activeId}
         onSelect={props.onActivate}
@@ -681,6 +694,7 @@ function DockZoneSection(props: {
  */
 export function DockZoneHost(props: {
   readonly zone: DockZoneId
+  readonly drag?: PanelDragModel | undefined
   readonly ariaLabel: string
   readonly titleOnly?: boolean
   /** Rendered sections in visual order (caller filters visibility). */
@@ -783,6 +797,7 @@ export function DockZoneHost(props: {
           </Show>
           <DockZoneSection
             zone={props.zone}
+            drag={props.drag}
             label={renderedCount() < 2
               ? props.ariaLabel
               : message(`shell.chrome.section.${props.zone === 'bottom'

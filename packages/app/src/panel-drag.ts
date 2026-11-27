@@ -120,7 +120,6 @@ export interface PanelDragReleaseGeometry {
 
 export interface PanelDragTargetGeometry {
   readonly rect: PanelDragRect
-  readonly caret: PanelDragRect | undefined
 }
 
 const rectWidth = (rect: PanelDragRect): number => Math.max(0, rect.right - rect.left)
@@ -376,29 +375,13 @@ export function panelDragReleaseAction(
 
 export function panelDragTargetGeometry(
   snapshot: PanelDragSnapshot,
-  panelId: string,
   target: PanelDragTarget,
 ): PanelDragTargetGeometry {
-  if (target.kind === 'floating') return { rect: snapshot.canvasRect, caret: undefined }
+  if (target.kind === 'floating') return { rect: snapshot.canvasRect }
   const zone = snapshot.zones[target.zone]
-  if (target.kind === 'edge') return { rect: zone.previewRect, caret: undefined }
-  if (target.kind === 'split') return { rect: zone.splitRect ?? zone.previewRect, caret: undefined }
+  if (target.kind === 'edge') return { rect: zone.previewRect }
+  if (target.kind === 'split') return { rect: zone.splitRect ?? zone.previewRect }
   const section = zone.sections.find((candidate) => candidate.section === target.section)
-  if (section === undefined) return { rect: zone.previewRect, caret: undefined }
-  if (target.kind === 'zone') return { rect: section.bodyRect, caret: undefined }
-  const order = remainingOrder(sectionOrder(zone, section.section), panelId)
-  const slots = section.tabStrip.slots
-    .filter((slot) => slot.id !== panelId && order.includes(slot.id))
-    .sort((a, b) => a.rect.left - b.rect.left)
-  const next = slots.find((slot) => order.indexOf(slot.id) >= target.index)
-  const x = next?.rect.left ?? slots.at(-1)?.rect.right ?? section.tabStrip.rect.left + 8
-  return {
-    rect: section.tabStrip.rect,
-    caret: {
-      left: x - 1,
-      right: x + 2,
-      top: section.tabStrip.rect.top + 4,
-      bottom: section.tabStrip.rect.bottom - 4,
-    },
-  }
+  if (section === undefined) return { rect: zone.previewRect }
+  return { rect: target.kind === 'zone' ? section.bodyRect : section.tabStrip.rect }
 }
