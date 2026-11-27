@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CollectionEntry, CollectionPageRequest, CollectionSource } from '@dinkster/core'
 import { registerCatalog, setLocale } from '@dinkster/core'
 import { CollectionPanel } from '../src/CollectionPanel.js'
+import { RequestFailure } from '@dinkster/client'
 
 const folder = (path: string): CollectionEntry => ({ id: `folder:${path}`, title: path.split('/').at(-1)!, folder: { path } })
 const file = (id: string): CollectionEntry => ({ id, title: `${id}.png`, ref: { id } })
@@ -41,7 +42,7 @@ describe('CollectionPanel folder navigation', () => {
       'collection.source.ariaLabel': '[Quelle DE]',
     })
     const page = vi.fn(async (request: CollectionPageRequest) => {
-      if (request.query === 'failure') throw new Error('RAW backend refusal')
+      if (request.query === 'failure') throw new RequestFailure('GET', '/api/assets', 503, 'RAW backend refusal')
       return {
         items: [{
           id: 'RAW-group',
@@ -131,7 +132,7 @@ describe('CollectionPanel folder navigation', () => {
       filters: [{ id: 'kind', label: 'Kind', options: () => [{ value: 'media/image', label: 'Images' }] }],
       page: vi.fn(async (request) => {
         requests.push(request)
-        if (request.query === 'failure') throw new Error('catalog unavailable')
+        if (request.query === 'failure') throw new RequestFailure('GET', '/api/assets', 503, 'catalog unavailable')
         return { items: [] }
       }),
     }

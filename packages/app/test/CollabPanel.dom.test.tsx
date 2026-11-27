@@ -14,6 +14,7 @@ import { AppState, type CollabTabState, type Tab } from '../src/app-state.js'
 import type { CollabTransport } from '../src/collab.js'
 import { CollabPanel } from '../src/CollabPanel.js'
 import { SettingsRegistry } from '../src/settings.js'
+import { RequestFailure } from '@dinkster/client'
 
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 const nextTask = async (): Promise<void> => { await new Promise((resolve) => setTimeout(resolve, 0)); await flush() }
@@ -332,7 +333,7 @@ describe('CollabPanel', () => {
     unavailable.unmount()
     unavailable.root.remove()
 
-    const failed = mount({ list: async () => { throw new Error('backend unavailable') } })
+    const failed = mount({ list: async () => { throw new RequestFailure('GET', '/api/sessions', 503, 'backend unavailable') } })
     await flush()
     expect(failed.root.querySelector('[data-testid="collab-list-error"]')?.textContent).toContain('backend unavailable')
     expect(failed.root.querySelector('[data-testid="collab-list-error"]')?.getAttribute('role')).toBe('alert')
@@ -543,11 +544,11 @@ describe('CollabPanel', () => {
       'The collaboration session closed. The workflow is available locally.',
     )
 
-    mounted.rejectEnd(new Error('network lost after remote close'))
+    mounted.rejectEnd(new RequestFailure('DELETE', '/api/sessions/test', undefined))
     await nextTask()
 
     expect(mounted.root.querySelector('[data-testid="collab-end-error"]')?.textContent).toContain(
-      'network lost after remote close',
+      'The engine did not answer.',
     )
     expect(mounted.root.querySelector('[data-testid="collab-unshared"]')).toBe(document.activeElement)
     expect(mounted.root.querySelector('[role="status"]')?.textContent).toContain(

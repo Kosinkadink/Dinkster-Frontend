@@ -9,6 +9,7 @@ import { ProductSelect } from "./ProductSelect.js";
 import { ProductButton } from "./ProductControls.js";
 import { ProductEmptyState } from "./ProductSurfaces.js";
 import { useAppMessage } from "./locale.js";
+import { failureMessage } from "./request-failure.js";
 
 type OutputMountConnection = Pick<
   DinksterConnection,
@@ -38,7 +39,7 @@ export function OutputMountSettings(props: {
       setSelected(next.outputMount ?? "");
       setError("");
     } catch (cause) {
-      if (request === generation) setError(cause instanceof Error ? cause.message : String(cause));
+      if (request === generation) setError(failureMessage(cause));
     } finally {
       if (request === generation) setLoading(false);
     }
@@ -64,7 +65,7 @@ export function OutputMountSettings(props: {
       if (request !== connectionGeneration) return;
       await load();
     } catch (cause) {
-      if (request === connectionGeneration) setError(cause instanceof Error ? cause.message : String(cause));
+      if (request === connectionGeneration) setError(failureMessage(cause));
     } finally {
       if (request === connectionGeneration) setSaving(false);
     }

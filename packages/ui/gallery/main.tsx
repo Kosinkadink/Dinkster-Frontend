@@ -24,6 +24,7 @@ import {
   MousePointer,
   Search,
   Plus,
+  Play,
   Settings,
   SlidersHorizontal,
   Trash2,
@@ -573,6 +574,7 @@ function Gallery() {
                     onClick={() => {}}
                   />
                   <ProductSpinner label="Pending work" />
+                  <ProductIconButton label="Loading preview" icon={Play} pending />
                   <ProductIcon icon={Settings} />
                 </div>
                 <p class="dinkster-description">
@@ -1058,6 +1060,7 @@ function Gallery() {
                     items={[
                       {
                         label: 'View package',
+                        keys: ['Ctrl', 'Shift', '1'],
                         onSelect: () => complete('Package viewed'),
                       },
                       {

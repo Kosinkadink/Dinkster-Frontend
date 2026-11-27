@@ -144,6 +144,8 @@ export const canvasPaintTokens = {
     textOutputMaxRows: 6,
     /** Rows an open text result shows at least. */
     textOutputMinRows: 2,
+    /** Waveform, two transport rows and padding, without the caption. */
+    audioPreview: { minWidth: 240, minHeight: 126 },
     /**
      * The bar of a node whose preview is open: the text box's bar
      * (`widget.textBoxEdge`), its top `barRise` above the node's bottom edge

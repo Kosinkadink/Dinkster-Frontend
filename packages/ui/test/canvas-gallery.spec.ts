@@ -1189,7 +1189,7 @@ for (const theme of ['dark', 'light'] as const) {
         await ordinary.evaluate(
           (element) => element.getBoundingClientRect().height,
         ),
-      ).toBe(density === 'app' ? 40 : 36)
+      ).toBe(density === 'app' ? 32 : 36)
       expect(
         await seed.evaluate((element) => ({
           height: element.getBoundingClientRect().height,

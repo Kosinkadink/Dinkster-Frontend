@@ -1,5 +1,6 @@
 import { createSignal, type ReadonlySignal } from '@dinkster/core'
 import { ModelDownloadBusyError, type DinksterConnection, type ModelDownloadJob, type ModelDownloadPlan, type ModelDownloadRequirement, type ModelDownloadSelection } from '@dinkster/client'
+import { failureMessage } from './request-failure.js'
 
 export interface ModelDownloadState {
   readonly requirement: ModelDownloadRequirement
@@ -55,6 +56,8 @@ export class ModelDownloadsController {
   private readonly observation = new AbortController()
   private planning: Promise<void> = Promise.resolve()
   private readonly starting = new Map<ModelDownloadState, { invalidated: boolean }>()
+  private readonly missingReviews = new Set<string>()
+  private readonly locations = new Map<string, string>()
   private pumping = false
   private poll: ReturnType<typeof setTimeout> | undefined
   private disposed = false
@@ -86,6 +89,7 @@ export class ModelDownloadsController {
     if (this.disposed) return
     if (missing) for (const requirement of requirements) {
       const row = this.row(requirement)
+      if (row?.job && active(row.job)) this.missingReviews.add(row.job.jobId)
       if (row?.job?.status === 'completed' || row?.plan?.status === 'local') this.invalidate(requirement)
     }
     const keys = new Set(this.state.get().map((row) => keyOf(row.requirement)))
@@ -105,7 +109,13 @@ export class ModelDownloadsController {
 
   private update(previous: ModelDownloadState, next: ModelDownloadState): boolean {
     if (this.disposed || this.row(previous.requirement) !== previous) return false
+    const recheck = next.job && !active(next.job) && this.missingReviews.delete(next.job.jobId) && next.job.status === 'completed'
+    // Completion history cannot settle a missing-file review without checking the current file.
+    if (recheck) next = { requirement: next.requirement, pending: false,
+      ...(next.source === undefined ? {} : { source: next.source }),
+    }
     this.state.update((rows) => rows.map((row) => row === previous ? next : row))
+    if (recheck) void this.review(next.requirement)
     return true
   }
 
@@ -120,6 +130,22 @@ export class ModelDownloadsController {
     this.update(row, { requirement: row.requirement, source, pending: false,
       ...(row.plan?.status === 'picker-required' ? { plan: row.plan } : {}),
     })
+  }
+
+  async setLocation(requirements: readonly ModelDownloadRequirement[], location: string): Promise<void> {
+    if (this.disposed) return
+    const keys = new Set(requirements.map(keyOf))
+    for (const key of keys) this.locations.set(key, location)
+    const changed: ModelDownloadRequirement[] = []
+    this.state.update((rows) => rows.map((row) => {
+      if (!keys.has(keyOf(row.requirement)) || this.starting.has(row) ||
+        (row.job && (active(row.job) || row.job.status === 'completed')) || row.plan?.status === 'local') return row
+      changed.push(row.requirement)
+      return { requirement: row.requirement, pending: false,
+        ...(row.source === undefined ? {} : { source: row.source }),
+      }
+    }))
+    await Promise.all(changed.map((requirement) => this.review(requirement)))
   }
 
   invalidate(requirement: ModelDownloadRequirement): void {
@@ -146,7 +172,7 @@ export class ModelDownloadsController {
       })) await this.review(requirement)
     } catch (error) {
       this.update(pending, { ...row, pending: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: failureMessage(error),
       })
     }
   }
@@ -167,7 +193,7 @@ export class ModelDownloadsController {
       })) await this.review(requirement)
     } catch (error) {
       this.update(pending, { ...row, pending: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: failureMessage(error),
       })
     }
   }
@@ -176,6 +202,7 @@ export class ModelDownloadsController {
   review(requirement: ModelDownloadRequirement): Promise<void> {
     const row = this.row(requirement)
     if (!row || row.pending || row.queued || this.disposed) return Promise.resolve()
+    const location = this.locations.get(keyOf(requirement))
     const pending = { ...row, pending: true }
     if (!this.update(row, pending)) return Promise.resolve()
     const action = async (): Promise<void> => {
@@ -198,7 +225,8 @@ export class ModelDownloadsController {
         }
         if (job) this.update(pending, { ...base, job })
         else {
-          const plan = await this.connection.planModelDownload(requirement, this.observation.signal, row.source || undefined)
+          if (this.row(requirement) !== pending) return
+          const plan = await this.connection.planModelDownload(requirement, this.observation.signal, row.source || undefined, location)
           if (plan.status === 'consent-required' && !this.matches(plan, requirement))
             throw new Error('Model plan does not match the captured project and requirement')
           const completed = plan.status === 'local' ? [...jobs].reverse().find((job) => this.matches(job, requirement) && job.status === 'completed') : undefined
@@ -208,7 +236,7 @@ export class ModelDownloadsController {
         this.update(pending, { requirement: row.requirement, pending: false,
           ...(row.source === undefined ? {} : { source: row.source }),
           ...(row.job && active(row.job) ? { job: row.job } : {}),
-          error: error instanceof Error ? error.message : String(error),
+          error: failureMessage(error),
         })
       }
       this.schedulePoll()
@@ -263,7 +291,7 @@ export class ModelDownloadsController {
           // A failed start may have reached the server. A retry must discover jobs before planning again.
           this.update(pending, { requirement: queued.requirement, pending: false, interrupted: true,
             ...(queued.source === undefined ? {} : { source: queued.source }),
-            error: error instanceof Error ? error.message : String(error),
+            error: failureMessage(error),
           })
         } finally {
           this.starting.delete(pending)
@@ -289,7 +317,7 @@ export class ModelDownloadsController {
       if (!this.matches(job, requirement)) throw new Error('Model job no longer matches the captured project and requirement')
       this.update(pending, { ...row, pending: false, job })
     } catch (error) {
-      this.update(pending, { ...row, pending: false, error: error instanceof Error ? error.message : String(error) })
+      this.update(pending, { ...row, pending: false, error: failureMessage(error) })
     }
     this.schedulePoll()
   }
@@ -306,7 +334,14 @@ export class ModelDownloadsController {
     try {
       const jobs = await this.discover()
       for (const row of observed) {
-        if (!row.job || row.pending || !active(row.job)) continue
+        if (row.pending || row.queued) continue
+        if (!row.job || !active(row.job)) {
+          const external = [...jobs].reverse().find((job) => this.matches(job, row.requirement) && active(job))
+          if (external) this.update(row, { requirement: row.requirement, pending: false, job: external,
+            ...(row.source === undefined ? {} : { source: row.source }),
+          })
+          continue
+        }
         const job = jobs.find((entry) => entry.jobId === row.job!.jobId && this.matches(entry, row.requirement))
         this.update(row, job ? { ...row, job } : { requirement: row.requirement, pending: false, interrupted: true,
           ...(row.source === undefined ? {} : { source: row.source }),

@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createResource, createRoot, createSignal, For, onCleanup, Show, untrack, type JSX } from 'solid-js'
-import { ProductButton, ProductDialog, ProductField, ProductModelDownloads, ProductRadio, ProductTextInput, type ProductModelDownloadRow } from '@dinkster/ui'
+import { formatByteProgress, formatByteSize } from '@dinkster/core'
+import { ProductButton, ProductDialog, ProductErrorBanner, ProductField, ProductModelDownloads, ProductRadio, ProductTextInput, ProductToast, type ProductModelDownloadRow } from '@dinkster/ui'
 import type { AssetConsentRequest, ModelConsentState } from './dialog-requests.js'
-import { formatByteSize } from './collections.js'
 import { useAppMessage, useModelKindLabel } from './locale.js'
 import { ModelProvider } from './ModelProvider.js'
 import { modelDownloadTotals } from './model-downloads.js'
@@ -26,10 +26,33 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
   const [unchecked, setUnchecked] = createSignal<ReadonlySet<string>>(new Set())
   const [sourceOpen, setSourceOpen] = createSignal<ReadonlySet<string>>(new Set())
   const [signInOpen, setSignInOpen] = createSignal<ReadonlySet<string>>(new Set())
+  const [copyError, setCopyError] = createSignal('')
+  const [copied, setCopied] = createSignal<{ message: string }>()
+  let live = true
+  onCleanup(() => { live = false })
   const panels = new Map<string, JSX.Element>()
   const disposePanels: (() => void)[] = []
   onCleanup(() => disposePanels.forEach((dispose) => dispose()))
   const models = () => props.request.models ?? []
+  const selections = () => models().map((row) => row.job ?? (row.plan?.status === 'consent-required' ? row.plan : undefined)).filter((selection) => selection !== undefined)
+  const locations = () => settings()?.locations.filter((location) => location.mode === 'readwrite' && location.enabled && location.active &&
+    models().every((row) => !location.kind || location.kind === row.requirement.kind)) ?? []
+  const locationId = () => {
+    if (props.request.modelDownloadLocation !== undefined) return props.request.modelDownloadLocation
+    const planned = models().flatMap((row) => !row.job && row.plan?.status === 'consent-required' ? [row.plan] : [])
+    const current = planned.length ? planned : selections()
+    return locations().find((location) => current.length > 0 && current.every((selection) => location.mounts.includes(selection.mount)))?.id ??
+      (current.length ? '' : settings()?.settings.downloadLocation ?? '')
+  }
+  const copyIdentity = async (revision: string, checksum: string) => {
+    setCopyError('')
+    try {
+      await navigator.clipboard.writeText(`Revision: ${revision}\nSHA-256: ${checksum}`)
+      if (live) setCopied({ message: message('modelDownloads.copied') })
+    } catch {
+      if (live) setCopyError(message('modelDownloads.copyFailed'))
+    }
+  }
   const kindLabel = useModelKindLabel()
   const indexOf = (key: string) => models().findIndex((row) => keyOf(row) === key)
   const review = (key: string) => { const index = indexOf(key); if (index >= 0) void props.request.reviewModel?.(index) }
@@ -73,11 +96,14 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
     const job = row.job
     const selection = job ?? (plan?.status === 'consent-required' ? plan : undefined)
     const size = selection?.size ?? row.requirement.asset?.size
-    const metadata = [kindLabel(row.requirement.kind), size !== undefined && formatByteSize(size),
-      selection && `${selection.provider === 'huggingface' ? 'Hugging Face' : 'Civitai'}, ${selection.repo}`,
-      job?.status === 'completed' && (job.reused ? message('modelDownloads.reused') : message('modelDownloads.saved', { folder: (job.path ?? job.destination).replace(/[\\/][^\\/]*$/, '') })),
+    const metadata = [!selection && kindLabel(row.requirement.kind), size !== undefined && formatByteSize(size),
+      selection && (selection.provider === 'huggingface' ? 'Hugging Face' : 'Civitai'),
+      job?.status === 'completed' && job.reused && message('modelDownloads.reused'),
     ].filter(Boolean).join(' - ')
-    const base = { id: key, name: row.requirement.name, metadata }
+    const parent = selection?.destination.replace(/[\\/][^\\/]*$/, '')
+    const root = selection && locations().find((location) => location.id === locationId() && location.mounts.includes(selection.mount))?.path.replace(/[\\/]+$/, '')
+    const folder = parent && root && (parent.startsWith(root + '/') || parent.startsWith(root + '\\')) ? parent.slice(root.length + 1) : parent
+    const base = { id: key, name: row.requirement.name, metadata, ...(folder ? { folder } : {}) }
     const action = (label: string, onClick: () => void) => ({ label: message(label), disabled: row.pending, onClick })
     const retry = action('modelDownloads.tryAgain', () => review(key))
     if (row.error || row.interrupted || job?.status === 'failed' || job?.status === 'cancelled') return {
@@ -89,7 +115,7 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
       const checking = job && !['starting', 'checking-existing', 'downloading', 'cancelling'].includes(job.status)
       return { ...base, state: waiting ? 'waiting' : checking ? 'checking' : 'downloading',
         progressLabel: message(waiting ? 'modelDownloads.waiting' : checking ? 'modelDownloads.checking' : 'modelDownloads.downloading',
-          { received: formatByteSize(job?.received ?? 0), total: formatByteSize(job?.size ?? 0) }),
+          formatByteProgress(job?.received ?? 0, job?.size ?? 0)),
         ...(!waiting && !checking && job?.size ? { progress: job.received / job.size } : {}),
         ...(!checking ? { stop: action('modelDownloads.stop', () => { void props.request.cancelModel?.(index) }) } : {}),
       }
@@ -98,12 +124,11 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
       onSelect: (checked) => setUnchecked((current) => { const next = new Set(current); if (checked) next.delete(key); else next.add(key); return next }),
       detailsLabel: message('modelDownloads.details', { name: row.requirement.name }),
       facts: [
-        { label: message('modelDownloads.from'), value: plan.source },
-        { label: message('modelDownloads.version'), value: <span class="dinkster-mono">{plan.revision}</span> },
+        { label: message('modelDownloads.from'), value: message('modelDownloads.repository', { repo: plan.repo, host: plan.provider === 'huggingface' ? 'Hugging Face' : 'Civitai' }) },
         { label: message('modelDownloads.license'), value: plan.license },
-        { label: message('modelDownloads.savesTo'), value: plan.destination },
-        { label: message('modelDownloads.checkedBy'), value: <span class="dinkster-mono">{plan.digest ?? plan.sha256}</span> },
+        { label: message('modelDownloads.file'), value: plan.destination },
       ],
+      factsAction: { label: message('modelDownloads.copyIdentity'), onClick: () => { void copyIdentity(plan.revision, plan.sha256) } },
     }
     if (!plan) return { ...base, state: 'checking', progressLabel: message('modelDownloads.lookingUp') }
     switch (plan.status) {
@@ -141,7 +166,7 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
   const ready = () => models().length > 0 && models().every((row) => !row.pending && (row.plan?.status === 'local' || row.job?.status === 'completed'))
   const active = () => models().some((row) => row.queued || (row.job && !['completed', 'failed', 'cancelled'].includes(row.job.status)))
   const footer = () => active() ? message('modelDownloads.keepGoing') : totals().count ?
-    message(totals().insufficient ? totals().freeBytes === undefined ? 'modelDownloads.insufficientUnknown' : 'modelDownloads.insufficient' : totals().freeBytes === undefined ? 'modelDownloads.total' : 'modelDownloads.totalFree', {
+    message(totals().insufficient ? totals().freeBytes === undefined ? 'modelDownloads.insufficientUnknown' : locations().length > 1 ? 'modelDownloads.insufficientOtherLocation' : 'modelDownloads.insufficient' : 'modelDownloads.total', {
       size: formatByteSize(totals().bytes), free: formatByteSize(totals().freeBytes ?? 0),
     }) : rows().some((row) => row.state === 'needs') ? message('modelDownloads.nothing') : ''
   const remaining = () => rows().filter((row) => row.state !== 'ready').length
@@ -149,7 +174,23 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
     !row.pending && (row.plan !== undefined || row.job !== undefined || row.error !== undefined))
     ? keyOf({ requirement: props.request.focusedModel, pending: false }) : undefined)
   return <ProductDialog title={message('modelDownloads.title')} onDismiss={props.onClose} size="wide">
-    <ProductModelDownloads listLabel={message('modelDownloads.list')} summary={message(ready() ? 'modelDownloads.summaryReady' :
+    <ProductModelDownloads listLabel={message('modelDownloads.list')}
+      destination={{ label: message('modelDownloads.saveTo'), selectedId: locationId(), emptyLabel: message('modelDownloads.chooseFolder'),
+        freeSpace: models().some((row) => row.pending) ? message('modelDownloads.lookingUp') : (() => {
+          const mounts = locations().find((location) => location.id === locationId())?.mounts ?? []
+          const plans = models().filter((row) => row.plan?.status === 'consent-required' && mounts.includes(row.plan.mount))
+          const observed = locations().find((location) => location.id === locationId())?.space
+          const space = modelDownloadTotals(plans).freeBytes ?? (observed?.status === 'available' ? observed.freeBytes : undefined)
+          return space === undefined ? message('modelDownloads.spaceUnknown') : message('modelDownloads.free', { size: formatByteSize(space) })
+        })(),
+        locations: locations().map((location) => ({ id: location.id, name: location.id, path: location.path,
+          freeSpace: location.space?.status === 'available' ? message('modelDownloads.free', { size: formatByteSize(location.space.freeBytes) }) : message('modelDownloads.spaceUnknown'),
+        })),
+        onSelect: (location) => { void props.request.selectModelLocation?.(location) },
+      }}
+      notice={<><Show when={copyError()}><ProductErrorBanner onDismiss={() => setCopyError('')}>{copyError()}</ProductErrorBanner></Show>
+        <ProductToast notification={copied()} onDismiss={() => setCopied(undefined)} /></>}
+      summary={message(ready() ? 'modelDownloads.summaryReady' :
       rows().some((row) => row.state === 'needs' || row.state === 'failed') ?
         remaining() === 1 ? 'modelDownloads.summaryNeedsOne' : 'modelDownloads.summaryNeeds' :
         remaining() === 1 ? 'modelDownloads.summaryOne' : 'modelDownloads.summary',
