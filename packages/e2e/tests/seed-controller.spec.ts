@@ -281,13 +281,14 @@ documentTest('promoted fan-out advancement follows primary binding order', {
       },
     }
     const boundary = {
-      inputs: [{
-        id: 'seed', displayName: 'Primary seed',
+      body: [{
+        kind: 'input', id: 'seed', displayName: 'Primary seed',
         binds: { kind: 'port', node: 'primary', port: 'seed' },
         alsoBinds: [{ kind: 'port', node: 'secondary', port: 'seed' }],
         promoted: true,
+      }, {
+        kind: 'output', id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' },
       }],
-      outputs: [{ id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' } }],
     }
     await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'controller-fanout-order-e2e', root: 'root',
