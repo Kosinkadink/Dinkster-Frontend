@@ -2051,7 +2051,8 @@ export function buildScene(input: BuildSceneInput): Scene {
         const constructHead = tree?.rows.find((row) =>
           (row.kind === 'section' && row.sectionId === `group:${item.id}`) || (row.kind === 'widget' && row.inputId === item.id))
         const inheritedLabel = constructHead !== undefined && 'label' in constructHead ? constructHead.label : undefined
-        const label = boundaryLabel(item, spec?.displayName ?? inheritedLabel, defaults, roles)
+        const label = boundaryLabel(item,
+          (tree === undefined ? fields?.[0]?.label : undefined) ?? spec?.displayName ?? inheritedLabel, defaults, roles)
         const editorSpaces = fields === undefined ? undefined : outsideSpaces.get(item.id)
         const pinless = side === 'inputs' && item.wireHidden === true
         if (pinless) markLabels.set(item.id, label)

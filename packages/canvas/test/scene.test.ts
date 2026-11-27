@@ -2252,6 +2252,50 @@ describe('scenesEqual', () => {
 })
 
 describe('an editor on the Inputs panel', () => {
+  it.each(['formula', 'lookup'] as const)('keeps evaluated %s labels and explicit names on entered fields', (calculation) => {
+    const { schema, diagnostics } = parseDinksterSchema('Calculated', { body: [
+      { kind: 'input', id: 'seed', type: { kind: 'concrete', types: ['INT'] }, default: 5, widget: { type: 'INT' } },
+      { kind: 'input', id: 'steps', type: { kind: 'concrete', types: ['INT'] }, default: 9, widget: { type: 'INT' },
+        label: { formula: '"Steps " + fixed(seed, 0)' }, visible: { formula: 'seed > 10' },
+        automatic: calculation === 'formula' ? { formula: 'seed * 2' } : { lookup: 'steps_for', args: ['seed'] } },
+    ] })
+    if (!schema) throw new Error(JSON.stringify(diagnostics))
+    const node = (id: string, type: string, values: Record<string, number>) => ({ id, type, values })
+    const bind = (id: string, node: string, port: string) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node, port } })
+    const graph = (id: string, nodes: unknown, body?: unknown) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100,
+      ...(body ? { boundary: { body } } : {}) })
+    for (const depth of [1, 2]) {
+      for (const renamed of [false, true]) {
+        const document = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'calculated-inputs', root: 'root', graphs: {
+          root: graph('root', { first: node('first', depth === 1 ? '#detail' : '#portrait', { [depth === 1 ? 'start' : 'control']: 21 }),
+            second: node('second', depth === 1 ? '#detail' : '#portrait', { [depth === 1 ? 'start' : 'control']: 13 }) }),
+          detail: graph('detail', { sample: node('sample', 'Calculated', { seed: 3 }) }, [bind('start', 'sample', 'seed'),
+            { ...bind('total', 'sample', 'steps'), ...(renamed ? { displayName: 'Custom total' } : {}) }]),
+          ...(depth === 2 ? { portrait: graph('portrait', { detail: node('detail', '#detail', { start: 7 }) },
+            [bind('control', 'detail', 'start'), bind('result', 'detail', 'total')]) } : {}),
+        }, view: { graphs: {} } }).document!
+        const resolve = documentResolver(document, (type) => type === 'Calculated' ? schema : undefined)
+        for (const [id, seed, total] of [['first', 21, 42], ['second', 13, 26]] as const) {
+          const path = [asNodeId(id), ...(depth === 1 ? [] : [asNodeId('detail')])]
+          const scene = buildScene({ document, graphId: 'detail', resolve, tokens: defaultTokens, measure, widgetMeasure,
+            occurrence: { owner: { instancePath: path.slice(0, -1), node: path.at(-1)! }, plannerAvailable: true },
+            occurrenceView: occurrenceDynamicView(document, resolve, path),
+            lookupAnswers: (_lookup, args) => ({ state: 'ready', answer: Number(args[0]) * 2 }),
+          })
+          const panel = scene.boundaryNodes.find((item) => item.side === 'inputs')!
+          const field = elabInputsOf(boundaryFieldNode(panel)!.elaborated!).find((field) => field.spec.id === 'total')!
+          const row = panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'total')
+          expect(row).toMatchObject({ label: renamed ? 'Custom total' : `Steps ${seed}`, automatic: { state: 'worked-out', value: total },
+            familyOwner: { graphId: 'root', nodeId: id, valueKey: depth === 1 ? 'total' : 'result' } })
+          expect(field.spec.displayName).toBe(renamed ? 'Custom total' : `Steps ${seed}`)
+          if (calculation === 'lookup') expect(field.automatic).toMatchObject({
+            call: { nodeType: 'Calculated', lookup: 'steps_for', args: [seed] },
+          })
+        }
+      }
+    }
+  })
+
   it('requests a hidden lookup that sizes an exposed construct even when it has no widgets yet', () => {
     const { schema, diagnostics } = parseDinksterSchema('Counted', { body: [
       ...['count', 'unrelated'].map((id) => ({ kind: 'input', id, type: { kind: 'concrete', types: ['INT'] },

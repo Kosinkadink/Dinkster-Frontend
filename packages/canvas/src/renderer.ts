@@ -2246,7 +2246,7 @@ export class CanvasRenderer {
       if (row?.kind !== 'widget' || row.selector !== undefined) return undefined
       const wired = panel.fields!.wired
       return Object.hasOwn(wired, row.valueKey) ? wired[row.valueKey]!.value
-        : panel.fields!.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
+        : panel.fields!.node.values[row.valueKey] ?? row.automatic?.value ?? effectiveWidgetDefault(row.spec)
     }
     // Inner inputs each sent value reaches, directly or through reroutes.
     const viaReroute = new Set<string>()

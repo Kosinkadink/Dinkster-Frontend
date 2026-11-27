@@ -3508,6 +3508,25 @@ function boundaryScene(): Scene {
 }
 
 describe('boundary pseudo-node paint on the live renderer', () => {
+  it('paints the calculated Inputs value on the inner field instead of its unused default', () => {
+    const schema: NodeSchema = { type: 'Calculated', displayName: 'Calculated', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'total', type: { kind: 'concrete', name: 'INT' }, optional: false,
+        automatic: { formula: '21 * 2' }, widget: { widgetType: 'INT', options: {}, default: 9 } }] }
+    const document = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'calculated-panel-paint', root: 'root', graphs: {
+      root: { id: 'root', name: 'Root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100 },
+      detail: { id: 'detail', name: 'Detail', nodes: { sample: { id: 'sample', type: 'Calculated', values: {} } },
+        links: {}, nets: {}, reroutes: {}, nextOrdinal: 100,
+        boundary: { body: [{ kind: 'input', id: 'result', promoted: true, binds: { kind: 'port', node: 'sample', port: 'total' } }] } },
+    }, view: { graphs: { detail: { nodes: { sample: { position: { x: 500, y: 100 } } },
+      boundary: { inputs: { position: { x: 50, y: 100 } } } } } } }).document!
+    const scene = buildScene({ document, graphId: 'detail', resolve: documentResolver(document, (type) => type === schema.type ? schema : undefined),
+      tokens: defaultTokens, measure, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }) })
+    const calls = paint(scene)
+    const innerText = calls.filter((call) => call.method === 'fillText' && Number(call.args[1]) >= 500).map((call) => call.args[0])
+    expect(innerText).toContain('42')
+    expect(innerText).not.toContain('9')
+  })
+
   it('both panels draw dashed borders, their titles, and hollow expose-affordance pins', () => {
     const scene = boundaryScene()
     expect(scene.boundaryNodes.map((b) => b.side).sort()).toEqual(['inputs', 'outputs'])
