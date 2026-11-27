@@ -45,6 +45,15 @@ test('keyboard list marks its node and pin, reveals only offscreen targets, and 
   await page.screenshot({ path: info.outputPath('node-ring.png') })
   await expect.poll(async () => (await pixels()) !== before).toBe(true)
   const nodeRing = await pixels()
+  expect(await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((node) => node.id === 'n0')!
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid=graph-canvas]')!
+    const context = canvas.getContext('2d')!
+    const x = node.x - 2
+    const y = node.y + 30
+    return [-1, 0, 1].map((offset) => Array.from(context.getImageData(x + offset, y, 1, 1).data).slice(0, 3))
+  })).toEqual([[14, 20, 20], [164, 181, 183], [14, 20, 20]])
   expect(await viewport()).toEqual({ x: 0, y: 0, scale: 1 })
   for (let step = 0; step < 5 && await active.getAttribute('data-kind') !== 'port'; step++) await page.keyboard.press('ArrowDown')
   await expect(active).toHaveAttribute('data-kind', 'port')

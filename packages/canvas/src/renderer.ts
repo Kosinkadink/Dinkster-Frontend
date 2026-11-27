@@ -3145,19 +3145,33 @@ export class CanvasRenderer {
     const x = node.x + offset.dx
     const y = node.y + offset.dy
     const outset = paint.outset / scale
+    const densityX = this.canvas.width / this.canvas.clientWidth
+    const densityY = this.canvas.height / this.canvas.clientHeight
+    const originX = Math.round(this.viewport.x * densityX)
+    const originY = Math.round(this.viewport.y * densityY)
+    // Align the stroke's edges, not its center, to backing pixels.
+    const snapX = (value: number): number =>
+      (Math.round(value * scale * densityX + originX - paint.stroke * densityX / 2) + paint.stroke * densityX / 2 - originX) / (scale * densityX)
+    const snapY = (value: number): number =>
+      (Math.round(value * scale * densityY + originY - paint.stroke * densityY / 2) + paint.stroke * densityY / 2 - originY) / (scale * densityY)
     ctx.save()
     ctx.strokeStyle = this.tokens.colors.keyboardFocus
     ctx.lineWidth = paint.stroke / scale
     ctx.beginPath()
     if (target.pin === undefined) {
-      ctx.roundRect(x - outset, y - outset, node.layout.width + outset * 2,
-        node.layout.height + outset * 2, this.tokens.cornerRadius + outset)
+      const left = snapX(x - outset)
+      const top = snapY(y - outset)
+      ctx.roundRect(left, top, snapX(x + node.layout.width + outset) - left,
+        snapY(y + node.layout.height + outset) - top, this.tokens.cornerRadius + outset)
     } else {
       const pin = node.layout.pins.find((pin) => pin.portId === target.pin!.portId &&
         pin.direction === target.pin!.direction && (pin.widgetTap === true) === (target.pin!.widgetTap === true))
       if (pin === undefined) { ctx.restore(); return }
       const point = edgePinPoint(this.tokens, pin.direction, pin.direction === 'in' ? x : x + node.layout.width, y + pin.y)
-      ctx.arc(point.x, point.y, detailRadius(this.tokens.pinRadius, scale, this.getDetailLevel()) + outset, 0, Math.PI * 2)
+      const radius = detailRadius(this.tokens.pinRadius, scale, this.getDetailLevel()) + outset
+      ctx.ellipse(snapX(point.x), snapY(point.y),
+        Math.round(radius * scale * densityX) / (scale * densityX),
+        Math.round(radius * scale * densityY) / (scale * densityY), 0, 0, Math.PI * 2)
     }
     ctx.stroke()
     ctx.restore()
