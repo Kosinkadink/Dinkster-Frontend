@@ -423,12 +423,13 @@ describe('compiled occurrence controller ownership', () => {
   })
 
   it('advances the outer owner through a nested promoted chain', () => {
-    for (const [outer, middle, leaf, used, next] of [
-      [20, 10, 5, 20, 19],
-      [undefined, 10, 5, 10, 9],
-      [undefined, undefined, 5, 5, 6],
-      [undefined, undefined, undefined, 1, 2],
-    ]) {
+    for (const [outer, middle, leaf, middleMode, used, next] of [
+      [20, 10, 5, 'decrement', 20, 19],
+      [undefined, 10, 5, 'decrement', 10, 9],
+      [undefined, undefined, 5, 'decrement', 5, 4],
+      [undefined, undefined, 5, undefined, 5, 6],
+      [undefined, undefined, undefined, undefined, 1, 2],
+    ] as const) {
       const doc = document({
         g0: graph('g0', {
           outer: { id: 'outer', type: '#wrapper', values: outer === undefined ? {} : { seed: outer } },
@@ -436,7 +437,7 @@ describe('compiled occurrence controller ownership', () => {
         }),
         wrapper: graph('wrapper', {
           inner: { id: 'inner', type: '#sub', values: middle === undefined ? {} : { seed: middle },
-            ...(middle === undefined ? {} : { controllers: { seed: 'decrement' } }) },
+            ...(middleMode === undefined ? {} : { controllers: { seed: middleMode } }) },
         }, {}, promotedBoundary('inner')),
         sub: graph('sub', {
           leaf: { id: 'leaf', type: promotedSchema.type, values: leaf === undefined ? {} : { seed: leaf }, controllers: { seed: 'increment' } },
