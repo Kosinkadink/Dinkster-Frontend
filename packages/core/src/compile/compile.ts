@@ -3008,7 +3008,7 @@ function compileImpl(
       type = inner === undefined ? undefined : role?.kind === 'flatten' || role?.kind === 'last' || role?.kind === 'state' ? inner : { kind: 'list', element: inner }
     } else {
       const items = [
-        ...fn.elab.inputs.map((input, i) => ({ kind: 'input' as const, id: `input_${i}`, type: input.spec.type, optional: input.spec.optional, acceptsList: input.spec.acceptsList })),
+        ...fn.elab.inputs.map((input, i) => ({ kind: 'input' as const, id: `input_${i}`, type: input.spec.type, optional: input.spec.optional, ...(input.spec.acceptsList ? { acceptsList: true as const } : {}) })),
         ...fn.elab.outputs.map((item, i) => ({ kind: 'output' as const, id: `output_${i}`, type: item.spec.type })),
       ]
       const schema = { ...resolveNode(fn.graphId, fn.node)!, body: items }
