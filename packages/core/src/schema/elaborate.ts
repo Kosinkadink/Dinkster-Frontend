@@ -723,6 +723,8 @@ export interface ElaborateOptions {
   readonly includeDormant?: boolean
   /** A bounded dormant census of one input, retaining its enclosing scopes. */
   readonly inputPort?: string
+  /** Settled execution semantics for dependencies outside a targeted census. */
+  readonly inputContext?: ElaboratedInterface
   /** Node identity for diagnostic anchors. */
   readonly nodeId?: NodeId
   /**
@@ -1061,6 +1063,7 @@ function elaboratePass(
   const unsettledKey = (path: string): string | null | undefined => {
     const selected = stateOf(path)?.selected
     if (selected !== undefined) return selected
+    if (options.inputContext?.choices?.[path] !== undefined) return options.inputContext.choices[path]
     early.add(path)
     return settled.get(path)
   }
@@ -1168,6 +1171,9 @@ function elaboratePass(
    * Undefined for any other field.
    */
   const automaticInUse = (path: string): Json | Unknown | undefined => {
+    const inherited = options.inputContext?.items.find((item) => item.kind === 'input' && item.address.port === path)
+    if (inherited?.kind === 'input' && inherited.automatic !== undefined)
+      return waiting(inherited.automatic) ? UNKNOWN : inherited.automatic.value
     if (!resolving) {
       useLookups(previousLookups.get(path) ?? [])
       return previousInUse.get(path)

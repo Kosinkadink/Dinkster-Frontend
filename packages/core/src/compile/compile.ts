@@ -1007,7 +1007,7 @@ function compileImpl(
     const dormantInputs = new Map<string, boolean>()
     const isDormantInput = (port: string): boolean => {
       if (!dormantInputs.has(port)) {
-        const census = elaborateInterface(schema, state, connectivity, { promoteGhosts: false, includeDormant: true, inputPort: port })
+        const census = elaborateInterface(schema, state, connectivity, { promoteGhosts: false, includeDormant: true, inputPort: port, inputContext: e })
         const input = elabInputsOf(census).find((item) => item.address.port === port)
         dormantInputs.set(port, !census.diagnostics.some((d) => d.severity === 'error') && input?.inactiveOption === true &&
           input.spec.sent !== false && input.spec.unavailable === undefined && !hasSyntheticAncestor(input.ancestry))

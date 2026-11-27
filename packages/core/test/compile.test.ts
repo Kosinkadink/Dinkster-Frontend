@@ -1510,6 +1510,18 @@ describe('dynamic interfaces', () => {
 
   it('ignores retained inactive option inputs without ignoring undeclared or unstored members', () => {
     const integer = (id: string) => dynInput(id, { type: INT, optional: true, widget: { widgetType: 'INT', options: {}, default: 7 } })
+    for (const dependencyFirst of [true, false]) {
+      const dependency = choice('pick', [{ key: 'b', rows: [] }, { key: 'a', rows: [] }], { leader: '"b"' })
+      const mode = choice('mode', [
+        { key: 'on', rows: [integer('value')] }, { key: 'off', rows: [] },
+      ], { leader: '"off" if pick == "b" else "on"' })
+      const schema = dynSchemaOf('LedChoice', dependencyFirst ? [dependency, mode] : [mode, dependency])
+      const document = dynDoc({ nodes: { source: { type: 'IntSink', values: { steps: 31 } }, target: { type: schema.type } },
+        links: [[{ node: 'source', tap: 'steps' }, ['target', 'mode.value']]] })
+      const result = compile({ ...compileInput(document), resolve: (type) => type === schema.type ? schema : dynResolve(type) })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (result.ok) expect(result.artifact.prompt.target!.inputs).not.toHaveProperty('mode.value')
+    }
     for (const nested of [true, false]) {
       const rows = Array.from({ length: 600 }, (_, index) => integer(`field${index}`))
       const target = nested ? 'mode.group.item0.value' : 'mode.field599'
