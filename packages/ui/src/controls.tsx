@@ -528,7 +528,8 @@ export function ProductRadio(
   const [local, input] = splitProps(props, ['label', 'children'])
   return (
     <label class="dinkster-choice">
-      <input {...input} type="radio" class="dinkster-check" />
+      <input {...input} type="radio" class="dinkster-check dinkster-visually-hidden" />
+      <span class="product-radio-mark" aria-hidden="true" />
       <span>{local.label}</span>
     </label>
   )
