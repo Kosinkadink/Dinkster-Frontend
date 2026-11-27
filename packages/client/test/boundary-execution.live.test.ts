@@ -621,6 +621,192 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
     }, 120_000)
   }
 
+  for (const depth of [1, 2]) for (const allText of [false, true]) {
+    it(`boundary/standalone-option-lifecycle/native-depth-${depth}/all-text-${allText}`, async () => {
+      const connection = new DinksterConnection({ id: asConnectionId('option-lifecycle-live'),
+        baseUrl: LIVE_URL!, clientId: `option-lifecycle-${process.pid}` })
+      const registry = await connection.fetchSchemas()
+      const document = JSON.parse(readFileSync(new URL('./fixtures/boundary-sample.json', import.meta.url), 'utf8')) as WorkflowDocument
+      if (depth === 1) {
+        delete (document.graphs as Record<string, unknown>).portrait
+        for (const id of ['first', 'second']) Object.assign(document.graphs.root!.nodes[id]!, { type: '#detail' })
+      }
+      for (const graph of Object.values(document.graphs)) {
+        for (const node of Object.values(graph.nodes)) if (types[node.type]) Object.assign(node, { type: types[node.type] })
+        if (graph.boundary !== undefined) Object.assign(graph, { boundary: { body: graph.boundary.body
+          .filter((row) => !('id' in row && row.id === 'mode')) } })
+      }
+      Object.assign(document.graphs.detail!.nodes, { extra: {
+        ...structuredClone(document.graphs.detail!.nodes.sample!), id: 'extra',
+        values: { ...document.graphs.detail!.nodes.sample!.values, strength: 0.53,
+          'mode.text': 'private lifecycle extra caption', 'mode.mix': 0.73 },
+      } })
+      const caption = depth === 1 ? 'caption' : 'heading'
+      const picture = depth === 1 ? 'photo' : 'picture'
+      Object.assign(document.graphs.root!.nodes.first!, {
+        values: { strength: 0.2, count: 3, [caption]: 'dormant lifecycle caption' }, dynamic: {},
+      })
+      Object.assign(document.graphs.root!.nodes.second!, {
+        values: { strength: 0.8, count: 2, [caption]: 'sibling lifecycle caption' }, dynamic: {},
+      })
+      Object.assign(document.graphs.root!.nodes, {
+        runtime: { id: 'runtime', type: 'boundary-sample.formula', values: { seed: 31, bias: 17 } },
+      })
+      const storeFor = (doc: WorkflowDocument) => new DocumentStore(doc, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, registry.resolve) }))
+      const setup = storeFor(document)
+      const edit = (store: DocumentStore, command: string, params: Record<string, Json>) => {
+        const result = store.dispatch({ command, params })
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+      }
+      edit(setup, 'dynamic.selectOption', { graphId: 'detail', nodeId: 'sample', construct: 'mode', option: 'text' })
+      edit(setup, 'dynamic.selectOption', { graphId: 'detail', nodeId: 'extra', construct: 'mode', option: allText ? 'text' : 'image' })
+      for (const [itemId, port] of [['caption', 'mode.text'], ['photo', 'mode.picture']] as const) {
+        edit(setup, 'boundary.addItem', { graphId: 'detail', side: 'inputs', itemId, node: 'sample', port })
+        edit(setup, 'boundary.addBinding', { graphId: 'detail', itemId, node: 'extra', port })
+      }
+      if (depth === 2) for (const [itemId, port] of [['heading', 'caption'], ['picture', 'photo']] as const) {
+        edit(setup, 'boundary.addItem', { graphId: 'portrait', side: 'inputs', itemId, node: 'detail', port })
+      }
+      for (const [node, port, input] of [['runtime', 'receipt', caption], ['imageA', 'image', picture]] as const) {
+        edit(setup, 'link.connect', { graphId: 'root', from: { node, port }, to: { node: 'first', port: input } })
+      }
+      edit(setup, 'link.connect', { graphId: 'root', from: { node: 'first', port: 'output91' }, to: { node: 'sink', port: 'number' } })
+      const configured = setup.doc
+      const first = depth === 1 ? 'first.sample' : 'first.detail.sample'
+      const extra = depth === 1 ? 'first.extra' : 'first.detail.extra'
+      const second = depth === 1 ? 'second.sample' : 'second.detail.sample'
+      const secondExtra = depth === 1 ? 'second.extra' : 'second.detail.extra'
+      const received = (sibling: boolean, extra: boolean, text: string) => ({
+        description: {}, image: null, mask: null, source: null, strength: extra ? 0.53 : sibling ? 0.8 : 0.2,
+        layers: [{ key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null }],
+        mode: { key: extra && !allText ? 'image' : 'text', mix: extra ? 0.73 : 0.3,
+          picture: extra && !allText && !sibling ? [0.125, 0.25, 0.5] : null,
+          text: extra && !allText ? null : sibling ? 'sibling lifecycle caption' : text },
+        nested: [{ key: 'n0', weights: [{ key: 'w0', value: 0.3 }] },
+          { key: 'n1', weights: [{ key: 'w0', value: 0.3 }, { key: 'w1', value: 0.3 }] }],
+      })
+      const run = async (phase: string, doc: WorkflowDocument, primary: string, secondary: string,
+        muted = false, text = '{"seed": 31, "bias": 17, "total": 79}') => {
+        const loaded = loadDocument(JSON.parse(JSON.stringify(doc))).document!
+        expect(loaded).toEqual(doc)
+        expect(loaded.graphs.detail).toEqual(configured.graphs.detail)
+        expect(loaded.graphs.portrait).toEqual(configured.graphs.portrait)
+        expect(loaded.graphs.root!.nodes.second).toEqual(configured.graphs.root!.nodes.second)
+        const compiled = compile({ document: loaded, revision: 1, resolve: registry.resolve, scope: { kind: 'full' },
+          connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Option lifecycle did not compile')
+        const prompt = compiled.artifact.prompt
+        if (muted) {
+          expect(prompt[primary]).toBeUndefined()
+          expect(prompt[secondary]).toBeUndefined()
+          expect(prompt.sink!.inputs.number).toEqual({ $absent: { reason: expect.stringContaining('muted') } })
+        } else expect(prompt.sink!.inputs.number).toEqual([primary, 6])
+        const expected = { [second]: received(true, false, text), [secondExtra]: received(true, true, text),
+          ...(muted ? {} : { [primary]: received(false, false, text), [secondary]: received(false, true, text) }) }
+        for (const id of Object.keys(expected)) expect(prompt[id]!.inputs).toMatchObject({
+          radius: 0.1, feather: 0.4, balance: 0.7, count: id === second ? 2 : 3,
+        })
+        const submitted = await connection.submit(compiled.artifact)
+        expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
+        if (!submitted.ok) throw new Error('Option lifecycle was refused')
+        console.info('Boundary option lifecycle submission', JSON.stringify({ depth, allText, phase, jobId: submitted.execution.prompt }))
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline) {
+          const job = await connection.fetchJob(submitted.execution.prompt)
+          if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
+          if (job?.state === 'completed') {
+            const outputs = job.outputs as unknown as Record<string, Record<string, { value: unknown }>>
+            if (muted) {
+              expect(outputs[primary]).toBeUndefined()
+              expect(outputs[secondary]).toBeUndefined()
+            }
+            const actual: Record<string, unknown> = {}
+            for (const [nodeId, receipt] of Object.entries(expected)) {
+              const query = { jobId: submitted.execution.prompt, nodeId, outputId: 'receipt' }
+              const peek = await connection.values().peek(query)
+              expect(peek.available, JSON.stringify(peek)).toBe(true)
+              if (!peek.available) throw new Error('Option lifecycle receipt unavailable')
+              const rendition = await connection.values().rendition(query, 'text', { descriptor: peek.descriptor })
+              expect(rendition.available, JSON.stringify(rendition)).toBe(true)
+              if (!rendition.available) throw new Error('Option lifecycle text unavailable')
+              actual[nodeId] = JSON.parse(new TextDecoder().decode(rendition.bytes))
+              expect(actual[nodeId], nodeId).toEqual(receipt)
+              expect(outputs[nodeId]?.output91?.value).toBe(91)
+              expect(outputs[nodeId]?.['outputs.o0']?.value).toBe(10)
+              expect(outputs[nodeId]?.['outputs.o1']?.value).toBe(20)
+              if (nodeId === second) expect(outputs[nodeId]?.['outputs.o2']).toBeUndefined()
+              else expect(outputs[nodeId]?.['outputs.o2']?.value).toBe(30)
+            }
+            expect(outputs.sink?.received?.value).toBe(muted ? 'null' : '91.0')
+            console.info('Boundary option lifecycle receipt', JSON.stringify({ depth, allText, phase,
+              jobId: submitted.execution.prompt, expected, actual, sink: outputs.sink?.received?.value }))
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        throw new Error('Option lifecycle did not complete')
+      }
+      await run('baseline', configured, first, extra)
+      const detached = storeFor(configured)
+      edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
+      const wire = Object.values(detached.doc.graphs.root!.links).find((entry) =>
+        'port' in entry.to && entry.to.node === 'first' && entry.to.port === caption)!
+      edit(detached, 'link.disconnect', { graphId: 'root', linkId: wire.id })
+      edit(detached, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: caption, value: 'detached native caption' })
+      const privateEdit = detached.doc
+      for (let step = 0; step < 3; step++) expect(detached.undo()).toBe(true)
+      expect(detached.doc).toEqual(configured)
+      for (let step = 0; step < 3; step++) expect(detached.redo()).toBe(true)
+      expect(detached.doc).toEqual(privateEdit)
+      await run('detached-edit', privateEdit, first, extra, false, 'detached native caption')
+      for (const mode of ['active', 'muted', 'bypassed'] as const) {
+        const session = storeFor(configured)
+        if (mode !== 'active') edit(session, 'node.setMode', { graphId: 'root', nodeIds: ['first'], mode })
+        const before = session.doc, root = before.graphs.root!, node = root.nodes.first!, body = before.graphs[node.type.slice(1)]!
+        const resolve = documentResolver(before, registry.resolve)
+        const plan = planFlattenBoundaryRoutes(body, resolve, node, root)
+        const topology = planFlattenOccurrenceTopology(before, resolve, { instancePath: [], node: node.id })
+        const topologyParams = topology.plan === undefined ? {} : { occurrenceTopologyPlan: topology.plan,
+          occurrenceTopologyPlanDigest: lifecycleCanonicalHash(topology.plan) }
+        const fingerprint = lifecycleFlattenFingerprint(before, 'root', 'first', { boundaryPlan: plan.boundaryPlan,
+          statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest, ...topologyParams })
+        const result = session.dispatch({ command: 'subgraph.flatten', params: {
+          graphId: 'root', instancePath: [], nodeId: 'first', placementCenter: { x: 100, y: 100 },
+          resolvedGeometry: { occurrence: { id: 'first', kind: 'node', x: 0, y: 0, width: 200, height: 200 },
+            body: Object.keys(body.nodes).map((id) => ({ id, kind: 'node', x: 0, y: 0, width: 200, height: 200 })) },
+          boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaSnapshot: plan.schemaSnapshot,
+          schemaPlanDigest: plan.schemaPlanDigest, selectionFingerprint: fingerprint, ...topologyParams,
+        } } as unknown as CommandInvocation)
+        if (mode === 'bypassed') {
+          expect(result.ok).toBe(false)
+          expect(result.diagnostics.map((entry) => entry.code)).toContain('subgraph.flatten.modeUnsupported')
+          expect(session.doc).toBe(before)
+          expect(session.undo()).toBe(true)
+          expect(session.doc).toEqual(configured)
+          continue
+        }
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+        const flattened = session.doc
+        const replacements = Object.values(flattened.graphs.root!.nodes).filter((entry) => root.nodes[entry.id] === undefined)
+        expect(replacements).toHaveLength(depth === 1 ? 2 : 1)
+        const primary = depth === 1 ? replacements.find((entry) => entry.values.strength === 0.2)! : replacements[0]!
+        const primaryId = depth === 1 ? primary.id : `${primary.id}.sample`
+        const secondaryId = depth === 1 ? replacements.find((entry) => entry.id !== primary.id)!.id : `${primary.id}.extra`
+        expect(session.undo()).toBe(true)
+        expect(session.doc.graphs).toEqual({ ...before.graphs, root: { ...root, nextOrdinal: flattened.graphs.root!.nextOrdinal } })
+        expect(session.redo()).toBe(true)
+        expect(session.doc).toEqual(flattened)
+        await run(`${mode}-flatten`, flattened, primaryId, secondaryId, mode === 'muted')
+        if (mode === 'muted') {
+          edit(session, 'node.setMode', { graphId: 'root', nodeIds: replacements.map((entry) => entry.id), mode: 'active' })
+          await run('muted-reactivated', session.doc, primaryId, secondaryId)
+        }
+      }
+    }, 120_000)
+  }
+
   for (const depth of [1, 2]) {
     it(`boundary/construct-lifecycle/native-depth-${depth}`, async () => {
       const connection = new DinksterConnection({ id: asConnectionId('construct-lifecycle-live'),
