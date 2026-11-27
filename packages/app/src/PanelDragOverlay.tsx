@@ -1,4 +1,5 @@
 import { For, Show, type Component, type JSX } from 'solid-js'
+import PanelLeft from 'lucide-solid/icons/panel-left'
 import { DOCK_ZONE_IDS, type DockZoneId } from './dock-layout.js'
 import {
   panelDragTargetGeometry,
@@ -86,7 +87,7 @@ export function PanelDragOverlay(props: {
       <Show when={props.drag.started && !props.drag.rolledBack}>
         <TabDragGhost
           title={props.ghostTitle}
-          icon={props.ghostIcon}
+          icon={props.ghostIcon ?? PanelLeft}
           x={props.drag.point.x}
           y={props.drag.point.y}
           refused={props.drag.preview?.allowed === false}

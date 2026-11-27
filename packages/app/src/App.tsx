@@ -123,7 +123,7 @@ import {
   type PanelDragSectionGeometry,
   type PanelDragVisibleZoneGeometry,
 } from './panel-drag.js'
-import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
+import { WorkflowTabs, workflowTabDomId, workflowTabIcon } from './WorkflowTabs.js'
 import { isPageTab, PageTabPanel } from './page-tabs.js'
 import type { AppTab } from './app-page-tabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
@@ -871,6 +871,7 @@ export function App(props: {
   const [tabDrag, setTabDrag] = createSolidSignal<{
     readonly tabId: string
     readonly title: string
+    readonly icon: LucideIcon
     readonly sourceGroupId: string
     readonly x: number
     readonly y: number
@@ -1116,6 +1117,7 @@ export function App(props: {
       restoreTabFocusAfter(() => setTabDrag({
         tabId: tab.id,
         title: tab.title,
+        icon: workflowTabIcon(tab, !isPageTab(tab) && tab.execution !== undefined),
         sourceGroupId: groupId,
         x: event.clientX,
         y: event.clientY,
@@ -3430,7 +3432,7 @@ export function App(props: {
         )
       }}</Show>
       <Show when={tabDrag()}>{(drag) => (
-        <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused}
+        <TabDragGhost title={drag().title} icon={drag().icon} x={drag().x} y={drag().y} refused={drag().refused}
           active={findGroup(displayLayout(), drag().sourceGroupId)?.activeTabId === drag().tabId} />
       )}</Show>
 

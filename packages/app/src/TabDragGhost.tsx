@@ -13,7 +13,7 @@ export const TAB_DRAG_GHOST_OFFSET_Y = 18
  */
 export function TabDragGhost(props: {
   readonly title: string
-  readonly icon?: Component | undefined
+  readonly icon: Component
   readonly x: number
   readonly y: number
   readonly refused?: boolean | undefined
