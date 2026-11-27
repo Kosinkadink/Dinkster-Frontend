@@ -75,7 +75,7 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart, ProductSecretDialog, ProductToast } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart, ProductSecretDialog } from '@dinkster/ui'
 import {
   defaultValuesOf,
   hasKnownLinkDropAnchorType,
@@ -1754,7 +1754,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [secretEditor, setSecretEditor] = createSolidSignal<{
     readonly tab: Tab; readonly backend: Backend; readonly name: string; readonly canManageDeployment: boolean
   }>()
-  const [secretNotification, setSecretNotification] = createSolidSignal<{ readonly message: string }>()
   const [secretRevision, setSecretRevision] = createSolidSignal(0)
   const [secretFacts, setSecretFacts] = createSolidSignal<Record<string, Json>>({})
   let secretOpenRequest = 0
@@ -2853,24 +2852,28 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const stop = connection.onMountsChanged(read)
       onCleanup(() => { live = false; stop() })
     })
+    const secretNames = createMemo(() => {
+      sceneVersion()
+      const current = renderer.getScene()
+      const nodes = [...current.nodes, ...current.boundaryNodes.flatMap((boundary) => {
+        const node = boundaryFieldNode(boundary)
+        return node === undefined ? [] : [node]
+      })]
+      return [...new Set(nodes.flatMap((node) => node.layout.rows.flatMap((row) => {
+        if (row.kind !== 'widget' || row.spec.widgetType !== 'SECRET') return []
+        const value = row.derivedValue ?? node.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
+        return typeof value === 'string' && value !== '' ? [value] : []
+      })))].sort()
+    }, undefined, { equals: (before, after) => before.length === after.length && before.every((name, index) => name === after[index]) })
     createEffect(() => {
-      sceneVersion(); secretRevision()
+      secretRevision()
+      const names = secretNames()
       const backend = factsBackend()
       const tab = activeTab()
       const abort = new AbortController()
       setSecretFacts({})
       onCleanup(() => abort.abort())
       if (backend === undefined || tab?.execution !== undefined) return
-      const current = renderer.getScene()
-      const nodes = [...current.nodes, ...current.boundaryNodes.flatMap((boundary) => {
-        const node = boundaryFieldNode(boundary)
-        return node === undefined ? [] : [node]
-      })]
-      const names = new Set(nodes.flatMap((node) => node.layout.rows.flatMap((row) => {
-        if (row.kind !== 'widget' || row.spec.widgetType !== 'SECRET') return []
-        const value = row.derivedValue ?? node.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
-        return typeof value === 'string' && value !== '' ? [value] : []
-      })))
       for (const name of names) {
         void backend.connection.fetchSecretPresence(name, abort.signal).then((presence) => {
           if (!abort.signal.aborted) setSecretFacts((facts) => ({ ...facts, [name]: presence.set }))
@@ -8316,10 +8319,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           onSaved={() => {
             setSecretEditor(undefined)
             setSecretRevision((revision) => revision + 1)
-            setSecretNotification({ message: message('secretWidget.saved') })
           }} />}
       </Show>
-      <ProductToast notification={secretNotification()} onDismiss={() => setSecretNotification(undefined)} />
 
       <Show when={editor()} keyed>
         {(ed) => (

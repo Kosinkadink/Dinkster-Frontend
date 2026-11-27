@@ -215,7 +215,6 @@
   "modelDownloads.run": "Run",
   "secretWidget.set": "Set",
   "secretWidget.notSet": "Not set",
-  "secretWidget.saved": "Secret set",
   "saveTargetWidget.title": "Save destination",
   "saveTargetWidget.default": "Default output",
   "saveTargetWidget.mount": "Writable mount",

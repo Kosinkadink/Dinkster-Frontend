@@ -50,6 +50,7 @@ function SecretRows() {
       renderer.setReducedMotion(true)
       renderer.setGridVisible(false)
       renderer.setScene(scene)
+      renderer.setViewport({ x: 0, y: 0, scale: 1 })
       renderer.setWidgetFacts({ SECRET: { 'caption-service': true, 'vision-service': false, 'translation-service': false } })
       renderer.renderNow()
       canvas.dataset.ready = 'true'
@@ -58,7 +59,9 @@ function SecretRows() {
   onCleanup(() => { disposed = true; renderer?.dispose() })
   return <ProductSection title="Secret rows">
     <p class="dinkster-description">A set credential, a required missing credential, and an optional missing credential. These rows hold names only.</p>
-    <canvas ref={canvas} aria-label="Secret rows" />
+    <figure class="dinkster-canvas-example">
+      <canvas ref={canvas} role="img" aria-label="Secret rows" />
+    </figure>
   </ProductSection>
 }
 
