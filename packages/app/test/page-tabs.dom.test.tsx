@@ -1,5 +1,7 @@
 import { createRoot, createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
+import { buildDinksterRegistry } from '@dinkster/client'
+import nodesPayload from '../../core/fixtures/dinkster-nodes.json'
 import { Images } from 'lucide-solid'
 import { describe, expect, it, vi } from 'vitest'
 import { createPageTabHost, PageTabPanel, type PageTab } from '../src/page-tabs.js'
@@ -7,7 +9,7 @@ import { App } from '../src/App.js'
 import { ASSET_DRAG_TYPE } from '../src/asset-browser/drag.js'
 import * as boardMedia from '../src/board-media.js'
 import { setPanelOpen } from '../src/panel-location.js'
-import { BOARD_MEDIA_TYPE, emptyBoard } from '@dinkster/core'
+import { BOARD_MEDIA_TYPE, emptyBoard, exposedKey } from '@dinkster/core'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import {
   layoutGroups,
@@ -420,6 +422,61 @@ describe('app page tabs', () => {
       root.remove()
       vi.restoreAllMocks()
       vi.unstubAllGlobals()
+    }
+  })
+
+  it('edits ordered exposed card inputs independently, preserves focus, and restores defaults on undo while the source is offline', async () => {
+    const app = createWorkflowApp()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    const backend = app.addBackend('http://board-inputs:8000', 'Card inputs', false, 'dinkster')!
+    backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
+    const exposed = [
+      { graphId: 'g0', nodeId: 'n0', inputId: 'b', label: 'Right' },
+      { graphId: 'g0', nodeId: 'n0', inputId: 'a', label: 'Left' },
+      { graphId: 'g0', nodeId: 'n1', inputId: 'a', label: 'Linked' },
+    ]
+    const bytes = JSON.stringify({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'card-controls-source', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Source', nodes: {
+        n0: { id: 'n0', type: 'std.math.add_ints', values: { a: 3, b: 4 } },
+        n1: { id: 'n1', type: 'std.math.add_ints', values: { b: 10 } },
+      }, links: { l0: { id: 'l0', from: { node: 'n0', port: 'sum' }, to: { node: 'n1', port: 'a' } } }, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: {} }, ext: { 'dinkster.exposed': exposed } })
+    const record = { id: 'form', scope: 'local', name: 'Arithmetic', digest: `blake3:${'e'.repeat(64)}`,
+      mediaType: 'application/x-dinkster-workflow+json', labels: ['workflow'], created: 1, modified: 2, revision: 1 }
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record)
+    const fetch = vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(bytes)
+    try {
+      const entry = app.boards.open(emptyBoard(), 'Controls', backend.baseUrl)
+      const selection = { project: 'default', baseUrl: backend.baseUrl, kind: 'workflow' as const,
+        source: { kind: 'library' as const, recordId: record.id }, name: record.name }
+      const first = await app.boards.placeCard(entry.id, selection, { x: 300, y: 250 })
+      const second = await app.boards.placeCard(entry.id, selection, { x: 700, y: 250 })
+      app.pages.open(`board:${entry.id}`)
+      const tab = app.pages.tabs().find((tab) => tab.id === `page:board:${entry.id}`) as PageTab
+      dispose = render(() => <PageTabPanel host={app.pages} tab={tab} />, root)
+      await vi.waitFor(() => expect(root.querySelectorAll('.dinkster-board-card input')).toHaveLength(4))
+      const card = () => root.querySelector(`[data-board-item="${first}"]`)!
+      expect([...card().querySelectorAll('.dinkster-board-card-input > span:first-child')].map((label) => label.textContent)).toEqual(['Right', 'Left', 'Linked'])
+      expect(card().querySelectorAll('input')).toHaveLength(2)
+      const input = card().querySelector<HTMLInputElement>('input')!
+      expect(input.value).toBe('4')
+      fetch.mockRejectedValue(new Error('Source is offline'))
+      input.focus()
+      input.value = '17'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await vi.waitFor(() => expect((entry.session.doc.items[first] as { values: object }).values).toEqual({ [exposedKey(exposed[0]!)]: 17 }))
+      expect(document.activeElement).toBe(input)
+      expect(root.querySelector<HTMLInputElement>(`[data-board-item="${second}"] input`)!.value).toBe('4')
+      expect(entry.session.undo()).toBe(true)
+      await vi.waitFor(() => expect(input.value).toBe('4'))
+      expect(entry.session.redo()).toBe(true)
+      await vi.waitFor(() => expect(input.value).toBe('17'))
+      expect(app.tabs.get()).toHaveLength(1)
+    } finally {
+      dispose(); app.dispose(); root.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals()
     }
   })
 

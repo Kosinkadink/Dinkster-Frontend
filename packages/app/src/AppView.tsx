@@ -19,7 +19,7 @@
  * read-only with an "edit on canvas" hint.
  */
 
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal as createSolidSignal, createUniqueId, onCleanup, onMount, untrack } from 'solid-js'
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal as createSolidSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import {
   appLayout,
@@ -306,6 +306,69 @@ function AppViewColorPicker(props: {
       </Show>
     </>
   )
+}
+
+function isComboParameter(row: Extract<ParamRow, { kind: 'live' }>): boolean {
+  return row.spec?.widgetType === 'COMBO'
+}
+
+export function ExposedParameterInput(props: {
+  readonly row: Extract<ParamRow, { kind: 'live' }>
+  readonly labelId: string
+  readonly draftScopeId: string
+  readonly onCommit: (value: Json, stillWanted: () => boolean) => Promise<boolean>
+  readonly onError: (message: string | undefined) => void
+  readonly onDraftActive: (active: boolean) => void
+  readonly combo: JSX.Element
+  readonly video?: JSX.Element
+}) {
+  const message = useAppMessage()
+  const spec = () => props.row.spec!
+  const [booleanPending, setBooleanPending] = createSolidSignal(false)
+  let live = true
+  onCleanup(() => { live = false })
+  const commitBoolean = async (checked: boolean) => {
+    if (booleanPending()) return
+    setBooleanPending(true)
+    try { await props.onCommit(checked, () => live) }
+    finally { if (live) setBooleanPending(false) }
+  }
+  const stringValue = () => typeof props.row.value === 'string' ? props.row.value : ''
+  const numberValue = () => typeof props.row.value === 'number' || isCanonicalUnsafeInteger(props.row.value) ? props.row.value : ''
+  return <Switch fallback={<AppViewStringInput value={stringValue()} multiline={spec().options['multiline'] === true}
+    ariaLabelledBy={props.labelId} onCommit={props.onCommit} onRevert={() => props.onError(undefined)} onDraftActive={props.onDraftActive} />}>
+    <Match when={spec().widgetType === 'LIST'}>
+      <AppViewStringInput value={JSON.stringify(props.row.value ?? [])} multiline ariaLabelledBy={props.labelId}
+        onCommit={async (raw, current) => {
+          const parsed = parsePrimitiveListCommit(raw, spec())
+          if (parsed.ok) return props.onCommit(parsed.value, current)
+          props.onError(parsed.error)
+          return false
+        }} onRevert={() => props.onError(undefined)} onDraftActive={props.onDraftActive} />
+    </Match>
+    <Match when={spec().widgetType === 'INT' || spec().widgetType === 'FLOAT'}>
+      <ProductNumberInput class="app-view-control" testId="app-view-number"
+        inputMode={spec().widgetType === 'INT' ? 'numeric' : 'decimal'} integer={spec().widgetType === 'INT'}
+        ariaLabelledBy={props.labelId} value={numberValue()} min={numberAttr(spec(), 'min')} max={numberAttr(spec(), 'max')}
+        step={numberAttr(spec(), 'step') ?? (spec().widgetType === 'INT' ? 1 : 'any')}
+        onCommitAsync={async (raw, current) => {
+          const parsed = parseNumericCommit(raw, spec().widgetType as 'INT' | 'FLOAT', spec().options['round'], spec().options['precision'])
+          if (parsed.ok) return props.onCommit(parsed.value, current)
+          props.onError(parsed.error)
+          return false
+        }} onDraftActive={props.onDraftActive} onRevert={() => props.onError(undefined)} />
+    </Match>
+    <Match when={spec().widgetType === 'BOOLEAN'}>
+      <ProductCheckbox class="app-view-control" testId="app-view-boolean"
+        ariaLabel={message('appView.control.toggle', { label: props.row.label })} checked={props.row.value === true}
+        disabled={booleanPending()} onChange={(checked) => void commitBoolean(checked)} />
+    </Match>
+    <Match when={spec().widgetType === 'COLOR'}>
+      <AppViewColorPicker value={stringValue()} draftScopeId={props.draftScopeId} label={props.row.label} onCommit={props.onCommit} />
+    </Match>
+    <Match when={isComboParameter(props.row)}>{props.combo}</Match>
+    <Match when={spec().widgetType === 'VIDEO_EDIT'}>{props.video}</Match>
+  </Switch>
 }
 
 export function AppView(props: { app: AppState; host?: EditorHostContext }) {
@@ -785,15 +848,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       }
       return false
     }
-  }
-
-  const commitNumeric = async (row: Extract<ParamRow, { kind: 'live' }>, raw: string, widgetType: 'INT' | 'FLOAT', stillWanted: () => boolean): Promise<boolean> => {
-    const parsed = parseNumericCommit(raw, widgetType, row.spec?.options['round'], row.spec?.options['precision'])
-    if (!parsed.ok) {
-      setError(row.entry, parsed.error)
-      return false
-    }
-    return commit(row, parsed.value, stillWanted)
   }
 
   const dispatchEntry = (command: string, entry: ExposedParameter, extra: Record<string, Json> = {}): CommandOutcome | Promise<CommandOutcome> | undefined => {
@@ -1728,7 +1782,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }) => {
     const row = () => controlProps.flow.row
     const liveRow = (): Extract<ParamRow, { kind: 'live' }> => row() as Extract<ParamRow, { kind: 'live' }>
-    const comboControl = (): boolean => liveRow().spec?.widgetType === 'COMBO'
+    const comboControl = (): boolean => isComboParameter(liveRow())
     const accessibleLabelId = `app-view-control-${createUniqueId()}`
     const label = (): string => {
       const current = row()
@@ -1744,95 +1798,12 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       }
     }
     const InlineControl = () => {
-      const spec = () => liveRow().spec!
-      const [booleanPending, setBooleanPending] = createSolidSignal(false)
-      let booleanLive = true
-      onCleanup(() => { booleanLive = false })
-      const commitBoolean = async (checked: boolean): Promise<void> => {
-        if (booleanPending()) return
-        setBooleanPending(true)
-        try {
-          await commit(liveRow(), checked, () => booleanLive)
-        } finally {
-          if (booleanLive) setBooleanPending(false)
-        }
-      }
-      const stringValue = (): string => {
-        const value = liveRow().value
-        return typeof value === 'string' ? value : ''
-      }
-      const numberValue = (): number | string | '' => {
-        const value = liveRow().value
-        return typeof value === 'number' || isCanonicalUnsafeInteger(value) ? value : ''
-      }
-      return (
-        <Switch
-          fallback={<AppViewStringInput
-            value={stringValue()}
-            multiline={spec().options['multiline'] === true}
-            ariaLabelledBy={accessibleLabelId}
-            onCommit={(value, stillWanted) => commit(liveRow(), value, stillWanted)}
-            onRevert={() => setError(liveRow().entry, undefined)}
-            onDraftActive={inlineDraftActive}
-          />}
-        >
-          <Match when={spec().widgetType === 'LIST'}>
-            <AppViewStringInput
-              value={JSON.stringify(liveRow().value ?? [])}
-              multiline={true}
-              ariaLabelledBy={accessibleLabelId}
-              onCommit={async (raw, stillWanted) => {
-                const parsed = parsePrimitiveListCommit(raw, spec())
-                if (parsed.ok) return commit(liveRow(), parsed.value, stillWanted)
-                setError(liveRow().entry, parsed.error)
-                return false
-              }}
-              onRevert={() => setError(liveRow().entry, undefined)}
-              onDraftActive={inlineDraftActive}
-            />
-          </Match>
-          <Match when={spec().widgetType === 'INT' || spec().widgetType === 'FLOAT'}>
-            <ProductNumberInput
-              class="app-view-control"
-              testId="app-view-number"
-              inputMode={spec().widgetType === 'INT' ? 'numeric' : 'decimal'}
-              integer={spec().widgetType === 'INT'}
-              ariaLabelledBy={accessibleLabelId}
-              value={numberValue()}
-              min={numberAttr(spec(), 'min')}
-              max={numberAttr(spec(), 'max')}
-              step={numberAttr(spec(), 'step') ?? (spec().widgetType === 'INT' ? 1 : 'any')}
-              onCommitAsync={(raw, stillWanted) => commitNumeric(liveRow(), raw, spec().widgetType as 'INT' | 'FLOAT', stillWanted)}
-              onDraftActive={inlineDraftActive}
-              onRevert={() => setError(liveRow().entry, undefined)}
-            />
-          </Match>
-          <Match when={spec().widgetType === 'BOOLEAN'}>
-            <ProductCheckbox
-              class="app-view-control"
-              testId="app-view-boolean"
-              ariaLabel={message('appView.control.toggle', { label: liveRow().label })}
-              checked={liveRow().value === true}
-              disabled={booleanPending()}
-              onChange={(checked) => void commitBoolean(checked)}
-            />
-          </Match>
-          <Match when={spec().widgetType === 'COLOR'}>
-            <AppViewColorPicker
-              value={stringValue()}
-              draftScopeId={draftScopeId}
-              label={liveRow().label}
-              onCommit={(value, stillWanted) => commit(liveRow(), value, stillWanted)}
-            />
-          </Match>
-          <Match when={comboControl()}>
-            <ComboControl row={liveRow()} />
-          </Match>
-          <Match when={spec().widgetType === 'VIDEO_EDIT'}>
-            <ProductButton type="button" aria-label={message('appView.control.editVideo', { label: liveRow().label })} onClick={() => openVideoEditor(liveRow())}>{message('appView.control.editTrimCrop')}</ProductButton>
-          </Match>
-        </Switch>
-      )
+      return <ExposedParameterInput row={liveRow()} labelId={accessibleLabelId} draftScopeId={draftScopeId}
+        onCommit={(value, current) => commit(liveRow(), value, current)}
+        onError={(error) => setError(liveRow().entry, error)} onDraftActive={inlineDraftActive}
+        combo={<ComboControl row={liveRow()} />}
+        video={<ProductButton type="button" aria-label={message('appView.control.editVideo', { label: liveRow().label })}
+          onClick={() => openVideoEditor(liveRow())}>{message('appView.control.editTrimCrop')}</ProductButton>} />
     }
     return (
       <div

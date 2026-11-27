@@ -1,5 +1,5 @@
 import { BOARD_MAX_NAME, boardMediaKindOf, emptyBoard, t, type CollectionEntry, type CollectionSource } from '@dinkster/core'
-import { ProductBoard, ProductBoardCard, ProductErrorBanner } from '@dinkster/ui'
+import { ProductBoard, ProductErrorBanner } from '@dinkster/ui'
 import { Images } from 'lucide-solid'
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import type { AppState, Backend } from './app-state.js'
@@ -16,6 +16,7 @@ import { activeProjectId } from './projects.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 import { CollectionPanel } from './CollectionPanel.js'
 import { workflowsSource } from './collections.js'
+import { BoardCard } from './BoardCard.js'
 
 function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string | undefined; clearSaveError: () => void }) {
   const [menu, setMenu] = createSignal<CanvasCornerMenu>()
@@ -171,11 +172,10 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
     fill
     store={props.entry.session}
     onAddCard={boardBackend() ? { workflow: chooseWorkflow } : {}}
-    card={(card, remove) => <ProductBoardCard name={card().name} kind={card().kind}
-      lastRun="Not run" disabled onRun={() => undefined} onStop={() => undefined}
+    card={(card, remove) => <BoardCard app={props.app} entry={props.entry} card={card()}
       onOpen={() => { const source = card().source; if (source.kind === 'library') void openWorkflow(source.recordId, false) }}
       onChooseInputs={() => { const source = card().source; if (source.kind === 'library') void openWorkflow(source.recordId, true) }}
-      onRemove={remove}>{undefined}</ProductBoardCard>}
+      onRemove={remove} />}
     onAddMedia={(point) => { pickerPoint = point; input.click() }}
     onDropMedia={(event, point) => {
       if (event.dataTransfer?.files.length) { stageImport([...event.dataTransfer.files], point); return }

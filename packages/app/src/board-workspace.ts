@@ -29,6 +29,28 @@ export interface BoardEntry {
   }
 }
 
+/** Apply only currently exposed editable values to a private workflow snapshot. */
+export function applyCardInputs(document: WorkflowDocument, values: Readonly<Record<string, Json>>,
+  resolve: (type: string) => NodeSchema | undefined,
+): WorkflowDocument {
+  const store = new DocumentStore(document, coreCommandRegistry([], documentResolver(document, resolve)))
+  const pending = new Set(Object.keys(values))
+  while (pending.size > 0) {
+    const row = buildParamRows(store.doc, documentResolver(store.doc, resolve))
+      .find((candidate) => pending.has(exposedKey(candidate.entry)))
+    if (!row) break
+    const key = exposedKey(row.entry)
+    pending.delete(key)
+    if (row.kind === 'stale') throw new Error(`Card input is unavailable: ${row.reason}`)
+    if (row.linked || row.derived) continue
+    const result = store.dispatch({ command: 'node.setValue', params: {
+      graphId: row.entry.graphId, nodeId: row.entry.nodeId, inputId: row.valueKey, value: values[key]!,
+    } })
+    if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+  }
+  return store.doc
+}
+
 /** Board documents share the existing transport, without pretending to be workflows. */
 export class BoardWorkspace {
   readonly entries = createSignal<readonly BoardEntry[]>([])
@@ -234,9 +256,27 @@ export class BoardWorkspace {
     const card = entry.session.doc.items[cardId]
     if (!card || (card.kind !== 'workflow' && card.kind !== 'blueprint')) throw new Error('Card is no longer on this Board')
     const connection = this.options.mediaConnection(entry.baseUrl)
+    const document = await this.loadCardSource(id, cardId, resolve, () => stillWanted() && entry.session.doc.items[cardId] === card)
+    if (this.disposed || !stillWanted() || !this.entries.get().includes(entry) || entry.session.doc.items[cardId] !== card ||
+      this.options.mediaConnection(entry.baseUrl) !== connection) throw new Error('Card changed while loading')
+    return applyCardInputs(document, card.values, resolve)
+  }
+
+  /** The source defaults stay separate from overrides so undo can restore them without another fetch. */
+  async loadCardSource(id: string, cardId: string, resolve: (type: string) => NodeSchema | undefined,
+    stillWanted: () => boolean = () => true,
+  ): Promise<WorkflowDocument> {
+    const entry = this.mediaEntry(id)
+    const card = entry.session.doc.items[cardId]
+    if (!card || (card.kind !== 'workflow' && card.kind !== 'blueprint')) throw new Error('Card is no longer on this Board')
+    const connection = this.options.mediaConnection(entry.baseUrl)
     if (!connection) throw new Error('This Board\'s backend is unavailable')
-    const current = () => !this.disposed && stillWanted() && this.entries.get().includes(entry) &&
-      this.options.mediaConnection(entry.baseUrl) === connection && entry.session.doc.items[cardId] === card
+    const current = () => {
+      const latest = entry.session.doc.items[cardId]
+      return !this.disposed && stillWanted() && this.entries.get().includes(entry) &&
+        this.options.mediaConnection(entry.baseUrl) === connection && latest?.kind === card.kind &&
+        jsonSameValue(latest.source, card.source)
+    }
     const loaded = await this.cardSource(connection, card.kind, card.source, current)
     if (!current()) throw new Error('Card changed while loading')
     let document = loaded.document
@@ -260,23 +300,7 @@ export class BoardWorkspace {
       if (!wrapped.document) throw new Error(wrapped.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
       document = wrapped.document
     }
-    const resolver = documentResolver(document, resolve)
-    const store = new DocumentStore(document, coreCommandRegistry([], resolver))
-    const pending = new Set(Object.keys(card.values))
-    while (pending.size > 0) {
-      const row = buildParamRows(store.doc, documentResolver(store.doc, resolve))
-        .find((candidate) => pending.has(exposedKey(candidate.entry)))
-      if (!row) break
-      const key = exposedKey(row.entry)
-      pending.delete(key)
-      if (row.kind === 'stale') throw new Error(`Card input is unavailable: ${row.reason}`)
-      if (row.linked || row.derived) continue
-      const result = store.dispatch({ command: 'node.setValue', params: {
-        graphId: row.entry.graphId, nodeId: row.entry.nodeId, inputId: row.valueKey, value: card.values[key]!,
-      } })
-      if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
-    }
-    return store.doc
+    return document
   }
 
   private async cardSource(connection: BoardConnection, kind: BoardCardItem['kind'], source: BoardCardSource,

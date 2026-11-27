@@ -2071,6 +2071,10 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-board-card-inputs { display: grid; align-content: start; gap: var(--dinkster-space-4); min-height: 0; overflow: auto; }
 .dinkster-board-card-input { display: flex; align-items: center; gap: var(--dinkster-space-8); padding-left: var(--dinkster-space-8); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-inset); color: var(--dinkster-text-secondary); white-space: nowrap; }
 .dinkster-board-card-input > input { flex: 1; min-width: 0; min-height: var(--dinkster-input-canvas-height); border-color: transparent; background: transparent; text-align: right; }
+.dinkster-board-card-input > .product-number { flex: 1; min-width: 0; min-height: var(--dinkster-input-canvas-height); border-color: transparent; background: transparent; }
+.dinkster-board-card-input .product-number-field { padding-block: 0; text-align: right; }
+.dinkster-board-card-input .product-number-steppers button { min-width: var(--dinkster-input-canvas-height); min-height: var(--dinkster-input-canvas-height); }
+.dinkster-board-card-input > .product-checkbox { margin-left: auto; }
 .dinkster-board-card-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); margin-top: auto; }
 .dinkster-board-card-footer > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dinkster-board-card-error { margin: 0; color: var(--dinkster-danger-foreground); overflow-wrap: anywhere; }
