@@ -1,7 +1,7 @@
 {
   "issue": 382,
   "ceilings": {
-    "rawControl": 149,
+    "rawControl": 148,
     "inlineStyle": 65,
     "cssLiteral": 65
   },
@@ -33,7 +33,7 @@
     {
       "kind": "rawControl",
       "path": "packages/app/src/AudioTransport.tsx",
-      "count": 4,
+      "count": 3,
       "issue": 382
     },
     {
