@@ -5802,9 +5802,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           if (!isCurrent()) return
           setSecretEditor({ tab, backend, principal, name: initialName, canManageDeployment: available.canManageDeployment,
             names: available.names, chooseName: async (chosen) => {
-              if (!isCurrent()) throw new Error('Secret context changed')
+              const current = props.app.liveTabContinuing(tab.store)
+              if (!isCurrent() || current === undefined) throw new Error('Secret context changed')
               if (chosen === initialName) return
-              const outcome = await props.app.dispatchTo(tab,
+              const outcome = await props.app.dispatchTo(current,
                 withMaterializeFrames(valueGraphId, valueNodeId, hit.row.materialize, {
                   command: 'node.setValue',
                   params: { graphId: valueGraphId, nodeId: valueNodeId, inputId: valueKey, value: chosen },
