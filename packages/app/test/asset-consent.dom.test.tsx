@@ -37,23 +37,28 @@ it('renders plan answers, selected filesystem capacity, and independent download
     asset: { digest: `blake3:${'c'.repeat(64)}`, name: requirements[0]!.name, size: 2048,
       mediaType: 'application/octet-stream', virtualPath: 'models/' + requirements[0]!.name } })
   const location = { id: 'opaque-folder', path: '/models/disabled', mode: 'read', visibility: 'opt-in' }
+  const shared = { id: 'shared', path: '/models', mode: 'readwrite', visibility: 'opt-in' }
+  const portable = { id: 'portable', path: '/portable', mode: 'readwrite', visibility: 'opt-in' }
   const connection = new DinksterConnection({ id: asConnectionId('downloads'), baseUrl: '/engine', clientId: 'test', project: 'studio',
     webSocketFactory: () => ({}) as WebSocketLike,
     fetchFn: async (url, init) => {
       const path = new URL(url, 'http://localhost').pathname
       if (path.endsWith('/settings')) return Response.json({
-        settings: { version: 1, downloadLocation: null, locations: [location] },
-        locations: [{ ...location, mounts: [], enabled: false, active: false }], revision: 'one', project: 'studio',
+        settings: { version: 1, downloadLocation: 'shared', locations: [location, shared, portable] },
+        locations: [{ ...location, mounts: [], enabled: false, active: false },
+          { ...shared, mounts: ['root-1', 'root-2'], enabled: true, active: true },
+          { ...portable, mounts: ['portable-vae'], enabled: true, active: true }], revision: 'one', project: 'studio',
         changesAllowed: true, restartRequired: false, pendingRemovals: [],
       })
       if (path.endsWith('/plan')) {
-        const requirement = JSON.parse(String(init?.body)) as { name: string; kind: string }
+        const requirement = JSON.parse(String(init?.body)) as { name: string; kind: string; location?: string }
         const index = requirements.findIndex((row) => row.name === requirement.name)
+        const moved = requirement.location === 'portable'
         return Response.json({ ...requirement, ...answers[index], planId: String(index), project: 'studio',
           provider: 'huggingface', source: 'https://huggingface.co/example/model/resolve/main/' + requirement.name,
           repo: 'example/model', revision: 'a'.repeat(40), file: requirement.name, sha256: 'b'.repeat(64),
-          size: index === 1 ? 600 : 500, license: 'Apache-2.0', destination: `/models/root-${index}/` + requirement.name,
-          mount: `root-${index}`, destinationSpace: space,
+          size: index === 1 ? 600 : 500, license: 'Apache-2.0', destination: (moved ? '/portable/vae/' : `/models/root-${index}/`) + requirement.name,
+          mount: moved ? 'portable-vae' : `root-${index}`, destinationSpace: moved ? { status: 'available', filesystem: 'portable', freeBytes: 100 } : space,
         })
       }
       if (path.endsWith('/start')) {
@@ -94,6 +99,17 @@ it('renders plan answers, selected filesystem capacity, and independent download
     expect(rows()[1]!.textContent).not.toContain('b'.repeat(64))
     button('Copy revision and checksum').click()
     await vi.waitFor(() => expect(clipboard).toHaveBeenCalledWith(`Revision: ${'a'.repeat(40)}\nSHA-256: ${'b'.repeat(64)}`))
+    const chooseLocation = (id: string) => {
+      root.querySelector<HTMLButtonElement>('button[aria-label="Save to"]')!.click()
+      ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]')].find((item) => item.textContent?.startsWith(id))!.click()
+    }
+    chooseLocation('portable')
+    await vi.waitFor(() => expect(rows()[1]!.textContent).toContain('/portable/vae/model-1.safetensors'))
+    expect(root.querySelector('.dinkster-model-download-destination')?.textContent).toContain('100 B free')
+    expect(button('Download 2 models').disabled).toBe(true)
+    expect(rows()[0]!.textContent).toContain('/models/ready')
+    chooseLocation('shared')
+    await vi.waitFor(() => expect(rows()[1]!.textContent).toContain('/models/root-1/model-1.safetensors'))
     for (const reason of ['No known source', 'More than one source', 'No folder to save it in', 'Two files have this name',
       'Hidden on this computer', 'Not signed in to Hugging Face', 'No access to this file on Hugging Face', 'No access to this file on Civitai'])
       expect(root.textContent).toContain(reason)
