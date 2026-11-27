@@ -1,15 +1,51 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { DinksterConnection, ModelSettingsState, MountDescriptor, MountSettings } from '@dinkster/client'
+import { DinksterConnection, RequestFailure, type ModelSettingsState, type MountDescriptor, type MountSettings } from '@dinkster/client'
 import { canvasTypePaintForTheme } from '@dinkster/canvas'
-import { semanticTokensForTheme } from '@dinkster/core'
-import { RequestFailure } from '@dinkster/client'
+import { asConnectionId, createSignal as createCoreSignal, semanticTokensForTheme } from '@dinkster/core'
 import { StorageFolders, StoragePanel } from '../src/StoragePanel.js'
 import { AppState } from '../src/app-state.js'
 
 const disposers: (() => void)[] = []
 afterEach(() => { for (const dispose of disposers.splice(0)) dispose(); document.body.replaceChildren(); vi.restoreAllMocks() })
+
+it('loads the current account folders when account discovery supersedes the startup read', async () => {
+  let release!: (response: Response) => void
+  let started!: () => void
+  const pending = new Promise<Response>((resolve) => { release = resolve })
+  const reading = new Promise<void>((resolve) => { started = resolve })
+  let startup = true
+  const mounts = [{ id: 'current', mode: 'read', state: 'ready', path: '/current' }]
+  const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
+  const connection = new DinksterConnection({
+    id: asConnectionId('storage-account'), baseUrl: 'http://storage.test', clientId: 'browser',
+    fetchFn: async (url) => {
+      const path = new URL(url).pathname
+      if (path === '/api/account') return json({ available: true, canStartSignIn: true, signInUnavailableReason: null,
+        signedIn: false, profile: null, signIn: { state: 'idle' }, principalRevision: 'local' })
+      if (path === '/api/mounts') {
+        if (startup) { startup = false; started(); return pending }
+        return json({ mounts, mountChangesAllowed: true })
+      }
+      if (path === '/api/mounts/locations') return json({ mounts })
+      if (path === '/api/models/settings') return json({
+        settings: { version: 1, locations: [], downloadLocation: null }, locations: [], revision: 'current',
+        project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+      })
+      throw new Error(`Unexpected request: ${path}`)
+    },
+  })
+  const root = document.createElement('div'); document.body.append(root)
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
+  await reading
+  await connection.accountStatus()
+  release(json({ mounts: [{ id: 'obsolete', mode: 'read', state: 'ready' }], mountChangesAllowed: true }))
+  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="current"]')).not.toBeNull())
+  expect(root.querySelector('[data-mount-id="obsolete"]')).toBeNull()
+  expect(root.querySelector('[role="alert"]')).toBeNull()
+  expect(root.textContent).not.toContain('Refresh folders')
+})
 
 it('keeps plain folder failures visible, records their detail and retries only the selected grant', async () => {
   let mounts = [
@@ -19,6 +55,7 @@ it('keeps plain folder failures visible, records their detail and retries only t
   ]
   const location = { id: 'models', path: '/models', mode: 'read' as const, visibility: 'default-on' as const }
   const connection = {
+    principalGeneration: createCoreSignal(0),
     fetchMountSettings: async () => ({ mounts, mountChangesAllowed: true }),
     fetchMountLocations: async () => ({ mounts: mounts.map((row) => ({ ...row, path: row.path ?? '/models/loras' })) }),
     fetchModelSettings: async () => ({ settings: { version: 1, locations: [location], downloadLocation: null }, locations: [{ ...location, enabled: true, active: true, mounts: ['models-lora'] }], changesAllowed: true }),
@@ -57,6 +94,7 @@ it.each([true, false])('adds a model folder with download destination enabled: %
   }
   let refused = true
   const connection = {
+    principalGeneration: createCoreSignal(0),
     fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: true }),
     fetchMountLocations: async () => ({ mounts: [] }),
     fetchModelSettings: async () => state,
@@ -98,6 +136,7 @@ it.each([true, false])('keeps a refused mount form and adds with saving allowed:
   const mounts: MountDescriptor[] = []
   let refused = true
   const connection = {
+    principalGeneration: createCoreSignal(0),
     fetchMountSettings: async () => ({ mounts, mountChangesAllowed: true }),
     fetchMountLocations: async () => ({ mounts }),
     fetchModelSettings: async () => ({ locations: [], settings: { locations: [] }, changesAllowed: true }),
@@ -141,6 +180,7 @@ it('shows live file and byte reading progress for mounts and grouped model folde
   const location = { id: 'models', path: '/models', mode: 'read' as const, visibility: 'default-on' as const }
   let changed = () => {}
   const connection = {
+    principalGeneration: createCoreSignal(0),
     fetchMountSettings: async () => ({ mounts, mountChangesAllowed: true }),
     fetchMountLocations: async () => ({ mounts: mounts.map((mount) => ({ ...mount, path: `/${mount.id}` })) }),
     fetchModelSettings: async () => ({ settings: { version: 1, locations: [location], downloadLocation: null },
@@ -205,6 +245,7 @@ it('groups model grants under one folder and switches project membership without
   }
   let refuseRemoval = true
   const connection = {
+    principalGeneration: createCoreSignal(0),
     fetchMountSettings: async () => settings,
     fetchMountLocations: async () => ({ mounts: all }),
     fetchModelSettings: async () => models,
@@ -332,6 +373,7 @@ it('changes mount saving access, requires a usable replacement and preserves a r
   let mountsChanged = () => {}
   let holdRefresh: (() => Promise<void>) | undefined
   const connection = {
+    principalGeneration: createCoreSignal(0),
     fetchMountSettings: async () => ({ mounts, outputMount, revision, mountChangesAllowed: true }),
     fetchMountLocations: async () => ({ mounts }),
     fetchModelSettings: async () => { await holdRefresh?.(); return { locations: [], settings: { locations: [] }, changesAllowed: true } },
@@ -411,6 +453,7 @@ it('selects the default save folder from a writable mount menu', async () => {
   ]
   let outputMount = 'renders'
   const connection = {
+    principalGeneration: createCoreSignal(0),
     fetchMountSettings: async () => ({ mounts, outputMount, mountChangesAllowed: true }),
     fetchMountLocations: async () => ({ mounts }),
     fetchModelSettings: async () => ({ locations: [], settings: { locations: [] }, changesAllowed: true }),
@@ -438,6 +481,7 @@ it('moves only visible Mounts and disables movement at both ends and for a singl
   ]
   let changed = () => {}
   const connection = {
+    principalGeneration: createCoreSignal(0),
     fetchMountSettings: async () => ({ mounts, outputMount: 'alpha', mountChangesAllowed: true }),
     fetchMountLocations: async () => ({ mounts }),
     fetchModelSettings: async () => ({ locations: [], settings: { locations: [] }, changesAllowed: true }),
@@ -481,6 +525,7 @@ it('keeps a pending folder removal visible when edit controls are activated', as
     { id: 'plates', mode: 'read', state: 'ready' },
   ]
   const connection = {
+    principalGeneration: createCoreSignal(0),
     fetchMountSettings: async () => ({ mounts, outputMount: 'renders', mountChangesAllowed: true }),
     fetchMountLocations: async () => ({ mounts }),
     fetchModelSettings: async () => ({ settings: { locations: [] }, locations: [], changesAllowed: true }),

@@ -119,10 +119,14 @@ export function StorageFolders(props: {
   }
   createEffect(() => {
     const connection = props.connection
+    useSignal(connection.principalGeneration)()
     generation++
     setSettings(undefined)
     setLocations(undefined)
     setModels(undefined)
+    setError('')
+    setOperatorNotice(false)
+    setNotification(undefined)
     setBusy(false)
     setEditing(undefined)
     setLeaving(undefined)
