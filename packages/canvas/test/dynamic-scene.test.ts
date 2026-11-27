@@ -362,6 +362,23 @@ it('retires only excess estimated outputs without editing the stored count or gr
   })
   expect(outputs(unrelated).find(pin => pin.portId === 'inverse.4')?.inactive).toBe(true)
   expect(unrelated.diagnostics).not.toContainEqual(expect.objectContaining({ code: 'list.count.retiredOutputs' }))
+  const nested = schemaOf('Unpack', [
+    input('rows', { type: { kind: 'concrete', name: 'INT' }, socketless: true, widget: { widgetType: 'INT', options: {}, default: 2 } }),
+    { kind: 'group', id: 'outer', grows: { count: 'rows' }, keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 },
+      minMembers: 0, maxMembers: 4, member: unpack.body },
+  ])
+  const nestedDoc = docOf({ g0: { nodes: {
+    source: { type: 'Source' }, unpack: { type: 'Unpack', values: { rows: 2, 'outer.0.count': 3, 'outer.1.count': 3 } }, sink: { type: 'Sink' },
+  }, links: [[['source', 'out'], ['unpack', 'outer.0.list']], [['unpack', 'outer.0.items.2'], ['sink', 'in']]] } })
+  const nestedScene = buildScene({ document: nestedDoc, graphId: 'g0', resolve: type => type === 'Unpack' ? nested : resolve(type),
+    tokens: defaultTokens, measure, widgetMeasure,
+    listCountEstimateOf: (_path, node, port) => node === 'source' && port === 'out' ? { kind: 'estimate', count: 1, sources: ['last-run'] } : undefined,
+  })
+  expect(outputs(nestedScene).filter(pin => pin.portId.startsWith('outer.')).map(pin => [pin.portId, pin.inactive === true])).toEqual([
+    ['outer.0.items.0', false], ['outer.0.items.2', true],
+    ['outer.1.items.0', false], ['outer.1.items.1', false], ['outer.1.items.2', false],
+  ])
+  expect(nestedScene.diagnostics).toContainEqual(expect.objectContaining({ code: 'list.count.retiredOutputs' }))
 })
 
 it('carries independent counts through nested occurrence wires without using an inner default', () => {

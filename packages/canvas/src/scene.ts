@@ -868,23 +868,20 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     const fields = elabInputsOf(shown)
     const unknown = new Set<string>()
-    const outputCountLimits = new Map<string, number>()
     for (const [path, group] of constructsOf(schema, node.dynamic)) {
       if (group.kind !== 'group' || typeof group.grows !== 'object' || !('count' in group.grows)) continue
       const prefix = path.slice(0, path.lastIndexOf('.') + 1)
       const target = contexts.get(prefix)?.paths.get(group.grows.count)
       const field = fields.find(field => field.address.port === target)
       if (field?.spec.listCountOf === undefined) continue
-      const estimate = estimatedCounts.get(field.address.port)
-      if (estimate !== undefined) outputCountLimits.set(path, estimate)
       const fieldPrefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
       const source = contexts.get(fieldPrefix)?.paths.get(field.spec.listCountOf)
       if (source !== undefined && solvedTypes.listCountFactOf(asNodeId(nodeId), 'input', source) === undefined) unknown.add(path)
     }
-    const counted = unknown.size === 0 && outputCountLimits.size === 0 ? shown
-      : elaborateInterface(schema, node, connectivity, { problemRows, ...lookups, unknownCountGroups: unknown, outputCountLimits })
+    const counted = unknown.size === 0 && estimatedCounts.size === 0 ? shown
+      : elaborateInterface(schema, node, connectivity, { problemRows, ...lookups, unknownCountGroups: unknown, outputCountLimits: estimatedCounts })
     const previousLive = new Set(elabOutputsOf(shown).filter(output => output.kept === undefined).map(output => output.address.port))
-    if (outputCountLimits.size > 0 && elabOutputsOf(counted).some(output => output.kept !== undefined && previousLive.has(output.address.port))) {
+    if (estimatedCounts.size > 0 && elabOutputsOf(counted).some(output => output.kept !== undefined && previousLive.has(output.address.port))) {
       countDiagnostics.push({
         severity: 'warning', origin: 'compile', code: 'list.count.retiredOutputs',
         message: 'Some outputs are outside the estimated list count. Their wires give nothing.',
