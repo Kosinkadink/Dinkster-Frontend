@@ -25,7 +25,9 @@ test.beforeEach(async ({ page }) => {
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
   await waitForWorkspaceReady(page, 0)
-  await page.evaluate((schemas) => window.__dinksterTest!.app.registerSchemas(schemas), Object.values(schemas) as NodeSchema[])
+  await page.evaluate((serialized) => {
+    window.__dinksterTest!.app.registerSchemas(JSON.parse(serialized) as NodeSchema[])
+  }, JSON.stringify(Object.values(schemas)))
 })
 
 test('semantic scene navigation stays virtual until focused and leaves visible targets in place', async ({ page }, testInfo) => {
