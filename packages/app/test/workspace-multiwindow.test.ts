@@ -727,6 +727,37 @@ describe('AppState multi-window workspace', () => {
     expect(other.doc.graphs.g0!.nodes.n1!.title).toBeUndefined()
   })
 
+  it('keeps an automatic numeric notice after shared acknowledgement, until a later edit', async () => {
+    const factory = authorityFactories()
+    const app = createEditableApp()
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      schemaVersion: 1, epoch: 1, dinkster: { version: 'test', schemaWire: 2 }, nodes: { X: {
+        body: [{ kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } }],
+      } },
+    }))
+    const source = workflow()
+    await app.openDocument({ ...source, graphs: { ...source.graphs, g0: { ...source.graphs.g0!, nodes: {
+      n1: { ...source.graphs.g0!.nodes.n1!, values: { amount: 14 } },
+    } } } }, 'Numbers')
+    await app.enableWorkspaceAuthority(factory.document, factory.workspace)
+    const tab = app.activeTab()!
+    await app.applyProblemFixes(tab, app.scanTabNumberFixes(tab), true)
+    await (tab.store as unknown as { settle(): Promise<void> }).settle()
+    await drainTasks()
+    expect(tab.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(12)
+    expect(app.adjustmentNotices.get().get(tab.id)?.adjustments.map((item) => item.details)).toEqual([['amount: 14 to 12']])
+    expect(app.adjustmentNoticeState(tab.id)).toBe('ready')
+    expect((await app.dispatchEditTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 8,
+    } })).ok).toBe(true)
+    await (tab.store as unknown as { settle(): Promise<void> }).settle()
+    await drainTasks()
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
+  })
+
   it('keeps an undone numeric correction suppressed when its document session is promoted', async () => {
     const factory = authorityFactories()
     const app = createEditableApp()

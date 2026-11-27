@@ -774,10 +774,13 @@ function nodeSetValueOf(resolve?: SchemaResolver): CommandDefinition {
       if (!node) return [err('node.missing', `node.setValue: unknown node '${params.nodeId}'`)]
       if (params.value === undefined)
         return [err('params.invalid', 'node.setValue: value is required')]
-      tx.set(
-        ['graphs', params.graphId as string, 'nodes', params.nodeId, 'values', params.inputId],
-        params.value,
-      )
+      // A shared intention may replay after another viewer stored the same value.
+      if (node.values[params.inputId] === undefined || canonicalJson(node.values[params.inputId]!) !== canonicalJson(params.value)) {
+        tx.set(
+          ['graphs', params.graphId as string, 'nodes', params.nodeId, 'values', params.inputId],
+          params.value,
+        )
+      }
       removeWiresOfGoneMembers(doc, params.graphId as string, params.nodeId, tx, context, resolve)
       return []
     },

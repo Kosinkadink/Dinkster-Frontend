@@ -5890,8 +5890,16 @@ export class AppState {
   private removeEditedNumberAdjustments(tabId: string, paths: readonly (readonly (string | number)[])[]): void {
     const notice = this.adjustmentNotices.get().get(tabId)
     if (notice === undefined) return
-    const affected = notice.adjustments.filter((adjustment) => adjustment.numberCauses?.some(({ owner }) =>
-      paths.some((path) => pathsOverlap(path, ['graphs', owner.graphId, 'nodes', owner.nodeId, 'values', owner.valueKey]))))
+    const document = this.tabs.get().find((tab) => tab.id === tabId)?.store.doc
+    const affected = notice.adjustments.filter((adjustment) => adjustment.numberCauses?.some(({ owner }) => {
+      if (!paths.some((path) => pathsOverlap(path, ['graphs', owner.graphId, 'nodes', owner.nodeId, 'values', owner.valueKey]))) return false
+      const key = `${owner.graphId}/${owner.nodeId}#values.${owner.valueKey}`
+      const recorded = notice.records.flatMap((record) => record.forward)
+        .filter((patch) => adjustmentKeys(patch, 'numberOutsideLimits').includes(key)).at(-1)
+      // A shared acknowledgement confirms the optimistic correction, not a later edit.
+      return notice.undone !== undefined || recorded === undefined || recorded.op === 'remove' ||
+        !jsonSameValue(document?.graphs[owner.graphId]?.nodes[owner.nodeId]?.values[owner.valueKey], recorded.value)
+    }))
     if (affected.length === 0) return
     // The runner publishes its automatic batch's record after the operation.
     // Wait for it so a successive correction is not mistaken for a personal edit.
