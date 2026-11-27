@@ -17,6 +17,7 @@ import {
   asPortId,
   asRerouteId,
   documentResolver,
+  elabInputsOf,
   createLocalSession,
   connectSharedSession,
   coreCommandRegistry,
@@ -25,6 +26,7 @@ import {
   effectiveOccurrenceTopology,
   occurrenceDynamicView,
   planOccurrenceLinkMutation,
+  parseDinksterSchema,
   loadDocument,
   type Json,
   type NodeProgress,
@@ -35,7 +37,7 @@ import {
   boundaryItems,
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
-import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, nodeStatesForGraph, scenesEqual, updateSceneNodePositions, updateSceneNodeValues, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, type Scene } from '../src/scene.js'
+import { buildScene, boundaryFieldNode, boundaryPositions, boundaryNodesInGroup, nodesInGroup, nodeStatesForGraph, scenesEqual, updateSceneNodePositions, updateSceneNodeValues, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, type Scene } from '../src/scene.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
 
@@ -2249,6 +2251,48 @@ describe('scenesEqual', () => {
 })
 
 describe('an editor on the Inputs panel', () => {
+  it('shows native lookup options for the entered occurrence through renamed boundaries', () => {
+    const { schema } = parseDinksterSchema('Picker', { body: [
+      { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] }, pin: false, sent: false,
+        widget: { type: 'COMBO', options: ['intrinsic', 'sd', 'sdxl'] } },
+      { kind: 'input', id: 'lora', type: { kind: 'concrete', types: ['COMBO'] },
+        widget: { type: 'COMBO', options: { lookup: 'pack.loras', args: ['category'] } } },
+    ] })
+    for (const depth of [1, 2]) {
+      const document = loadDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-lookup', root: 'root',
+        graphs: {
+          root: { id: 'root', name: 'Root', nextOrdinal: 3, links: {}, nets: {}, reroutes: {}, nodes: {
+            first: { id: 'first', type: depth === 1 ? '#detail' : '#portrait', values: depth === 1 ? { kind: 'sd', pick: 'kept' } : { category: 'sd', list: 'kept' } },
+            second: { id: 'second', type: depth === 1 ? '#detail' : '#portrait', values: depth === 1 ? { kind: 'sdxl' } : { category: 'sdxl' } },
+          } },
+          detail: { id: 'detail', name: 'Detail', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+            nodes: { sample: { id: 'sample', type: 'Picker', values: { category: 'sdxl' } } },
+            boundary: { body: ['kind', 'pick'].map((id, i) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'sample', port: i === 0 ? 'category' : 'lora' } })) } },
+          ...(depth === 1 ? {} : { portrait: { id: 'portrait', name: 'Portrait', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+            nodes: { detail: { id: 'detail', type: '#detail', values: { kind: 'sdxl' } } },
+            boundary: { body: ['category', 'list'].map((id, i) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: 'detail', port: i === 0 ? 'kind' : 'pick' } })) } } }),
+        }, view: { graphs: {} },
+      }).document as WorkflowDocument
+      const resolve = documentResolver(document, (type) => type === 'Picker' ? schema : undefined)
+      for (const [node, category] of [['first', 'sd'], ['second', 'sdxl']] as const) {
+        const path = [asNodeId(node), ...(depth === 1 ? [] : [asNodeId('detail')])]
+        const scene = buildScene({ document, graphId: 'detail', resolve, tokens: defaultTokens, measure,
+          widgetMeasure: () => ({ viewId: 'core.select', rows: 1 }),
+          occurrence: { owner: { instancePath: path.slice(0, -1), node: path.at(-1)! }, plannerAvailable: true },
+          occurrenceView: occurrenceDynamicView(document, resolve, path),
+          lookupAnswers: (_lookup, args) => ({ state: 'ready', answer: [`${args[0]}-one`, `${args[0]}-two`] }),
+        })
+        const panel = scene.boundaryNodes.find((item) => item.side === 'inputs')!
+        expect(panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === 'pick')).toMatchObject({
+          spec: { options: { options: [`${category}-one`, `${category}-two`] } },
+        })
+        const face = boundaryFieldNode(panel)!
+        expect(elabInputsOf(face.elaborated!).find((item) => item.spec.id === 'pick')?.looked?.options).toMatchObject({ state: 'ready' })
+      }
+    }
+  })
+
   const recorder: NodeSchema = {
     type: 'Rec', displayName: 'Rec', category: 'test', outputNode: false,
     body: [{ kind: 'input', id: 'clip', type: { kind: 'concrete', name: 'AUDIO_RECORD' }, widget: { widgetType: 'AUDIO_RECORD', options: { unfolded: true } } }],

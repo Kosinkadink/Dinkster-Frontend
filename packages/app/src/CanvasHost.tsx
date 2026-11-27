@@ -3260,7 +3260,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     /** The open row's lookup fields, read from the scene as it is rebuilt. */
     const rowLookupsOf = (tab: Tab, nodeId: string, inputId: string): RowLookups | undefined => {
       const itemOf = () => {
-        const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
+        const scene = renderer.getScene()
+        const node = scene.nodes.find((candidate) => candidate.id === nodeId)
+          ?? scene.boundaryNodes.map(boundaryFieldNode).find((candidate) => candidate?.id === nodeId)
         const item = node?.elaborated === undefined ? undefined : elabInputsOf(node.elaborated).find((input) => input.spec.id === inputId)
         return node === undefined || item?.looked === undefined || item.spec.widget === undefined ? undefined : { node, item, spec: item.spec.widget }
       }
@@ -3306,7 +3308,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const bottom = top + height / viewport.scale
       const open = untrack(editor)
       const openField = open?.inRow?.automatic === undefined || open.tab.id !== tab.id || open.target.kind !== 'input' ? undefined : open.target
-      lookupDemandFor(lookups).show(renderer.getScene().nodes.flatMap((node) =>
+      const scene = renderer.getScene()
+      const lookupNodes = [...scene.nodes, ...scene.boundaryNodes.flatMap((panel) => boundaryFieldNode(panel) ?? [])]
+      lookupDemandFor(lookups).show(lookupNodes.flatMap((node) =>
         node.elaborated === undefined || node.x > right || node.y > bottom ||
           node.x + node.layout.width < left || node.y + node.layout.height < top
           ? []

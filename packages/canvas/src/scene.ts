@@ -312,6 +312,7 @@ export interface SceneBoundaryNode {
    */
   readonly fields?: {
     readonly node: NodeData
+    readonly elaborated?: ElaboratedInterface
     /** Rows wired outside the subgraph: dimmed and not editable, with the arriving value when the document fixes it. */
     readonly wired: Readonly<Record<string, { readonly value?: Json }>>
     /** Boundary item id -> value key of its first row, the one its pin and wire belong to. */
@@ -322,7 +323,8 @@ export interface SceneBoundaryNode {
 /** The Inputs panel as a node face, so its field rows hit, paint and edit as a node's do. */
 export function boundaryFieldNode(bnode: SceneBoundaryNode): SceneNode | undefined {
   if (bnode.fields === undefined) return undefined
-  return { id: boundarySceneId(bnode.side), x: bnode.x, y: bnode.y, layout: bnode.layout, node: bnode.fields.node, isSubgraph: true }
+  return { id: boundarySceneId(bnode.side), x: bnode.x, y: bnode.y, layout: bnode.layout, node: bnode.fields.node,
+    ...(bnode.fields.elaborated === undefined ? {} : { elaborated: bnode.fields.elaborated }), isSubgraph: true }
 }
 
 /**
@@ -1789,6 +1791,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const outsideSpaces = new Map<string, NonNullable<BoundarySlotInfo['editorSpaces']>>()
     const outsideTrees = new Map<string, NodeLayout>()
     const panelView = graphView?.inputsPanel
+    let fieldElaborated: ElaboratedInterface | undefined
     if (derived !== undefined && fieldOwners.size > 0) {
       // A nested promotion can own its value and chosen view farther out
       // than the immediately entered node.
@@ -1805,7 +1808,9 @@ export function buildScene(input: BuildSceneInput): Scene {
       const fieldSchema = (ownerNode !== undefined && ownerGraph !== undefined
         ? resolveNode(ownerGraph.id, ownerNode, input.occurrence!.owner.instancePath)
         : resolveNode(def.id, fieldNode)) ?? derived
+      fieldElaborated = elaborateShown(fieldSchema, fieldNode, EMPTY_CONNECTIVITY, fieldNode.id, undefined, fieldRepresentations, false)
       const outside = layoutNode(fieldSchema, fieldNode, input.tokens, measure, input.widgetMeasure, {
+        elaborated: fieldElaborated,
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
         widgetRepresentations: fieldRepresentations,
         ...(ownerView?.textLines !== undefined ? { textBoxLines: ownerView.textLines } : {}),
@@ -2066,6 +2071,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const inputsNode: SceneBoundaryNode = {
       side: 'inputs', x: inputsPos.x, y: inputsPos.y, layout: inputsLayout,
       ...(outsideRows.size > 0 ? { fields: { node: fieldNode, wired: wiredFields,
+        ...(fieldElaborated === undefined ? {} : { elaborated: fieldElaborated }),
         heads: Object.fromEntries([...outsideRows].flatMap(([itemId, rows]) => rows[0] === undefined ? [] : [[itemId, rows[0].valueKey]])) } } : {}),
     }
     const outputsNode: SceneBoundaryNode = { side: 'outputs', x: outputsPos.x, y: outputsPos.y, layout: outputsLayout }
