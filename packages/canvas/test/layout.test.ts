@@ -158,7 +158,7 @@ describe('pairing', () => {
       expect(after!.y).toBe(on!.y + on!.height)
       const center = on!.y + defaultTokens.rowHeight / 2
       const pitch = canvasPaintTokens.node.box.clusterPitch
-      const own = l.pins.filter((pin) => pin.portId !== 'after').map((pin) => [pin.portId, pin.direction, pin.y])
+      const own = l.pins.filter((pin) => pin.portId !== 'after' && !pin.lineHidden).map((pin) => [pin.portId, pin.direction, pin.y])
       expect(own).toEqual([
         ['on', 'in', center - pitch.two / 2],
         ['strength', 'in', center + pitch.two / 2],

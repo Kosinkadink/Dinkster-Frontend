@@ -1181,7 +1181,7 @@ export class CanvasRenderer {
     ctx.font = `${list.fontSize}px ${t.fontFamily}`
     ctx.textBaseline = 'middle'
     ctx.fillStyle = t.colors.nodeHeader
-    ctx.strokeStyle = t.colors.listOutline
+    ctx.strokeStyle = t.colors.nodeOutline
     ctx.lineWidth = list.stroke
     ctx.beginPath()
     ctx.roundRect(x, y, width, height, list.radius)
@@ -4569,7 +4569,7 @@ export class CanvasRenderer {
       return
     }
     for (const pin of l.pins) {
-      if (pin.stacked === true) continue
+      if (pin.stacked === true || pin.lineHidden === true) continue
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? node.x : node.x + l.width, node.y + pin.y)
       const targetKey = dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true)
       const isLegalTarget = this.overlay.dropTargets?.has(targetKey) ?? false
