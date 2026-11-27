@@ -1,9 +1,34 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test as base, type Page } from '@playwright/test'
 import { chooseOption } from '../../e2e/choices.js'
 import {
   canvasGalleryPages,
   galleryWidgetInputs,
 } from '../../canvas/gallery/fixtures.js'
+
+const test = base.extend({
+  // Each case owns a browser so earlier pages cannot change text rasterization.
+  context: async (
+    {
+      playwright,
+      browserName,
+      launchOptions,
+      contextOptions,
+      baseURL,
+      viewport,
+    },
+    use,
+  ) => {
+    const browser = await playwright[browserName].launch(launchOptions)
+    const options = { ...contextOptions }
+    if (baseURL !== undefined) options.baseURL = baseURL
+    if (viewport !== undefined) options.viewport = viewport
+    try {
+      await use(await browser.newContext(options))
+    } finally {
+      await browser.close()
+    }
+  },
+})
 
 const sideList = (page: Page) =>
   page.getByRole('navigation', { name: 'Main navigation', exact: true })
@@ -37,16 +62,21 @@ test('choosing a fixes Review entry selects its named example on the canvas', as
   await expect(card.locator('canvas')).toHaveAttribute('data-ready', /-dark$/)
   await expect(
     card.getByRole('button', {
-      name: 'Open Automatic fixes settings', exact: true,
+      name: 'Open Automatic fixes settings',
+      exact: true,
     }),
   ).toBeVisible()
   const removedChoices = page.getByTestId('fixes-notice-removed-choices')
   await expect(removedChoices.locator('canvas')).toHaveAttribute(
-    'data-ready', /-dark$/,
+    'data-ready',
+    /-dark$/,
   )
-  await expect(removedChoices.getByRole('button', {
-    name: 'Open Automatic fixes settings', exact: true,
-  })).toHaveCount(0)
+  await expect(
+    removedChoices.getByRole('button', {
+      name: 'Open Automatic fixes settings',
+      exact: true,
+    }),
+  ).toHaveCount(0)
   await removedChoices.screenshot({
     path: testInfo.outputPath('review-without-settings-dark.png'),
   })
@@ -817,7 +847,10 @@ test('Every Canvas page opens by a click in the side list', async ({
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/#canvas')
-  await expect(pageLink(page, 'anatomy')).toHaveAttribute('aria-current', 'page')
+  await expect(pageLink(page, 'anatomy')).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
   await expect(
     sideList(page).getByRole('link', { name: 'Canvas', exact: true }),
   ).toHaveAttribute('aria-current', 'true')
@@ -1084,15 +1117,24 @@ test('Open rows use a quiet outline and preserve keyboard focus and side-part co
     await openPage(page, 'row-states', theme)
     await cardsReady(page, 'row-states', theme)
     const form = page.getByTestId('button-ask-form')
-    const formOutline = form.locator('..').locator('..').locator('.dinkster-canvas-field-outline path')
+    const formOutline = form
+      .locator('..')
+      .locator('..')
+      .locator('.dinkster-canvas-field-outline path')
     const start = form.getByTestId('button-ask-start')
     await start.focus()
     await page.keyboard.press('Tab')
     const end = form.getByTestId('button-ask-end')
     await expect(end).toBeFocused()
-    await expect(end.locator('..')).toHaveCSS('border-color', await palette('--dinkster-border-keyboard-focus'))
+    await expect(end.locator('..')).toHaveCSS(
+      'border-color',
+      await palette('--dinkster-border-keyboard-focus'),
+    )
     await expect(end.locator('..')).toHaveCSS('border-width', '1px')
-    await expect(formOutline).toHaveCSS('stroke', await palette('--dinkster-accent-rest-border'))
+    await expect(formOutline).toHaveCSS(
+      'stroke',
+      await palette('--dinkster-accent-rest-border'),
+    )
     await expect(formOutline).toHaveCSS('stroke-width', '2px')
   }
 })
@@ -1268,7 +1310,10 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(dialog).toHaveScreenshot(`tabs-overflow-${theme}.png`)
     await page.mouse.click(0, 0)
     await expect(dialog).toBeVisible()
-    await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
+    await dialog
+      .getByRole('button', { name: 'Close', exact: true })
+      .last()
+      .click()
     await expect(dialog).toHaveCount(0)
     await canvas.click({ position: { x: 101, y: 152 } })
     await expect(dialog).toBeVisible()
@@ -1356,19 +1401,28 @@ for (const theme of ['dark', 'light'] as const) {
           const messageBox = section.locator('figure').filter({
             has: page.getByTestId('problem-box-run-message'),
           })
-          const text = await messageBox.locator('.problem-box-text').boundingBox()
-          const actions = await messageBox.locator('.problem-box-actions').boundingBox()
+          const text = await messageBox
+            .locator('.problem-box-text')
+            .boundingBox()
+          const actions = await messageBox
+            .locator('.problem-box-actions')
+            .boundingBox()
           expect(actions!.y).toBe(text!.y)
         }
         // The settings examples focus a row below the fold; sticky chrome
         // must not cover the canvas in the full-section capture.
-        const chrome = id === 'problem-box'
-          ? await page.addStyleTag({ content: '.dinkster-topbar { visibility: hidden; }' })
-          : undefined
+        const chrome =
+          id === 'problem-box'
+            ? await page.addStyleTag({
+                content: '.dinkster-topbar { visibility: hidden; }',
+              })
+            : undefined
         await expect(section).toHaveScreenshot(
           `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}-${theme}.png`,
         )
-        await chrome?.evaluate((element) => element.parentNode?.removeChild(element))
+        await chrome?.evaluate((element) =>
+          element.parentNode?.removeChild(element),
+        )
         if (id === 'run-editable' || id === 'run-frozen') {
           const running = page.getByTestId(`canvas-${id}-1`)
           await running.hover({ position: { x: 45, y: 185 } })
