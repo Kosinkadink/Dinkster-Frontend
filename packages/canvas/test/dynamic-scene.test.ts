@@ -254,11 +254,11 @@ it('hides manual Unpack count actions for known wired counts and restores them w
   const resolve = (type: string) => type === 'Unpack' ? unpack : type === 'Texts' ? texts : undefined
   const host = { schemaResolverFor: () => resolve, schemaOf: (_doc: unknown, _graph: unknown, node: NodeData) => resolve(node.type), editorFor: () => undefined }
   const body = unpack.body
-  for (const scoped of ['none', 'button', 'all']) for (const shared of [false, true]) for (const count of [3, 0]) {
+  for (const scoped of ['none', 'button', 'group', 'all']) for (const shared of [false, true]) for (const count of [3, 0]) {
     if (scoped === 'all' && shared) continue
-    unpack = { ...unpack, body: scoped !== 'none' ? [...body.filter(item => scoped === 'all' ? item.kind === 'input' && item.id === 'list' : item.kind !== 'button'), {
+    unpack = { ...unpack, body: scoped !== 'none' ? [...body.filter(item => scoped === 'all' ? item.kind === 'input' && item.id === 'list' : item.kind !== (scoped === 'group' ? 'group' : 'button')), {
       kind: 'choice', id: 'format', required: true, shared: [], default: 'plain',
-      options: [{ key: 'plain', rows: scoped === 'all' ? body : body.filter(item => item.kind === 'button') }],
+      options: [{ key: 'plain', rows: scoped === 'all' ? body : body.filter(item => item.kind === (scoped === 'group' ? 'group' : 'button')) }],
     }] : body }
     const values = Array.from({ length: count }, (_, i) => String(i))
     const inputPort = scoped === 'all' ? 'format.list' : 'list'
@@ -276,25 +276,34 @@ it('hides manual Unpack count actions for known wired counts and restores them w
     const shown = () => buildScene({ document: store.doc, graphId, resolve, tokens: defaultTokens, measure, widgetMeasure,
       ...(shared ? { occurrence: { owner: { instancePath: [], node: asNodeId('shell') }, plannerAvailable: true }, occurrenceView: occurrenceDynamicView(store.doc, resolve, ['shell']) } : {}),
     }).nodes.find(n => n.node.type === 'Unpack')!
-    const button = scoped !== 'none' ? 'format.set_count' : 'set_count'
+    const button = scoped === 'all' || scoped === 'button' ? 'format.set_count' : 'set_count'
     const hasAction = () => shown().layout.rows.some(row => row.kind === 'button' && row.buttonId === button)
     const target = { graphId, nodeId: 'unpack', instancePath: shared ? ['shell'] : [], button }
-    const items = () => shown().layout.pins.filter(pin => pin.direction === 'out' && pin.portId.startsWith(scoped === 'all' ? 'format.items.' : 'items.'))
+    const items = () => shown().layout.pins.filter(pin => pin.direction === 'out' && pin.portId.startsWith(scoped === 'all' || scoped === 'group' ? 'format.items.' : 'items.'))
+    const countUnknown = () => {
+      const row = shown().layout.rows.find(row => row.kind === 'section' &&
+        row.sectionId === `group:${scoped === 'all' || scoped === 'group' ? 'format.items' : 'items'}`)
+      return row?.kind === 'section' && row.countUnknown === true
+    }
     expect(items()).toHaveLength(count)
+    expect(countUnknown()).toBe(false)
     expect(hasAction()).toBe(false)
     expect(buttonAvailability(store.doc, target, host).enabled).toBe(false)
     if (!shared) expect(buttonAvailability(store.doc, target, { schemaOf: host.schemaOf, editorFor: host.editorFor }).enabled).toBe(false)
     expect(store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l0' } }).ok).toBe(true)
+    expect(countUnknown()).toBe(true)
     expect(hasAction()).toBe(true)
     expect(buttonAvailability(store.doc, target, host).enabled).toBe(true)
     expect(items()).toHaveLength(count)
     expect(store.undo()).toBe(true)
+    expect(countUnknown()).toBe(false)
     expect(hasAction()).toBe(false)
     expect(store.redo()).toBe(true)
     expect(hasAction()).toBe(true)
     expect(store.dispatch({ command: 'link.connect', params: { graphId: 'g0',
       from: { node: 'source', port: 'unknown' }, to: { node: shared ? 'shell' : 'unpack', port: shared ? 'list' : inputPort },
     } }).ok).toBe(true)
+    expect(countUnknown()).toBe(true)
     expect(hasAction()).toBe(true)
     expect(buttonAvailability(store.doc, target, host).enabled).toBe(true)
     expect(items()).toHaveLength(count)

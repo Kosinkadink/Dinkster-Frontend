@@ -1672,6 +1672,7 @@
   "boundary.region.output.occurrenceOnly": "Edits this region occurrence only; the shared definition is unchanged.",
   "boundary.region.output.state": "State output: {statePort} - Return the final value carried by state input \"{statePort}\".",
   "canvas.box.countOfMax": "{count} of {max}",
+  "canvas.box.countUnknown": "Count unknown",
   "canvas.lookup.loading": "Loading...",
   "canvas.lookup.waiting": "Waiting for {input}.",
   "canvas.lookup.paused": "Paused",

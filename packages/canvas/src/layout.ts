@@ -429,6 +429,8 @@ export type LayoutRow =
       readonly top: number
       /** How many rows a section holds, or how many members a group shows. */
       readonly count: number
+      /** The incoming list count is unknown; the stored members are not its length. */
+      readonly countUnknown?: true
       /** A group that declares a maximum: that maximum, shown after its count. */
       readonly maxCount?: number
       /**
@@ -1223,6 +1225,7 @@ export function layoutNode(
     /** Keys of the declared boxes around this one, outermost first. */
     readonly parents: readonly string[]
     readonly members?: number
+    readonly countUnknown?: true
     readonly maxMembers?: number
     readonly construct?: string
     readonly ordinal?: number
@@ -1320,6 +1323,7 @@ export function layoutNode(
         parents: item.boxes ?? [],
         construct: item.construct,
         ...(item.members !== undefined ? { members: item.members } : {}),
+        ...(item.countUnknown ? { countUnknown: true as const } : {}),
         ...(item.maxMembers !== undefined ? { maxMembers: item.maxMembers } : {}),
         ...(item.ordinal !== undefined ? { ordinal: item.ordinal } : {}),
         ...(item.ghost ? { ghost: true as const } : {}),
@@ -2008,6 +2012,7 @@ export function layoutNode(
           collapsed: decl.closed,
           inset: outlineX(depth),
           count,
+          ...(decl.countUnknown ? { countUnknown: true as const } : {}),
           ...(decl.kind === 'group' && decl.maxMembers !== undefined ? { maxCount: decl.maxMembers } : {}),
           ...(decl.closed && modified !== undefined ? { hiddenModified: modified } : {}),
           ...(decl.closed && hiddenPorts.has(decl.id) ? { hiddenPorts: hiddenPorts.get(decl.id)! } : {}),
@@ -2239,6 +2244,7 @@ export function layoutNode(
     } else if (row.kind === 'section' || row.kind === 'member') {
       // Arrow or grip, the name, and the count or the remove cross.
       content = measure(row.label, 'label') + box.widthPadding + (row.inset - tokens.padX) * 2
+      if (row.kind === 'section' && row.countUnknown) content += measure(translate('canvas.box.countUnknown'), 'label')
     } else if (row.kind === 'growth') {
       // '+ label' text plus capsule padding.
       content = measure(`+ ${row.label}`, 'label') + canvasPaintTokens.node.growthWidthPadding + (row.inset - tokens.padX) * 2

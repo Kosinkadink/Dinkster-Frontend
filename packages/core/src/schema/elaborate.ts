@@ -384,6 +384,8 @@ export interface ElaboratedBox {
   readonly label: string
   /** A group: how many members it shows, not counting the spare one. */
   readonly members?: number
+  /** The incoming list count is unknown, independently of retained members. */
+  readonly countUnknown?: true
   /** A group: the most members it declares, when it declares a maximum. */
   readonly maxMembers?: number
   /** A member: its position in the group, from 0. */
@@ -736,6 +738,8 @@ export interface ElaborateOptions {
    * when its `visible` is false.
    */
   readonly problemRows?: ReadonlySet<string>
+  /** Count-driven groups whose incoming list has no known count. */
+  readonly unknownCountGroups?: ReadonlySet<string>
   /**
    * When given, receives the formula context of every scope the walk enters,
    * keyed by the scope's flattened prefix ('' for the body, 'loras.lora_1.'
@@ -1693,9 +1697,9 @@ function elaboratePass(
     const patch = fill([...(announce.boxes ?? []), announce.id])
     if (items[at] !== announce) return
     const added = items.slice(at + 1)
-    const drawn = added.some((item) =>
-      item.kind !== 'box' && !((item.kind === 'input' || item.kind === 'output') && item.spec.hidden === true))
-    if (!drawn) items.splice(at, items.length - at, ...added.filter((item) => item.kind !== 'box'))
+    const drawn = added.some((item) => item.kind === 'box' ? item.countUnknown === true
+      : !((item.kind === 'input' || item.kind === 'output') && item.spec.hidden === true))
+    if (!drawn && announce.countUnknown !== true) items.splice(at, items.length - at, ...added.filter((item) => item.kind !== 'box'))
     else if (patch) items[at] = { ...announce, ...patch }
   }
 
@@ -2002,6 +2006,7 @@ function elaboratePass(
         box: 'group',
         construct: path,
         label: literalText(row.displayName) ?? row.id,
+        ...(options.unknownCountGroups?.has(path) && !scope.hidden && !scope.dormant ? { countUnknown: true as const } : {}),
         ...(row.grows === 'button' ? { byHand: true as const } : {}),
         ...(row.maxMembers !== undefined ? { maxMembers: row.maxMembers } : {}),
         ...(row.reorderable === true && typeof row.grows === 'string' ? { reorderable: true as const } : {}),

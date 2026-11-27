@@ -19,6 +19,7 @@ import {
   canonicalTypeIdOf,
   cardinalityOf,
   companionSourcesOf,
+  constructsOf,
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
   diagnosticBlocksExecution,
@@ -842,7 +843,21 @@ export function buildScene(input: BuildSceneInput): Scene {
     const shown = problemRows.size > (solverProblems?.size ?? 0)
       ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
       : elaborated
-    return hideKnownListCountButtons(shown, contexts, port => solvedTypes.listCountOf(asNodeId(nodeId), 'input', port))
+    const fields = elabInputsOf(shown)
+    const unknown = new Set<string>()
+    for (const [path, group] of constructsOf(schema, node.dynamic)) {
+      if (group.kind !== 'group' || typeof group.grows !== 'object' || !('count' in group.grows)) continue
+      const prefix = path.slice(0, path.lastIndexOf('.') + 1)
+      const target = contexts.get(prefix)?.paths.get(group.grows.count)
+      const field = fields.find(field => field.address.port === target)
+      if (field?.spec.listCountOf === undefined) continue
+      const fieldPrefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
+      const source = contexts.get(fieldPrefix)?.paths.get(field.spec.listCountOf)
+      if (source !== undefined && solvedTypes.listCountOf(asNodeId(nodeId), 'input', source) === undefined) unknown.add(path)
+    }
+    const counted = unknown.size === 0 ? shown
+      : elaborateInterface(schema, node, connectivity, { problemRows, ...lookups, unknownCountGroups: unknown })
+    return hideKnownListCountButtons(counted, contexts, port => solvedTypes.listCountOf(asNodeId(nodeId), 'input', port))
   }
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   const sourcePath = input.occurrence === undefined

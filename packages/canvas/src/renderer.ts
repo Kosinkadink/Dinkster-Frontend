@@ -4175,7 +4175,8 @@ export class CanvasRenderer {
             ctx.fillStyle = t.colors.boxCount
             ctx.textAlign = 'right'
             // A group that declares a maximum says how near it is: "3 of 16".
-            const count = row.maxCount === undefined ? String(row.count) : translate('canvas.box.countOfMax', { count: row.count, max: row.maxCount })
+            const count = row.countUnknown ? translate('canvas.box.countUnknown')
+              : row.maxCount === undefined ? String(row.count) : translate('canvas.box.countOfMax', { count: row.count, max: row.maxCount })
             paintCenteredText(ctx, count, textRight, cy, boxPaint.countFontSize)
             textRight -= ctx.measureText(count).width + boxPaint.dotGap
             ctx.font = `${t.fontSize}px ${t.fontFamily}`
