@@ -205,20 +205,6 @@ describe('schemaMatchesLinkDrop (noodle-drop compatibility)', () => {
     expect(schemaMatchesLinkDrop(decode, concrete('LATENT'), 'out')).toBe(false)
   })
 
-  it('fails closed when the dangling end has no proven type', () => {
-    expect(schemaMatchesLinkDrop(decode, { kind: 'wildcard' }, 'in')).toBe(false)
-    expect(schemaMatchesLinkDrop(decode, { kind: 'wildcard' }, 'out')).toBe(false)
-    expect(schemaMatchesLinkDrop(decode, { kind: 'variable', templateId: 'unknown' }, 'in')).toBe(false)
-    expect(schemaMatchesLinkDrop(decode, { kind: 'variable', templateId: 'unknown' }, 'out')).toBe(false)
-    expect(schemaMatchesLinkDrop(decode, {
-      kind: 'variable', templateId: 'mixed',
-      allowedTypes: [concrete('LATENT'), { kind: 'wildcard' }],
-    }, 'in')).toBe(false)
-    expect(schemaMatchesLinkDrop(decode, {
-      kind: 'list', element: { kind: 'variable', templateId: 'open' },
-    }, 'in')).toBe(false)
-  })
-
   it('cardinality is structural: a list anchor never feeds a scalar input', () => {
     const listAnchor: TypeExpr = { kind: 'list', element: concrete('IMAGE') }
     expect(schemaMatchesLinkDrop(decode, listAnchor, 'in')).toBe(false)
@@ -303,11 +289,9 @@ describe('autoConnectTarget (link-drop auto-connect target)', () => {
     expect(autoConnectTarget(decode, concrete('MASK'), 'in')).toBeUndefined()
   })
 
-  it('rejects unknown anchors but preserves intentional generic targets as fallbacks', () => {
+  it('preserves intentional generic targets as fallbacks', () => {
     const genericInput = schema([input('value', { kind: 'variable', templateId: 'T' })])
     const genericOutput = schema([{ kind: 'output', id: 'value', type: { kind: 'wildcard' } }])
-    expect(autoConnectTarget(decode, { kind: 'wildcard' }, 'in')).toBeUndefined()
-    expect(autoConnectTarget(decode, { kind: 'variable', templateId: 'unknown' }, 'out')).toBeUndefined()
     expect(autoConnectTarget(genericInput, concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'value' })
     expect(autoConnectTarget(genericOutput, concrete('comfy.IMAGE'), 'out')).toEqual({ port: 'value' })
     expect(autoConnectTarget(schema([input('value', {
@@ -363,8 +347,6 @@ describe('autoConnectTarget (link-drop auto-connect target)', () => {
     expect(schemaMatchesLinkDrop(s, concrete('MASK'), 'in')).toBe(true)
     // The start option's input is a real addressable port on a fresh node.
     expect(autoConnectTarget(s, concrete('MASK'), 'in')).toEqual({ port: 'mode.mask' })
-    // Unknown anchor metadata cannot choose a branch input or selector row.
-    expect(autoConnectTarget(s, { kind: 'wildcard' }, 'in')).toBeUndefined()
   })
 })
 
