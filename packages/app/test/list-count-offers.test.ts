@@ -1,13 +1,18 @@
 import { readFileSync } from 'node:fs'
-import { expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import {
   asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, boundaryOf, coreCommandRegistry,
-  createLocalSession, documentResolver, occurrenceDynamicView, parseDinksterSchema, semanticHashOf,
+  compile, createLocalSession, documentResolver, occurrenceDynamicView, parseDinksterSchema, semanticHashOf,
   type NodeSchema, type OccurrenceListCountEstimate, type WorkflowDocument,
 } from '@dinkster/core'
 import { listCountOffers, useListCountEstimate } from '../src/list-count-offers.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
+import type { ExecutionState } from '@dinkster/client'
 
-it('uses a larger estimate atomically and remembers a manual answer per occurrence across reload', () => {
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('uses a larger estimate atomically and remembers a manual answer per occurrence across reload', async () => {
+  vi.stubGlobal('location', { protocol: 'http:', host: 'test' })
   const wire = JSON.parse(readFileSync(new URL('../../core/test/fixtures/flow_schemas.json', import.meta.url), 'utf8'))
   const parsed = parseDinksterSchema('dinkster.utilities.unpack', wire['dinkster.utilities.unpack']).schema!
   const unpack = { ...parsed, body: parsed.body.map(row => row.kind === 'input' && row.id === 'count'
@@ -55,5 +60,44 @@ it('uses a larger estimate atomically and remembers a manual answer per occurren
     expect(read(reloaded, 900)[0]).toMatchObject({ count: 900, limit: 512 })
     for (const count of [3, 1, 0, undefined]) expect(read(reloaded, count)).toEqual([])
     if (nested) expect(read(reloaded, 85, ['right'])[0]?.count).toBe(85)
+
+    const promoted: WorkflowDocument = nested ? { ...document, graphs: { ...document.graphs,
+      body: { ...body, boundary: boundaryOf([{ id: asPortId('chosen'), promoted: true,
+        binds: { kind: 'port', node: asNodeId('unpack'), port: asPortId('count') } }], []) },
+    } } : document
+    const app = createWorkflowApp([unpack, source])
+    try {
+      await app.openDocument(promoted, 'Count choices')
+      const tab = app.activeTab()!
+      const compiled = compile({ document: tab.store.doc, revision: 1, resolve: documentResolver(tab.store.doc, schemas),
+        scope: { kind: 'full' }, connection: app.connection.id, schemaHash: 'workflow-test' })
+      expect(compiled.ok).toBe(true)
+      if (!compiled.ok) continue
+      const execution = { ref: { connection: app.connection.id }, artifact: compiled.artifact,
+        nodes: Object.fromEntries(Object.keys(compiled.artifact.prompt).filter(id => id.endsWith('source')).map(id => [id,
+          { state: 'done', outputs: { out: { typeId: 'list<INT>', length: 85 } } }])) } as unknown as ExecutionState
+      vi.spyOn(app, 'executionForTab').mockReturnValue(execution)
+      vi.spyOn(app, 'previewComparisonCompile').mockReturnValue(compiled)
+      if (nested) {
+        expect(tab.store.dispatch({ command: 'occurrence.setListCount', params: {
+          graphId: 'body', nodeId: 'unpack', instancePath: path, inputId: 'count', value: 2,
+        } }).ok).toBe(true)
+        expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+          graphId: 'root', nodeId: 'left', inputId: 'chosen', value: 7,
+        } })).ok).toBe(true)
+        expect(read(tab.store.doc, 85)[0]?.count).toBe(85)
+        expect(tab.store.undo()).toBe(true)
+        expect(tab.store.undo()).toBe(true)
+      }
+      expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+        graphId: nested ? 'root' : 'body', nodeId: nested ? 'left' : 'unpack', inputId: nested ? 'chosen' : 'count', value: 2,
+      } })).ok).toBe(true)
+      const saved = JSON.parse(JSON.stringify(tab.store.doc)) as WorkflowDocument
+      expect(read(saved, 85)).toEqual([])
+      expect(read(saved, 86)[0]?.count).toBe(86)
+      if (nested) expect(read(saved, 85, ['right'])[0]?.count).toBe(85)
+      expect(tab.store.undo()).toBe(true)
+      expect(read(tab.store.doc, 85)[0]?.count).toBe(85)
+    } finally { app.dispose() }
   }
 })

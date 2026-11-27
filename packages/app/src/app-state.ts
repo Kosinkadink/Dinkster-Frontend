@@ -7,6 +7,8 @@
 
 import { desktopSaveBridge } from './desktop-bridge.js'
 import { createAppPageTabs } from './app-page-tabs.js'
+import { answerListCountValueEdits } from './list-count-offers.js'
+import { recordedListCountEstimates } from './companion-display.js'
 import { isPageTab } from './page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
 import {
@@ -6690,6 +6692,17 @@ export class AppState {
   /** Dispatch to the tab's session; ordinary command failures append to Problems. */
   dispatchTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
     if (tab.execution && !this.frozenPresentationCommand(invocation)) return this.refuseFrozenEdit(tab)
+    const registry = this.registryForTab(tab)
+    if (!tab.execution && registry !== undefined) {
+      invocation = answerListCountValueEdits(tab.store.doc, documentResolver(tab.store.doc, registry.resolve), () => {
+        const execution = this.executionForTab(tab)
+        if (!execution || !Object.values(execution.nodes).some(node =>
+          Object.values(node.outputs ?? {}).some(output => output.typeId.startsWith('list<') && output.length !== undefined))) return undefined
+        const comparison = this.previewComparisonCompile(tab)
+        return recordedListCountEstimates({ execution, frozen: false,
+          live: comparison?.ok ? comparison.artifact : undefined })
+      }, invocation)
+    }
     const outcome = tab.store.dispatch(invocation)
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
     return outcome
@@ -9804,7 +9817,11 @@ export class AppState {
       return state.mode === step.mode && Object.is(state.current, step.current)
     })
     const invocation = advancementInvocation(applicable)
-    if (invocation) this.dispatchTo(tab, invocation)
+    if (invocation) {
+      // Automatic controller advancement is not a manual answer to a count offer.
+      const outcome = tab.store.dispatch(invocation)
+      if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
+    }
   }
 
   private queueRefusalDiagnostics(tab: Tab, diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
