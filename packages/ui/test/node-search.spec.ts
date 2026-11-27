@@ -1,5 +1,18 @@
 import { expect, test } from '@playwright/test'
 
+test('ordinary empty node search omits empty groups and restores populated headings', async ({ page }) => {
+  await page.goto('/#node-search')
+  const search = page.getByTestId('node-search-typed')
+  const input = search.getByRole('combobox')
+  await input.fill('not-a-node')
+  await expect(search.getByRole('status')).toHaveText('No matches')
+  await expect(search).toContainText('Try another name or type.')
+  await expect(search.getByRole('listbox').getByRole('group')).toHaveCount(0)
+  await input.fill('Gradient')
+  await expect(search.getByRole('listbox').getByRole('group', { name: 'Nodes 1', exact: true })).toBeVisible()
+  await expect(search.getByRole('option')).toHaveText('Gradient Imagedev / image')
+})
+
 test('a dropped image wire offers compatible installed nodes and blueprints and names their target inputs', async ({ page }) => {
   await page.goto('/#node-search')
   const search = page.getByTestId('node-search-wire')
