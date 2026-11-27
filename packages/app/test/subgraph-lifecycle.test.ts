@@ -1012,6 +1012,8 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       expect(fields.map((field) => prompt[`first${suffix}.other`]!.inputs[field]))
         .toEqual(depth === 1 ? [0.11, 0.12, 0.13, 0.14] : [0.21, 0.22, 0.23, 0.24])
       for (const target of ['sample', 'other']) expect(fields.map((field) => prompt[`second${suffix}.${target}`]!.inputs[field])).toEqual([0.8, 0.81, 0.61, 0.41])
+      expect(current.graphs.root!.nodes.second).toEqual(joined.graphs.root!.nodes.second)
+      expect([prompt[`second${suffix}.sample`]!.inputs.count, prompt[`second${suffix}.other`]!.inputs.count]).toEqual([2, 4])
       expect(current.graphs.detail).toEqual(joined.graphs.detail)
       expect(current.graphs.portrait).toEqual(joined.graphs.portrait)
       expect(prompt.sink!.inputs.number).toEqual([`first${suffix}.sample`, 6])
@@ -1037,15 +1039,21 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       expect(result.ok, JSON.stringify(result.reports)).toBe(true)
       const flattened = result.session.doc
       const replacements = Object.values(flattened.graphs.root!.nodes).filter((node) => before.graphs.root!.nodes[node.id] === undefined)
+      expect(replacements).toHaveLength(depth === 1 ? 2 : 1)
       const primary = depth === 1 ? replacements.find((node) => node.values.strength === 0.2 && node.values.count === 3)!
         : replacements[0]!
+      const primaryId = depth === 1 ? primary.id : `${primary.id}.sample`
+      const secondaryId = depth === 1 ? replacements.find((node) => node.id !== primary.id)!.id : `${primary.id}.other`
       for (const current of [flattened, loadDocument(JSON.parse(JSON.stringify(flattened))).document!]) {
         const prompt = promptOf(current)
         const receivers = Object.entries(prompt).filter(([id, node]) => node.class_type === 'Boundary sample' && !id.startsWith('second.'))
-        expect(receivers).toHaveLength(mode === 'active' ? 2 : 0)
+        expect(receivers.map(([id]) => id).sort()).toEqual(mode === 'active' ? [primaryId, secondaryId].sort() : [])
+        if (mode === 'active') expect([prompt[primaryId]!.inputs.count, prompt[secondaryId]!.inputs.count]).toEqual([3, 4])
         for (const [, node] of receivers) expect(fields.map((field) => node.inputs[field])).toEqual([0.2, 0.17, 0.37, 0.57])
         for (const target of ['sample', 'other']) expect(fields.map((field) => prompt[`second${suffix}.${target}`]!.inputs[field])).toEqual([0.8, 0.81, 0.61, 0.41])
-        expect(prompt.sink!.inputs.number).toEqual(mode === 'active' ? [depth === 1 ? primary.id : `${primary.id}.sample`, 6] : undefined)
+        expect(current.graphs.root!.nodes.second).toEqual(before.graphs.root!.nodes.second)
+        expect([prompt[`second${suffix}.sample`]!.inputs.count, prompt[`second${suffix}.other`]!.inputs.count]).toEqual([2, 4])
+        expect(prompt.sink!.inputs.number).toEqual(mode === 'active' ? [primaryId, 6] : undefined)
         expect(current.graphs.detail).toEqual(joined.graphs.detail)
         expect(current.graphs.portrait).toEqual(joined.graphs.portrait)
       }
