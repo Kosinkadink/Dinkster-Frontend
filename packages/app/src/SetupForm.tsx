@@ -1,6 +1,6 @@
 import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
 import { formatByteSize } from '@dinkster/core'
-import { ProductBrandMark, ProductButton, ProductDialog, ProductDisclosure, ProductFacts, ProductField, ProductMenu, ProductNotice, ProductPageLoad, ProductPanel, ProductProgress, ProductTextButton, ProductTextInput } from '@dinkster/ui'
+import { ProductBrandMark, ProductButton, ProductDialog, ProductDisclosure, ProductFacts, ProductField, ProductMenu, ProductNotice, ProductPageLoad, ProductPanel, ProductProgress, ProductProjectHeader, ProductTextButton, ProductTextInput } from '@dinkster/ui'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { useAppMessage } from './locale.js'
 import { createSetupController, setupJobActive, type SetupJob, type UnusableGraphicsCard } from './setup-job.js'
@@ -137,7 +137,9 @@ export function SetupForm(props: {
       <Show when={setup.plan()}>
         {(plan) => <section class="setup-form">
           <Show when={props.surface === 'editor'}><ProductBrandMark /></Show>
-          <h1 class="dinkster-title">{message(props.surface === 'editor' ? 'setup.editorTitle' : 'projects.setup.title')}</h1>
+          <Show when={props.surface === 'projects'} fallback={<h1 class="dinkster-title">{message('setup.editorTitle')}</h1>}>
+            <ProductProjectHeader title={message('projects.setup.title')} />
+          </Show>
           <div class="setup-facts">
           <ProductPanel fill="quiet">
           <dl class="setup-facts-rows">

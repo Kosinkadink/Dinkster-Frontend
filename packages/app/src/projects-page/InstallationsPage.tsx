@@ -52,7 +52,7 @@ export function InstallationsView(props: {
 
   return (
     <ProductProjectsView
-      narrowPanel={showSetup() || narrowDetail() ? 'detail' : 'list'}
+      narrowPanel={page.error() && !page.value() || showSetup() || narrowDetail() ? 'detail' : 'list'}
       back={{ label: message('projects.place.installations'), onSelect: () => { setSettingUp(false); setNarrowDetail(false) } }}
       list={<>
         <ProductProjectListHeader id={heading} title={message('projects.place.installations')}

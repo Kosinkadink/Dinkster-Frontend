@@ -111,6 +111,11 @@ it('selects installations independently of the running engine and opens setup in
   await settle()
   expect(document.querySelector('[data-testid="setup-form"]')).not.toBeNull()
   expect(document.querySelector('.dinkster-projects-detail')?.textContent).toContain('Set up Dinkster')
+  const back = document.querySelector<HTMLButtonElement>('.dinkster-projects-back button')!
+  expect(back.textContent).toBe('Installations')
+  back.click()
+  await settle()
+  expect(document.querySelector('[role="option"][aria-selected="true"]')?.textContent).toBe('NightlyRunning')
   document.querySelectorAll<HTMLElement>('[role="option"]')[0]!.click()
   await settle()
   expect(document.querySelector('[data-testid="setup-form"]')).toBeNull()
