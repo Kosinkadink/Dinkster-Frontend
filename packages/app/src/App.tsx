@@ -685,31 +685,13 @@ export function App(props: {
     }
     if (sourceId !== 'runs' || entry.owner === undefined) return
     const runId = runIdOfEntry(entry)
-    if (actionId === 'delete' && !deletingRun()) {
-      setDeleteRunError('')
-      setPendingDeleteRun({ owner: entry.owner, id: entry.id, runId, name: entry.title })
+    if (actionId === 'delete') {
+      // AppState reports deletion failures in Problems before rejecting.
+      void app.deleteHistoryRun(runId, entry.owner).catch(() => {})
     }
     if (actionId === 'open') void app.openRunWorkflow(runId, entry.owner)
     if (actionId === 'resubmit') void app.resubmitRunWorkflow(runId, entry.owner)
   }
-  const [pendingDeleteRun, setPendingDeleteRun] = createSolidSignal<{ owner: string; id: string; runId: string; name: string }>()
-  const [deletingRun, setDeletingRun] = createSolidSignal(false)
-  const [deleteRunError, setDeleteRunError] = createSolidSignal('')
-  const confirmDeleteRun = async (): Promise<void> => {
-    const target = pendingDeleteRun()
-    if (!target || deletingRun()) return
-    setDeletingRun(true)
-    setDeleteRunError('')
-    try {
-      await app.deleteHistoryRun(target.runId, target.owner)
-      setPendingDeleteRun(undefined)
-    } catch (cause) {
-      setDeleteRunError(message('runs.delete.failed', { name: target.name, reason: cause instanceof Error ? cause.message : String(cause) }))
-    } finally { setDeletingRun(false) }
-  }
-  createEffect(() => {
-    if (!deletingRun() && pendingDeleteRun()?.owner !== activeBackend().id) setPendingDeleteRun(undefined)
-  })
   // The confirmation keeps the committed collection page's owner, never
   // routing a clear to a backend selected while that page is being replaced.
   const [pendingClear, setPendingClear] = createSolidSignal<{ owner: string; name: string }>()
@@ -1655,7 +1637,6 @@ export function App(props: {
       onCopyJobId={() => { const jobId = record()?.jobId; if (jobId !== undefined) void navigator.clipboard?.writeText(jobId) }}
       onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
-      <Show when={pendingDeleteRun()?.owner === p.entry.owner && pendingDeleteRun()?.id === p.entry.id} fallback={<>
       <div class="run-row-line">
         <span class="run-row-thumbnail" aria-hidden="true">
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
@@ -1679,12 +1660,6 @@ export function App(props: {
         }</Show>}>
           {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />}
         </Show>
-      </Show>
-      </>}>
-        <ProductConfirmation title={message('runs.delete.title', { name: pendingDeleteRun()!.name })}
-          consequence={message('runs.delete.consequence')} actionLabel={message('runs.chosen.delete')}
-          intent="remove" surface="inherit" pending={deletingRun()} error={deleteRunError()}
-          onCancel={() => { setDeleteRunError(''); setPendingDeleteRun(undefined) }} onConfirm={() => void confirmDeleteRun()} />
       </Show>
     </div>
   }

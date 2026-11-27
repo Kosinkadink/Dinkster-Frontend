@@ -324,7 +324,7 @@ test('two cached runs collapse into one expandable no-op history row', async ({ 
   }
 })
 
-test('delete removes the record only: the collection re-pages and asset bytes survive', async ({ page }) => {
+test('Delete record acts immediately and preserves assets, while Clear finished still asks', async ({ page }) => {
   const jobId = await queueAndComplete(page)
   await openRuns(page)
   const entry = entryFor(page, jobId)
@@ -332,26 +332,44 @@ test('delete removes the record only: the collection re-pages and asset bytes su
   await entry.click()
   const sourceDoc = (await durableRecords()).find((record) => record.jobId === jobId)?.sourceDocument
   expect(sourceDoc).toMatch(/^blake3:[0-9a-f]{64}$/)
+  // A saved file is separate from the run record, even when it names that run.
+  const savedBytes = new TextEncoder().encode(`Saved output for ${jobId}`)
+  const saved = await fetch(`${NATIVE_BACKEND}/api/assets?scope=local&name=${encodeURIComponent(`${jobId}.bin`)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: savedBytes,
+  })
+  expect(saved.ok).toBe(true)
+  const savedFile = await saved.json() as { asset: { digest: string } }
+  const workflow = await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))
+  const assetUrl = `${NATIVE_BACKEND}/api/assets/${encodeURIComponent(sourceDoc!)}`
+  const before = await fetch(assetUrl)
+  expect(before.ok).toBe(true)
+  const assetBytes = new Uint8Array(await before.arrayBuffer())
 
   await chosenRunMenu(page, entry, 'Delete record')
-  const question = entry.locator('.dinkster-confirmation')
-  await expect(question.getByRole('heading')).toContainText('Delete the record of')
-  await expect(question.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
-  expect((await durableRecords()).some((record) => record.jobId === jobId)).toBe(true)
-  await question.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(entry).toHaveCount(1)
-  await expect(entry).toHaveAttribute('aria-selected', 'true')
-  await chosenRunMenu(page, entry, 'Delete record')
-  await question.getByRole('button', { name: 'Delete record', exact: true }).click()
+  const runs = page.getByTestId('runs-panel')
+  await expect(runs.locator('.dinkster-confirmation')).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(entry).toHaveCount(0, { timeout: 10_000 })
 
   // Record-only by contract: the producing document's asset bytes survive.
-  const asset = await fetch(`${NATIVE_BACKEND}/api/assets/${encodeURIComponent(sourceDoc!)}`)
+  const asset = await fetch(assetUrl)
   expect(asset.ok).toBe(true)
+  expect(new Uint8Array(await asset.arrayBuffer())).toEqual(assetBytes)
+  const output = await fetch(`${NATIVE_BACKEND}/api/assets/${encodeURIComponent(savedFile.asset.digest)}?scope=local`)
+  expect(output.ok).toBe(true)
+  expect(new Uint8Array(await output.arrayBuffer())).toEqual(savedBytes)
+  expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(workflow)
   // And the record itself is durably gone, not just filtered client-side.
   const listing = await (await fetch(`${NATIVE_BACKEND}/api/history?scope=local&limit=100`)).json() as
     { records: { jobId: string }[] }
   expect(listing.records.some((r) => r.jobId === jobId)).toBe(false)
+  await runs.getByTestId('collection-source-action').click()
+  const question = runs.locator('.dinkster-confirmation')
+  await expect(question.getByRole('heading')).toContainText('Clear finished runs')
+  await expect(question).toContainText('Saved files stay.')
+  await expect(question.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  await question.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(question).toHaveCount(0)
   await chooseRunScope(page, 'workflow')
   await expect(page.getByTestId('runs-panel').getByTestId('execution-row')).toHaveCount(0)
 })
@@ -366,8 +384,7 @@ test('a delete failure lands in Problems and keeps the record', async ({ page })
   const entry = entryFor(page, jobId)
   await entry.click()
   await chosenRunMenu(page, entry, 'Delete record')
-  await entry.locator('.dinkster-confirmation').getByRole('button', { name: 'Delete record', exact: true }).click()
-  await expect(entry.locator('.dinkster-confirmation')).toContainText('was not deleted.')
+  await expect(entry.locator('.dinkster-confirmation')).toHaveCount(0)
   await expect(entry).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('problems-panel')).toContainText('history.deleteFailed')
   await expect(entry).toHaveCount(1)

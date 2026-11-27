@@ -141,10 +141,10 @@ latest occurrence and an explicit run count.
 `Show runs` expands every stored member in newest-first history order, where
 each member retains its own details and actions.
 
-Delete record and Clear all require a visible confirmation activation before
-their existing atomic backend commands run. Deleting still removes only the
-selected history record; clearing still applies to the displayed backend-owned
-page scope. Open workflow remains a separate explicit action.
+Delete record immediately removes only the selected history record, leaving
+saved files and workflows untouched. Clear finished still requires a visible
+confirmation before clearing the displayed backend-owned page scope. Open
+workflow remains a separate explicit action.
 
 `sourceDocument` is the strongest stable document identity retained in durable
 history: it is the content digest of the exact submitted workflow revision.
