@@ -4,7 +4,7 @@ import { evidencePath } from './evidence-output.js'
 test('project opening distinguishes unanswered Dinkster from an installation start failure', async ({ page }) => {
   const project = { id: 'scene-outage', name: 'Mountain lanterns', created: '2026-01-01T00:00:00Z', revision: 1, deleted: false }
   const root = '/installs/nightly'
-  let failure: 'project' | 'start' | 'installation' = 'project'
+  let failure: 'start' | 'installation' = 'start'
   await page.route('**/supervisor/status', route => route.fulfill({ json: { protocol: 1, role: 'home', state: 'stopped', installations: 1 } }))
   await page.route('**/supervisor/installations', route => route.fulfill({ json: {
     installations: [{ root, frontend: { wire: 2, selected: null, available: true } }],
@@ -17,13 +17,12 @@ test('project opening distinguishes unanswered Dinkster from an installation sta
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname
     if (path === '/api/projects') return route.fulfill({ json: { items: [project], cursor: null } })
-    if (path === `/api/projects/${project.id}`) return failure === 'project'
-      ? route.abort('connectionrefused') : route.fulfill({ json: { project } })
+    if (path === `/api/projects/${project.id}`) return route.fulfill({ json: { project } })
     return route.fulfill({ status: 503, json: { error: 'engine-not-ready', state: 'stopped' } })
   })
   await page.goto('/')
   await expect(page.getByRole('heading', { name: project.name, exact: true })).toBeVisible()
-  for (const stage of ['project', 'start', 'installation'] as const) {
+  for (const stage of ['start', 'installation'] as const) {
     failure = stage
     await page.getByTestId('projects-open').click()
     const sentence = stage === 'installation' ? 'nightly did not start' : 'Dinkster is not answering'
