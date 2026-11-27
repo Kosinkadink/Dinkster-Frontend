@@ -4506,9 +4506,11 @@ describe('Inputs panel fields', () => {
       })
       expect(original[`first${suffix}`]!.slotVariants?.mode).toBe('image')
       expect(original[`second${suffix}`]!.slotVariants?.mode).toBe('text')
-      const checkHistory = (before: WorkflowDocument) => {
+      expect(original[`first${suffix}`]!.outputMembers).toEqual({ layers: ['layer0', 'layer1', 'layer2', 'layer3'] })
+      expect(original[`second${suffix}`]!.outputMembers).toEqual({ layers: ['layer0', 'layer1', 'layer2'] })
+      const checkHistory = (before: WorkflowDocument, expected = original) => {
         const after = store.doc
-        const compiled = promptOf(after)
+        expect(promptOf(after)).toEqual(expected)
         expect(store.undo()).toBe(true)
         const seq = after.graphs.root!.nodes.first!.dynamic?.group?.seq
         // Member allocation cursors remain monotonic after an Add is undone.
@@ -4519,9 +4521,10 @@ describe('Inputs panel fields', () => {
         } })
         expect(store.redo()).toBe(true)
         expect(store.doc).toEqual(after)
+        expect(promptOf(store.doc)).toEqual(expected)
         const reopened = loadDocument(JSON.parse(JSON.stringify(after))).document!
         expect(reopened).toEqual(after)
-        expect(promptOf(reopened)).toEqual(compiled)
+        expect(promptOf(reopened)).toEqual(expected)
       }
       const sceneOf = (entered = true) => {
         const resolve = documentResolver(store.doc, (type) => type === sample.type ? sample : undefined)
@@ -4555,7 +4558,9 @@ describe('Inputs panel fields', () => {
           expect(store.doc.graphs.detail).toEqual(document.graphs.detail)
           expect(store.doc.graphs.portrait).toEqual(document.graphs.portrait)
         }
-        checkHistory(before)
+        checkHistory(before, entered ? { ...original, [`first${suffix}`]: {
+          ...original[`first${suffix}`]!, inputs: { ...original[`first${suffix}`]!.inputs, 'mode.mix': expect.closeTo(0.3) },
+        } } : original)
         expect(store.undo()).toBe(true)
       }
       const growthScene = sceneOf()
@@ -4579,7 +4584,10 @@ describe('Inputs panel fields', () => {
       expect(promptOf(store.doc)[`second${suffix}`]).toEqual(original[`second${suffix}`])
       expect(store.doc.graphs.detail).toEqual(document.graphs.detail)
       expect(store.doc.graphs.portrait).toEqual(document.graphs.portrait)
-      checkHistory(beforeGrowth)
+      checkHistory(beforeGrowth, { ...original, [`first${suffix}`]: {
+        ...original[`first${suffix}`]!, inputs: { ...original[`first${suffix}`]!.inputs, 'layers.layer4': 0.3 },
+        outputMembers: { layers: ['layer0', 'layer1', 'layer2', 'layer3', 'layer4'] },
+      } })
       expect(store.undo()).toBe(true)
 
       const reorderScene = sceneOf()
@@ -4603,7 +4611,9 @@ describe('Inputs panel fields', () => {
       expect(store.doc.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
       expect(store.doc.graphs.detail).toEqual(document.graphs.detail)
       expect(store.doc.graphs.portrait).toEqual(document.graphs.portrait)
-      checkHistory(beforeReorder)
+      checkHistory(beforeReorder, { ...original, [`first${suffix}`]: {
+        ...original[`first${suffix}`]!, outputMembers: { layers: ['layer0', 'layer1', 'layer3', 'layer2'] },
+      } })
       expect(store.undo()).toBe(true)
 
       // Occurrence members cannot be moved in the definition's member stream.
@@ -4679,7 +4689,11 @@ describe('Inputs panel fields', () => {
           expect(promptOf(store.doc)[`first${suffix}`]!.inputs['layers.layer3']).toBeCloseTo(0.8)
           expect(promptOf(store.doc)[`second${suffix}`]).toEqual(original[`second${suffix}`])
           expect(store.doc.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
-          checkHistory(beforeHiddenEdit)
+          expect(store.doc.graphs.detail).toEqual(beforeHiddenEdit.graphs.detail)
+          expect(store.doc.graphs.portrait).toEqual(beforeHiddenEdit.graphs.portrait)
+          checkHistory(beforeHiddenEdit, { ...original, [`first${suffix}`]: {
+            ...original[`first${suffix}`]!, inputs: { ...original[`first${suffix}`]!.inputs, 'layers.layer3': expect.closeTo(0.8) },
+          } })
           expect(store.undo()).toBe(true)
         }
         const inner = hidden.nodes[0]!
