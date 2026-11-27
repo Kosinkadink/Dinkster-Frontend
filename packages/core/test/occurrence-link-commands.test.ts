@@ -396,7 +396,7 @@ describe('occurrence-local link commands', () => {
     expect(store.doc.occurrenceTopologies!.a!.suppressedDeliveries).toBeUndefined()
     expect(store.doc.occurrenceTopologies!.a!.links).toEqual({})
     expect(store.doc.occurrenceTopologies!.a!.nextOrdinal).toBe(0)
-    expect(store.doc.view.graphs.body?.nodes.sink?.editors?.in).toEqual({ unfolded: false })
+    expect(store.doc.view.graphs.body?.nodes.sink?.editors?.in).toEqual({ unfolded: true })
   })
 
   it('rejects definition deletion while a local endpoint references the node', () => {

@@ -7,7 +7,7 @@ import { canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTok
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
-  detailMinScale: 0.5,
+  detailMinScale: 0.3,
   imageOpacityScale: IMAGE_OPACITY_MAX,
   editor: {
     imageCompare: { initialSplit: 50, percentScale: 100, dividerColor: '#ffffff', dividerWidth: 2 },
@@ -746,10 +746,10 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   'core.audioRecord': { controlRows: 5 },
   // Start camera or Capture frame and Stop; the stored frame's line.
   'core.webcam': { picture: 180, controlRows: 2 },
-  // Camera projection, Field of view, then Model placement and Animation closed.
+  // Camera projection, Field of view, Model placement and Animation closed, then room for a problem note.
   'core.load3d': {
     picture: 200,
-    controlRows: 4,
+    controlRows: 5,
     // Model position, rotation and scale; Animation clip, its time, its speed, Play.
     sections: [{ id: 'placement', rows: 3 }, { id: 'animation', rows: 4 }],
   },
@@ -769,9 +769,9 @@ export const CANVAS_DETAIL_MIN_SCALE = canvasPaintTokens.detailMinScale
 /** Typed presentation density derived from the two shared Canvas thresholds. */
 export type CanvasDetailLevel = 'overview' | 'content' | 'controls'
 
-export function canvasDetailLevel(scale: number, mediaControlMinScale: number): CanvasDetailLevel {
+export function canvasDetailLevel(scale: number, mediaControlMinScale: number, detailMinScale: number = CANVAS_DETAIL_MIN_SCALE): CanvasDetailLevel {
   if (scale >= mediaControlMinScale) return 'controls'
-  return scale >= CANVAS_DETAIL_MIN_SCALE ? 'content' : 'overview'
+  return scale >= detailMinScale ? 'content' : 'overview'
 }
 
 export type NodeLook = 'original' | 'flat-title'
@@ -818,6 +818,7 @@ export interface DesignTokens {
   readonly previewCaptionHeight: number
   readonly previewGap: number
   readonly mediaTransportHeight: number
+  readonly detailMinScale: number
   readonly mediaControlMinScale: number
   readonly nodeMinWidth: number
   readonly nodeMaxAutoWidth: number
@@ -1033,6 +1034,7 @@ export const defaultTokens: DesignTokens = {
   previewCaptionHeight: 22,
   previewGap: 6,
   mediaTransportHeight: 64,
+  detailMinScale: CANVAS_DETAIL_MIN_SCALE,
   mediaControlMinScale: 0.75,
   nodeMinWidth: 140,
   nodeMaxAutoWidth: 420,

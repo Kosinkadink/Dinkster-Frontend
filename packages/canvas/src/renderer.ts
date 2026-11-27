@@ -55,7 +55,7 @@ import {
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
 import { isButtonIcon, paintButtonIcon } from './button-icons.js'
-import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
+import { canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
 import { fitText, measureWidth, paintCenteredText, shareRowWidth, wrapText } from './text-fit.js'
 
 /**
@@ -344,6 +344,8 @@ export type CompanionMap = Readonly<Record<string, Readonly<Record<string, Compa
 export interface EditorSummary {
   /** What the row reads in place of the view's own value text. */
   readonly text?: string
+  /** A problem still held by the editor, painted only while its row is folded. */
+  readonly problem?: 'error' | 'warning'
   /** The value the row draws in place of the stored one, such as what a wire brought; null when nothing is known yet. */
   readonly value?: Json
   /** Drawn in the placeholder color, for an editor that holds nothing. */
@@ -734,6 +736,8 @@ export interface OverlayState {
   readonly resizePreview?: { readonly nodeId: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number }
   /** Live group-drag offset (member nodes ride dragOffsets); committed as view.moveGroup. */
   readonly groupDragOffset?: { readonly groupId: string; readonly dx: number; readonly dy: number }
+  /** Groups that directly dragged nodes would join on release. */
+  readonly receivingGroups?: ReadonlySet<string>
   /** Live group-resize preview; committed as view.setGroupBounds on release. */
   readonly groupResizeGhost?: { readonly groupId: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number }
   /** Pending node placement preview, centered near the live pointer in world coordinates. */
@@ -1385,6 +1389,12 @@ export class CanvasRenderer {
     this.invalidate()
   }
 
+  setDetailMinScale(scale: number): void {
+    if (this.tokens.detailMinScale === scale) return
+    this.tokens = { ...this.tokens, detailMinScale: scale }
+    this.invalidate()
+  }
+
   setColors(colors: DesignTokens['colors'], typePaint?: Pick<DesignTokens, 'typeColors' | 'typeFallbackLightness'>): void {
     this.tokens = { ...this.tokens, ...typePaint, colors, stateColors: { ...this.tokens.stateColors, pending: colors.pendingOutline, skipped: colors.skippedOutline } }
     this.previewChecker = undefined
@@ -1595,7 +1605,7 @@ export class CanvasRenderer {
   }
 
   getDetailLevel(): CanvasDetailLevel {
-    return canvasDetailLevel(this.viewport.scale, this.tokens.mediaControlMinScale)
+    return canvasDetailLevel(this.viewport.scale, this.tokens.mediaControlMinScale, this.tokens.detailMinScale)
   }
 
   private badges: BadgeMap = {}
@@ -2195,10 +2205,11 @@ export class CanvasRenderer {
     const spanX = Math.max(1, bounds.maxX - bounds.minX)
     const spanY = Math.max(1, bounds.maxY - bounds.minY)
     const fitScale = Math.min((w - margin * 2) / spanX, (h - margin * 2) / spanY)
+    const detailMinScale = this.tokens.detailMinScale
     const detailFits =
-      (spanX + PIN_OVERHANG * 2) * CANVAS_DETAIL_MIN_SCALE <= w &&
-      (spanY + PIN_OVERHANG * 2) * CANVAS_DETAIL_MIN_SCALE <= h
-    const scale = Math.min(canvasPaintTokens.viewport.maxFitScale, Math.max(canvasPaintTokens.viewport.minFitScale, detailFits ? Math.max(CANVAS_DETAIL_MIN_SCALE, fitScale) : fitScale))
+      (spanX + PIN_OVERHANG * 2) * detailMinScale <= w &&
+      (spanY + PIN_OVERHANG * 2) * detailMinScale <= h
+    const scale = Math.min(canvasPaintTokens.viewport.maxFitScale, Math.max(canvasPaintTokens.viewport.minFitScale, detailFits ? Math.max(detailMinScale, fitScale) : fitScale))
     this.setViewport({
       x: (w - spanX * scale) / 2 - bounds.minX * scale,
       y: (h - spanY * scale) / 2 - bounds.minY * scale,
@@ -3404,10 +3415,11 @@ export class CanvasRenderer {
     ctx.globalAlpha = canvasPaintTokens.group.headerOpacity
     ctx.fill()
     // Border.
-    ctx.globalAlpha = canvasPaintTokens.group.borderOpacity
+    const receiving = this.overlay.receivingGroups?.has(group.id) === true
+    ctx.globalAlpha = receiving ? 1 : canvasPaintTokens.group.borderOpacity
     ctx.beginPath()
     ctx.roundRect(x, y, group.width, group.height, t.cornerRadius)
-    ctx.strokeStyle = color
+    ctx.strokeStyle = receiving ? t.colors.label : color
     ctx.lineWidth = screenAwareStroke(canvasPaintTokens.group.stroke, this.viewport.scale, canvasPaintTokens.group.stroke)
     ctx.stroke()
     // Title.

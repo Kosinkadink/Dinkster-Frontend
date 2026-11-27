@@ -92,6 +92,7 @@ export const canvasGalleryPages = [
   ['save-target-box', 'Save target in the row'],
   ['node-look', 'Original and new node look'],
   ['problem-box', 'The node\'s problem box'],
+  ['fixes-notice', 'The notice of automatic fixes'],
   ['collection-rows', 'Collection widget rows'],
   ['editor-rows', 'Rows that open an editor'],
   ['row-summaries', 'Closed row summaries'],
@@ -2127,8 +2128,8 @@ export function createCanvasGalleryFixture(
         page === 'zoom'
           ? tokens.mediaControlMinScale
           : page === 'zoom-content'
-            ? 0.5
-            : 0.49
+            ? tokens.detailMinScale
+            : tokens.detailMinScale - 0.01
       fixture.width = 960 * fixture.scale
       fixture.height = 350 * fixture.scale
     }

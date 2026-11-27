@@ -45,6 +45,9 @@
 
 import {
   canonicalTypeIdOf,
+  belongsToGroup,
+  containingGroup,
+  initialGroupMembership,
   groupBoxKey,
   hasKnownLinkDropAnchorType,
   dragNumericValue,
@@ -93,6 +96,8 @@ import {
   boundarySceneId,
   boundaryNodesInGroup,
   nodesInGroup,
+  groupsInGroup,
+  groupItemGeometry,
   reroutesInGroup,
   sceneEndId,
   previewFoldedOf,
@@ -754,9 +759,10 @@ type Gesture =
   | {
       readonly kind: 'group'
       readonly groupId: string
-      /** Spatial membership captured at drag START; the drag carries these. */
+      /** Persisted descendants captured at drag start. */
       readonly memberIds: readonly string[]
       readonly rerouteIds: readonly string[]
+      readonly groupIds: readonly string[]
       readonly boundarySides: readonly ('inputs' | 'outputs')[]
       readonly startWX: number
       readonly startWY: number
@@ -1214,6 +1220,7 @@ export class InteractionController {
         this.pushOverlay({
           ...(live.marquee !== undefined ? { marquee: live.marquee } : {}),
           ...(live.dragOffsets !== undefined ? { dragOffsets: live.dragOffsets } : {}),
+          ...(live.receivingGroups !== undefined ? { receivingGroups: live.receivingGroups } : {}),
           ...(live.resizePreview !== undefined ? { resizePreview: live.resizePreview } : {}),
           ...(live.groupDragOffset !== undefined ? { groupDragOffset: live.groupDragOffset } : {}),
           ...(live.groupResizeGhost !== undefined ? { groupResizeGhost: live.groupResizeGhost } : {}),
@@ -1608,12 +1615,15 @@ export class InteractionController {
     startWX: number,
     startWY: number,
   ): Extract<Gesture, { kind: 'node' }> {
+    const groups = scene.groups.filter((group) => this.groupSelection.has(group.id))
+    const descendants = <T>(own: Iterable<T>, members: (group: (typeof groups)[number]) => readonly T[]): T[] =>
+      [...new Set([...own, ...groups.flatMap(members)])]
     return {
       kind: 'node',
-      nodeIds: scene.nodes.filter((node) => this.selection.has(node.id)).map((node) => node.id),
-      rerouteIds: [...this.rerouteSelection],
-      boundarySides: scene.boundaryNodes.filter((node) => this.selection.has(boundarySceneId(node.side))).map((node) => node.side),
-      groupIds: [...this.groupSelection],
+      nodeIds: descendants(scene.nodes.filter((node) => this.selection.has(node.id)).map((node) => node.id), (group) => nodesInGroup(scene, group)),
+      rerouteIds: descendants(this.rerouteSelection, (group) => reroutesInGroup(scene, group)),
+      boundarySides: descendants(scene.boundaryNodes.filter((node) => this.selection.has(boundarySceneId(node.side))).map((node) => node.side), (group) => boundaryNodesInGroup(scene, group)),
+      groupIds: descendants(this.groupSelection, (group) => groupsInGroup(scene, group)),
       netViewIds: [...this.netViewSelection],
       startWX,
       startWY,
@@ -2021,13 +2031,13 @@ export class InteractionController {
           this.pushOverlay()
           return
         }
-        // Drag moves the rectangle plus the nodes spatially inside it right
-        // now; membership is captured once, at gesture start.
+        // Moving the rectangle carries persisted descendants, not covered items.
         this.gesture = {
           kind: 'group',
           groupId: hit.group.id,
           memberIds: nodesInGroup(scene, hit.group),
           rerouteIds: reroutesInGroup(scene, hit.group),
+          groupIds: groupsInGroup(scene, hit.group),
           boundarySides: boundaryNodesInGroup(scene, hit.group),
           startWX: w.x,
           startWY: w.y,
@@ -3190,7 +3200,19 @@ export class InteractionController {
         const dy = w.y - g.startWY
         const ids = [...g.nodeIds, ...g.rerouteIds, ...g.boundarySides.map(boundarySceneId), ...g.groupIds, ...g.netViewIds]
         const offsets = new Map(ids.map((id) => [id, { dx, dy }]))
-        this.pushOverlay({ dragOffsets: offsets })
+        const scene = this.renderer.getScene()
+        const geometry = groupItemGeometry(scene)
+        const membership = scene.groupMembership ?? initialGroupMembership(geometry)
+        const snap = (v: number) => Math.round(v * 100) / 100
+        const preview = geometry.map((item) => (item.kind === 'nodes' && g.nodeIds.includes(item.id)) || (item.kind === 'groups' && g.groupIds.includes(item.id))
+          ? { ...item, x: snap(item.x + dx), y: snap(item.y + dy) } : item)
+        const receivingGroups = new Set(preview.flatMap((item) => {
+          if (item.kind !== 'nodes' || !g.nodeIds.includes(item.id) ||
+            g.groupIds.some((group) => belongsToGroup(membership, 'nodes', item.id, group))) return []
+          const parent = containingGroup(item, preview, membership)
+          return parent === undefined ? [] : [parent]
+        }))
+        this.pushOverlay({ dragOffsets: offsets, receivingGroups })
         return
       }
       case 'reroute-move': {
@@ -3370,6 +3392,7 @@ export class InteractionController {
           dragOffsets: new Map([
             ...g.memberIds.map((id) => [id, { dx, dy }] as const),
             ...g.rerouteIds.map((id) => [id, { dx, dy }] as const),
+            ...g.groupIds.map((id) => [id, { dx, dy }] as const),
             ...g.boundarySides.map((side) => [boundarySceneId(side), { dx, dy }] as const),
           ]),
           groupDragOffset: { groupId: g.groupId, dx, dy },
@@ -3832,6 +3855,7 @@ export class InteractionController {
             const positions: Record<string, { x: number; y: number }> = {}
             const reroutes: Record<string, { x: number; y: number }> = {}
             const boundary: Partial<Record<'inputs' | 'outputs', { x: number; y: number }>> = {}
+            const groups: Record<string, { x: number; y: number }> = {}
             for (const id of g.memberIds) {
               const node = scene.nodes.find((n) => n.id === id)
               if (node) positions[id] = { x: snap(node.x + dx), y: snap(node.y + dy) }
@@ -3839,6 +3863,10 @@ export class InteractionController {
             for (const id of g.rerouteIds) {
               const reroute = scene.reroutes.find((r) => r.id === id)
               if (reroute) reroutes[id] = { x: snap(reroute.x + dx), y: snap(reroute.y + dy) }
+            }
+            for (const id of g.groupIds) {
+              const child = scene.groups.find((item) => item.id === id)
+              if (child) groups[id] = { x: snap(child.x + dx), y: snap(child.y + dy) }
             }
             for (const side of g.boundarySides) {
               const node = scene.boundaryNodes.find((b) => b.side === side)
@@ -3852,6 +3880,7 @@ export class InteractionController {
                 groupId: g.groupId,
                 bounds: { x: snap(group.x + dx), y: snap(group.y + dy) },
                 positions,
+                ...(Object.keys(groups).length ? { groups } : {}),
                 ...(Object.keys(reroutes).length ? { reroutes } : {}),
                 ...(Object.keys(boundary).length ? { boundary } : {}),
               },
@@ -4717,6 +4746,7 @@ export class InteractionController {
   private pushOverlay(
     extra: {
       dragOffsets?: ReadonlyMap<string, { dx: number; dy: number }>
+      receivingGroups?: ReadonlySet<string>
       ghostLink?: GhostLink
       ghostLinks?: readonly GhostLink[]
       hiddenLinkIds?: ReadonlySet<string>

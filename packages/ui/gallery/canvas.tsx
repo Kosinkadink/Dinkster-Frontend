@@ -70,6 +70,7 @@ import { BoundaryTreeGallery } from './boundary-tree.js'
 import { SaveTargetBoxGallery } from './save-target-box.js'
 import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
+import { FixesNoticeGallery } from './fixes-notice.js'
 import { RowFilePreviewsGallery } from './row-file-previews.js'
 
 type Theme = 'dark' | 'light'
@@ -125,7 +126,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ['Wires', ['types', 'structure', 'wire-looks']],
     ['Subgraphs', ['boundary', 'boundary-names', 'boundary-tree', 'subgraph-icon']],
     ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
-    ['Problems with fixes', ['problem-box']],
+    ['Problems with fixes', ['problem-box', 'fixes-notice']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -191,6 +192,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'A node\'s declared title suffix, worked out from its values ("20 steps, euler"), one space after the title in the row names\' dim regular type: beside a pack title, beside a renamed title, cut first on a narrow node ("20 steps with the euler sampler"), and on a minimized node.',
   'node-look':
     'The same nodes in the original look and in the flat-title look the owner chose.',
+  'fixes-notice':
+    'The one quiet line that reports the small fixes the editor made by itself, with Review, one Undo and a cross, and the status bar count after it is dismissed. Every card works: Review, Undo, Redo adjustments, the cross and the count can be used.',
   previews:
     'Every node that can show a preview has a "Preview" caption row: before a picture, with one (open, and folded with the caption under the pointer), loading, failed, cached and estimated, and a text result open and folded. A minimized node keeps the caption folded while it has a picture or a text result; its caption opens the picture at its open height.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
@@ -258,9 +261,9 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     "The Boundary panel lists a subgraph node's rows as one ordered tree: rows, lines of fields, sections and whole groups and choices, in the order the node draws them, with the selected row's settings in the fixed area below. Click a row to select it, a section's arrow to open or close it.",
   zoom: 'Three nodes at 75 percent, the smallest zoom that still draws controls.',
   'zoom-content':
-    'The same nodes at 50 percent, where text stays and controls are hidden.',
+    'The same nodes at 30 percent, where text stays and controls are hidden.',
   'zoom-overview':
-    'The same nodes just below 50 percent, where the canvas draws its overview.',
+    'The same nodes just below 30 percent, where the canvas draws its overview.',
   minimap:
     'The minimap: nodes outlined by state, a bypassed node, wires in their type colors, groups, and the frame of the visible area.',
   'switch-primitive':
@@ -679,7 +682,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-states' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'editor-choice-placement' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
+    if (currentPage === 'row-editing' || currentPage === 'row-states' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'editor-choice-placement' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'fixes-notice' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -807,6 +810,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'problem-box'}>
           <ProblemBoxGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'fixes-notice'}>
+          <FixesNoticeGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'row-file-previews'}>
           <RowFilePreviewsGallery theme={theme()} registry={registry} />

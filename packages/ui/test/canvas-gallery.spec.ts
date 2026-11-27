@@ -27,6 +27,51 @@ async function choosePage(page: Page, id: string) {
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
 
+test('choosing a fixes Review entry selects its named example on the canvas', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await openPage(page, 'fixes-notice')
+  const card = page.getByTestId('fixes-notice-per-node')
+  await expect(card.locator('canvas')).toHaveAttribute('data-ready', /-dark$/)
+  await expect(
+    card.getByRole('button', {
+      name: 'Open the Review upgrades setting', exact: true,
+    }),
+  ).toBeVisible()
+  const removedChoices = page.getByTestId('fixes-notice-removed-choices')
+  await expect(removedChoices.locator('canvas')).toHaveAttribute(
+    'data-ready', /-dark$/,
+  )
+  await expect(removedChoices.getByRole('button', {
+    name: 'Open the Review upgrades setting', exact: true,
+  })).toHaveCount(0)
+  await removedChoices.screenshot({
+    path: testInfo.outputPath('review-without-settings-dark.png'),
+  })
+  let before = await card.locator('canvas').screenshot()
+  for (const name of ['Sampler', 'Unpack frames', 'Resize image']) {
+    await card
+      .locator('.dinkster-fixes-review-row')
+      .filter({ hasText: name })
+      .click()
+    await expect(card.getByRole('img')).toHaveAccessibleName(
+      `Canvas with ${name} selected in dark theme`,
+    )
+    await expect(card.locator('canvas')).toHaveAttribute('data-ready', /-dark$/)
+    await expect(card.locator('figcaption')).toHaveText(
+      `Moves the canvas to ${name}.`,
+    )
+    const selected = await card.locator('canvas').screenshot()
+    expect(selected).not.toEqual(before)
+    before = selected
+  }
+  await expect(card).toHaveScreenshot('fixes-review-chosen-dark.png')
+  await card.screenshot({
+    path: testInfo.outputPath('review-chosen-canvas-dark.png'),
+  })
+})
+
 test('Editor problem details open by keyboard, return focus and resolve through their action', async ({
   page,
 }) => {

@@ -505,8 +505,11 @@ describe('typed overview detail', () => {
     const scene = fixtureScene('clean')
     const node = scene.nodes[0]!
     const link = scene.links[0]!
-    for (const [scale, contentDetail] of [[0.49, false], [0.5, true]] as const) {
-      const calls = paintWith(scene, (renderer) => renderer.setViewport({ x: 0, y: 0, scale }))
+    for (const [scale, threshold, contentDetail] of [[0.29, undefined, false], [0.3, undefined, true], [0.5, 0.6, false], [0.6, 0.6, true]] as const) {
+      const calls = paintWith(scene, (renderer) => {
+        renderer.setViewport({ x: 0, y: 0, scale })
+        if (threshold !== undefined) renderer.setDetailMinScale(threshold)
+      })
       expect(calls.some((call) => call.method === 'fillText' && call.args[0] === node.layout.title)).toBe(true)
       expect(calls.some((call) =>
         call.method === 'arc' &&
@@ -1099,11 +1102,12 @@ describe('scene visual bounds and fitting', () => {
     const { ctx } = recordingCtx()
     const tracked = mutableCanvas(ctx, 800, 600)
     const renderer = new CanvasRenderer(tracked.canvas, defaultTokens)
+    renderer.setDetailMinScale(0.5)
     renderer.setScene(emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 1576, height: 1000 }] }))
 
     renderer.fitToScene(50)
 
-    expect(renderer.getViewport()).toEqual({ x: -44, y: -50, scale: CANVAS_DETAIL_MIN_SCALE })
+    expect(renderer.getViewport()).toEqual({ x: -44, y: -50, scale: 0.5 })
     renderer.dispose()
   })
 
@@ -1111,12 +1115,13 @@ describe('scene visual bounds and fitting', () => {
     const { ctx } = recordingCtx()
     const tracked = mutableCanvas(ctx, 800, 600)
     const renderer = new CanvasRenderer(tracked.canvas, defaultTokens)
+    renderer.setDetailMinScale(0.5)
     renderer.setScene(emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 1577, height: 1000 }] }))
 
     renderer.fitToScene(50)
 
     expect(renderer.getViewport().scale).toBeCloseTo(700 / 1577)
-    expect(renderer.getViewport().scale).toBeLessThan(CANVAS_DETAIL_MIN_SCALE)
+    expect(renderer.getViewport().scale).toBeLessThan(0.5)
     renderer.dispose()
   })
 
