@@ -13,7 +13,7 @@ describe('recorded run answers', () => {
   it('keeps remote option answers and stored selections occurrence-local through boundary edits and failed refreshes', async () => {
     const { schema: parsed } = parseDinksterSchema('Picker', { body: [
       { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] },
-        pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl', 'broken'] } },
+        pin: false, sent: false, widget: { type: 'COMBO', options: ['intrinsic', 'sd', 'sdxl', 'broken'] } },
       { kind: 'input', id: 'lora', type: { kind: 'concrete', types: ['COMBO'] },
         widget: { type: 'COMBO', options: { lookup: 'pack.loras', args: ['category'] } } },
     ] } as never)
