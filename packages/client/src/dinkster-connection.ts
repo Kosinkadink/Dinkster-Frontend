@@ -3544,11 +3544,12 @@ export class DinksterConnection {
     return rows
   }
 
-  async planModelDownload(requirement: ModelDownloadRequirement, signal?: AbortSignal, source?: string): Promise<ModelDownloadPlan> {
+  async planModelDownload(requirement: ModelDownloadRequirement, signal?: AbortSignal, source?: string, location?: string): Promise<ModelDownloadPlan> {
     return decodeModelDownloadPlan(await this.modelDownloadRequest('plan', 'POST', {
       name: requirement.name, kind: requirement.kind, project: this.project ?? 'default', scope: 'local',
       ...(requirement.asset === undefined ? {} : { asset: requirement.asset }),
       ...(source === undefined ? {} : { source }),
+      ...(location === undefined ? {} : { location }),
     }, signal))
   }
 
