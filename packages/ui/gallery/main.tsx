@@ -110,6 +110,7 @@ import { SearchGallery } from './search.js'
 import { BoardGallery } from './board.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
+import { SettingsSectionGallery } from './settings-section.js'
 import { SelectGallery } from './select.js'
 
 const navigation = [
@@ -217,7 +218,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models', '#settings-section'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -230,7 +231,9 @@ function Gallery() {
     >
       <ProductPage
         title={
-          route() === '#dropdowns'
+          route() === '#settings-section'
+            ? 'Settings groups'
+            : route() === '#dropdowns'
             ? 'Dropdowns'
             : route() === '#signed-out'
             ? 'Signed-out shell'
@@ -251,6 +254,9 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#settings-section'}>
+              <SettingsSectionGallery />
+            </Match>
             <Match when={route() === '#page-loading'}>
               <PageLoadingGallery activity={activity()} />
             </Match>
@@ -1704,7 +1710,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models', '#settings-section'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
