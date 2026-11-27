@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup } from 'solid-js'
 import { ProductButton, ProductField, ProductTextInput } from './controls.js'
 import { ProductSelect } from './select.js'
 import { ProductConfirmation, ProductDialog, ProductErrorBanner } from './messages.js'
@@ -30,7 +30,6 @@ export function ProductSecretDialog(props: {
   const [presence, setPresence] = createSignal<{ set: boolean; source: 'account' | 'deployment' | null; fallback: boolean }>()
   let generation = 0
   let input: HTMLInputElement | undefined
-  let nameInput: HTMLInputElement | undefined
   const validName = () => name().length <= 128 && /^[A-Za-z_]/.test(name()) && !/[^A-Za-z0-9_.-]/.test(name())
   const nameError = () => !validName() && (nameEdited() || name() !== '') ? strings.secretNameInvalid : undefined
   const useSaved = () => value().length === 0 && presence()?.set === true && name() !== props.name
@@ -64,7 +63,6 @@ export function ProductSecretDialog(props: {
       if (live) setFailure(strings.secretAccessFailed)
     })
   })
-  onMount(() => { if (props.name === '') nameInput?.focus() })
   onCleanup(() => { generation++; clear() })
   const cancel = () => {
     if (pending()) return
@@ -122,7 +120,7 @@ export function ProductSecretDialog(props: {
           <ProductErrorBanner onDismiss={() => setFailure(undefined)}>{failure()}</ProductErrorBanner>
         </Show>
         <ProductField label={strings.secretName} {...(nameError() === undefined ? {} : { error: nameError()! })}>
-          {(attributes) => <ProductSelect {...attributes} editable inputRef={(element) => { nameInput = element }}
+          {(attributes) => <ProductSelect {...attributes} editable autofocus={props.name === ''}
             value={name()} disabled={pending()} placeholder={strings.secretNamePlaceholder}
             options={props.names.map((value) => ({ value, label: value }))}
             onChange={(value) => { setNameEdited(true); setName(value); setFailure(undefined) }} />}

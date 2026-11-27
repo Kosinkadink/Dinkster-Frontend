@@ -41,7 +41,6 @@ export function ProductSelect(
     readonly name?: string
     readonly editable?: boolean
     readonly placeholder?: string
-    readonly inputRef?: (element: HTMLInputElement) => void
   },
 ) {
   useFieldFocus()
@@ -52,7 +51,6 @@ export function ProductSelect(
     'name',
     'editable',
     'placeholder',
-    'inputRef',
     'id',
     'disabled',
     'ref',
@@ -294,11 +292,12 @@ export function ProductSelect(
       </button>}>
         <div class="dinkster-editable-select">
           <ProductTextInput
-            ref={(element) => { trigger = element; local.inputRef?.(element) }}
+            ref={(element) => { trigger = element }}
             id={triggerId()}
             disabled={local.disabled}
             value={value()}
             placeholder={local.placeholder}
+            autofocus={button.autofocus}
             autocomplete="off"
             spellcheck={false}
             role="combobox"
