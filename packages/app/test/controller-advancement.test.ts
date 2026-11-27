@@ -299,7 +299,8 @@ describe('compiled occurrence controller ownership', () => {
     ],
   })
 
-  it.each([0, 1, 2])('advances occurrence-owned choice, type choice, and member controllers through %s boundaries', async (depth) => {
+  it.each([0, 1, 2].flatMap((depth) => ['active', 'muted', 'bypassed', 'driven'].map((state) => ({ depth, state }))))(
+    'advances occurrence-owned dynamic controllers through $depth boundaries when $state', async ({ depth, state }) => {
     const [choice, slot, groupId] = depth === 0 ? ['mode', 'slot', 'items']
       : depth === 1 ? ['pick', 'typed', 'members'] : ['option', 'variant', 'list']
     const keys = [`${choice}.seed`, `${slot}.seed`, `${groupId}.item1`]
@@ -315,11 +316,14 @@ describe('compiled occurrence controller ownership', () => {
     const doc = document({
       g0: graph('g0', {
         src: { id: 'src', type: sourceSchema.type, values: {} },
-        dynamic: occurrence('dynamic', [3, 4, 5], 'increment'),
+        dynamic: { ...occurrence('dynamic', [3, 4, 5], 'increment'), mode: state === 'driven' ? 'active' : state },
         sibling: occurrence('sibling', [30, 40, 50], 'decrement'),
       }, {
         slot: { id: 'slot', from: { node: 'src', port: 'out' }, to: { node: 'dynamic', port: slot } },
         siblingSlot: { id: 'siblingSlot', from: { node: 'src', port: 'out' }, to: { node: 'sibling', port: slot } },
+        ...(state === 'driven' ? Object.fromEntries(keys.map((key, index) => [`driven${index}`, {
+          id: `driven${index}`, from: { node: 'src', port: 'out' }, to: { node: 'dynamic', port: key },
+        }])) : {}),
       }),
       ...(depth > 0 ? { sub: graph('sub', {
         leaf: { id: 'leaf', type: dynamicSchema.type, values: {}, dynamic: {} },
@@ -335,9 +339,12 @@ describe('compiled occurrence controller ownership', () => {
     const suffix = depth === 0 ? '' : depth === 1 ? '.leaf' : '.inner.leaf'
     const prompt = (first: number[], second: number[]) => ({
       src: { class_type: sourceSchema.type, inputs: {}, outputIds: ['out'] },
-      ...Object.fromEntries(([['dynamic', first], ['sibling', second]] as const).map(([id, values]) => [
+      ...Object.fromEntries(([['dynamic', first], ['sibling', second]] as const)
+        .filter(([id]) => id === 'sibling' || state === 'active' || state === 'driven').map(([id, values]) => [
         `${id}${suffix}`, { class_type: dynamicSchema.type, inputs: {
-          'mode.seed': values[0], slot: ['src', 0], 'slot.seed': values[1], 'items.item1': values[2],
+          'mode.seed': id === 'dynamic' && state === 'driven' ? ['src', 0] : values[0],
+          slot: ['src', 0], 'slot.seed': id === 'dynamic' && state === 'driven' ? ['src', 0] : values[1],
+          'items.item1': id === 'dynamic' && state === 'driven' ? ['src', 0] : values[2],
         }, outputIds: ['out'], outputMembers: { items: ['item1'] }, slotVariants: { mode: 'a' } },
       ])),
     })
@@ -347,10 +354,11 @@ describe('compiled occurrence controller ownership', () => {
     expect(await app.openExecutionView(ref)).toBe(true)
     const frozen = app.tabs.get().find((item) => item.execution)!
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
-    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.dynamic!.values[keys[0]!]).toBe(4)
-    expect(tab.store.doc.graphs.g0!.nodes.dynamic!.values).toEqual(Object.fromEntries(keys.map((key, index) => [key, [4, 5, 6][index]])))
+    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.sibling!.values[keys[0]!]).toBe(29)
+    const firstNext = state === 'active' ? [4, 5, 6] : [3, 4, 5]
+    expect(tab.store.doc.graphs.g0!.nodes.dynamic!.values).toEqual(Object.fromEntries(keys.map((key, index) => [key, firstNext[index]])))
     expect(tab.store.doc.graphs.g0!.nodes.sibling!.values).toEqual(Object.fromEntries(keys.map((key, index) => [key, [29, 39, 49][index]])))
-    expect(compileControllers(tab.store.doc).prompt).toEqual(prompt([4, 5, 6], [29, 39, 49]))
+    expect(compileControllers(tab.store.doc).prompt).toEqual(prompt(firstNext, [29, 39, 49]))
     expect(frozen.store.doc).toEqual(doc)
     expect(artifact.prompt).toEqual(prompt([3, 4, 5], [30, 40, 50]))
     expect(tab.store.doc.graphs.sub).toEqual(doc.graphs.sub)
@@ -364,7 +372,160 @@ describe('compiled occurrence controller ownership', () => {
     expect(tab.store.doc).toEqual(advanced)
     const reopened = loadDocument(JSON.parse(JSON.stringify(advanced))).document!
     expect(reopened).toEqual(advanced)
+    expect(compileControllers(reopened).prompt).toEqual(prompt(firstNext, [29, 39, 49]))
+  })
+
+  it.each([1, 2])('advances whole-construct fan-out once with shifted member keys through %s boundaries', async (depth) => {
+    const [choice, slot, groupId] = depth === 1 ? ['pick', 'typed', 'members'] : ['option', 'variant', 'list']
+    const keys = [`${choice}.seed`, `${slot}.seed`, `${groupId}.item1`]
+    const whole = (id: string, port: string) => ({
+      kind: 'input', id, binds: { kind: 'construct', node: 'primary', port },
+      alsoBinds: [{ kind: 'construct', node: 'secondary', port }],
+    })
+    const instance = (id: string, values: number[], mode: string) => ({
+      id, type: depth === 1 ? '#sub' : '#wrapper',
+      values: Object.fromEntries(keys.map((key, index) => [key, values[index]])),
+      dynamic: { [choice]: { selected: 'a' }, [groupId]: { members: ['item1'] } },
+      controllers: Object.fromEntries(keys.map((key) => [key, mode])),
+    })
+    const doc = document({
+      g0: graph('g0', {
+        src: { id: 'src', type: sourceSchema.type, values: {} },
+        first: instance('first', [3, 4, 5], 'increment'),
+        second: instance('second', [30, 40, 50], 'decrement'),
+      }, Object.fromEntries(['first', 'second'].map((node) => [`${node}Wire`, {
+        id: `${node}Wire`, from: { node: 'src', port: 'out' }, to: { node, port: slot },
+      }]))),
+      sub: graph('sub', Object.fromEntries([['secondary', 20], ['primary', 10]].map(([id, value]) => [id, {
+        id, type: dynamicSchema.type, values: { 'items.item1': value },
+        dynamic: { items: { members: ['item1'] } }, controllers: { 'items.item1': 'fixed' },
+      }])), {}, { body: [whole('pick', 'mode'), whole('typed', 'slot'), whole('members', 'items')] }),
+      ...(depth === 2 ? { wrapper: graph('wrapper', {
+        inner: { id: 'inner', type: '#sub', values: { 'members.item1': 15 },
+          dynamic: { members: { members: ['item1'] } }, controllers: { 'members.item1': 'fixed' } },
+      }, {}, { body: [['option', 'pick'], ['variant', 'typed'], ['list', 'members']].map(([id, port]) => ({
+        kind: 'input', id, binds: { kind: 'construct', node: 'inner', port },
+      })) }) } : {}),
+    }) as any
+    const app = createWorkflowApp([sourceSchema, dynamicSchema])
+    expect(await app.openDocument(doc, 'Dynamic fan-out controllers')).toEqual([])
+    const tab = app.activeTab()!
+    const prompt = (first: number[], second: number[]) => ({
+      src: { class_type: sourceSchema.type, inputs: {}, outputIds: ['out'] },
+      ...Object.fromEntries(([['first', first], ['second', second]] as const).flatMap(([id, values]) =>
+        ([['primary', 10], ['secondary', 20]] as const).map(([leaf, prefix]) => [
+          `${id}.${depth === 1 ? '' : 'inner.'}${leaf}`, {
+            class_type: dynamicSchema.type,
+            inputs: { 'mode.seed': values[0], slot: ['src', 0], 'slot.seed': values[1],
+              'items.item1': prefix, ...(depth === 2 ? { 'items.item2': 15 } : {}),
+              [depth === 1 ? 'items.item2' : 'items.item3']: values[2] },
+            outputIds: ['out'], outputMembers: { items: depth === 1 ? ['item1', 'item2'] : ['item1', 'item2', 'item3'] },
+            slotVariants: { mode: 'a' },
+          },
+        ]))),
+    })
+    const artifact = compileControllers(tab.store.doc)
+    expect(artifact.prompt).toEqual(prompt([3, 4, 5], [30, 40, 50]))
+    const ref = { connection: asConnectionId('local'), prompt: asPromptId(`dynamic-fanout-${depth}`) }
+    app.registerRun(tab, ref, artifact, 1)
+    expect(await app.openExecutionView(ref)).toBe(true)
+    const frozen = app.tabs.get().find((item) => item.execution)!
+    app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+    await expect.poll(() => tab.store.doc.graphs.g0!.nodes.first!.values[keys[0]!]).toBe(4)
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values).toEqual(Object.fromEntries(keys.map((key, index) => [key, [4, 5, 6][index]])))
+    expect(tab.store.doc.graphs.g0!.nodes.second!.values).toEqual(Object.fromEntries(keys.map((key, index) => [key, [29, 39, 49][index]])))
+    expect(compileControllers(tab.store.doc).prompt).toEqual(prompt([4, 5, 6], [29, 39, 49]))
+    expect(tab.store.doc.graphs.sub).toEqual(doc.graphs.sub)
+    expect(tab.store.doc.graphs.wrapper).toEqual(doc.graphs.wrapper)
+    expect(frozen.store.doc).toEqual(doc)
+    expect(artifact.prompt).toEqual(prompt([3, 4, 5], [30, 40, 50]))
+    const advanced = tab.store.doc
+    app.store.apply({ kind: 'completed', execution: ref, timestamp: 3 })
+    expect(tab.store.doc).toBe(advanced)
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc).toEqual(doc)
+    expect(tab.store.redo()).toBe(true)
+    expect(tab.store.doc).toEqual(advanced)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(advanced))).document!
+    expect(reopened).toEqual(advanced)
     expect(compileControllers(reopened).prompt).toEqual(prompt([4, 5, 6], [29, 39, 49]))
+  })
+
+  it.each([1, 2])('inherits whole-construct fan-out values and modes independently through %s boundaries', async (depth) => {
+    const choice = depth === 1 ? 'pick' : 'option'
+    const slot = depth === 1 ? 'typed' : 'variant'
+    const keys = [`${choice}.seed`, `${slot}.seed`]
+    for (const scenario of [
+      { outer: [23, 24], outerMode: 'decrement', middle: [11, 12], middleMode: 'increment', leaf: [7, 8], used: [23, 24], next: [22, 23] },
+      { outer: undefined, outerMode: 'decrement', middle: [11, 12], middleMode: 'increment', leaf: [7, 8], used: depth === 2 ? [11, 12] : [7, 8], next: depth === 2 ? [10, 11] : [6, 7] },
+      { outer: undefined, outerMode: undefined, middle: [11, 12], middleMode: 'decrement', leaf: [7, 8], used: depth === 2 ? [11, 12] : [7, 8], next: depth === 2 ? [10, 11] : [8, 9] },
+      { outer: undefined, outerMode: undefined, middle: undefined, middleMode: 'decrement', leaf: [7, 8], used: [7, 8], next: depth === 2 ? [6, 7] : [8, 9] },
+      { outer: undefined, outerMode: undefined, middle: undefined, middleMode: undefined, leaf: [7, 8], used: [7, 8], next: [8, 9] },
+      { outer: undefined, outerMode: undefined, middle: undefined, middleMode: undefined, leaf: undefined, used: [1, 1], next: [2, 2] },
+    ]) {
+      const values = (names: string[], numbers: number[] | undefined) => Object.fromEntries(
+        numbers === undefined ? [] : names.map((name, index) => [name, numbers[index]]))
+      const modes = (names: string[], mode: string | undefined) => Object.fromEntries(
+        mode === undefined ? [] : names.map((name) => [name, mode]))
+      const whole = (id: string, node: string, port: string, fanout = false) => ({
+        kind: 'input', id, binds: { kind: 'construct', node, port },
+        ...(fanout ? { alsoBinds: [{ kind: 'construct', node: 'secondary', port }] } : {}),
+      })
+      const doc = document({
+        g0: graph('g0', {
+          src: { id: 'src', type: sourceSchema.type, values: {} },
+          first: { id: 'first', type: depth === 1 ? '#sub' : '#wrapper', values: values(keys, scenario.outer),
+            controllers: modes(keys, scenario.outerMode), dynamic: { [choice]: { selected: 'a' } } },
+          second: { id: 'second', type: depth === 1 ? '#sub' : '#wrapper', values: values(keys, [80, 81]),
+            controllers: modes(keys, 'fixed'), dynamic: { [choice]: { selected: 'a' } } },
+        }, Object.fromEntries(['first', 'second'].map((node) => [`${node}Wire`, {
+          id: `${node}Wire`, from: { node: 'src', port: 'out' }, to: { node, port: slot },
+        }]))),
+        sub: graph('sub', Object.fromEntries(['secondary', 'primary'].map((id) => [id, {
+          id, type: dynamicSchema.type,
+          values: values(['mode.seed', 'slot.seed'], id === 'primary' ? scenario.leaf : [17, 18]),
+          controllers: modes(['mode.seed', 'slot.seed'], 'increment'),
+        }])), {}, { body: [whole('pick', 'primary', 'mode', true), whole('typed', 'primary', 'slot', true)] }),
+        ...(depth === 2 ? { wrapper: graph('wrapper', {
+          inner: { id: 'inner', type: '#sub', values: values(['pick.seed', 'typed.seed'], scenario.middle),
+            controllers: modes(['pick.seed', 'typed.seed'], scenario.middleMode) },
+        }, {}, { body: [whole('option', 'inner', 'pick'), whole('variant', 'inner', 'typed')] }) } : {}),
+      }) as any
+      const app = createWorkflowApp([sourceSchema, dynamicSchema])
+      expect(await app.openDocument(doc, 'Dynamic controller fallbacks')).toEqual([])
+      const tab = app.activeTab()!
+      const artifact = compileControllers(tab.store.doc)
+      const suffix = depth === 1 ? '' : 'inner.'
+      const inputs = (numbers: number[]) => ({ 'mode.seed': numbers[0], slot: ['src', 0], 'slot.seed': numbers[1] })
+      expect(artifact.prompt[`first.${suffix}primary`]!.inputs).toEqual(inputs(scenario.used))
+      const secondary = scenario.outer ?? (depth === 2 ? scenario.middle : undefined) ?? [17, 18]
+      expect(artifact.prompt[`first.${suffix}secondary`]!.inputs).toEqual(inputs(secondary))
+      const ref = { connection: asConnectionId('local'), prompt: asPromptId('dynamic-fallback') }
+      app.registerRun(tab, ref, artifact, 1)
+      expect(await app.openExecutionView(ref)).toBe(true)
+      const frozen = app.tabs.get().find((item) => item.execution)!
+      app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+      await expect.poll(() => tab.store.doc.graphs.g0!.nodes.first!.values).toEqual(values(keys, scenario.next))
+      const compiled = compileControllers(tab.store.doc)
+      for (const leaf of ['primary', 'secondary']) {
+        expect(compiled.prompt[`first.${suffix}${leaf}`]!.inputs).toEqual(inputs(scenario.next))
+        expect(compiled.prompt[`second.${suffix}${leaf}`]!.inputs).toEqual(inputs([80, 81]))
+      }
+      expect(tab.store.doc.graphs.sub).toEqual(doc.graphs.sub)
+      expect(tab.store.doc.graphs.wrapper).toEqual(doc.graphs.wrapper)
+      expect(frozen.store.doc).toEqual(doc)
+      expect(artifact.prompt[`first.${suffix}primary`]!.inputs).toEqual(inputs(scenario.used))
+      const advanced = tab.store.doc
+      app.store.apply({ kind: 'completed', execution: ref, timestamp: 3 })
+      expect(tab.store.doc).toBe(advanced)
+      expect(tab.store.undo()).toBe(true)
+      expect(tab.store.doc).toEqual(doc)
+      expect(tab.store.redo()).toBe(true)
+      expect(tab.store.doc).toEqual(advanced)
+      const reopened = loadDocument(JSON.parse(JSON.stringify(advanced))).document!
+      expect(reopened).toEqual(advanced)
+      expect(compileControllers(reopened).prompt).toEqual(compiled.prompt)
+    }
   })
 
   it('stores modes for active dynamic controller value keys', async () => {
