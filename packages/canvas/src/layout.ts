@@ -1632,7 +1632,7 @@ export function layoutNode(
       // A connected widget tap (the producer affordance of a widget input)
       // keeps its anchor too - otherwise closing the box silently drops the
       // outgoing noodle from the scene.
-      if (widget && !spec.forceInput && isConnected('out', spec.id)) {
+      if (widget && !spec.secret && !spec.forceInput && isConnected('out', spec.id)) {
         collapsedPins.push({
           sectionId: at, portId: spec.id, label: displayLabel(spec), direction: 'out', type: spec.type, connected: true, widgetTap: true,
           ...annotate(item),
@@ -2155,7 +2155,7 @@ export function layoutNode(
         }
         // A widget can also produce its effective value. The duplicate
         // right-edge anchor deliberately shares the input's flattened id.
-        if (w.editor !== true && w.unsent !== true) pins.push({
+        if (w.spec.widgetType !== 'SECRET' && w.editor !== true && w.unsent !== true) pins.push({
           ...annotationsOf(w), portId: w.inputId, label: w.name ?? w.label, direction: 'out', y: y + tokens.rowHeight / 2, type: w.type, widgetTap: true,
         })
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))

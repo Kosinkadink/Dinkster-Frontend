@@ -75,7 +75,7 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart, ProductSecretDialog, ProductToast } from '@dinkster/ui'
 import {
   defaultValuesOf,
   hasKnownLinkDropAnchorType,
@@ -1751,6 +1751,28 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   })
 
   const [editor, setEditor] = createSolidSignal<WidgetEditorState | undefined>(undefined)
+  const [secretEditor, setSecretEditor] = createSolidSignal<{
+    readonly tab: Tab; readonly backend: Backend; readonly name: string; readonly canManageDeployment: boolean
+  }>()
+  const [secretNotification, setSecretNotification] = createSolidSignal<{ readonly message: string }>()
+  const [secretRevision, setSecretRevision] = createSolidSignal(0)
+  const [secretFacts, setSecretFacts] = createSolidSignal<Record<string, Json>>({})
+  let secretOpenRequest = 0
+  let secretContextTab: Tab | undefined
+  let secretContextBackend: Backend | undefined
+  onCleanup(() => { secretOpenRequest++ })
+  createEffect(() => {
+    backendsTick(); tabTargets()
+    const tab = activeTab()
+    const backend = tab === undefined ? undefined : props.app.backendForTab(tab)
+    if (tab !== secretContextTab || backend !== secretContextBackend) {
+      secretOpenRequest++
+      secretContextTab = tab
+      secretContextBackend = backend
+      setSecretEditor(undefined)
+      setSecretFacts({})
+    }
+  })
   // An in-row editor that handed its row to a popover, which leaves the row drawn.
   const [rowHandedOff, setRowHandedOff] = createSolidSignal<WidgetEditorState | undefined>(undefined)
   // The row the keyboard is on while nothing is open; only the keyboard sets it.
@@ -2804,12 +2826,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // Closed save target rows name this machine's mounts: the project's
     // default output mount and the ready writable ones.
     const factsBackend = createMemo(() => {
+      backendsTick(); tabTargets()
       const tab = activeTab()
       return tab === undefined ? undefined : props.app.backendForTab(tab)
     })
+    const [mountFacts, setMountFacts] = createSolidSignal<Record<string, Json>>({})
+    createEffect(() => renderer.setWidgetFacts({ ...mountFacts(), SECRET: secretFacts() }))
     createEffect(() => {
       const backend = factsBackend()
-      renderer.setWidgetFacts({})
+      setMountFacts({})
       if (backend?.protocol !== 'dinkster') return
       const connection = backend.connection
       let live = true
@@ -2818,15 +2843,39 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           if (!live) return
           // A run saves to the project's output mount and never falls back to the machine's.
           const projectMount = settings.activeOutputMount
-          renderer.setWidgetFacts({ SAVE_TARGET: {
+          setMountFacts({ SAVE_TARGET: {
             ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready').map((mount) => mount.id),
             ...(projectMount === undefined ? {} : { projectMount }),
           } })
-        }).catch(() => { if (live) renderer.setWidgetFacts({}) })
+        }).catch(() => { if (live) setMountFacts({}) })
       }
       read()
       const stop = connection.onMountsChanged(read)
       onCleanup(() => { live = false; stop() })
+    })
+    createEffect(() => {
+      sceneVersion(); secretRevision()
+      const backend = factsBackend()
+      const tab = activeTab()
+      const abort = new AbortController()
+      setSecretFacts({})
+      onCleanup(() => abort.abort())
+      if (backend === undefined || tab?.execution !== undefined) return
+      const current = renderer.getScene()
+      const nodes = [...current.nodes, ...current.boundaryNodes.flatMap((boundary) => {
+        const node = boundaryFieldNode(boundary)
+        return node === undefined ? [] : [node]
+      })]
+      const names = new Set(nodes.flatMap((node) => node.layout.rows.flatMap((row) => {
+        if (row.kind !== 'widget' || row.spec.widgetType !== 'SECRET') return []
+        const value = row.derivedValue ?? node.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
+        return typeof value === 'string' && value !== '' ? [value] : []
+      })))
+      for (const name of names) {
+        void backend.connection.fetchSecretPresence(name, abort.signal).then((presence) => {
+          if (!abort.signal.aborted) setSecretFacts((facts) => ({ ...facts, [name]: presence.set }))
+        }).catch(() => {})
+      }
     })
     const zoomTo = (target: number) => {
       const vp = renderer.getViewport()
@@ -5683,6 +5732,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const valueNodeId = hit.row.familyOwner?.nodeId ?? nodeId
       const valueKey = hit.row.familyOwner?.valueKey ?? hit.row.valueKey
       const spec = hit.row.spec
+      if (spec.widgetType === 'SECRET') {
+        const backend = props.app.backendForTab(tab)
+        const name = hit.row.derivedValue ?? tab.store.doc.graphs[valueGraphId]?.nodes[valueNodeId]?.values[valueKey] ?? effectiveWidgetDefault(spec)
+        if (typeof name !== 'string' || name === '') {
+          showGestureRefusal([diag('error', 'command', 'secret.name.required', 'Choose a credential name')])
+          return
+        }
+        const request = ++secretOpenRequest
+        const isCurrent = () => request === secretOpenRequest && activeTab() === tab && props.app.backendForTab(tab) === backend
+        void backend.connection.fetchSecretPresence(name).then((presence) => {
+          if (!isCurrent()) return
+          setSecretEditor({ tab, backend, name, canManageDeployment: presence.canManageDeployment })
+        }).catch(() => {
+          if (isCurrent()) showGestureRefusal([diag('error', 'command', 'secret.access.failed', 'Cannot access secret. Try again')])
+        })
+        return
+      }
       if (spec.widgetType === 'COMPOSITOR') return
       // A link/net-driven input is read-only: the wire decides its value
       // (companion display), and editing would silently mutate the dormant
@@ -8238,6 +8304,22 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           } })
         }} />}
       </Show>
+
+      <Show when={secretEditor()} keyed>
+        {(target) => <ProductSecretDialog name={target.name} contextKey={`${target.tab.id}:${target.backend.id}`}
+          canManageDeployment={target.canManageDeployment}
+          onSave={async (value, scope) => {
+            if (activeTab() !== target.tab || props.app.backendForTab(target.tab) !== target.backend) throw new Error('Secret context changed')
+            await target.backend.connection.saveSecret(target.name, value, scope)
+          }}
+          onCancel={() => setSecretEditor(undefined)}
+          onSaved={() => {
+            setSecretEditor(undefined)
+            setSecretRevision((revision) => revision + 1)
+            setSecretNotification({ message: message('secretWidget.saved') })
+          }} />}
+      </Show>
+      <ProductToast notification={secretNotification()} onDismiss={() => setSecretNotification(undefined)} />
 
       <Show when={editor()} keyed>
         {(ed) => (

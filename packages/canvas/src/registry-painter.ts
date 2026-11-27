@@ -106,6 +106,7 @@ const RAISED_ROW_ICONS: Readonly<Record<string, NonNullable<ToolboxButton['icon'
   'core.videoEdit': 'film',
   'core.list': 'list',
   'core.curve': 'spline',
+  'core.secret': 'key-round',
   'core.cameraAngle': 'rotate-3d',
   'core.compositor': 'layers',
 }
@@ -196,6 +197,10 @@ function paintWidgetProblem(args: WidgetPaintArgs, severity: 'error' | 'warning'
   ctx.beginPath()
   ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
   ctx.stroke()
+  if (row.viewId === 'core.secret') {
+    ctx.restore()
+    return
+  }
   const size = paint.opener.iconSize
   const left = x + paint.opener.iconInset
   const top = y + rowHeight / 2 - size / 2
@@ -339,7 +344,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       ? args.editorSummary.text
       : assetSummary !== undefined
       ? assetSummary.text
-      : sketch !== undefined
+      : sketch !== undefined || row.viewId === 'core.secret'
         ? compactSummary(view, resolved, row.spec)?.text
       : row.viewId === 'core.toggle' && row.spec.widgetType === 'BOOLEAN'
         ? compactBooleanValue(resolved, row.spec.options)
@@ -672,7 +677,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       },
       resolved,
       row.spec,
-      { focused: false, connected: args.connected, readonly: true, ...(args.facts === undefined ? {} : { hostFacts: args.facts }) },
+      { focused: false, connected: args.connected, readonly: true, required: row.optional !== true,
+        ...(args.facts === undefined ? {} : { hostFacts: args.facts }) },
     )
     if (args.editorSummary?.problem !== undefined) paintWidgetProblem(args, args.editorSummary.problem)
     if (declaredSlider) paintLabel()
@@ -795,13 +801,13 @@ function paintCurveSketch(
  */
 interface ValuePart {
   readonly text: string
-  readonly look?: 'resolved' | 'gone'
+  readonly look?: 'resolved' | 'gone' | 'muted' | 'error'
 }
 
 const valueParts = (value: unknown): readonly ValuePart[] | undefined =>
   Array.isArray(value) && value.length > 0 && value.every((part) =>
     typeof part === 'object' && part !== null && typeof (part as ValuePart).text === 'string'
-    && ((part as ValuePart).look === undefined || (part as ValuePart).look === 'resolved' || (part as ValuePart).look === 'gone'))
+    && ((part as ValuePart).look === undefined || ['resolved', 'gone', 'muted', 'error'].includes((part as ValuePart).look!)))
     ? value as readonly ValuePart[]
     : undefined
 
@@ -832,22 +838,24 @@ function paintValueParts(
   ctx.font = baseFont
   const total = widths.reduce((sum, width) => sum + width, 0) + parts.filter((part) => part.look === 'gone').length * gap
   const last = parts.length - 1
-  let tail = parts[last]!.text
+  const text = parts.map((part) => part.text)
   if (total > fitWidth) {
-    // The location keeps its missing and resolved mount names before its path.
-    if (parts[last]!.look !== undefined) return false
-    const remaining = fitWidth - (total - widths[last]!)
+    // Keep marked facts intact; shorten the last plain value instead.
+    const cut = parts.map((part) => part.look).lastIndexOf(undefined)
+    if (cut < 0) return false
+    const remaining = fitWidth - (total - widths[cut]!)
     if (remaining < 0) return false
-    tail = remaining === 0 ? '' : fitText(ctx, tail, remaining)
-    widths[last] = measureWidth(ctx, tail)
+    text[cut] = remaining === 0 ? '' : fitText(ctx, text[cut]!, remaining)
+    widths[cut] = measureWidth(ctx, text[cut]!)
   }
   let x = right
   for (let index = last; index >= 0; index--) {
     const part = parts[index]!
     if (part.look === 'gone') x -= gap
     ctx.font = fontOf(part)
-    ctx.fillStyle = part.look === 'gone' ? tokens.colors.label : valueColor
-    paintCenteredText(ctx, index === last ? tail : part.text, x, y, tokens.fontSize)
+    ctx.fillStyle = part.look === 'gone' || part.look === 'muted' ? tokens.colors.label
+      : part.look === 'error' ? tokens.colors.error : valueColor
+    paintCenteredText(ctx, text[index]!, x, y, tokens.fontSize)
     if (part.look === 'gone') paintStaleValueStrikethrough(ctx, part.text, x, y, 'right', tokens.colors.label)
     x -= widths[index]!
   }

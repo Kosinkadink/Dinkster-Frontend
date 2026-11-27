@@ -13,6 +13,8 @@ import EllipsisVertical from 'lucide/dist/esm/icons/ellipsis-vertical.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Lock from 'lucide/dist/esm/icons/lock.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import KeyRound from 'lucide/dist/esm/icons/key-round.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Plus from 'lucide/dist/esm/icons/plus.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Minus from 'lucide/dist/esm/icons/minus.mjs'
@@ -149,6 +151,7 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   list: List,
   'list-checks': ListChecks,
   spline: Spline,
+  'key-round': KeyRound,
   mic: Mic,
   camera: Camera,
   box: Box,
