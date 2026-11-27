@@ -81,7 +81,7 @@ test('copy amounts and Stop stay readable without widening the node', async ({ p
     await expect(canvas).toHaveAttribute('data-ready', /-dark$/)
     const before = await canvas.boundingBox()
     copyHeight = (await card.getByRole('status').boundingBox())!.height
-    const amount = card.getByText('210 MiB of 512 MiB', { exact: true })
+    const amount = card.getByText('210 of 512 MB', { exact: true })
     const stop = card.getByRole('button', { name: 'Stop', exact: true })
     await expect(amount).toBeVisible()
     await expect(stop).toBeVisible()

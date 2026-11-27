@@ -441,7 +441,7 @@ describe('ASSET widget modal integration', () => {
       const add = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
         button.textContent?.includes(policy === null ? 'Add a file from this computer' : 'Upload a file'))
       expect(add).toBeDefined()
-      expect(add!.textContent).toContain(policy === null ? 'Any size' : 'Up to 7.0 MiB')
+      expect(add!.textContent).toContain(policy === null ? 'Any size' : 'Up to 7 MB')
       const clicked = vi.spyOn(mounted.root.querySelector<HTMLInputElement>('input[type="file"]')!, 'click').mockImplementation(() => {})
       add!.click()
       expect(clicked).toHaveBeenCalledOnce()
@@ -1058,7 +1058,7 @@ describe('ASSET widget modal integration', () => {
     ), root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
 
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('16 MiB per file')
+    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('16 MB per file')
     const bytes = new Uint8Array([0, 1, 2, 3, 0, 255, 17])
     const file = new File([bytes], 'byte-proof.bin', { type: 'application/octet-stream' })
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
@@ -1170,7 +1170,7 @@ describe('ASSET widget modal integration', () => {
     const dialog = root.querySelector<HTMLDialogElement>('[data-modal="widget-asset"]')!
     expect(dialog.getAttribute('aria-label')).toBe('Edit Samples latent asset')
     expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('Single latent')
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GiB per file')
+    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GB per file')
     expect(root.querySelector('.asset-browser-section')?.getAttribute('aria-label')).toBe('Latents')
     expect(root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')?.getAttribute('aria-label')).toBe('Search latents')
     expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')?.textContent).toContain('Upload latent')
@@ -1297,14 +1297,14 @@ describe('ASSET widget modal integration', () => {
   })
 
   it.each([
-    { transport: 'stream', policy: undefined, label: '1 GiB per file', maximum: 1024 * 1024 * 1024 },
+    { transport: 'stream', policy: undefined, label: '1 GB per file', maximum: 1024 * 1024 * 1024 },
     { transport: 'stream', policy: null, label: undefined, maximum: undefined },
-    { transport: 'stream', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MiB per file', maximum: 32 * 1024 * 1024 },
+    { transport: 'stream', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MB per file', maximum: 32 * 1024 * 1024 },
     { transport: 'native', policy: null, label: undefined, maximum: undefined },
-    { transport: 'native', policy: undefined, label: '1 GiB per file', maximum: 1024 * 1024 * 1024 },
-    { transport: 'native', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MiB per file', maximum: 32 * 1024 * 1024 },
+    { transport: 'native', policy: undefined, label: '1 GB per file', maximum: 1024 * 1024 * 1024 },
+    { transport: 'native', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MB per file', maximum: 32 * 1024 * 1024 },
     { transport: 'refused', policy: null, label: undefined, maximum: undefined },
-    { transport: 'refused', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MiB per file', maximum: 32 * 1024 * 1024 },
+    { transport: 'refused', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MB per file', maximum: 32 * 1024 * 1024 },
     { transport: 'error', policy: null, label: undefined, maximum: undefined },
   ])('routes a typed video widget by $transport using engine upload policy $label', async ({ transport, policy, label, maximum }) => {
     const root = document.createElement('div')
@@ -1378,7 +1378,7 @@ describe('ASSET widget modal integration', () => {
     expect(uploadMediaAsset).not.toHaveBeenCalled()
 
     if (maximum !== undefined && transport !== 'native') {
-      for (const [size, sizeLabel] of [[maximum + 1, maximum === 1024 ** 3 ? '1.0 GiB' : '32 MiB'], [Math.ceil(3.2 * 1024 ** 3), '3.2 GiB']] as const) {
+      for (const [size, sizeLabel] of [[maximum + 1, maximum === 1024 ** 3 ? '1 GB' : '32 MB'], [Math.ceil(3.2 * 1024 ** 3), '3.2 GB']] as const) {
         const oversized = new File(['video'], 'too-large.webm', { type: 'video/webm' })
         Object.defineProperty(oversized, 'size', { configurable: true, value: size })
         Object.defineProperty(input, 'files', { configurable: true, value: [oversized] })

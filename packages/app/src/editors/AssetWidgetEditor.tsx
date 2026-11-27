@@ -1,9 +1,9 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component } from 'solid-js'
-import { assetMultiSelect, type CollectionEntry, type JsonObject } from '@dinkster/core'
+import { assetMultiSelect, formatByteSize, type CollectionEntry, type JsonObject } from '@dinkster/core'
 import type { AssetGuessCandidate } from '@dinkster/client'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
-import { assetSourcesStatus, assetUploadPolicy, committableAssetRef, formatSize, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
+import { assetSourcesStatus, assetUploadPolicy, committableAssetRef, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
 import { importAssetFile } from '../asset-browser/import-file.js'
 import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../asset-browser/localAssetSource.js'
@@ -801,7 +801,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                     : assetSelection()[0]?.name ?? selectedUncommittableModel()?.modelName ?? 'Nothing selected'}</h3>
                 </div>
                 <Show when={!assetMulti ? assetSelection()[0]?.size ?? selectedUncommittableModel()?.variant.size : undefined}>
-                  {(size) => <span>{formatSize(size())}</span>}
+                  {(size) => <span>{formatByteSize(size())}</span>}
                 </Show>
               </header>
               <Show when={!assetMulti && assetSelection().length === 0 && selectedUncommittableModel() === undefined}>

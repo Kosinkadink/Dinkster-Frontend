@@ -9,9 +9,9 @@
  * predicate, the commit handler, the detail rail) narrows it back.
  */
 
-import type { CollectionEntry, CollectionSource } from '@dinkster/core'
+import { formatByteSize, type CollectionEntry, type CollectionSource } from '@dinkster/core'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
-import { committableAssetRef, formatSize, isBrowserPreviewable, isCompatible } from './helpers.js'
+import { committableAssetRef, isBrowserPreviewable, isCompatible } from './helpers.js'
 import { isModel3dMime } from '../model3d-mime.js'
 import { activeProjectId } from '../projects.js'
 
@@ -46,7 +46,7 @@ export function assetEntryOf(item: AssetBrowserItem, assetUrl?: (digest: string)
   return {
     id: item.id,
     title: item.name,
-    badges: [...(item.size !== undefined ? [formatSize(item.size)] : []), ...(item.availability === 'missing' ? ['missing'] : [])],
+    badges: [...(item.size !== undefined ? [formatByteSize(item.size)] : []), ...(item.availability === 'missing' ? ['missing'] : [])],
     ...(item.details !== undefined ? { details: item.details } : {}),
     // Conservative preview policy: digest bytes render as a thumbnail only
     // for browser-previewable media entries; everything else stays

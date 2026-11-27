@@ -765,12 +765,11 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
 /** Minimum zoom for text detail and transient media DOM. */
 export const CANVAS_DETAIL_MIN_SCALE = canvasPaintTokens.detailMinScale
 
-/** Typed presentation density derived from the two shared Canvas thresholds. */
-export type CanvasDetailLevel = 'overview' | 'content' | 'controls'
+/** Node content and its controls share the configured detail threshold. */
+export type CanvasDetailLevel = 'overview' | 'controls'
 
-export function canvasDetailLevel(scale: number, mediaControlMinScale: number, detailMinScale: number = CANVAS_DETAIL_MIN_SCALE): CanvasDetailLevel {
-  if (scale >= mediaControlMinScale) return 'controls'
-  return scale >= detailMinScale ? 'content' : 'overview'
+export function canvasDetailLevel(scale: number, detailMinScale: number = CANVAS_DETAIL_MIN_SCALE): CanvasDetailLevel {
+  return scale >= detailMinScale ? 'controls' : 'overview'
 }
 
 export type NodeLook = 'original' | 'flat-title'
@@ -818,7 +817,6 @@ export interface DesignTokens {
   readonly previewGap: number
   readonly mediaTransportHeight: number
   readonly detailMinScale: number
-  readonly mediaControlMinScale: number
   readonly nodeMinWidth: number
   readonly nodeMaxAutoWidth: number
   readonly pinRadius: number
@@ -1033,7 +1031,6 @@ export const defaultTokens: DesignTokens = {
   previewGap: 6,
   mediaTransportHeight: 64,
   detailMinScale: CANVAS_DETAIL_MIN_SCALE,
-  mediaControlMinScale: 0.75,
   nodeMinWidth: 140,
   nodeMaxAutoWidth: 420,
   pinRadius: 5.5,

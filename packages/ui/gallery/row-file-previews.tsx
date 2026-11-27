@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
-import { loadDocument, type Json, type NodeSchema, type WidgetRegistry } from '@dinkster/core'
+import { formatByteProgress, loadDocument, type Json, type NodeSchema, type WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
   buildScene,
@@ -13,7 +13,6 @@ import {
   type WidgetMeasure,
 } from '@dinkster/canvas'
 import { assetRowThumbnails, createPreviewLoader } from '../../app/src/node-previews.js'
-import { formatSize } from '../../app/src/asset-browser/helpers.js'
 import pictureUrl from '../../e2e/fixtures/media-overlay/with_metadata.png?url'
 import videoUrl from '../../e2e/fixtures/media-overlay/visible-2s.webm?url'
 import { CanvasEditorSpace, CanvasFileCopy, ProductSection } from '../src/index.js'
@@ -65,6 +64,8 @@ const examples: readonly FileExample[] = [
 
 function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
   let canvas!: HTMLCanvasElement
+  const progress = formatByteProgress(210 * 1048576, 512 * 1048576)
+  const amount = `${progress.received} of ${progress.total}`
   const [stopped, setStopped] = createSignal(false)
   const [copyRow, setCopyRow] = createSignal<{ x: number; y: number; width: number }>()
   createEffect(() => {
@@ -167,8 +168,8 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
           ? { phase: 'checking', label: 'Checking the file', shortLabel: 'Checking' }
           : props.example.copy === 'waiting'
           ? { phase: 'waiting', label: 'Waiting for another file', shortLabel: 'Waiting', stopLabel: 'Stop', onStop: () => setStopped(true) }
-          : { phase: 'copying', label: 'Copying to', mount: 'input', amount: `${formatSize(210 * 1048576)} of ${formatSize(512 * 1048576)}`,
-              description: `Copying to input, ${formatSize(210 * 1048576)} of ${formatSize(512 * 1048576)}`, value: 210 / 512,
+          : { phase: 'copying', label: 'Copying to', mount: 'input', amount,
+              description: `Copying to input, ${amount}`, value: 210 / 512,
               stopLabel: 'Stop', onStop: () => setStopped(true) }} />
       </CanvasEditorSpace>}</Show>
     </div>

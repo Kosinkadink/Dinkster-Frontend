@@ -1609,7 +1609,7 @@ export class CanvasRenderer {
   }
 
   getDetailLevel(): CanvasDetailLevel {
-    return canvasDetailLevel(this.viewport.scale, this.tokens.mediaControlMinScale, this.tokens.detailMinScale)
+    return canvasDetailLevel(this.viewport.scale, this.tokens.detailMinScale)
   }
 
   private badges: BadgeMap = {}
@@ -4583,6 +4583,7 @@ export class CanvasRenderer {
     }
     for (const pin of l.pins) {
       if (pin.stacked === true || pin.lineHidden === true) continue
+      if (!contentDetail && l.rows.some((row) => row.kind === 'editorSpace' && pin.y >= row.y && pin.y < row.y + row.height)) continue
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? node.x : node.x + l.width, node.y + pin.y)
       const targetKey = dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true)
       const isLegalTarget = this.overlay.dropTargets?.has(targetKey) ?? false
@@ -5368,6 +5369,7 @@ export class CanvasRenderer {
     // Pins. Ghost pins draw hollow; a legal boundary drop target gets the
     // same highlight ring as regular pins.
     for (const pin of l.pins) {
+      if (!contentDetail && l.rows.some((row) => row.kind === 'editorSpace' && pin.y >= row.y && pin.y < row.y + row.height)) continue
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? x : x + l.width, y + pin.y)
       if (this.overlay.dropTargets?.has(boundaryTargetKey(bnode.side, pin.portId))) {
         ctx.beginPath()

@@ -78,6 +78,9 @@ import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type C
 import { CanvasColorArriving, CanvasEditorNote, CanvasEditorSpace, CanvasFileCopy, CanvasRowAbsence, CanvasSidePart } from '@dinkster/ui'
 import {
   defaultValuesOf,
+  formatByteProgress,
+  formatByteSize,
+  hasKnownLinkDropAnchorType,
   initialGroupMembership,
   buildRerouteIndex,
   portRefKey,
@@ -161,7 +164,6 @@ import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { assetRowThumbnails, createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive, widgetEditorTarget } from './widget-editor-anchor.js'
 import { createAssetFieldImports } from './asset-field-imports.js'
-import { formatByteSize } from './collections.js'
 import { RowFocusOverlay, type RowFocusState, type RowRepresentation } from './editors/RowFocusOverlay.js'
 import type { RowBox } from './editors/row-placement.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
@@ -199,7 +201,7 @@ import type { LatentMetadata } from './latent-metadata.js'
 import { ModalSurface } from './ModalSurface.js'
 import { UploadDestination } from './UploadDestination.js'
 import { AssetFileLocation } from './AssetFileLocation.js'
-import { assetUploadPolicy, assetUploadSizeProblem, formatSize } from './asset-browser/helpers.js'
+import { assetUploadPolicy, assetUploadSizeProblem } from './asset-browser/helpers.js'
 import { desktopFileBridge, importNativeAsset, resolveDroppedAsset } from './desktop-bridge.js'
 import { activeProjectId } from './projects.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
@@ -214,7 +216,7 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, SaveTargetSpace, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
+import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, SaveTargetSpace, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
 import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
 import { imageCompareFrames, IMAGE_COMPARE_SIDES, readImageCompareInput, type ImageCompareSide } from './image-compare-frames.js'
@@ -526,6 +528,7 @@ export function linkSpliceInvocations(
   schema: NodeSchema,
   splice: LinkDoubleClickContext,
 ): CommandInvocation[] {
+  if (!hasKnownLinkDropAnchorType(splice.fromType) || !hasKnownLinkDropAnchorType(splice.toType)) return []
   const input = autoConnectTarget(schema, splice.fromType, 'in')
   const output = autoConnectTarget(schema, splice.toType, 'out')
   if (!input || !output) return []
@@ -958,7 +961,6 @@ export function NodeMediaOverlay(props: {
   readonly videoPreferences?: VideoPreferences | undefined
   readonly onVideoPreferences?: (preferences: VideoPreferences) => void
 }) {
-  const interactive = () => props.scale >= defaultTokens.mediaControlMinScale
   const style = () => overlayClipStyle(props.rect, props.canvas)
   const forwardWheel = (event: WheelEvent): void => {
     event.preventDefault()
@@ -976,16 +978,18 @@ export function NodeMediaOverlay(props: {
   }
   return (
     <div class="node-media-overlay" data-node-id={props.ownerId} data-media-kind={props.media.kind} style={style()} onWheel={forwardWheel}>
-      <Show when={props.media.kind !== 'video' && interactive() && props.media.download}>
-        {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
-      </Show>
-      <Show when={props.media.kind === 'video'} fallback={
-        <AudioTransport media={props.media} interactive={interactive()} onActiveChange={(active) => props.onActiveChange?.(active)}
-          onMediaError={() => props.onMediaError?.()} />
-      }>
-        <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
-          overview={!interactive()} onActiveChange={props.onActiveChange} onMediaError={props.onMediaError} />
-      </Show>
+      <div class="node-media-world" style={{ width: `${props.rect.width / props.scale}px`, height: `${props.rect.height / props.scale}px`, transform: `scale(${props.scale})` }}>
+        <Show when={props.media.kind !== 'video' && props.media.download}>
+          {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
+        </Show>
+        <Show when={props.media.kind === 'video'} fallback={
+          <AudioTransport media={props.media} interactive onActiveChange={(active) => props.onActiveChange?.(active)}
+            onMediaError={() => props.onMediaError?.()} />
+        }>
+          <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
+            onActiveChange={props.onActiveChange} onMediaError={props.onMediaError} />
+        </Show>
+      </div>
     </div>
   )
 }
@@ -1016,7 +1020,6 @@ export function NodeModel3dOverlay(props: {
   let container: HTMLDivElement | undefined
   let viewer: { dispose(): void } | undefined
   let mountToken = 0
-  const interactive = () => props.scale >= defaultTokens.mediaControlMinScale
   const source = createMemo(() => props.media.src)
   const close = (): void => {
     mountToken += 1
@@ -1061,8 +1064,8 @@ export function NodeModel3dOverlay(props: {
       data-media-kind="model3d"
       style={overlayClipStyle(props.rect, props.canvas)}
     >
-      <Show when={active()} fallback={
-        <Show when={interactive()}>
+      <div class="node-media-world" style={{ width: `${props.rect.width / props.scale}px`, height: `${props.rect.height / props.scale}px`, transform: `scale(${props.scale})` }}>
+        <Show when={active()} fallback={
           <div class="node-model3d-actions">
             <Show when={props.media.download}>
               {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
@@ -1074,23 +1077,23 @@ export function NodeModel3dOverlay(props: {
               onClick={() => void open()}
             >Orbit</ProductButton>
           </div>
+        }>
+          <div class="node-model3d-viewport" ref={(value) => { container = value }}>
+            <Show when={failed()}>
+              <div class="node-media-failed">3D viewer unavailable</div>
+            </Show>
+            <ProductButton size="compact"
+              type="button"
+              class="node-model3d-close"
+              aria-label="Close 3D orbit view"
+              onClick={close}
+            >Close</ProductButton>
+            <Show when={props.media.download}>
+              {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
+            </Show>
+          </div>
         </Show>
-      }>
-        <div class="node-model3d-viewport" ref={(value) => { container = value }}>
-          <Show when={failed()}>
-            <div class="node-media-failed">3D viewer unavailable</div>
-          </Show>
-          <ProductButton size="compact"
-            type="button"
-            class="node-model3d-close"
-            aria-label="Close 3D orbit view"
-            onClick={close}
-          >Close</ProductButton>
-          <Show when={props.media.download}>
-            {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
-          </Show>
-        </div>
-      </Show>
+      </div>
     </div>
   )
 }
@@ -1123,6 +1126,7 @@ export function NodeOutputPager(props: {
   readonly width?: number
   readonly height?: number
   readonly rect: EditorWorldRect
+  readonly scale: number
   readonly canvas: HTMLCanvasElement
   readonly onPrevious: () => void
   readonly onNext: () => void
@@ -1132,7 +1136,8 @@ export function NodeOutputPager(props: {
   const message = useAppMessage()
   const mediaKind = () => props.mediaKind ?? 'image'
   const style = () => ({
-    left: `${props.rect.x}px`, top: `${props.rect.y}px`, width: `${props.rect.width}px`, height: `${props.rect.height}px`,
+    left: `${props.rect.x}px`, top: `${props.rect.y}px`, width: `${props.rect.width / props.scale}px`, height: `${props.rect.height / props.scale}px`,
+    transform: `scale(${props.scale})`, 'transform-origin': '0 0',
   })
   let root!: HTMLDivElement
   const page = (action: () => void): void => {
@@ -1226,12 +1231,13 @@ export function NodeOutputPager(props: {
 export function visibleOutputPagerRect(
   rect: EditorWorldRect,
   canvas: { readonly left: number; readonly top: number; readonly width: number; readonly height: number },
+  scale = 1,
 ): EditorWorldRect | undefined {
   const left = Math.max(rect.x, canvas.left)
   const top = Math.max(rect.y, canvas.top)
   const right = Math.min(rect.x + rect.width, canvas.left + canvas.width)
   const bottom = Math.min(rect.y + rect.height, canvas.top + canvas.height)
-  if (right - left < 150 || bottom - top < 72) return undefined
+  if (right - left < 150 * scale || bottom - top < 72 * scale) return undefined
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
@@ -1591,7 +1597,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const audioRecorders = createAudioRecorders()
   const visibleEditorSpaceKeys = (): readonly string[] => {
     const viewport = editorViewport()
-    if (!editorSpaceInteractive(viewport.scale)) return []
+    if (viewport.scale < detailMinScale()) return []
     const canvas = canvasClientRect()
     return boundedVisibleOverlayKeys(
       liveEditorSpaces(),
@@ -1690,10 +1696,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       outputImagePreviews().filter((item) => item.output.count > 1 || item.download !== undefined || item.output.batch !== undefined || item.output.refusal !== undefined || item.output.images[item.output.index]?.virtualPath !== undefined),
       (item) => item.output.key,
       (item) => {
-        if (item.output.batch === undefined && viewport.scale < defaultTokens.mediaControlMinScale) return false
         const rect = mediaScreenRect(item.node, item.preview, viewport, canvas)
         // A refusal's alert is not drawn, so it needs no room for controls.
-        return rect !== undefined && (item.output.refusal !== undefined || visibleOutputPagerRect(rect, canvas) !== undefined)
+        return rect !== undefined && (item.output.refusal !== undefined || visibleOutputPagerRect(rect, canvas, viewport.scale) !== undefined)
       },
       (item) => active.has(`pager:${item.output.key}`) || selected.has(item.id) || viewer === item.output.key,
     )
@@ -3736,14 +3741,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onLinkDropOnEmpty: (context, worldX, worldY) => {
         if (refuseFrozenEdit()) return // read-only view: no node adds
-        // A wire dragged off a field makes the primitive for that field,
-        // starting with the field's value, instead of opening the search.
-        const tab = activeTab()
-        const fieldPrimitive = tab && fieldDropPrimitive(tab, context)
-        if (tab && fieldPrimitive) {
-          void commitPaletteEntry(fieldPrimitive.entry, { x: 0, y: 0, worldX, worldY, linkDrop: context }, undefined, fieldPrimitive.values)
-          return
-        }
         openPaletteAt(worldX, worldY, context)
         // Keep the dropped noodle visible while the palette is browsed:
         // fixed anchor to drop point, oriented by what the drag was seeking.
@@ -4049,6 +4046,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     function openPaletteAt(worldX: number, worldY: number, linkDrop?: LinkDropContext): void {
       const vp = renderer.getViewport()
+      const tab = activeTab()
+      const suggestedNode = tab && linkDrop && fieldDropPrimitive(tab, linkDrop)
       // A fresh anchor object every open: NodePalette resets its per-open
       // state (query, highlight, filters) on anchor identity change.
       setPalette({
@@ -4057,6 +4056,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         worldX,
         worldY,
         ...(linkDrop !== undefined ? { linkDrop } : {}),
+        ...(suggestedNode !== undefined ? { suggestedNode } : {}),
       })
     }
     openSplicePalette = (context): void => {
@@ -4340,14 +4340,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
 
     /**
-     * The invocations that finish a link-drop insertion: connect the
-     * dangling end to the new node's first compatible ELABORATED port
-     * (dynamic surfaces included - an autogrow member target carries its
-     * own dynamic.materialize, batched like the fixed end's per hazard
-     * N3). Empty when nothing auto-connectable: descriptor hints are
-     * unverified - the pick still inserts, it just lands unconnected.
-     */
-    /**
      * Blueprint insertion: fetch the body (digest-cached), materialize
      * fresh definitions against the CURRENT document, then commit import +
      * instance as ONE batch (one undo step, atomic reject). COPY semantics:
@@ -4396,8 +4388,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           doc: () => tab.store.doc,
           predictedNodeId: () => tab.store.predictedNodeId(graphId),
           resolveType: () => ownerRegistry?.resolve,
-          connect: (nodeId, schema) =>
-            p.linkDrop !== undefined ? linkDropInvocations(p.linkDrop, graphId, nodeId, schema) : [],
+          connect: (nodeId, schema) => {
+            if (p.linkDrop === undefined) return []
+            const connect = linkDropInvocations(p.linkDrop, graphId, nodeId, schema)
+            return connect.length > 0 ? connect : undefined
+          },
           dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onInserted: (nodeId) => {
             if (activeTab() === tab) controller.setSelection([nodeId])
@@ -4414,7 +4409,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     clearPaletteGhost = () => controller.setPaletteGhost(undefined)
 
-    const fieldDropPrimitive = (tab: Tab, context: LinkDropContext): { entry: PaletteEntry; values: Record<string, Json> } | undefined => {
+    const fieldDropPrimitive = (tab: Tab, context: LinkDropContext): PaletteAnchor['suggestedNode'] => {
       const into = context.fixedInto
       const reg = registry()
       if (context.seeking !== 'out' || reg === undefined || into === undefined ||
@@ -4429,7 +4424,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (!primitive || !shape) return undefined
       const value = node.values[valueKeyOf(field)] ?? effectiveWidgetDefault(field.spec.widget)
       return {
-        entry: { type: primitive.type, name: primitive.displayName, category: primitive.category, kind: 'node', schema: primitive, fields: [] },
+        type: primitive.type,
         values: value === undefined ? {} : { [shape.value.id]: value },
       }
     }
@@ -4489,6 +4484,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const connect = p.splice !== undefined && schema !== undefined
         ? linkSpliceInvocations(graphId, expectedId, schema, p.splice)
         : p.linkDrop !== undefined ? linkDropInvocations(p.linkDrop, graphId, expectedId, schema) : []
+      if (p.linkDrop !== undefined && connect.length === 0) return
       const target = captureLifecycleTarget(tab, graphId)
       const selectionVersion = selVersion()
       try {
@@ -4524,7 +4520,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         armPaletteEntry(entry)
         return
       }
-      void commitPaletteEntry(entry, p)
+      void commitPaletteEntry(entry, p, undefined,
+        p.linkDrop !== undefined && p.suggestedNode?.type === entry.type ? p.suggestedNode.values : undefined)
     }
 
     // Test bridge: perf/interaction specs drive the focused pane directly.
@@ -7510,7 +7507,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const item = () => assetImportSpaces().find((item) => item.key === key)
         const projected = () => {
           const current = item()
-          return current === undefined || !editorSpaceInteractive(editorViewport().scale) ? undefined
+          return current === undefined ? undefined
             : mediaScreenRect(dragged(current.node, current.nodeId), current.space, editorViewport(), canvasClientRect())
         }
         const refusal = () => {
@@ -7526,17 +7523,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             label: message('assets.import.waiting'), shortLabel: message('assets.import.waitingShort'), ...stop }
           const amount = state.phase === 'copying' && state.total !== null && state.total > 0
             ? { received: state.received, total: state.total } : undefined
+          const formatted = amount === undefined ? undefined : formatByteProgress(amount.received, amount.total)
           return {
             phase: 'copying' as const,
             label: state.mount === undefined ? message('assets.import.copying') : message('assets.import.copyingTo', { mount: '' }).trimEnd(),
             mount: state.mount,
-            amount: amount === undefined ? undefined : message('assets.import.amount', {
-              received: formatByteSize(amount.received), total: formatByteSize(amount.total),
-            }),
-            description: amount === undefined
+            amount: formatted === undefined ? undefined : message('assets.import.amount', formatted),
+            description: formatted === undefined
               ? state.mount === undefined ? message('assets.import.copying') : message('assets.import.copyingTo', { mount: state.mount })
               : message(state.mount === undefined ? 'assets.import.copyingAmount' : 'assets.import.copyingToAmount', {
-                mount: state.mount ?? '', received: formatByteSize(amount.received), total: formatByteSize(amount.total),
+                mount: state.mount ?? '', ...formatted,
               }),
             value: amount === undefined ? undefined : Math.min(1, amount.received / amount.total),
             ...stop,
@@ -7866,7 +7862,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const current = item()
           if (current === undefined) return undefined
           const rect = mediaScreenRect(current.node, current.preview, editorViewport(), canvasClientRect())
-          return rect === undefined || current.output.refusal !== undefined ? rect : visibleOutputPagerRect(rect, canvasClientRect())
+          return rect === undefined || current.output.refusal !== undefined ? rect : visibleOutputPagerRect(rect, canvasClientRect(), editorViewport().scale)
         }
         const page = (index: number): void => {
           const currentItem = item()
@@ -7897,6 +7893,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                       virtualPath: current().output.images[current().output.index]!.virtualPath,
                     })}
                     rect={rect()}
+                    scale={editorViewport().scale}
                     canvas={canvasEl}
                     onPrevious={() => page(current().output.index - 1)}
                     onNext={() => page(current().output.index + 1)}
@@ -7978,7 +7975,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         closeLabel={message('canvasImport.cancel')} onRequestClose={choice.cancel}>
         <div class="canvas-import-choice">
           <p>{message('canvasImport.description', { name: choice.name })}</p>
-          <Show when={choice.maxBytes !== undefined}><p data-testid="canvas-import-limit">{message('canvasImport.limit', { size: formatSize(choice.maxBytes) })}</p></Show>
+          <Show when={choice.maxBytes !== undefined}><p data-testid="canvas-import-limit">{message('canvasImport.limit', { size: formatByteSize(choice.maxBytes!) })}</p></Show>
           <UploadDestination connection={choice.backend.connection} machine={choice.backend.label}
             value={canvasDestination()} onChange={setCanvasDestination} />
           <ProductActionFooter>

@@ -9,7 +9,7 @@
  */
 
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
-import type { CollectionEntry } from '@dinkster/core'
+import { formatByteSize, type CollectionEntry } from '@dinkster/core'
 import type { DinksterConnection } from '@dinkster/client'
 import { ProductDisclosure } from '@dinkster/ui'
 import { AssetFileLocation } from '../AssetFileLocation.js'
@@ -21,7 +21,7 @@ import { ProductConfirmation } from '@dinkster/ui'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { useAppMessage } from '../locale.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
-import { committableAssetRef, formatSize, isBrowserPreviewable } from './helpers.js'
+import { committableAssetRef, isBrowserPreviewable } from './helpers.js'
 import { inspectAssetMetadata, METADATA_INSPECTION_UNSUPPORTED } from './metadata.js'
 import { assetEntryKindOf, assetItemOf, assetKindOf } from './collection-adapter.js'
 import { AssetModifiedTime, DigestValue } from './presentation.js'
@@ -80,7 +80,7 @@ function AssetFacts(props: {
         <dt>{message('assets.fact.kind')}</dt><dd>{assetKindOf(props.item) ?? message('assets.value.unknown')}</dd>
         <dt>{message('assets.fact.mediaType')}</dt><dd>{props.item.mediaType ?? message('assets.value.unknown')}</dd>
         <Show when={props.dimensions}>{(dimensions) => <><dt>{message('assets.fact.resolution')}</dt><dd>{message('assets.selection.dimensions', { width: dimensions().width, height: dimensions().height })}</dd></>}</Show>
-        <dt>{message('assets.fact.size')}</dt><dd>{formatSize(props.item.size)}</dd>
+        <dt>{message('assets.fact.size')}</dt><dd>{props.item.size === undefined ? message('assets.value.unknown') : formatByteSize(props.item.size)}</dd>
         <dt>{message('assets.fact.source')}</dt><dd>{props.item.source.id === 'all-assets' ? message('assets.source.all') : props.item.source.label}</dd>
         <Show when={props.item.source.id.startsWith('mount:')}><dt>{message('assets.fact.mount')}</dt><dd>{props.item.source.id.slice('mount:'.length)}</dd></Show>
         <dt>{message('assets.fact.virtualPath')}</dt><dd>{props.item.virtualPath ?? ''}</dd>
@@ -129,13 +129,13 @@ function AssetEntrySelectionContent(props: {
       <header class="asset-section-heading"><h3>{props.item.name}</h3></header>
       <dl class="asset-selection-facts">
         <Show when={dimensions()}>{(value) => <><dt>{message('assets.selection.picture')}</dt><dd data-testid="asset-preview-caption">{message('assets.selection.dimensions', { width: value().width, height: value().height })}</dd></>}</Show>
-        <dt>{message('assets.fact.size')}</dt><dd>{formatSize(props.item.size)}</dd>
+        <dt>{message('assets.fact.size')}</dt><dd>{props.item.size === undefined ? message('assets.value.unknown') : formatByteSize(props.item.size)}</dd>
         <Show when={props.item.modifiedAt !== undefined}><dt>{message('assets.selection.made')}</dt><dd><AssetModifiedTime value={props.item.modifiedAt!} /></dd></Show>
         <dt>{message('assets.selection.folder')}</dt><dd class="asset-selection-folder">{props.item.virtualPath?.replace(/^mounts\//, '').split('/').slice(0, -1).join('/')}</dd>
       </dl>
       <div class="asset-selection-quiet-facts">
         <Show when={dimensions()}>{(value) => <span>{message('assets.selection.dimensions', { width: value().width, height: value().height })}, </span>}</Show>
-        {formatSize(props.item.size)}<Show when={props.item.modifiedAt !== undefined}>, <AssetModifiedTime value={props.item.modifiedAt!} /></Show>
+        {props.item.size === undefined ? message('assets.value.unknown') : formatByteSize(props.item.size)}<Show when={props.item.modifiedAt !== undefined}>, <AssetModifiedTime value={props.item.modifiedAt!} /></Show>
       </div>
       {props.actions}
       <AssetSelectionDetails item={props.item} dimensions={dimensions()} adapters={props.adapters} backendId={props.backendId} additionalFacts={props.additionalFacts} />
