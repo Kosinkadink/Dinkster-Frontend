@@ -45,7 +45,9 @@ import {
   portRefKey,
   regionBoundaryLabels,
   resolveBoundaryRoute,
+  resolveOccurrenceLinkEndpoint,
   resolveWidgetRepresentation,
+  rerouteInputTargets,
   outputsOf,
   allRowsOf,
   samePortRef,
@@ -77,6 +79,7 @@ import {
   type PortRef,
   type RerouteTrace,
   type SchemaResolver,
+  type SolveOptions,
   type SolveResult,
   type TypeExpr,
   type VirtualNodeRenderModel,
@@ -614,12 +617,13 @@ function projectTypeThroughRegionInputs(
 }
 
 /** Resolve parent producers outward so each drilled graph receives only its occurrence's constraints. */
-function projectedTypeConstraints(
+function occurrenceSolveOptions(
   document: WorkflowDocument,
   resolve: SchemaResolver,
-  topology: EffectiveOccurrenceTopology,
-  graphId: string,
-): readonly ProjectedTypeConstraint[] {
+  topology: EffectiveOccurrenceTopology | undefined,
+  graph: GraphDef,
+  instancePath: readonly import('@dinkster/core').NodeId[],
+): Pick<SolveOptions, 'projectedInputs' | 'outputListCountOf'> {
   const resolveDocumentNode = documentNodeResolver(document, resolve)
   type ProjectionSolve = {
     readonly graph: GraphDef
@@ -629,12 +633,19 @@ function projectedTypeConstraints(
   const cache = new Map<string, ProjectionSolve>()
   const constraintsOf = (
     effective: EffectiveOccurrenceTopology | undefined,
-    targetGraphId: string,
+    targetGraph: GraphDef,
   ): readonly ProjectedTypeConstraint[] => (effective?.projectedParentLinks ?? []).flatMap((link) => {
-    if (link.to.graphId !== targetGraphId || !isPortEndpoint(link.to.endpoint)) return []
+    if (link.to.graphId !== targetGraph.id) return []
+    const targets = isPortEndpoint(link.to.endpoint) ? [link.to.endpoint]
+      : isRerouteRef(link.to.endpoint) ? rerouteInputTargets(targetGraph, link.to.endpoint.reroute) ?? [] : []
+    if (targets.length === 0) return []
     const solved = solveProjectionGraph(link.from.graphId, link.from.instancePath)
     if (solved === undefined) return []
-    return traceEndpointAll(solved.graph, link.from.endpoint, buildRerouteIndex(solved.graph)).flatMap((trace) => {
+    const upstream = traceEndpointAll(solved.graph, link.from.endpoint, buildRerouteIndex(solved.graph))
+    const traces: readonly RerouteTrace[] = isWidgetTapRef(link.from.endpoint) && upstream.some((trace) => trace.kind === 'undriven')
+      ? [{ kind: 'tapValue', node: link.from.endpoint.node, input: link.from.endpoint.tap }]
+      : upstream
+    return traces.flatMap((trace) => {
       const source = trace.kind === 'output' ? { ...trace.ref, side: 'output' as const }
         : trace.kind === 'tapValue' ? { node: trace.node, port: trace.input, side: 'input' as const } : undefined
       if (source === undefined) return []
@@ -644,15 +655,39 @@ function projectedTypeConstraints(
       // A region's element is not the list that drives its iterations.
       const itemCount = projectedType === type ? solved.result.itemCountOf(source.node, source.side, source.port)
         : cardinalityOf(projectedType) === 'scalar' ? 1 : undefined
-      return [{
+      return targets.map((to) => ({
         type: projectedType,
         ...(itemCount !== undefined ? { itemCount } : {}),
-        to: link.to.endpoint as PortRef,
+        to,
         label: `projected ${JSON.stringify(link.identity)}`,
         variableSource: solved.variableSources.get(source.node)!,
-      }]
+      }))
     })
   })
+  const outputListCountOf = (
+    graph: GraphDef,
+    path: readonly import('@dinkster/core').NodeId[],
+  ): NonNullable<SolveOptions['outputListCountOf']> => (nodeId, port) => {
+    const node = graph.nodes[nodeId]
+    const childId = node && subgraphDefIdOf(node.type)
+    const child = childId === undefined ? undefined : document.graphs[childId]
+    const item = child?.boundary && boundaryItems(child.boundary, 'outputs').find((item) => item.id === port)
+    if (!node || node.region || !child || !item) return undefined
+    const owner = { instancePath: path, node: nodeId }
+    const resolved = resolveOccurrenceLinkEndpoint(document, owner, {
+      kind: 'boundary', occurrence: owner, address: { port: asPortId(item.id) },
+      route: [{ graph: child.id, boundaryId: item.id, binding: item.binds }],
+    }, 'from').endpoint
+    if (resolved === undefined) return undefined
+    const producer = solveProjectionGraph(resolved.graphId, resolved.instancePath)
+    if (producer === undefined) return undefined
+    if (isWidgetTapRef(resolved.endpoint)) return producer.result.listCountOf(resolved.endpoint.node, 'input', resolved.endpoint.tap)
+    const counts = traceEndpointAll(producer.graph, resolved.endpoint, buildRerouteIndex(producer.graph)).map((trace) =>
+      trace.kind === 'output' ? producer.result.listCountOf(trace.ref.node, 'output', trace.ref.port)
+        : trace.kind === 'tapValue' ? producer.result.listCountOf(trace.node, 'input', trace.input) : undefined)
+    const first = counts[0]
+    return first !== undefined && counts.every((count) => count === first) ? first : undefined
+  }
   const solveProjectionGraph = (
     sourceGraphId: string,
     instancePath: readonly import('@dinkster/core').NodeId[],
@@ -720,7 +755,8 @@ function projectedTypeConstraints(
     const result = solveGraphTypes(solveGraph, resolve, {
       resolveNode: (node) => resolveDocumentNode(sourceGraphId, node),
       connectivityOf,
-      projectedInputs: constraintsOf(effective, graph.id),
+      projectedInputs: constraintsOf(effective, solveGraph),
+      outputListCountOf: outputListCountOf(solveGraph, instancePath),
     })
     const variableSources = new Map(
       Object.keys(solveGraph.nodes).map((nodeId) => [asNodeId(nodeId), Symbol(nodeId)]),
@@ -729,7 +765,7 @@ function projectedTypeConstraints(
     cache.set(key, solved)
     return solved
   }
-  return constraintsOf(topology, graphId)
+  return { projectedInputs: constraintsOf(topology, graph), outputListCountOf: outputListCountOf(graph, instancePath) }
 }
 
 /** A field row whose stored value the host checks. */
@@ -1168,12 +1204,12 @@ export function buildScene(input: BuildSceneInput): Scene {
   // visible pin receives the solver's display type. Keeping this substitution
   // here (rather than teaching layout about graph constraints) preserves the
   // document -> elaboration -> solving -> rendering dependency direction.
+  const occurrenceOptions = sourcePath === undefined ? undefined
+    : occurrenceSolveOptions(input.document, input.resolve, effective, effectiveGraph, sourcePath)
   const solvedTypes = solveGraphTypes(effectiveGraph, input.resolve, {
     resolveNode: (node) => resolveNode(input.graphId, node, sourcePath),
     connectivityOf,
-    ...(effective === undefined ? {} : {
-      projectedInputs: projectedTypeConstraints(input.document, input.resolve, effective, def.id),
-    }),
+    ...occurrenceOptions,
   })
   // Definition-owned identities (the shown body graph's own links and net
   // sinks) keep their ordinary scene ids so every selection/gesture seam
@@ -1458,9 +1494,15 @@ export function buildScene(input: BuildSceneInput): Scene {
   }
   const countReroutes = buildRerouteIndex(effectiveGraph)
   const tracedListCount = (from: LinkEndpoint): number | undefined => {
-    const counts = traceEndpointAll(effectiveGraph, from, countReroutes).map((trace) =>
-      trace.kind === 'output' ? solvedTypes.listCountOf(trace.ref.node, 'output', trace.ref.port)
-        : trace.kind === 'tapValue' ? solvedTypes.listCountOf(trace.node, 'input', trace.input) : undefined)
+    if (isWidgetTapRef(from)) return solvedTypes.listCountOf(from.node, 'input', from.tap)
+    const counts = traceEndpointAll(effectiveGraph, from, countReroutes).flatMap((trace): (number | undefined)[] => {
+      if (trace.kind === 'output') return [solvedTypes.listCountOf(trace.ref.node, 'output', trace.ref.port)]
+      if (trace.kind === 'tapValue') return [solvedTypes.listCountOf(trace.node, 'input', trace.input)]
+      if (trace.kind !== 'undriven') return [undefined]
+      const targets = rerouteInputTargets(effectiveGraph, trace.reroute) ?? []
+      const arrivals = occurrenceOptions?.projectedInputs?.filter((input) => targets.some((target) => samePortRef(target, input.to))) ?? []
+      return arrivals.length === 0 ? [undefined] : arrivals.map((input) => cardinalityOf(input.type) === 'list' ? input.itemCount : undefined)
+    })
     const first = counts[0]
     return first !== undefined && counts.every((count) => count === first) ? first : undefined
   }
@@ -2081,7 +2123,8 @@ export function buildScene(input: BuildSceneInput): Scene {
         }) === true
         const targets = projected.length > 0 ? projected : fallback === undefined || locallyDriven ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
-          const listCount = to.end.kind === 'port' ? solvedTypes.listCountOf(asNodeId(to.end.node), 'input', to.end.port) : undefined
+          const listCount = to.end.kind === 'port' ? solvedTypes.listCountOf(asNodeId(to.end.node), 'input', to.end.port)
+            : to.end.kind === 'reroute' ? tracedListCount({ reroute: to.end.reroute as import('@dinkster/core').RerouteId }) : undefined
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,
             from: { kind: 'boundary', side: 'inputs', item: item.id },

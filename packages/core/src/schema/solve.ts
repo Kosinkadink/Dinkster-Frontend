@@ -303,6 +303,8 @@ export interface SolveOptions extends ElaborateOptions {
   readonly resolveNode?: (node: NodeData) => NodeSchema | undefined
   /** Optional occurrence-aware connectivity used by scene projections. */
   readonly connectivityOf?: (nodeId: NodeId) => Connectivity
+  /** Resolve a list output whose producer lives inside a concrete subgraph occurrence. */
+  readonly outputListCountOf?: (node: NodeId, port: string) => number | undefined
   /** Producer types projected through a parent occurrence input. */
   readonly projectedInputs?: readonly {
     readonly type: TypeExpr
@@ -1113,6 +1115,7 @@ export function solveGraphTypes(
       const traces = traceEndpointAll(def, { node, tap: asPortId(port) }, reroutes)
       const results = [...projected, ...traces.flatMap((trace): (number | undefined)[] => {
         if (trace.kind === 'output') return [countOf(trace.ref.node, 'output', trace.ref.port)]
+        if (trace.kind === 'undriven' && projected.length > 0) return []
         if (trace.kind !== 'tapValue') return [undefined]
         if (trace.node !== node || trace.input !== port) return [countOf(trace.node, 'input', trace.input)]
         // An arriving occurrence value replaces the inner widget's value,
@@ -1136,7 +1139,7 @@ export function solveGraphTypes(
     if (cardinality !== 'list') return undefined
     const source = output.listCount
     if (typeof source === 'number') return source
-    if (source === undefined) return undefined
+    if (source === undefined) return options.outputListCountOf?.(node, port)
     if (source.group === undefined) return countOf(node, 'input', source.input)
     const group = [...scopeRowsOf(schemas.get(node)!.body)].find((row) => row.kind === 'group' && row.id === source.group)
     if (group?.kind !== 'group') return undefined

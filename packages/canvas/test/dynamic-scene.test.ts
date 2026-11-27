@@ -302,6 +302,9 @@ it('counts scalar arrivals into joined lists without treating region iterations 
     schemaOf('Optional text', [{ kind: 'output', id: 'out', type: text, optional: true }]),
     schemaOf('Four texts', [{ kind: 'output', id: 'out', type: texts, listCount: 4 }]),
     schemaOf('Four lists', [{ kind: 'output', id: 'out', type: { kind: 'list', element: texts }, listCount: 4 }]),
+    schemaOf('Local list', [{ ...input('texts', { type: texts }), widget: {
+      widgetType: 'LIST', options: {}, element: { widgetType: 'STRING', options: {} }, default: ['a', 'b', 'c'],
+    } }]),
   ]
   const join = schemaOf('Join texts', [
     group('parts', 'part', { value: input('value', { type: text, acceptsList: true, optional: true }) }, 0, 8),
@@ -313,6 +316,9 @@ it('counts scalar arrivals into joined lists without treating region iterations 
         scalar: { type: sources[0]!.type }, optional: { type: sources[1]!.type },
         texts: { type: sources[2]!.type }, lists: { type: sources[3]!.type },
         one: { type: '#joined' }, maybe: { type: '#joined' }, four: { type: '#joined' },
+        producer: { type: '#producer' }, sibling: { type: '#joined' }, rerouted: { type: '#rerouted' },
+        tapProducer: { type: '#tapProducer' }, tapSibling: { type: '#joined' }, feedback: { type: '#joined' },
+        tapRerouted: { type: '#tapRerouted' }, tapConsumer: { type: '#joined' },
         mapped: { type: '#joined', region: { kind: 'map', elementPorts: ['item'] } },
         nested: { type: '#joined', region: { kind: 'map', elementPorts: ['item'] } },
       },
@@ -320,6 +326,9 @@ it('counts scalar arrivals into joined lists without treating region iterations 
         [['scalar', 'out'], ['one', 'item']], [['optional', 'out'], ['maybe', 'item']],
         [['texts', 'out'], ['four', 'item']], [['texts', 'out'], ['mapped', 'item']],
         [['lists', 'out'], ['nested', 'item']],
+        [['producer', 'result'], ['sibling', 'item']], [['texts', 'out'], ['rerouted', 'item']],
+        [['tapProducer', 'result'], ['tapSibling', 'item']], [['feedback', 'result'], ['feedback', 'item']],
+        [['texts', 'out'], ['tapRerouted', 'item']], [['tapRerouted', 'result'], ['tapConsumer', 'item']],
       ],
     },
     joined: {
@@ -329,10 +338,34 @@ it('counts scalar arrivals into joined lists without treating region iterations 
         outputs: [{ id: 'result', binds: { kind: 'port', node: 'join', port: 'out' } }],
       },
     },
+    producer: {
+      nodes: { texts: { type: sources[2]!.type } },
+      boundary: { outputs: [{ id: 'result', binds: { kind: 'port', node: 'texts', port: 'out' } }] },
+    },
+    tapProducer: {
+      nodes: { texts: { type: sources[4]!.type } },
+      boundary: { outputs: [{ id: 'result', binds: { kind: 'widgetTap', node: 'texts', tap: 'texts' } }] },
+    },
+    tapRerouted: {
+      nodes: { texts: { type: sources[4]!.type } },
+      reroutes: ['feed'], links: [[{ reroute: 'feed' }, ['texts', 'texts']]],
+      boundary: {
+        inputs: [{ id: 'item', binds: { kind: 'port', node: 'texts', port: 'texts', viaReroute: 'feed' } }],
+        outputs: [{ id: 'result', binds: { kind: 'widgetTap', node: 'texts', tap: 'texts' } }],
+      },
+    },
+    rerouted: {
+      nodes: { join: { type: join.type, dynamic: { parts: { members: ['part0'] } } } },
+      reroutes: ['feed'], links: [[{ reroute: 'feed' }, ['join', 'parts.part0']]],
+      boundary: {
+        inputs: [{ id: 'item', binds: { kind: 'port', node: 'join', port: 'parts.part0', viaReroute: 'feed' } }],
+        outputs: [{ id: 'result', binds: { kind: 'port', node: 'join', port: 'out' } }],
+      },
+    },
   })
   const resolve = documentResolver(document, (type) => [...sources, join].find((schema) => schema.type === type))
-  const outputCount = (node: string) => buildScene({
-    document, graphId: 'joined', resolve,
+  const outputCount = (node: string, graphId = 'joined') => buildScene({
+    document, graphId, resolve,
     occurrence: { owner: { instancePath: [], node: asNodeId(node) }, plannerAvailable: true },
     tokens: defaultTokens, measure, widgetMeasure,
   }).links.find((link) => link.from.kind === 'port' && link.from.port === 'out')?.listCount
@@ -341,6 +374,20 @@ it('counts scalar arrivals into joined lists without treating region iterations 
   expect(outputCount('maybe')).toBeUndefined()
   expect(outputCount('mapped')).toBe(1)
   expect(outputCount('nested')).toBeUndefined()
+  expect(outputCount('sibling')).toBe(4)
+  expect(outputCount('tapSibling')).toBe(3)
+  expect(outputCount('rerouted', 'rerouted')).toBe(4)
+  expect(outputCount('feedback')).toBeUndefined()
+  expect(outputCount('tapConsumer')).toBe(4)
+  expect(buildScene({
+    document, graphId: 'tapRerouted', resolve,
+    occurrence: { owner: { instancePath: [], node: asNodeId('tapRerouted') }, plannerAvailable: true },
+    tokens: defaultTokens, measure, widgetMeasure,
+  }).links.map((link) => link.listCount)).toEqual([4, 4, 4])
+  const root = buildScene({ document, graphId: 'g0', resolve, tokens: defaultTokens, measure, widgetMeasure })
+  for (const [node, count] of [['producer', 4], ['tapProducer', 3], ['feedback', undefined]] as const) {
+    expect(root.links.find((link) => link.from.kind === 'port' && link.from.node === node)?.listCount).toBe(count)
+  }
 })
 
 const nodeOf = (scene: Scene, id: string) => {
