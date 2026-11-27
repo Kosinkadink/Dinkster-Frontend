@@ -40,6 +40,7 @@ export function BoardResultsGallery() {
   const examples = [
     'first',
     'later',
+    'away',
     'note',
     'blocked',
     'media',
@@ -48,16 +49,21 @@ export function BoardResultsGallery() {
   const labels = [
     'First run',
     'Later run',
+    'Earlier results dragged away',
     'Overflow past a note',
     'Blocked next cell',
     'Video and sound',
     'Failed without files',
   ]
   const places = createMemo<readonly BoardRect[]>(() => {
-    const count = example() === 'later' ? 4 : example() === 'media' ? 2 : 1
+    const count = ['later', 'away'].includes(example())
+      ? 4
+      : example() === 'media'
+        ? 2
+        : 1
     return Array.from({ length: count }, (_, index) => ({
       x: 388 + (index % 2) * 304,
-      y: 24 + Math.floor(index / 2) * 199,
+      y: (example() === 'later' ? 422 : 24) + Math.floor(index / 2) * 199,
       width: 280,
       height: 175,
     }))
@@ -85,6 +91,31 @@ export function BoardResultsGallery() {
             : { x: 388, y: 223, width: 584, height: 100 },
       })
     next.dispatch({ command: 'board.item.add', params: { items } })
+    if (example() === 'later' || example() === 'away')
+      next.dispatch({
+        command: 'board.run.add',
+        params: {
+          job: 'earlier-run',
+          card: 'workflow',
+          items: Array.from({ length: 4 }, (_, index) => ({
+            id: `earlier-${index}`,
+            kind: 'picture' as const,
+            rect: {
+              x: 388 + (index % 2) * 304,
+              y:
+                (example() === 'away' ? 480 : 24) + Math.floor(index / 2) * 199,
+              width: 280,
+              height: 175,
+            },
+            asset: {
+              digest: `blake3:${String(index + 5).repeat(64)}`,
+              name: `Earlier diner ${index + 1}`,
+              mediaType: 'image/jpeg',
+              origin: { job: 'earlier-run', node: 'save' },
+            },
+          })),
+        },
+      })
     if (finished() && example() !== 'failed')
       next.dispatch({
         command: 'board.run.add',
@@ -108,7 +139,7 @@ export function BoardResultsGallery() {
                 y:
                   example() === 'blocked'
                     ? 24 + index * 264
-                    : 24 +
+                    : places()[0]!.y +
                       Math.floor(index / 2) *
                         (example() === 'note' ? 323 : 199),
                 width: 280,
