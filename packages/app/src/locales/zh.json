@@ -1221,6 +1221,8 @@
   "learn.state.loadingGuide": "正在加载指南...",
   "learn.state.missing": "此指南页面已不可用。",
   "learn.state.unavailable": "指南需要已连接的 Dinkster 后端。",
+  "node.clearUnusedSlots": "清除未使用的插槽",
+  "node.clearUnusedSlots.multiple": "清除 {count} 个节点上未使用的插槽",
   "nodeHelp.action.help": "帮助",
   "nodeHelp.command.open": "打开节点帮助",
   "nodeHelp.panel.ariaLabel": "节点帮助",
