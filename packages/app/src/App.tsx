@@ -57,6 +57,8 @@ import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
 import { TemplateGallery } from './TemplateGallery.js'
+import { EditorFirstRunSetup } from './EditorFirstRunSetup.js'
+import type { SetupStatus } from './SetupForm.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
 import { SettingsDialog } from './SettingsDialog.js'
@@ -104,6 +106,7 @@ import {
   ShellResizeHandle,
   ShellTooltip,
   TransientStatus,
+  windowBarPlatform,
 } from './ShellChrome.js'
 import { PanelDragOverlay } from './PanelDragOverlay.js'
 import { TabDragGhost } from './TabDragGhost.js'
@@ -566,17 +569,7 @@ export function App(props: {
   const activityBarVisible = useSignal(app.shell.activityBarVisible)
   // Desktop marks the bar with its platform. On macOS the logo sits at the top
   // of the left bar, and after the window buttons while that bar is hidden.
-  const [barPlatform, setBarPlatform] = createSolidSignal<string | undefined>()
-  onMount(() => {
-    // The bar may mount after this component, and Desktop may set the attribute later.
-    const read = (): void => {
-      setBarPlatform(document.querySelector<HTMLElement>('.dinkster-window-toolbar-host')?.dataset['platform'])
-    }
-    read()
-    const observer = new MutationObserver(read)
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-platform'] })
-    onCleanup(() => observer.disconnect())
-  })
+  const barPlatform = windowBarPlatform(() => shellEl)
   const logoInLeftBar = (): boolean => barPlatform() === 'darwin' && activityBarVisible()
   const statusBarVisible = useSignal(app.shell.statusBarVisible)
   const dockWidth = useSignal(app.shell.leftWidth)
@@ -1261,9 +1254,13 @@ export function App(props: {
     backendsTick()
     return b.registry.get()?.schemas.size
   }
+  const [setupEditors, setSetupEditors] = createSolidSignal<ReadonlyMap<object, { backend: string; status: SetupStatus }>>(new Map())
+  const setupStatus = () => [...setupEditors().values()].find((editor) => editor.backend === activeBackend().baseUrl)?.status
   const engineGate = (tab: Tab) => {
     backendsTick()
-    const sup = app.backendForTab(tab).supervisor.get()
+    const backend = app.backendForTab(tab)
+    if ([...setupEditors().values()].some((editor) => editor.backend === backend.baseUrl)) return undefined
+    const sup = backend.supervisor.get()
     return sup && sup.state !== 'ready' ? sup : undefined
   }
 
@@ -1955,6 +1952,7 @@ export function App(props: {
   // The center region resolves every editor through EditorRegistry rather
   // than shell JSX branches.
   const GraphEditor = (editorProps: { readonly host?: EditorHostContext }) => {
+    const setupOwner = {}
     const tabs = useSignal(app.tabs)
     const globalActiveTabId = useSignal(app.activeTabId)
     const galleryRequested = useSignal(app.templateGalleryOpen)
@@ -2017,6 +2015,16 @@ export function App(props: {
             />
         </Show>
       </div>
+      <Show when={empty() && !galleryRequested()}>
+        <EditorFirstRunSetup backendUrl={activeBackend().baseUrl} onStatusChange={(status) => {
+          setSetupEditors((current) => {
+            const next = new Map(current)
+            if (status) next.set(setupOwner, { backend: activeBackend().baseUrl, status })
+            else next.delete(setupOwner)
+            return next
+          })
+        }} />
+      </Show>
       <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
         <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
           {message('templateGallery.open')}
@@ -3478,6 +3486,7 @@ export function App(props: {
       )}</Show>
       <TransientStatus message={transientStatus()} />
       <StatusBar app={app} backend={activeBackend} tab={activeTab} problems={problemsIndicator}
+        setupStatus={setupStatus}
         visible={statusBarVisible} placement={placementStatus} transient={transientStatus}
         context={() => {
           const tab = activeTab()
