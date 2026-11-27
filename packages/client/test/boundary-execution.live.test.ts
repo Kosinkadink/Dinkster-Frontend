@@ -698,6 +698,19 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
         if (!compiled.ok) throw new Error('Option lifecycle did not compile')
         const prompt = compiled.artifact.prompt
+        const flattened = phase.includes('flatten') || phase === 'muted-reactivated'
+        const targets = flattened && depth === 1 ? [primary, secondary] : [flattened ? primary.split('.')[0]! : 'first']
+        const routes = (node: string, port: string) => Object.values(loaded.graphs.root!.links)
+          .filter((link) => 'port' in link.from && link.from.node === node && link.from.port === port)
+          .map((link) => link.to).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+        const endpoints = (port: string) => targets.map((node) => ({ node, port }))
+          .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+        expect(routes('imageA', 'image')).toEqual(endpoints(flattened ? depth === 1 ? 'mode.picture' : 'photo' : picture))
+        expect(routes('runtime', 'receipt')).toEqual(phase === 'detached-edit' ? []
+          : endpoints(flattened ? depth === 1 ? 'mode.text' : 'caption' : caption))
+        for (const target of targets) expect(loaded.graphs.root!.nodes[target]!.values[
+          flattened ? depth === 1 ? 'mode.text' : 'caption' : caption
+        ]).toBe(phase === 'detached-edit' ? 'detached native caption' : 'dormant lifecycle caption')
         if (muted) {
           expect(prompt[primary]).toBeUndefined()
           expect(prompt[secondary]).toBeUndefined()
@@ -751,6 +764,14 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
       await run('baseline', configured, first, extra)
       const detached = storeFor(configured)
       edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
+      const sourceId = configured.graphs.root!.nodes.first!.type.slice(1)
+      const privateId = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+      expect(privateId).not.toBe(sourceId)
+      expect(configured.graphs[privateId]).toBeUndefined()
+      expect(detached.doc.graphs[privateId]).toEqual({ ...configured.graphs[sourceId]!,
+        id: privateId, name: `${configured.graphs[sourceId]!.name} (Unique)` })
+      expect(detached.doc.view.graphs[privateId]).toEqual(configured.view.graphs[sourceId] ?? { nodes: {} })
+      expect(detached.doc.graphs[sourceId]).toEqual(configured.graphs[sourceId])
       const wire = Object.values(detached.doc.graphs.root!.links).find((entry) =>
         'port' in entry.to && entry.to.node === 'first' && entry.to.port === caption)!
       edit(detached, 'link.disconnect', { graphId: 'root', linkId: wire.id })
@@ -795,7 +816,8 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         const primaryId = depth === 1 ? primary.id : `${primary.id}.sample`
         const secondaryId = depth === 1 ? replacements.find((entry) => entry.id !== primary.id)!.id : `${primary.id}.extra`
         expect(session.undo()).toBe(true)
-        expect(session.doc.graphs).toEqual({ ...before.graphs, root: { ...root, nextOrdinal: flattened.graphs.root!.nextOrdinal } })
+        expect(session.doc).toEqual({ ...before, graphs: { ...before.graphs,
+          root: { ...root, nextOrdinal: flattened.graphs.root!.nextOrdinal } } })
         expect(session.redo()).toBe(true)
         expect(session.doc).toEqual(flattened)
         await run(`${mode}-flatten`, flattened, primaryId, secondaryId, mode === 'muted')
