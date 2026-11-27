@@ -1521,6 +1521,24 @@ describe('dynamic interfaces', () => {
       const result = compile({ ...compileInput(document), resolve: (type) => type === schema.type ? schema : dynResolve(type) })
       expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
       if (result.ok) expect(result.artifact.prompt.target!.inputs).not.toHaveProperty('mode.value')
+
+      const count = { ...integer('count'), widget: { widgetType: 'INT', options: {}, default: 0 }, automatic: { formula: '1' } }
+      const countedMode = choice('mode', [
+        { key: 'on', rows: [group('group', 'item', { member: [integer('value')] }, { grows: { count: 'count' } })] },
+        { key: 'off', rows: [] },
+      ])
+      const countedSchema = dynSchemaOf('CountedChoice', dependencyFirst ? [count, countedMode] : [countedMode, count])
+      const countedDocument = dynDoc({ nodes: { source: { type: 'IntSink', values: { steps: 31 } },
+        target: { type: countedSchema.type, dynamic: { mode: { selected: 'off' } } } },
+      links: [[{ node: 'source', tap: 'steps' }, ['target', 'mode.group.item0.value']]] })
+      const counted = compile({ ...compileInput(countedDocument), resolve: (type) => type === countedSchema.type ? countedSchema : dynResolve(type) })
+      expect(counted.ok, JSON.stringify(!counted.ok && counted.diagnostics)).toBe(true)
+      if (counted.ok) expect(counted.artifact.prompt.target!.inputs).not.toHaveProperty('mode.group.item0.value')
+      const outsideCount = structuredClone(countedDocument)
+      Object.assign(outsideCount.graphs.g0!.links.l0!, { to: { node: 'target', port: 'mode.group.item1.value' } })
+      const countedRefusal = compile({ ...compileInput(outsideCount), resolve: (type) => type === countedSchema.type ? countedSchema : dynResolve(type) })
+      expect(countedRefusal.ok).toBe(false)
+      expect(!countedRefusal.ok && countedRefusal.diagnostics.some((diagnostic) => diagnostic.code === 'compile.port.unknownInput')).toBe(true)
     }
     for (const nested of [true, false]) {
       const rows = Array.from({ length: 600 }, (_, index) => integer(`field${index}`))
