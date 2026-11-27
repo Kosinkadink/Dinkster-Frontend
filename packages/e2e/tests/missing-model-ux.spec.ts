@@ -182,7 +182,7 @@ test('a real missing model opens standalone review without posting a workflow', 
   const box = page.getByTestId('problem-box')
   await expect(box.getByTestId('problem-box-line')).toHaveCount(1)
   await page.screenshot({ path: test.info().outputPath('real-missing-model-box.png') })
-  await box.getByRole('button', { name: 'Review download', exact: true }).click()
+  await box.getByRole('button', { name: 'Download models', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Download models', exact: true })
   const row = dialog.locator('.dinkster-model-download-row')
   await expect(row).toHaveCount(1)
