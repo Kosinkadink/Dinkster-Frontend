@@ -36,7 +36,7 @@ it.each(['projects', 'editor'] as const)('starts the same process-owned job from
   dispose = render(() => <SetupForm surface={surface} />, document.body)
   await vi.advanceTimersByTimeAsync(0)
   expect(document.body.textContent).toContain('NVIDIA graphics card build')
-  expect(document.body.textContent).toContain('At least 2 kB - 9 kB free')
+  expect(document.body.textContent).toContain('At least 2 KB - 8.8 KB free')
   expect(button('Change build').disabled).toBe(false)
   expect(document.body.textContent).not.toContain('Supported graphics card')
   button('Set up').click()
@@ -132,13 +132,13 @@ it.each(['projects', 'editor'] as const)('keeps exact, estimated and minimum dow
   vi.stubGlobal('fetch', async () => answer({ plan: current, activeJob: null }))
   dispose = render(() => <SetupForm surface={surface} />, document.body)
   await vi.advanceTimersByTimeAsync(0)
-  expect(document.body.textContent).toContain('About 7 GB - 5 GB free')
-  expect(document.querySelector('[role="note"]')?.textContent).toBe('This needs about 7 GB and the disk has 5 GB free.')
+  expect(document.body.textContent).toContain('About 6.5 GB - 4.7 GB free')
+  expect(document.querySelector('[role="note"]')?.textContent).toBe('This needs about 6.5 GB and the disk has 4.7 GB free.')
   expect(button('Set up').disabled).toBe(false)
   for (const [update, expected] of [
-    [{ freeBytes: 7000000000 }, 'About 7 GB - 7 GB free'],
-    [{ downloadBytes: 3000000000 }, '3 GB - 7 GB free'],
-    [{ downloadBytes: null, downloadEstimate: null }, 'At least 2 kB - 7 GB free'],
+    [{ freeBytes: 7000000000 }, 'About 6.5 GB - 6.5 GB free'],
+    [{ downloadBytes: 3000000000 }, '2.8 GB - 6.5 GB free'],
+    [{ downloadBytes: null, downloadEstimate: null }, 'At least 2 KB - 6.5 GB free'],
   ] as const) {
     current = { ...current, ...update }
     dispose!()
@@ -161,7 +161,7 @@ it.each([false, true])('refuses a held library while preserving only known facts
   await vi.advanceTimersByTimeAsync(0)
   if (known) {
     expect(document.body.textContent).toContain('NVIDIA graphics card build')
-    expect(document.body.textContent).toContain('At least 2 kB - 9 kB free')
+    expect(document.body.textContent).toContain('At least 2 KB - 8.8 KB free')
     expect(document.querySelectorAll('dt').length).toBe(3)
   } else expect(document.body.textContent).not.toContain('Download')
   expect(document.body.textContent).not.toContain('0 B')
@@ -173,10 +173,10 @@ it.each([false, true])('refuses a held library while preserving only known facts
 })
 
 it.each([
-  ['downloading', 'bytes', 0, 4096, 'Downloading Dinkster - 0 B of 4.1 kB'],
-  ['downloading', 'bytes', 2048, 4096, 'Downloading Dinkster - 2 kB of 4.1 kB'],
+  ['downloading', 'bytes', 0, 4096, 'Downloading Dinkster - 0 B of 4 KB'],
+  ['downloading', 'bytes', 2048, 4096, 'Downloading Dinkster - 2 KB of 4 KB'],
   ['checking-reviewed-inputs', 'items', 3, 12, 'Installing the standard node packs'],
-  ['future-stage', 'bytes', 2048, null, 'Setting up - 2 kB'],
+  ['future-stage', 'bytes', 2048, null, 'Setting up - 2 KB'],
 ] as const)('shows plain progress for %s without raw stages or item counts', async (stage, unit, completed, total, expected) => {
   vi.useFakeTimers()
   vi.stubGlobal('fetch', async () => answer({ plan, activeJob: { ...job, progress: { stage, unit, completed, total } } }))
