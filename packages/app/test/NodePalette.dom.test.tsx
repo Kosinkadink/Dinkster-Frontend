@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { createSignal, Show, type JSX } from 'solid-js'
+import { createMemo, createSignal, type JSX } from 'solid-js'
 import { ProductRecoveryNotice } from '@dinkster/ui'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -28,12 +28,12 @@ const mount = (entries: () => PaletteEntry[], options: {
   const root = document.createElement('div')
   document.body.append(root)
   const dispose = render(() => {
-    const catalogRecovery = options.catalogRecovery?.()
+    const catalogRecovery = createMemo(() => options.catalogRecovery?.())
     return <NodePalette entries={entries}
     anchor={options.anchor ?? { x: 80, y: 60, worldX: 10, worldY: 20 }}
     recentTypes={() => options.recent ?? []} widgetRegistry={{ kind: () => undefined, viewsFor: () => [] } as unknown as WidgetRegistry}
     bounds={() => options.bounds ?? { width: 800, height: 600 }} onCommit={options.onCommit ?? (() => {})}
-    catalogRecovery={catalogRecovery}
+    catalogRecovery={catalogRecovery()}
     {...(options.onHelp === undefined ? {} : { onHelp: options.onHelp })}
     onRemoveLinkDrop={options.onRemoveLinkDrop ?? (() => {})} onClose={() => {}} />
   }, root)
@@ -94,10 +94,10 @@ describe('NodePalette shared search', () => {
     const [enabled, setEnabled] = createSignal(false)
     const late = entry('late', 'Late arrival')
     const view = mount(() => enabled() ? [late] : [], {
-      catalogRecovery: () => <Show when={!enabled()}><ProductRecoveryNotice
+      catalogRecovery: () => enabled() ? undefined : <ProductRecoveryNotice
         message="No packs are enabled in this project"
         action={{ label: 'Enable all installed packs', onSelect: () => setEnabled(true) }}
-      /></Show>,
+      />,
     })
     try {
       await flush()
@@ -116,6 +116,8 @@ describe('NodePalette shared search', () => {
       expect(view.input.value).toBe('Late arrival')
       expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:late'])
       expect(view.root.textContent).not.toContain('No packs are enabled in this project')
+      view.search('Absent node')
+      expect(view.root.textContent).toContain('No matching nodes')
     } finally { view.dispose() }
   })
 
