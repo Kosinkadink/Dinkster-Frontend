@@ -1,5 +1,9 @@
 import { expect, test } from 'vitest'
-import { formatByteProgress, formatByteSize } from '../src/index.js'
+import {
+  formatByteProgress,
+  formatByteSize,
+  parseByteSize,
+} from '../src/index.js'
 
 test('byte sizes use base 1024 and at most one decimal without trailing zeroes', () => {
   for (const [bytes, label] of [
@@ -43,4 +47,38 @@ test('byte progress keeps both numbers in the total unit and writes the suffix o
   ] as const) {
     expect(formatByteProgress(received, total)).toEqual(expected)
   }
+})
+
+test('editable sizes default to GB and accept only nonnegative safe byte counts', () => {
+  expect(formatByteSize(10000000000, 'GB')).toBe('9.3 GB')
+  expect(formatByteSize(4097, 'GB')).toBe('0 GB')
+  for (const [input, bytes] of [
+    ['0', 0],
+    ['1.5', 1610612736],
+    ['1.5GB', 1610612736],
+    [' 1.5 gb ', 1610612736],
+    ['.5 MB', 524288],
+    ['1 KB', 1024],
+    ['4097 B', 4097],
+    ['1 TB', 1099511627776],
+    ['1.6 B', 2],
+    ['9007199254740991 B', 9007199254740991],
+  ] as const)
+    expect(parseByteSize(input)).toBe(bytes)
+  for (const input of [
+    '',
+    ' ',
+    '-1 GB',
+    'NaN',
+    'Infinity',
+    '1e3',
+    '1,5 GB',
+    '1 GiB',
+    '8G',
+    '1 GB extra',
+    '1.2.3 GB',
+    '9007199254740992 B',
+    '99999999999999999999 TB',
+  ])
+    expect(parseByteSize(input)).toBeUndefined()
 })
