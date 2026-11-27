@@ -47,7 +47,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
       for (const digit of ['1', '2', '3', '4', '5', '6', '7', '8', '9']) {
         const name = `${digit}.bin`, size = Number(digit) * 10
         const uploaded = await connection.uploadNamedAsset(new File([digit.repeat(size)], name, { type: 'application/octet-stream' }),
-          { scope: 'local', name })
+          { scope: 'local', name, folder: `asset-depth-${depth}` })
         expect(uploaded).toMatchObject({ name, size, mediaType: 'application/octet-stream' })
         expect(uploaded.digest).toMatch(/^blake3:[0-9a-f]{64}$/)
         assets[digit] = { digest: uploaded.digest, name, size, mediaType: 'application/octet-stream', virtualPath: `assets/${name}` }
