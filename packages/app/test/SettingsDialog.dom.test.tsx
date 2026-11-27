@@ -113,7 +113,7 @@ describe('SettingsDialog search', () => {
     const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()}
       keybindings={new KeybindingRegistry(settings)} storageConnection={connection()}
       request={{ category: 'storage', id: 'library-storage-limit' }} />, root)
-    expect(root.textContent).toContain('Loading storage accounting')
+    expect(root.textContent).toContain('Loading storage sizes')
     setConnection({ fetchLibraryStorage: async () => status, updateLibraryStorageLimit: async () => {},
       clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') } })
     await vi.waitFor(() => expect(root.querySelector('#library-storage-temporaryBytes')?.textContent).toBe('37 bytes'))

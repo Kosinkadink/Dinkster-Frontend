@@ -1034,10 +1034,17 @@ test('Storage settings distinguish accounting policy and permission failures', a
   await screenshot(page, 'storage-unavailable-900')
   state = 'forbidden'
   await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect(panel.getByRole('alert')).toContainText('Could not load storage sizes')
   await expect(panel.getByRole('alert')).toContainText('You do not have access.')
   await expect(panel.getByRole('switch')).toHaveCount(0)
-  await expect(panel.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
+  await expect(panel.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0)
+  await expect(panel.getByText('Storage accounting is unavailable. Refresh to retry.', { exact: true })).toHaveCount(0)
+  await expect(panel.getByRole('alert').getByRole('button')).toHaveText('Retry')
   await screenshot(page, 'storage-forbidden-900')
+  state = 'ready'
+  await panel.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(panel.getByText('37 bytes', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('alert')).toHaveCount(0)
 })
 
 test('Settings and subgraph cleanup empty states remain usable', async ({ page }) => {

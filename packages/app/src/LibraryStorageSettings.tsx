@@ -1,8 +1,9 @@
 import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
-import type { DinksterConnection, LibraryStorage } from '@dinkster/client'
-import { ProductByteSizeInput, ProductConfirmation, ProductDialog, ProductErrorBanner, ProductSettingsSection, ProductSettingRow, ProductSwitch, ProductTextButton } from '@dinkster/ui'
+import { requestFailureReason, type DinksterConnection, type LibraryStorage } from '@dinkster/client'
+import { ProductButton, ProductByteSizeInput, ProductConfirmation, ProductDialog, ProductSettingsSection, ProductSettingRow, ProductSwitch, ProductTextButton } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
 import { failureMessage } from './request-failure.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 export function LibraryStorageSettings(props: {
   readonly connection: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit' | 'clearLibraryStorage'>
@@ -12,7 +13,7 @@ export function LibraryStorageSettings(props: {
   const [status, setStatus] = createSignal<LibraryStorage>()
   const [limit, setLimit] = createSignal<number | null>(null)
   const [busy, setBusy] = createSignal(false)
-  const [error, setError] = createSignal('')
+  const [error, setError] = createSignal<string>()
   const [saveError, setSaveError] = createSignal<{ id: string; text: string }>()
   const [clearing, setClearing] = createSignal(false)
   const [confirmClear, setConfirmClear] = createSignal(false)
@@ -27,7 +28,7 @@ export function LibraryStorageSettings(props: {
   const refresh = async (): Promise<void> => {
     if (busy()) return
     setBusy(true)
-    setError('')
+    setError(undefined)
     try {
       const next = await props.connection.fetchLibraryStorage()
       if (!current) return
@@ -36,7 +37,11 @@ export function LibraryStorageSettings(props: {
     } catch (cause) {
       if (current) {
         setStatus(undefined)
-        setError(failureMessage(cause))
+        setError(requestFailureReason(cause, {
+          unanswered: message('request.reason.unanswered'),
+          access: message('request.reason.access'),
+          server: message('request.reason.server'),
+        }) ?? '')
       }
     } finally {
       if (current) setBusy(false)
@@ -90,8 +95,11 @@ export function LibraryStorageSettings(props: {
   }
   const byteFields = ['temporaryBytes', 'adoptedBytes', 'reclaimableBytes'] as const
   return <section class="dinkster-stack" data-testid="library-storage-settings">
-    <Show when={error()}>{(text) => <ProductErrorBanner onDismiss={() => setError('')}>{text()}</ProductErrorBanner>}</Show>
-    <Show when={status()} fallback={<p role="status">{message(busy() ? 'storageSettings.loading' : 'storageSettings.unavailable')}</p>}>
+    <Show when={status()} fallback={<Show when={error() !== undefined} fallback={<p role="status">{message('storageSettings.loading')}</p>}>
+      <ProductEmptyState tone="error" title={message('storageSettings.loadFailed')} hint={error() || undefined} action={
+        <ProductButton onClick={() => { void refresh() }}>{message('storageSettings.retry')}</ProductButton>
+      } />
+    </Show>}>
       {(loaded) => <>
         <ProductSettingsSection title={message('storageSettings.title')}>
           <dl class="dinkster-settings-facts"><For each={byteFields}>{(field) => <div>
@@ -123,7 +131,7 @@ export function LibraryStorageSettings(props: {
         </ProductSettingsSection>
       </>}
     </Show>
-    <Show when={!status() || !status()?.policyAvailable}><ProductTextButton label={message('storageSettings.refresh')} disabled={busy()} onClick={() => { void refresh() }} /></Show>
+    <Show when={status() && !status()?.policyAvailable}><ProductTextButton label={message('storageSettings.refresh')} disabled={busy()} onClick={() => { void refresh() }} /></Show>
     <Show when={confirmClear()}><ProductDialog title={message('storageSettings.confirmTitle')} pending={clearing()} onDismiss={() => setConfirmClear(false)}>
       <ProductConfirmation consequence={message('storageSettings.confirmDescription', { size: bytes(status()?.reclaimableBytes ?? null) })} actionLabel={message('storageSettings.clear')} intent="remove" pending={clearing()} disabled={!canClear()}
         onCancel={() => setConfirmClear(false)} onConfirm={() => { void clear() }} />
