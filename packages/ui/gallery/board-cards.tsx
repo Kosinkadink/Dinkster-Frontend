@@ -46,7 +46,12 @@ export function BoardCardsGallery() {
       id: 'blueprint-1',
       kind: 'blueprint',
       name: 'Image to video',
-      source: { kind: 'library', recordId: 'image-to-video' },
+      source: {
+        kind: 'pack',
+        packId: 'video',
+        blueprintId: 'image-to-video',
+        digest: `sha256:${'a'.repeat(64)}`,
+      },
       values: {
         '["root","motion","value"]': 'Slow push in',
         '["root","length","value"]': '5 s',
@@ -156,8 +161,16 @@ export function BoardCardsGallery() {
                   new Set([...current].filter((id) => id !== item().id)),
               )
             }
-            onOpen={() => setActivity(`Open workflow: ${item().name}`)}
-            onChooseInputs={() => setActivity(`Choose inputs: ${item().name}`)}
+            onOpen={
+              item().source.kind === 'library'
+                ? () => setActivity(`Open workflow: ${item().name}`)
+                : undefined
+            }
+            onChooseInputs={
+              item().source.kind === 'library'
+                ? () => setActivity(`Choose inputs: ${item().name}`)
+                : undefined
+            }
             onRemove={remove}
           >
             <For each={Object.keys(item().values)}>

@@ -436,6 +436,15 @@ describe('app page tabs', () => {
       await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(3))
       expect(entry.session.doc.items[entry.session.doc.order[2]!]).toMatchObject({ kind: 'blueprint',
         source: { kind: 'pack', packId: 'pack', blueprintId: 'saved-card', digest } })
+      const packCard = root.querySelector<HTMLElement>(`[data-board-item="${entry.session.doc.order[2]}"]`)!
+      packCard.querySelector<HTMLButtonElement>('[aria-label="Actions for Pack card"]')!.click()
+      expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Remove from board'])
+      packCard.querySelector<HTMLButtonElement>('[aria-label="Actions for Pack card"]')!.click()
+      expect(document.querySelector('[role="menu"]')).toBeNull()
+      packCard.querySelector('.dinkster-board-card-name')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+      const savedCard = root.querySelector<HTMLElement>(`[data-board-item="${entry.session.doc.order[1]}"]`)!
+      savedCard.querySelector<HTMLButtonElement>('[aria-label="Actions for Saved card"]')!.click()
+      expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Open workflow', 'Choose inputs', 'Remove from board'])
       expect(app.tabs.get()).toEqual(tabs)
     } finally {
       dispose()

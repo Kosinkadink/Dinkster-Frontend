@@ -180,8 +180,8 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
       workflow: (point) => chooseCard('workflow', point), blueprint: (point) => chooseCard('blueprint', point),
     } : {}}
     card={(card, remove) => <BoardCard app={props.app} entry={props.entry} card={card()}
-      onOpen={() => { const source = card().source; if (source.kind === 'library') void openWorkflow(source.recordId, false) }}
-      onChooseInputs={() => { const source = card().source; if (source.kind === 'library') void openWorkflow(source.recordId, true) }}
+      onOpen={card().source.kind === 'library' ? () => { const source = card().source; if (source.kind === 'library') void openWorkflow(source.recordId, false) } : undefined}
+      onChooseInputs={card().source.kind === 'library' ? () => { const source = card().source; if (source.kind === 'library') void openWorkflow(source.recordId, true) } : undefined}
       onRemove={remove} />}
     onAddMedia={(point) => { pickerPoint = point; input.click() }}
     onDropMedia={(event, point) => {

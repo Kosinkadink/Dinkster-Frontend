@@ -65,8 +65,8 @@ export function ProductBoardCard(props: {
   readonly error?: string | undefined
   readonly onRun: () => void
   readonly onStop: () => void
-  readonly onOpen: () => void
-  readonly onChooseInputs: () => void
+  readonly onOpen?: (() => void) | undefined
+  readonly onChooseInputs?: (() => void) | undefined
   readonly onOpenLastRun?: (() => void) | undefined
   readonly onRemove: () => void
 }) {
@@ -77,7 +77,7 @@ export function ProductBoardCard(props: {
         if (
           !(event.target as Element).closest('button, input, textarea, select')
         )
-          props.onOpen()
+          props.onOpen?.()
       }}
     >
       <header class="dinkster-board-card-header">
@@ -97,16 +97,24 @@ export function ProductBoardCard(props: {
           iconOnly
           fill="quiet"
           items={[
-            {
-              label: 'Open workflow',
-              icon: Workflow,
-              onSelect: props.onOpen,
-            },
-            {
-              label: 'Choose inputs',
-              icon: SlidersHorizontal,
-              onSelect: props.onChooseInputs,
-            },
+            ...(props.onOpen
+              ? [
+                  {
+                    label: 'Open workflow',
+                    icon: Workflow,
+                    onSelect: props.onOpen,
+                  },
+                ]
+              : []),
+            ...(props.onChooseInputs
+              ? [
+                  {
+                    label: 'Choose inputs',
+                    icon: SlidersHorizontal,
+                    onSelect: props.onChooseInputs,
+                  },
+                ]
+              : []),
             ...(props.onOpenLastRun
               ? [
                   {
@@ -116,7 +124,9 @@ export function ProductBoardCard(props: {
                   },
                 ]
               : []),
-            'separator',
+            ...(props.onOpen || props.onChooseInputs || props.onOpenLastRun
+              ? ['separator' as const]
+              : []),
             {
               label: 'Remove from board',
               icon: Trash2,

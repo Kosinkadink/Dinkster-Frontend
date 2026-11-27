@@ -139,8 +139,8 @@ export function BoardCard(props: {
   readonly app: AppState
   readonly entry: BoardEntry
   readonly card: BoardCardItem
-  readonly onOpen: () => void
-  readonly onChooseInputs: () => void
+  readonly onOpen?: (() => void) | undefined
+  readonly onChooseInputs?: (() => void) | undefined
   readonly onRemove: () => void
 }) {
   const backends = useSignal(props.app.backends)

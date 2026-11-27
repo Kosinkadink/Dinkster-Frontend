@@ -19,6 +19,19 @@ test('card controls edit without dragging, menus dismiss, and removal is undoabl
   await expect(
     blueprint.getByRole('textbox', { name: 'Motion', exact: true }),
   ).toHaveValue('Slow push in')
+  await blueprint
+    .getByRole('button', { name: 'Actions for Image to video' })
+    .click()
+  await expect(
+    page.getByRole('menuitem', { name: 'Choose inputs', exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('menuitem', { name: 'Open workflow', exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('menuitem', { name: 'Remove from board', exact: true }),
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
   await card.getByRole('button', { name: 'Run', exact: true }).click()
   await expect(
     card.getByRole('button', { name: 'Stop', exact: true }),
