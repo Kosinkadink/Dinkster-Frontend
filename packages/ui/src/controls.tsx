@@ -248,6 +248,7 @@ export function ProductIconButton(
     labelContent?: JSX.Element
     icon: LucideIcon
     intent?: ProductRole
+    pending?: boolean
     'data-tooltip-label'?: string
   },
 ) {
@@ -256,17 +257,19 @@ export function ProductIconButton(
     'labelContent',
     'icon',
     'intent',
+    'pending',
   ])
   return (
     <Button
       {...button}
       intent={local.intent}
       fill="quiet"
+      pending={local.pending}
       iconOnly={local.labelContent === undefined}
       aria-label={local.label}
       title={button['data-tooltip-label'] ? undefined : local.label}
     >
-      <ProductIcon icon={local.icon} />
+      <Show when={!local.pending}><ProductIcon icon={local.icon} /></Show>
       {local.labelContent}
     </Button>
   )
@@ -465,7 +468,12 @@ export function ProductCheckbox(
   const [local, input] = splitProps(props, ['label', 'children'])
   return (
     <label class="dinkster-choice">
-      <input {...input} type="checkbox" class="dinkster-check" />
+      <input
+        {...input}
+        type="checkbox"
+        class="dinkster-check dinkster-visually-hidden"
+      />
+      <span class="product-checkbox-mark" aria-hidden="true" />
       <span>{local.label}</span>
     </label>
   )

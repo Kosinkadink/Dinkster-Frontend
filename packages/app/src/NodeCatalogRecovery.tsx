@@ -4,6 +4,7 @@ import { ProjectRevisionConflictError } from '@dinkster/client'
 import type { AppState, Backend } from './app-state.js'
 import { activeProjectId } from './projects.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 
 export function NodeCatalogRecovery(props: {
   readonly app: AppState
@@ -37,18 +38,19 @@ export function NodeCatalogRecovery(props: {
         if (!current()) return
         await props.backend.connection.getProject(projectId, controller.signal)
         await refetch()
-        throw new Error(message('catalog.projectChanged'))
+        if (current()) setError(message('catalog.projectChanged'))
+        return
       }
       if (!current()) return
       await props.app.refreshBackendSchemas(props.backend)
       const state = props.backend.schemaState.get()
-      if (state.status === 'error') throw new Error(state.message)
+      if (current() && state.status === 'error') setError(state.message)
     } catch (cause) {
-      if (current()) setError(message('catalog.enableFailed', { reason: cause instanceof Error ? cause.message : String(cause) }))
+      if (current()) setError(failureMessage(cause, message('catalog.enableFailed', { reason: '' }).trim()))
     } finally { if (current()) setBusy(false) }
   }
   return <Show when={!facts.loading} fallback={<ProductLoading label={message('catalog.loading')} />}>
-    <Show when={facts.error === undefined} fallback={<p class="dinkster-field-error" role="alert">{String(facts.error)}</p>}>
+    <Show when={facts.error === undefined} fallback={<p class="dinkster-field-error" role="alert">{failureMessage(facts.error, message('catalog.factsUnavailable'))}</p>}>
       <Show when={facts()}>{(value) => <ProductRecoveryNotice
         message={message(value().hasInstalledNodes ? 'catalog.noneEnabled' : 'catalog.noneInstalled')}
         {...(value().canWrite !== true ? {} : { action: {

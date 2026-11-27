@@ -6,6 +6,7 @@ import { diagnosticFocusTarget, type AppState } from './app-state.js'
 import { groupProblemDiagnostics } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
 import { useAppMessage, useModelKindLabel } from './locale.js'
+import { failureMessage } from './request-failure.js'
 import { ProductButton, ProductCheckbox } from './ProductControls.js'
 import type { useSelectionContext } from './selection-context.js'
 import { contextProblems } from './problem-context.js'
@@ -195,12 +196,12 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
           await props.app.refreshBackendSchemas(backend)
           if (install() === applying) setInstall(undefined)
         } catch (error) {
-          if (install() === applying && current()) setInstall({ current, phase: 'error', error: String(error) })
+          if (install() === applying && current()) setInstall({ current, phase: 'error', error: failureMessage(error) })
         }
       } }
       setInstall(review)
     } catch (error) {
-      if (install() === request && current()) setInstall({ current, phase: 'error', error: String(error) })
+      if (install() === request && current()) setInstall({ current, phase: 'error', error: failureMessage(error) })
     }
   }
   let panel!: HTMLElement

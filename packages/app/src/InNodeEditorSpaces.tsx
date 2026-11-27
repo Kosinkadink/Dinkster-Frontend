@@ -18,8 +18,9 @@ import {
   type CanvasCurveStrip,
 } from '@dinkster/ui'
 import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack, type JSX } from 'solid-js'
-import type { ExecutionState, MountSettings } from '@dinkster/client'
+import { RequestFailure, type ExecutionState, type MountSettings } from '@dinkster/client'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 import { frameFromVideo, webcamError, type WebcamDimensions } from './webcam.js'
 import { overlayClipStyle, type EditorWorldRect } from './widget-editor-position.js'
 
@@ -744,7 +745,7 @@ export class AudioRecordController {
       this.setStatus('idle')
     } catch (reason) {
       if (request !== this.generation || abort.signal.aborted) return
-      this.setError(reason instanceof Error ? reason.message : String(reason))
+      this.setError(failureMessage(reason, 'Recording could not be saved.'))
       this.setStatus('uploadFailed')
     }
   }
@@ -1207,7 +1208,7 @@ export function WebcamSpace(props: {
       setCamera('live')
     } catch (reason) {
       if (signal.aborted) return
-      setError(webcamError(reason))
+      setError(reason instanceof RequestFailure ? failureMessage(reason, 'Frame could not be saved.') : webcamError(reason))
       setCamera('live')
     }
   }

@@ -31,6 +31,8 @@ import { canvasMeasures } from './canvas-measures.js'
 import { lookupAnswersOf } from './lookup-demand.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { desktopSaveBridge } from './desktop-bridge.js'
+import { RequestFailure } from '@dinkster/client'
+import { failureMessage } from './request-failure.js'
 
 /** The box under a button's line: a note or skip (circled i), or a failure (warning triangle). */
 export interface ButtonBox {
@@ -369,7 +371,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         })
         report(place, outcome)
       } catch (error) {
-        report(place, { kind: 'failed', warning: true, message: `Nothing was changed. ${error instanceof Error ? error.message : String(error)}`, skipped: [], notes: [] })
+        report(place, { kind: 'failed', warning: true, message: error instanceof RequestFailure ? failureMessage(error, 'Nothing was changed.') : `Nothing was changed. ${error instanceof Error ? error.message : String(error)}`, skipped: [], notes: [] })
       } finally {
         running.delete(key)
         // Focused buttons read both the result and whether a press is still running.

@@ -1076,7 +1076,7 @@ export function projectNodeLayoutHeight(
       height,
       preview: {
         ...layout.preview,
-        height: previewPanelMinHeight(tokens) + extra,
+        height: layout.preview.height + height - layout.height,
       },
     }
   }

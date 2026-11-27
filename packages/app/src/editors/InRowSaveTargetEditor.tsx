@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, onCleanup, type Component } from 'solid-js'
 import type { MountSettings } from '@dinkster/client'
+import { failureMessage } from '../request-failure.js'
 import { effectiveWidgetDefault, type Json } from '@dinkster/core'
 import { isProjectDefaultTarget, isSaveTarget, saveTargetDraft, saveTargetText } from '@dinkster/widgets'
 import {
@@ -56,7 +57,7 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
       }).catch((reason: unknown) => {
         if (live && request === generation) {
           setSettings(undefined)
-          setError(reason instanceof Error ? reason.message : String(reason))
+          setError(failureMessage(reason, message('request.storageLoadFailed')))
         }
       })
     }
