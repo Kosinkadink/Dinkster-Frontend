@@ -26,7 +26,7 @@ export function ControllerModeMenu(props: {
     ]}>{(option) => <ProductButton variant="ghost" type="button" role="menuitemradio"
       aria-checked={props.mode === option.mode} class="dinkster-menu-item seed-controller-option"
       data-testid={`seed-controller-${option.mode}`} disabled={props.pending} onClick={() => props.onMode(option.mode)}>
-      <CanvasSeedModeIcon mode={option.mode} />
+      <CanvasSeedModeIcon mode={option.mode} trigger={props.trigger} />
       <span class="dinkster-menu-item-label">{option.label}</span>
       <Show when={props.mode === option.mode}><span class="seed-controller-check"><Icon icon={Check} /></span></Show>
     </ProductButton>}</For>

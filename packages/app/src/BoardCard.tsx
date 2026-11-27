@@ -3,12 +3,10 @@ import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { CanvasSeedModeIcon, ProductBoardCard, ProductButton } from '@dinkster/ui'
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup } from 'solid-js'
 import { Portal } from 'solid-js/web'
-import { Dice5, Lock, Minus, Plus } from 'lucide-solid'
 import { LIBRARY_SCOPE, type AppState, type Backend } from './app-state.js'
 import { ExposedParameterInput, ExposedParameterRow, isBooleanParameter } from './AppView.js'
 import { ControllerModeMenu } from './ControllerModeMenu.js'
 import { executionStatusLabel } from './ExecutionActivityCard.js'
-import { Icon } from './Icon.js'
 import { buildParamRows, comboOptions, fetchRemoteComboOptions, type ParamRow } from './app-view-rows.js'
 import { applyCardInputs, type BoardEntry } from './board-workspace.js'
 import { ProductNotice } from './ProductForm.js'
@@ -123,10 +121,7 @@ function BoardCardInput(props: {
         <span class="dinkster-board-controller"><ProductButton ref={(element) => { modeButton = element }} fill="quiet"
           aria-label={`After run for ${props.row.label}`} aria-haspopup="menu" aria-expanded={modeOpen()}
           onClick={() => setModeOpen((open) => !open)}>
-          <Show when={['INT', 'FLOAT'].includes(props.row.spec!.widgetType)}
-            fallback={<Icon icon={{ fixed: Lock, increment: Plus, decrement: Minus, randomize: Dice5 }[mode()]} />}>
-            <CanvasSeedModeIcon mode={mode()} />
-          </Show>
+          <CanvasSeedModeIcon mode={mode()} trigger="after_generate" />
         </ProductButton></span>
         <Show when={modeOpen()}><Portal><div class="dinkster-root dinkster-board-controller-layer"
           onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
