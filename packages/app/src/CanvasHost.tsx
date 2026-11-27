@@ -2867,7 +2867,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         return node === undefined ? [] : [node]
       })]
       return [...new Set(nodes.flatMap((node) => node.layout.rows.flatMap((row) => {
-        if (row.kind !== 'widget' || row.spec.widgetType !== 'SECRET') return []
+        if (row.kind !== 'widget' || row.secret !== true) return []
         const value = row.derivedValue ?? node.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
         return typeof value === 'string' && value !== '' ? [value] : []
       })))].sort()
@@ -5062,7 +5062,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             queueMicrotask(() => {
               if (!canvasEl.isConnected || activeTab() !== tab || tab.store.doc !== snapshot || currentGraphId(tab) !== graphId ||
                   props.app.diagnosticFocus.get() !== undefined) return
-              if (row?.kind !== 'widget' || (!isAssetWidgetInput({ widget: row.spec }) && row.spec.widgetType !== 'SECRET') || tab.execution ||
+              if (row?.kind !== 'widget' || (!isAssetWidgetInput({ widget: row.spec }) && row.secret !== true) || tab.execution ||
                   (row.selector === undefined && companionInputs.get(node.id)?.has(row.address.port))) {
                 reportGestureRefusal(tab.id, [diag('warning', 'validation', 'asset.replacement.unavailable',
                   message('problems.assetReplacementUnavailable'))])
@@ -5161,7 +5161,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           .map((d): Diagnostic => ({ ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) })))
       const secretDiags = tab.execution ? [] : scene.nodes.flatMap((node) =>
         (node.fieldRows ?? node.layout.rows).flatMap((row): Diagnostic[] => {
-          if (row.kind !== 'widget' || row.spec.widgetType !== 'SECRET' || row.optional === true) return []
+          if (row.kind !== 'widget' || row.secret !== true || row.optional === true) return []
           const name = row.derivedValue ?? node.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
           if (typeof name !== 'string' || secretFacts()[name] === true) return []
           return [diag('error', 'validation', 'secret.required.missing', message('secretWidget.required', { name }), {
@@ -5770,7 +5770,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const valueNodeId = hit.row.familyOwner?.nodeId ?? nodeId
       const valueKey = hit.row.familyOwner?.valueKey ?? hit.row.valueKey
       const spec = hit.row.spec
-      if (spec.widgetType === 'SECRET') {
+      if (hit.row.secret === true) {
         const backend = props.app.backendForTab(tab)
         const name = hit.row.derivedValue ?? tab.store.doc.graphs[valueGraphId]?.nodes[valueNodeId]?.values[valueKey] ?? effectiveWidgetDefault(spec)
         if (typeof name !== 'string' || name === '') {

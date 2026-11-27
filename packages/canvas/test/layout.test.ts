@@ -1800,10 +1800,10 @@ describe('v14 COMBO layout', () => {
 })
 
 describe('secret rows', () => {
-  it('never gives secret names a pin, including connected taps inside a folded section', () => {
+  it.each(['SECRET', 'STRING'])('never gives secret names a pin, including folded taps with a %s widget', (widgetType) => {
     const key = input('key', {
       type: { kind: 'concrete', name: 'STRING' }, secret: true, socketless: true,
-      widget: { widgetType: 'SECRET', options: {}, default: 'caption-service' },
+      widget: { widgetType, options: {}, default: 'caption-service' },
     })
     const ordinary = input('caption', {
       type: { kind: 'concrete', name: 'STRING' }, socketless: true,

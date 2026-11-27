@@ -54,7 +54,7 @@ catalogTest('secret rows save and remove through the selected connection without
   const graph = (await activeDoc(page)).graphs
   await page.getByRole('tab', { name: /^Problems/ }).click()
   const missing = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'secret.required.missing' })
-  await expect(missing).toContainText('Required secret "caption-service" is not set.')
+  await expect(missing).toContainText('Secret "caption-service" is not set.')
   await missing.locator('summary').click()
   await missing.getByRole('button', { name: 'Show on canvas', exact: true }).click()
   const box = page.getByTestId('problem-box')

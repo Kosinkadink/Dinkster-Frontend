@@ -215,7 +215,7 @@
   "modelDownloads.run": "Run",
   "secretWidget.set": "Set",
   "secretWidget.notSet": "Not set",
-  "secretWidget.required": "Required secret \"{name}\" is not set.",
+  "secretWidget.required": "Secret \"{name}\" is not set.",
   "problems.action.setSecret": "Set secret",
   "saveTargetWidget.title": "Save destination",
   "saveTargetWidget.default": "Default output",
