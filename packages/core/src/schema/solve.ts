@@ -150,7 +150,9 @@ export interface SolveResult {
    * expression). Undefined when the node/port is not elaborated.
    */
   portTypeOf(node: NodeId, side: 'input' | 'output', port: string): TypeExpr | undefined
-  /** Exact item count, separate from type; undefined means unknown, never empty. */
+  /** Exact contribution to a joined list: one scalar or a list's length; absent means unknown. */
+  itemCountOf(node: NodeId, side: 'input' | 'output', port: string): number | undefined
+  /** Exact list length, separate from type; undefined means unknown or not a list. */
   listCountOf(node: NodeId, side: 'input' | 'output', port: string): number | undefined
   /** Verdicts for consumer-delivering links (structural feeds absent). */
   readonly linkVerdicts: ReadonlyMap<LinkId, EdgeVerdict>
@@ -306,7 +308,7 @@ export interface SolveOptions extends ElaborateOptions {
     readonly type: TypeExpr
     readonly to: PortRef
     /** Exact count from this occurrence's producer; absent means unknown. */
-    readonly listCount?: number
+    readonly itemCount?: number
     readonly label?: string
     /** Shared identity for multiple edges from one projected producer node. */
     readonly variableSource?: symbol
@@ -1087,7 +1089,7 @@ export function solveGraphTypes(
   for (const input of options.projectedInputs ?? []) {
     const key = JSON.stringify([input.to.node, input.to.port])
     const arrivals = projectedCounts.get(key) ?? []
-    arrivals.push(input.listCount)
+    arrivals.push(input.itemCount)
     projectedCounts.set(key, arrivals)
   }
   const reading = new Set<string>()
@@ -1163,6 +1165,7 @@ export function solveGraphTypes(
   return {
     resolutionOf: (node, templateId) => vars.resolutionOf(varKeyOf(node, templateId)),
     portTypeOf,
+    itemCountOf: countOf,
     listCountOf: (node, side, port) => cardinalityOf(portTypeOf(node, side, port) ?? { kind: 'wildcard' }) === 'list' ? countOf(node, side, port) : undefined,
     linkVerdicts,
     netSinkVerdicts,

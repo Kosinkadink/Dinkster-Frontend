@@ -31,6 +31,7 @@ import {
   type CommandInvocation,
   type InputSpec,
   type MaterializeFrame,
+  type NodeData,
   type NodeSchema,
   type OutputSpec,
   type TypeExpr,
@@ -159,6 +160,7 @@ type NodeSpec = {
   type: string
   values?: Record<string, unknown>
   dynamic?: Record<string, unknown>
+  region?: NodeData['region']
 }
 type GraphSpec = {
   nodes: Record<string, NodeSpec>
@@ -187,6 +189,7 @@ const docOf = (
             type: n.type,
             values: n.values ?? {},
             ...(n.dynamic ? { dynamic: n.dynamic } : {}),
+            ...(n.region ? { region: n.region } : {}),
           },
         ]),
       ),
@@ -289,6 +292,55 @@ it('carries independent counts through nested occurrence wires without using an 
   expect(store.dispatch({ command: 'link.connect', params: { graphId: 'g0', from: { node: unknownId, port: 'texts' }, to: { node: 'first', port: 'texts' } } })).toMatchObject({ ok: true })
   expect(counts('first')).toEqual([undefined, undefined, undefined])
   expect(counts('second')).toEqual([5, 5, 5])
+})
+
+it('counts scalar arrivals into joined lists without treating region iterations as inner list items', () => {
+  const text: TypeExpr = { kind: 'concrete', name: 'STRING' }
+  const texts: TypeExpr = { kind: 'list', element: text }
+  const sources = [
+    schemaOf('Scalar text', [{ kind: 'output', id: 'out', type: text }]),
+    schemaOf('Optional text', [{ kind: 'output', id: 'out', type: text, optional: true }]),
+    schemaOf('Four texts', [{ kind: 'output', id: 'out', type: texts, listCount: 4 }]),
+    schemaOf('Four lists', [{ kind: 'output', id: 'out', type: { kind: 'list', element: texts }, listCount: 4 }]),
+  ]
+  const join = schemaOf('Join texts', [
+    group('parts', 'part', { value: input('value', { type: text, acceptsList: true, optional: true }) }, 0, 8),
+    { kind: 'output', id: 'out', type: texts, listCount: { input: 'value', group: 'parts' } },
+  ])
+  const document = docOf({
+    g0: {
+      nodes: {
+        scalar: { type: sources[0]!.type }, optional: { type: sources[1]!.type },
+        texts: { type: sources[2]!.type }, lists: { type: sources[3]!.type },
+        one: { type: '#joined' }, maybe: { type: '#joined' }, four: { type: '#joined' },
+        mapped: { type: '#joined', region: { kind: 'map', elementPorts: ['item'] } },
+        nested: { type: '#joined', region: { kind: 'map', elementPorts: ['item'] } },
+      },
+      links: [
+        [['scalar', 'out'], ['one', 'item']], [['optional', 'out'], ['maybe', 'item']],
+        [['texts', 'out'], ['four', 'item']], [['texts', 'out'], ['mapped', 'item']],
+        [['lists', 'out'], ['nested', 'item']],
+      ],
+    },
+    joined: {
+      nodes: { join: { type: join.type, dynamic: { parts: { members: ['part0'] } } } },
+      boundary: {
+        inputs: [{ id: 'item', binds: { kind: 'port', node: 'join', port: 'parts.part0' } }],
+        outputs: [{ id: 'result', binds: { kind: 'port', node: 'join', port: 'out' } }],
+      },
+    },
+  })
+  const resolve = documentResolver(document, (type) => [...sources, join].find((schema) => schema.type === type))
+  const outputCount = (node: string) => buildScene({
+    document, graphId: 'joined', resolve,
+    occurrence: { owner: { instancePath: [], node: asNodeId(node) }, plannerAvailable: true },
+    tokens: defaultTokens, measure, widgetMeasure,
+  }).links.find((link) => link.from.kind === 'port' && link.from.port === 'out')?.listCount
+  expect(outputCount('four')).toBe(4)
+  expect(outputCount('one')).toBe(1)
+  expect(outputCount('maybe')).toBeUndefined()
+  expect(outputCount('mapped')).toBe(1)
+  expect(outputCount('nested')).toBeUndefined()
 })
 
 const nodeOf = (scene: Scene, id: string) => {

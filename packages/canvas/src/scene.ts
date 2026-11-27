@@ -17,6 +17,7 @@ import {
   buildGraphConnectivity,
   buildRerouteIndex,
   canonicalTypeIdOf,
+  cardinalityOf,
   companionSourcesOf,
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
@@ -641,10 +642,11 @@ function projectedTypeConstraints(
       if (type === undefined) return []
       const projectedType = projectTypeThroughRegionInputs(document, link, type)
       // A region's element is not the list that drives its iterations.
-      const listCount = projectedType === type ? solved.result.listCountOf(source.node, source.side, source.port) : undefined
+      const itemCount = projectedType === type ? solved.result.itemCountOf(source.node, source.side, source.port)
+        : cardinalityOf(projectedType) === 'scalar' ? 1 : undefined
       return [{
         type: projectedType,
-        ...(listCount !== undefined ? { listCount } : {}),
+        ...(itemCount !== undefined ? { itemCount } : {}),
         to: link.to.endpoint as PortRef,
         label: `projected ${JSON.stringify(link.identity)}`,
         variableSource: solved.variableSources.get(source.node)!,

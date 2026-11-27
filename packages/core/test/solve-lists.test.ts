@@ -175,7 +175,7 @@ describe('declared list counts', () => {
       links: { tap: { id: asLinkId('tap'), from: { node: n('local'), tap: asPortId('in') }, to: { node: n('copy'), port: asPortId('in') } } },
     }
     const to = { node: n('local'), port: asPortId('in') }
-    const project = (listCount?: number) => ({ to, type: strings, ...(listCount === undefined ? {} : { listCount }) })
+    const project = (itemCount?: number) => ({ to, type: strings, ...(itemCount === undefined ? {} : { itemCount }) })
     const seven = solveGraphTypes(graph, resolveCounts, { projectedInputs: [project(7)] })
     const two = solveGraphTypes(graph, resolveCounts, { projectedInputs: [project(2)] })
     expect(seven.listCountOf(n('copy'), 'output', 'out')).toBe(7)
