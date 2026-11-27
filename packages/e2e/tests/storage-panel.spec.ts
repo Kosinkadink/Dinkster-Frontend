@@ -119,6 +119,8 @@ test('Storage shows engine file and byte reading progress on model folders and m
   await expect(model.getByRole('progressbar')).toBeVisible()
   const renders = panel.locator('[data-mount-id="renders"]')
   await renders.getByRole('button', { name: 'Actions for renders' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Move down', exact: true })).toBeDisabled()
+  await expect(page.getByRole('menuitem', { name: 'Move up', exact: true })).toBeEnabled()
   await page.screenshot({ path: testInfo.outputPath('storage-mount-menu-dark.png') })
   await expect(page.getByRole('menuitem', { name: 'Read again', exact: true })).toBeVisible()
   await page.getByRole('menuitem', { name: 'Stop using', exact: true }).click()

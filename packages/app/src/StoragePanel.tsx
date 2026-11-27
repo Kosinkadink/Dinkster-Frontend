@@ -203,11 +203,13 @@ export function StorageFolders(props: {
   const useFolder = (id: string) => void perform(() => props.connection.updateProjectFolders([...selected().map((row) => row.id), id], settings()?.outputMount ?? null))
   const move = (id: string, direction: number) => {
     const order = selected().map((row) => row.id)
-    const index = order.indexOf(id)
+    const visible = folders().map((row) => row.id)
+    const index = visible.indexOf(id)
     const target = index + direction
-    if (index < 0 || target < 0 || target >= order.length) return
-    order.splice(index, 1)
-    order.splice(target, 0, id)
+    if (index < 0 || target < 0 || target >= visible.length) return
+    const from = order.indexOf(id)
+    const to = order.indexOf(visible[target]!)
+    ;[order[from], order[to]] = [order[to]!, order[from]!]
     void perform(() => props.connection.updateProjectFolders(order, settings()?.outputMount ?? null))
   }
   const leave = () => {
@@ -294,8 +296,8 @@ export function StorageFolders(props: {
     action={<ProductMenu icon={Ellipsis} iconOnly fill="quiet" label={message('storagePanel.actions', { folder: mount.id })} items={used ? [
         { label: message('storagePanel.openAssets'), onSelect: () => props.onOpenAssets(mount.id) },
         ...(mount.mode === 'readwrite' && mount.id !== settings()?.outputMount ? [{ label: message('storagePanel.saveHere'), disabled: disabled(), onSelect: () => setOutput(mount) }] : []),
-        { label: message('projectFolders.up'), disabled: disabled() || selected()[0]?.id === mount.id, onSelect: () => move(mount.id, -1) },
-        { label: message('projectFolders.down'), disabled: disabled() || selected().at(-1)?.id === mount.id, onSelect: () => move(mount.id, 1) },
+        { label: message('projectFolders.up'), disabled: disabled() || folders()[0]?.id === mount.id, onSelect: () => move(mount.id, -1) },
+        { label: message('projectFolders.down'), disabled: disabled() || folders().at(-1)?.id === mount.id, onSelect: () => move(mount.id, 1) },
         { label: message('storagePanel.readAgain'), disabled: disabled() || mount.state === 'restart-required', onSelect: () => { void perform(() => props.connection.retryMount(mount.id)) } },
         { label: message('projectFolders.remove'), disabled: disabled(), onSelect: () => { setReplacement(''); setLeaving({ id: mount.id, model: false }) } },
       ] : [{ label: message('storagePanel.use'), intent: 'add', disabled: disabled(), onSelect: () => useFolder(mount.id) }]} />} />}>

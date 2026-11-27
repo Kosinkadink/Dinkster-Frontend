@@ -346,6 +346,50 @@ it('selects the default save folder from a writable mount menu', async () => {
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).not.toContain('New saves go here')
 })
 
+it('moves only visible Mounts and disables movement at both ends and for a single Mount', async () => {
+  let mounts: MountDescriptor[] = [
+    { id: 'model-a', mode: 'read', state: 'ready', source: 'shared-models' },
+    { id: 'alpha', mode: 'readwrite', state: 'ready' },
+    { id: 'model-b', mode: 'read', state: 'ready', source: 'shared-models' },
+    { id: 'beta', mode: 'readwrite', state: 'ready' },
+  ]
+  let changed = () => {}
+  const connection = {
+    fetchMountSettings: async () => ({ mounts, outputMount: 'alpha', mountChangesAllowed: true }),
+    fetchMountLocations: async () => ({ mounts }),
+    fetchModelSettings: async () => ({ locations: [], settings: { locations: [] }, changesAllowed: true }),
+    onMountsChanged: (listener: () => void) => { changed = listener; return () => {} },
+    updateProjectFolders: async (ids: readonly string[]) => { mounts = ids.map((id) => mounts.find((mount) => mount.id === id)!) },
+  } as unknown as DinksterConnection
+  const root = document.createElement('div'); document.body.append(root)
+  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
+  const order = () => [...root.querySelectorAll('[data-mount-id]')].map((row) => row.getAttribute('data-mount-id'))
+  const open = (id: string) => root.querySelector<HTMLButtonElement>(`[data-mount-id="${id}"] [aria-haspopup="menu"]`)!.click()
+  const item = (label: string) => [...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === label)!
+  const close = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await vi.waitFor(() => expect(order()).toEqual(['alpha', 'beta']))
+  open('alpha')
+  expect(item('Move up').disabled).toBe(true)
+  expect(item('Move down').disabled).toBe(false)
+  item('Move down').click()
+  await vi.waitFor(() => expect(order()).toEqual(['beta', 'alpha']))
+  expect(mounts.map((mount) => mount.id)).toEqual(['model-a', 'beta', 'model-b', 'alpha'])
+  open('alpha')
+  expect(item('Move down').disabled).toBe(true)
+  expect(item('Move up').disabled).toBe(false)
+  item('Move up').click()
+  await vi.waitFor(() => expect(order()).toEqual(['alpha', 'beta']))
+  mounts = mounts.filter((mount) => mount.id !== 'beta')
+  changed()
+  await vi.waitFor(() => expect(order()).toEqual(['alpha']))
+  open('alpha')
+  expect(item('Move up').disabled).toBe(true)
+  expect(item('Move down').disabled).toBe(true)
+  item('Move down').click()
+  expect(order()).toEqual(['alpha'])
+  close()
+})
+
 it('keeps a pending folder removal visible when edit controls are activated', async () => {
   let finish!: () => void
   const gate = new Promise<void>((resolve) => { finish = resolve })
