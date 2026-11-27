@@ -2255,9 +2255,9 @@ button.dinkster-row-main { cursor: pointer; }
 .product-field-invalid .product-field-metadata { color: var(--dinkster-danger-foreground); }
 .product-field-control { grid-area: control; min-width: 0; display: flex; justify-content: flex-end; }
 .automatic-fix-fields { display: grid; gap: var(--dinkster-space-16); }
-.automatic-fix-setting { grid-template-columns: minmax(0, 1fr) auto minmax(calc(var(--dinkster-space-32) * 5), calc(var(--dinkster-space-32) * 7)); grid-template-areas: 'copy actions control'; align-items: end; min-height: 0; padding: 0; border-bottom: 0; }
+.automatic-fix-setting { grid-template-columns: minmax(0, 1fr) auto minmax(calc(var(--dinkster-space-32) * 5), calc(var(--dinkster-space-32) * 7)); grid-template-areas: 'copy actions control'; min-height: 0; padding: 0; border-bottom: 0; }
 .automatic-fix-setting .product-field-control { display: contents; }
-.automatic-fix-setting .product-field-control > .dinkster-select-trigger { grid-area: control; width: 100%; }
+.automatic-fix-setting .product-field-control > .dinkster-select-trigger { grid-area: control; align-self: end; width: 100%; }
 .automatic-fix-wire { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; }
 .automatic-fix-wire > label { grid-column: 1 / 3; color: var(--dinkster-text-secondary); }
 .automatic-fix-wire > .dinkster-select-trigger { grid-column: 3; width: 100%; }
