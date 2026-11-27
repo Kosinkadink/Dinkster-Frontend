@@ -5,7 +5,7 @@ import { buildRerouteIndex, rerouteInputTargets, traceEndpointAll, type RerouteT
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity } from '../schema/elaborate.js'
 import { cardinalityOf, type TypeExpr } from '../schema/model.js'
-import { solveGraphTypes, type ListCountFact, type SolveOptions, type SolveResult } from '../schema/solve.js'
+import { combineListCountFacts, solveGraphTypes, type ListCountFact, type SolveOptions, type SolveResult } from '../schema/solve.js'
 import { documentNodeResolver } from './compile.js'
 import { effectiveOccurrenceTopology, resolveOccurrenceLinkEndpoint, type EffectiveLink, type EffectiveOccurrenceTopology } from './effective-topology.js'
 import { occurrenceDynamicView } from './occurrence-view.js'
@@ -115,15 +115,7 @@ function occurrenceTypeSolver(
     const counts = traceEndpointAll(producer.graph, resolved.endpoint, buildRerouteIndex(producer.graph)).map((trace) =>
       trace.kind === 'output' ? producer.result.listCountFactOf(trace.ref.node, 'output', trace.ref.port)
         : trace.kind === 'tapValue' ? producer.result.listCountFactOf(trace.node, 'input', trace.input) : undefined)
-    if (counts.some(count => count === undefined)) return undefined
-    const known = counts.filter(count => count?.kind === 'known')
-    const candidates = known.length > 0 ? known : counts
-    const first = candidates[0]
-    if (first === undefined || candidates.some(count => count?.count !== first.count)) return undefined
-    if (known.length > 0) return first
-    const estimates = counts.filter(count => count?.kind === 'estimate')
-    return estimates.length === 0 ? first : { kind: 'estimate', count: first.count,
-      sources: [...new Set(estimates.flatMap(count => count.sources))] }
+    return combineListCountFacts(counts)
   }
   const countOptions = (graph: GraphDef, path: readonly NodeId[]): Pick<SolveOptions, 'outputListCountOf' | 'outputListCountEstimateOf'> => ({
     outputListCountOf: (node, port) => {

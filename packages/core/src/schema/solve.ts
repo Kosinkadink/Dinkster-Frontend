@@ -146,6 +146,18 @@ export type ListCountFact =
   | { readonly kind: 'known'; readonly count: number }
   | { readonly kind: 'estimate'; readonly count: number; readonly sources: readonly ('asset' | 'last-run')[] }
 
+/** Reconcile arrivals without turning unknown or conflicting counts into a guess. */
+export function combineListCountFacts(facts: readonly (ListCountFact | undefined)[]): ListCountFact | undefined {
+  if (facts.length === 0 || facts.some(fact => fact === undefined)) return undefined
+  const present = facts as readonly ListCountFact[]
+  const known = present.filter(fact => fact.kind === 'known')
+  const candidates = known.length > 0 ? known : present
+  const first = candidates[0]!
+  if (!candidates.every(fact => fact.count === first.count)) return undefined
+  return known.length > 0 ? first : { kind: 'estimate', count: first.count,
+    sources: [...new Set(present.flatMap(fact => fact.kind === 'estimate' ? fact.sources : []))] }
+}
+
 export interface SolveResult {
   /** Resolution of variable `templateId` as it occurs on node `node`. */
   resolutionOf(node: NodeId, templateId: string): VarResolution
@@ -1097,16 +1109,6 @@ export function solveGraphTypes(
     return declared === undefined ? undefined : substitute(declared, node)
   }
   const knownCount = (count: number): ListCountFact => ({ kind: 'known', count })
-  const combineCounts = (facts: readonly (ListCountFact | undefined)[]): ListCountFact | undefined => {
-    if (facts.length === 0 || facts.some(fact => fact === undefined)) return undefined
-    const present = facts as readonly ListCountFact[]
-    const known = present.filter(fact => fact.kind === 'known')
-    const candidates = known.length > 0 ? known : present
-    const first = candidates[0]!
-    if (!candidates.every(fact => fact.count === first.count)) return undefined
-    return known.length > 0 ? first : { kind: 'estimate', count: first.count,
-      sources: [...new Set(present.flatMap(fact => fact.kind === 'estimate' ? fact.sources : []))] }
-  }
   const counts = new Map<string, ListCountFact | undefined>()
   const projectedCounts = new Map<string, (ListCountFact | undefined)[]>()
   for (const input of options.projectedInputs ?? []) {
@@ -1148,7 +1150,7 @@ export function solveGraphTypes(
         if (cardinalityOf(portTypeOf(node, side, port) ?? input.spec.type) === 'list' || input.spec.widget?.widgetType === 'LIST' || input.spec.acceptsList && Array.isArray(value)) return [Array.isArray(value) ? knownCount(value.length) : undefined]
         return [knownCount(1)]
       })]
-      return combineCounts(results)
+      return combineListCountFacts(results)
     }
     const output = countOutputs.get(node)?.get(port)
     if (output === undefined || output.optional) return undefined

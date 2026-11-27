@@ -1101,8 +1101,15 @@ export class CanvasRenderer {
   }
 
   setScene(scene: Scene): void {
+    // Count metadata does not invalidate pin layouts captured by a held wire.
+    const countsChanged = !structuralEqual(this.baseScene.links.map(link => link.listCountFact), scene.links.map(link => link.listCountFact))
+    const withoutCounts = (value: Scene): Scene => ({ ...value,
+      links: value.links.map(({ listCountFact: _count, ...link }) => link),
+    })
+    const countsOnly = countsChanged && structuralEqual(withoutCounts(this.baseScene), withoutCounts(scene))
     this.baseScene = scene
     this.replacePaintScene(this.sceneWithBodyRegions(scene))
+    if (countsOnly) return
     this.refreshConnectivity()
     this.canvasLayerNodes = Object.freeze(this.scene.nodes.map((node) => Object.freeze({
       id: node.id,

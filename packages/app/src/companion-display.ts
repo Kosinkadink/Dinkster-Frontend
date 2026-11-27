@@ -32,8 +32,10 @@
  */
 
 import type { CompanionDisplay, CompanionMap } from '@dinkster/canvas'
+import type { ExecutionState } from '@dinkster/client'
 import {
   companionSourcesOf,
+  occurrencesForView,
   upstreamRecipesEqual,
   type CompanionTapValueResolver,
   type CompanionSourceMap,
@@ -42,7 +44,48 @@ import {
   type MirrorEstimateMap,
   type NodeSchema,
   type NodeProgress,
+  type OccurrenceListCountEstimate,
 } from '@dinkster/core'
+
+/** Recorded lengths remain estimates even when their producer's recipe is unchanged. */
+export function recordedListCountEstimates(args: {
+  readonly execution: ExecutionState | undefined
+  readonly frozen: boolean
+  readonly live?: CompileArtifact | undefined
+}): OccurrenceListCountEstimate | undefined {
+  const execution = args.execution
+  if (execution === undefined) return undefined
+  const ran = execution.artifact
+  const current = args.live?.connection === execution.ref.connection && ran?.connection === execution.ref.connection
+    ? liveExactnessFor(args.live, ran) : undefined
+  if (!args.frozen && current === undefined) return undefined
+  const views = new Map<string, ReturnType<typeof occurrencesForView>>()
+  const runtimeIds = new Set([...Object.keys(ran?.prompt ?? {}), ...Object.keys(execution.nodes)])
+  return (instancePath, node, port) => {
+    const key = JSON.stringify(instancePath)
+    let view = views.get(key)
+    if (view === undefined) {
+      view = occurrencesForView({ instancePath, runtimeIds, toSource: ran?.provenance.toSource })
+      views.set(key, view)
+    }
+    const producers = view.own.get(node)
+    if (producers === undefined || producers.length === 0) return undefined
+    let count: number | undefined
+    for (const runtimeId of producers) {
+      if (!args.frozen && current?.(runtimeId) !== true) return undefined
+      const progress = execution.nodes[runtimeId]
+      if (progress?.state !== 'done' && progress?.state !== 'cached') return undefined
+      const output = ran?.provenance.outputAliases?.[runtimeId]?.[port] ?? port
+      const summary = progress.outputs?.[output]
+      if (summary?.typeId.startsWith('list<') !== true) return undefined
+      const length = summary.length
+      if (length === undefined || !Number.isSafeInteger(length) || length < 0 ||
+          count !== undefined && length !== count) return undefined
+      count = length
+    }
+    return count === undefined ? undefined : { kind: 'estimate', count, sources: ['last-run'] }
+  }
+}
 
 /**
  * Exactness oracle for producer values on a LIVE tab: given a fresh compile

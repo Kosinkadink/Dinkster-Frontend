@@ -122,6 +122,7 @@ import {
   type AssetRef,
   type CommandInvocation,
   type CommandOutcome,
+  type CompileArtifact,
   type ControllerMode,
   type AutomaticState,
   type Diagnostic,
@@ -156,7 +157,7 @@ import { provideRowListLookups } from './editors/InRowListEditor.js'
 import type { RowLookups } from './WidgetEditorController.js'
 import { panelDockZone, setPanelOpen } from './panel-location.js'
 import { actorColor, actorLabel, PresenceProjector, type PresenceChannel, type PresenceLinkDrag } from './collab-presence.js'
-import { liveExactnessFor } from './companion-display.js'
+import { liveExactnessFor, recordedListCountEstimates } from './companion-display.js'
 import { drawnAnewInputs, RunStandingMemory, runStandingFor } from './run-problem-standing.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
@@ -4658,6 +4659,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly seedControllerEnabled: boolean
       readonly plannerAvailable: boolean
       readonly recordedAutomatic: ExecutionState['automaticValues']
+      readonly countNodes: ExecutionState['nodes'] | undefined
+      readonly countArtifact: ExecutionState['artifact']
+      readonly liveCountArtifact: CompileArtifact | undefined
       readonly lookups: LookupClient | undefined
       readonly lookupGeneration: number
       readonly buttonNoticeHeights: ReturnType<typeof buttonNoticeHeights>
@@ -4735,6 +4739,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       const plannerAvailable = occurrenceOwner !== undefined && occurrencePlanner() !== undefined
       const recordedAutomatic = frozenAutomatic()
+      executions()
+      overlayPins()
+      comparisonCompilesChanged()
+      const countExecution = props.app.executionForTab(tab)
+      const countComparison = tab.execution !== undefined || countExecution?.artifact === undefined
+        ? undefined : props.app.previewComparisonCompile(tab)
+      const liveCountArtifact = countComparison?.ok ? countComparison.artifact : undefined
       // A frozen view of a run calls no lookups.
       const lookupBackend = tab.execution === undefined ? props.app.backendForTab(tab) : undefined
       const lookups = lookupBackend?.lookups
@@ -4754,6 +4765,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.seedControllerEnabled === seedControllerEnabled &&
         previousBuild.plannerAvailable === plannerAvailable &&
         previousBuild.recordedAutomatic === recordedAutomatic &&
+        previousBuild.countNodes === countExecution?.nodes &&
+        previousBuild.countArtifact === countExecution?.artifact &&
+        previousBuild.liveCountArtifact === liveCountArtifact &&
         previousBuild.lookups === lookups &&
         previousBuild.lookupGeneration === lookupGeneration &&
         previousBuild.buttonNoticeHeights === noticeHeights &&
@@ -4772,8 +4786,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? shown?.resolve(type))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
         const valueRegistry = widgetRegistry()
+        const listCountEstimateOf = recordedListCountEstimates({ execution: countExecution, frozen: tab.execution !== undefined, live: liveCountArtifact })
         const fresh = buildScene({
           document: doc,
+          ...(listCountEstimateOf === undefined ? {} : { listCountEstimateOf }),
           seedControllerEnabled,
           buttonNoticeHeights: noticeHeights,
           ...(lookupAnswers === undefined ? {} : { lookupAnswers }),
@@ -4823,6 +4839,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         seedControllerEnabled,
         plannerAvailable,
         recordedAutomatic,
+        countNodes: countExecution?.nodes,
+        countArtifact: countExecution?.artifact,
+        liveCountArtifact,
         lookups,
         lookupGeneration,
         buttonNoticeHeights: noticeHeights,

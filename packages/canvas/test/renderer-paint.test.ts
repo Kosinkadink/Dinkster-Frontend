@@ -18,6 +18,7 @@ import { hitTest } from '../src/hit.js'
 import { CANVAS_DETAIL_MIN_SCALE, canvasColorsForTheme, canvasPaintTokens, canvasTypePaintForTheme, defaultTokens, typeColor, type DesignTokens } from '../src/tokens.js'
 import { projectNodeLayoutHeight, TITLE_START, widgetChromeRect, withPreviewRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import type { NodePreview } from '../src/previews.js'
+import { InteractionController } from '../src/interaction.js'
 
 // Crisp edges center a side pin on the node's 1 px border, half a pixel
 // inside the box's edge, and half a pixel below its row's center.
@@ -349,6 +350,58 @@ const typedLensLink = (
   x2,
   y2,
   typeName,
+})
+
+it('keeps a held wire drag alive as recorded list counts arrive and disappear', () => {
+  const scene = fixtureScene('clean')
+  const { ctx } = recordingCtx()
+  const canvas = fakeCanvas(ctx)
+  const listeners = new Map<string, (event: any) => void>()
+  Object.assign(canvas, {
+    style: {},
+    addEventListener: (name: string, listener: (event: any) => void) => listeners.set(name, listener),
+    removeEventListener: () => undefined,
+    setPointerCapture: () => undefined,
+    releasePointerCapture: () => undefined,
+    hasPointerCapture: () => false,
+    getBoundingClientRect: () => ({ left: 0, top: 0 }),
+  })
+  vi.stubGlobal('window', { addEventListener() {}, removeEventListener() {} })
+  vi.stubGlobal('HTMLElement', class {})
+  const renderer = new CanvasRenderer(canvas, defaultTokens)
+  renderer.setViewport({ x: 0, y: 0, scale: 1 })
+  renderer.setScene(scene)
+  const dispatched: unknown[] = []
+  const controller = new InteractionController(canvas, renderer, { dispatch: invocation => {
+    dispatched.push(invocation)
+    return { ok: true }
+  } })
+  const source = scene.nodes.find(node => node.id === 'lat')!
+  const output = source.layout.pins.find(pin => pin.direction === 'out')!
+  const sink = scene.nodes.find(node => node.id === 'c1')!
+  const input = sink.layout.pins.find(pin => pin.direction === 'in')!
+  const fire = (name: string, x: number, y: number) => listeners.get(name)?.({
+    type: name, clientX: x, clientY: y, button: 0, pointerId: 1, pointerType: '',
+    shiftKey: false, altKey: false, ctrlKey: false, metaKey: false,
+    timeStamp: 0, target: canvas, preventDefault() {},
+  })
+  try {
+    fire('pointerdown', source.x + source.layout.width, source.y + output.y)
+    fire('pointermove', source.x + source.layout.width + 40, source.y + output.y)
+    expect(renderer.getOverlay().ghostLink).toBeDefined()
+    renderer.setScene({ ...scene, links: scene.links.map(link => ({ ...link,
+      listCountFact: { kind: 'estimate', count: 8, sources: ['last-run'] },
+    })) })
+    expect(renderer.getScene().links[0]?.listCountFact).toEqual({ kind: 'estimate', count: 8, sources: ['last-run'] })
+    renderer.setScene(scene)
+    expect(renderer.getScene().links[0]?.listCountFact).toBeUndefined()
+    fire('pointermove', sink.x, sink.y + input.y)
+    fire('pointerup', sink.x, sink.y + input.y)
+    expect(dispatched).toContainEqual(expect.objectContaining({ command: 'link.connect' }))
+  } finally {
+    controller.dispose()
+    renderer.dispose()
+  }
 })
 
 describe('viewport animation', () => {

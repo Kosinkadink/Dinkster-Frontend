@@ -18,6 +18,7 @@ import {
   buildRerouteIndex,
   canonicalTypeIdOf,
   cardinalityOf,
+  combineListCountFacts,
   companionSourcesOf,
   constructsOf,
   DINKSTER_REGION_PSEUDO_NODE,
@@ -33,6 +34,8 @@ import {
   hideKnownListCountButtons,
   EMPTY_CONNECTIVITY,
   type ElaborateOptions,
+  type ListCountFact,
+  type OccurrenceListCountEstimate,
   hasPreviewSurface,
   inputsOf,
   isOccurrenceKeyWithin,
@@ -118,6 +121,7 @@ interface PositionedSceneCacheEntry {
   readonly widgetMeasure: WidgetMeasure
   readonly generation: unknown
   readonly editorControls: BuildSceneInput['editorControls']
+  readonly listCountEstimateOf: BuildSceneInput['listCountEstimateOf']
   readonly scene: Scene
 }
 
@@ -377,6 +381,8 @@ export interface SceneLink {
   readonly toType?: TypeExpr
   /** Exact item count for a list wire; absent means unknown, not empty. */
   readonly listCount?: number
+  /** Available list length with its provenance, including non-authoritative run metadata. */
+  readonly listCountFact?: ListCountFact
   /** Concrete type name driving link color, when statically known. */
   readonly typeName?: string
   /**
@@ -598,6 +604,8 @@ export interface StoredValueRow {
 
 export interface BuildSceneInput {
   readonly document: WorkflowDocument
+  /** Already available count metadata, scoped to a concrete producer occurrence. */
+  readonly listCountEstimateOf?: OccurrenceListCountEstimate
   /**
    * Whether a field's stored value fails its widget's own check (the
    * host's widget kinds). A hidden row whose value fails shows, as a row
@@ -885,6 +893,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       positioned.graphs === input.document.graphs && positioned.documentExt === input.document.ext &&
       positioned.seedControllerEnabled === input.seedControllerEnabled &&
       positioned.buttonNoticeHeights === input.buttonNoticeHeights &&
+      positioned.listCountEstimateOf === input.listCountEstimateOf &&
       positioned.tokens === input.tokens && positioned.measure === input.measure && positioned.widgetMeasure === input.widgetMeasure &&
       positioned.generation === input.layoutGeneration && positioned.editorControls === input.editorControls && onlyNodePositionsChanged(positioned.view, view)) {
     const scene = repositionScene(positioned.scene, def, view)
@@ -1041,7 +1050,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   // here (rather than teaching layout about graph constraints) preserves the
   // document -> elaboration -> solving -> rendering dependency direction.
   const occurrenceOptions = sourcePath === undefined ? undefined
-    : occurrenceSolveOptions(input.document, input.resolve, effective, effectiveGraph, sourcePath)
+    : occurrenceSolveOptions(input.document, input.resolve, effective, effectiveGraph, sourcePath, input.listCountEstimateOf)
   const solvedTypes = solveGraphTypes(effectiveGraph, input.resolve, {
     resolveNode: (node) => resolveNode(input.graphId, node, sourcePath),
     connectivityOf,
@@ -1329,21 +1338,21 @@ export function buildScene(input: BuildSceneInput): Scene {
     return outputTypeName(trace.ref)
   }
   const countReroutes = buildRerouteIndex(effectiveGraph)
-  const tracedListCount = (from: LinkEndpoint): number | undefined => {
+  const tracedListCount = (from: LinkEndpoint): ListCountFact | undefined => {
     if (isWidgetTapRef(from)) {
-      const count = solvedTypes.listCountOf(from.node, 'input', from.tap)
+      const count = solvedTypes.listCountFactOf(from.node, 'input', from.tap)
       if (count !== undefined) return count
     }
-    const counts = traceEndpointAll(effectiveGraph, from, countReroutes).flatMap((trace): (number | undefined)[] => {
-      if (trace.kind === 'output') return [solvedTypes.listCountOf(trace.ref.node, 'output', trace.ref.port)]
-      if (trace.kind === 'tapValue') return [solvedTypes.listCountOf(trace.node, 'input', trace.input)]
+    const counts = traceEndpointAll(effectiveGraph, from, countReroutes).flatMap((trace): (ListCountFact | undefined)[] => {
+      if (trace.kind === 'output') return [solvedTypes.listCountFactOf(trace.ref.node, 'output', trace.ref.port)]
+      if (trace.kind === 'tapValue') return [solvedTypes.listCountFactOf(trace.node, 'input', trace.input)]
       if (trace.kind !== 'undriven') return [undefined]
       const targets = rerouteInputTargets(effectiveGraph, trace.reroute) ?? []
       const arrivals = occurrenceOptions?.projectedInputs?.filter((input) => targets.some((target) => samePortRef(target, input.to))) ?? []
-      return arrivals.length === 0 ? [undefined] : arrivals.map((input) => cardinalityOf(input.type) === 'list' ? input.itemCount : undefined)
+      return arrivals.length === 0 ? [undefined] : arrivals.map((input): ListCountFact | undefined => cardinalityOf(input.type) !== 'list' ? undefined
+        : input.itemCount !== undefined ? { kind: 'known', count: input.itemCount } : input.itemCountEstimate)
     })
-    const first = counts[0]
-    return first !== undefined && counts.every((count) => count === first) ? first : undefined
+    return combineListCountFacts(counts)
   }
   const bypassInput = (ref: PortRef, consumerType?: TypeExpr) => {
     const node = byId.get(ref.node)
@@ -1556,7 +1565,8 @@ export function buildScene(input: BuildSceneInput): Scene {
     const to = endPoint(c.to, 'in')
     if (!from || !to) continue
     const typeName = tracedTypeName(c.from)
-    const listCount = tracedListCount(c.from)
+    const listCountFact = tracedListCount(c.from)
+    const listCount = listCountFact?.kind === 'known' ? listCountFact.count : undefined
     const types = consumerTypes(c.to)
     if (types.length === 0) types.push(undefined)
     links.push({
@@ -1571,6 +1581,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(to.type !== undefined ? { toType: to.type } : typeName !== undefined ? { toType: typeExprFromTypeId(typeName) } : {}),
       ...(typeName !== undefined ? { typeName } : {}),
       ...(listCount !== undefined ? { listCount } : {}),
+      ...(listCountFact !== undefined ? { listCountFact } : {}),
       ...(types.every((type) => tracedMaybeAbsent(c.from, type)) ? { maybeAbsent: true as const } : {}),
       ...(types.every((type) => tracedSourceMuted(c.from, type)) ? { sourceMuted: true as const } : {}),
       ...(from.kept === true ? { dimmed: true as const } : {}),
@@ -1962,8 +1973,9 @@ export function buildScene(input: BuildSceneInput): Scene {
         }) === true
         const targets = projected.length > 0 ? projected : fallback === undefined || locallyDriven ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
-          const listCount = to.end.kind === 'port' ? solvedTypes.listCountOf(asNodeId(to.end.node), 'input', to.end.port)
+          const listCountFact = to.end.kind === 'port' ? solvedTypes.listCountFactOf(asNodeId(to.end.node), 'input', to.end.port)
             : to.end.kind === 'reroute' ? tracedListCount({ reroute: to.end.reroute as import('@dinkster/core').RerouteId }) : undefined
+          const listCount = listCountFact?.kind === 'known' ? listCountFact.count : undefined
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,
             from: { kind: 'boundary', side: 'inputs', item: item.id },
@@ -1974,6 +1986,7 @@ export function buildScene(input: BuildSceneInput): Scene {
             y2: to.y,
             ...(typeName !== undefined ? { typeName } : {}),
             ...(listCount !== undefined ? { listCount } : {}),
+            ...(listCountFact !== undefined ? { listCountFact } : {}),
             boundary: true,
             ...(item.wireHidden === true ? { hidden: true as const } : {}),
             ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
@@ -2010,8 +2023,9 @@ export function buildScene(input: BuildSceneInput): Scene {
             ? widgetTapTypeName(item.binds.node, item.binds.tap)
           : undefined
       const typeName = traced ?? (pinType === undefined ? undefined : canonicalTypeIdOf(pinType))
-      const listCount = item.binds.kind === 'port' ? tracedListCount({ node: item.binds.node, port: item.binds.port })
+      const listCountFact = item.binds.kind === 'port' ? tracedListCount({ node: item.binds.node, port: item.binds.port })
         : item.binds.kind === 'widgetTap' ? tracedListCount({ node: item.binds.node, tap: item.binds.tap }) : undefined
+      const listCount = listCountFact?.kind === 'known' ? listCountFact.count : undefined
       const maybeAbsent = item.binds.kind === 'port' && tracedMaybeAbsent({ node: item.binds.node, port: item.binds.port })
       const sourceMuted = item.binds.kind === 'port' && tracedSourceMuted({ node: item.binds.node, port: item.binds.port })
       const projected = projectedAnchors('out', item, item.binds)
@@ -2028,6 +2042,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           y2: to.y,
           ...(typeName !== undefined ? { typeName } : {}),
           ...(listCount !== undefined ? { listCount } : {}),
+          ...(listCountFact !== undefined ? { listCountFact } : {}),
           ...(maybeAbsent ? { maybeAbsent: true as const } : {}),
           ...(sourceMuted ? { sourceMuted: true as const } : {}),
           boundary: true,
@@ -2061,6 +2076,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       widgetMeasure: input.widgetMeasure,
       generation: input.layoutGeneration,
       editorControls: input.editorControls,
+      listCountEstimateOf: input.listCountEstimateOf,
       scene: result,
     })
   }

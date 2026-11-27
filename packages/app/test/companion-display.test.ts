@@ -12,16 +12,25 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  asConnectionId,
   asGraphDefId,
+  asLineageId,
   asLinkId,
   asNodeId,
   asPortId,
+  boundaryOf,
+  compile,
+  documentResolver,
+  occurrenceKey,
   type CompileArtifact,
   type GraphDef,
   type NodeSchema,
   type NodeProgress,
+  type WorkflowDocument,
 } from '@dinkster/core'
-import { deriveCompanions, liveExactnessFor } from '../src/companion-display.js'
+import { buildScene, defaultTokens } from '@dinkster/canvas'
+import { deriveCompanions, liveExactnessFor, recordedListCountEstimates } from '../src/companion-display.js'
+import type { ExecutionState } from '@dinkster/client'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 const tap = (node: string, inputId: string) => ({ node: asNodeId(node), tap: asPortId(inputId) })
@@ -52,6 +61,69 @@ const producerGraph = graph({
 const done = (outputs?: NodeProgress['outputs']): NodeProgress => ({
   state: 'done',
   ...(outputs !== undefined ? { outputs } : {}),
+})
+
+it('carries only complete current occurrence summaries onto list wires as estimates', () => {
+  const list = { kind: 'list' as const, element: { kind: 'concrete' as const, name: 'STRING' } }
+  const source: NodeSchema = { type: 'Source', displayName: 'Source', category: '', source: 'v3', isOutputNode: false, body: [
+    { kind: 'input', id: 'seed', type: { kind: 'concrete', name: 'INT' }, optional: true },
+    { kind: 'output', id: 'out', type: list },
+  ] }
+  const sink: NodeSchema = { ...source, type: 'Sink', body: [
+    { kind: 'input', id: 'in', type: list, optional: false },
+    { kind: 'output', id: 'out', type: list, listCount: { input: 'in' } },
+  ] }
+  const root = graph({ id: 'root', nodes: {
+    a: { id: asNodeId('a'), type: '#body', values: {} }, b: { id: asNodeId('b'), type: '#body', values: {} },
+  } })
+  const body = graph({ id: 'body', nodes: {
+    producer: { id: asNodeId('producer'), type: source.type, values: { seed: 1 } },
+    consumer: { id: asNodeId('consumer'), type: sink.type, values: {} },
+  }, links: { l: link('l', port('producer', 'out'), port('consumer', 'in')) },
+  boundary: boundaryOf([], [{ id: 'out', binds: { kind: 'port', ...port('consumer', 'out') } }]) })
+  const document: WorkflowDocument = { format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('counts'),
+    root: root.id, graphs: { root, body }, view: { graphs: {} } }
+  const resolve = (type: string) => type === source.type ? source : type === sink.type ? sink : undefined
+  const connection = asConnectionId('counts')
+  const compiled = compile({ document, revision: 1, resolve, scope: { kind: 'full' }, connection, schemaHash: 'h' })
+  expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+  if (!compiled.ok) return
+  const artifact = compiled.artifact
+  const producerId = (instance: string) => Object.entries(artifact.provenance.toSource)
+    .find(([, source]) => source === occurrenceKey({ instancePath: [asNodeId(instance)], node: asNodeId('producer') }))![0]
+  const a = producerId('a'), b = producerId('b')
+  const nodes: Record<string, NodeProgress> = {
+    [a]: done({ out: { typeId: 'list<STRING>', length: 0 } }),
+    [b]: done({ out: { typeId: 'list<STRING>', length: 7 } }),
+  }
+  const execution = { ref: { connection }, artifact, nodes } as unknown as ExecutionState
+  const read = (instance: string, frozen = false, live = artifact, run = execution) => {
+    const estimateOf = recordedListCountEstimates({ execution: run, frozen, live })
+    return buildScene({ document, graphId: body.id, resolve: documentResolver(document, resolve),
+      ...(estimateOf === undefined ? {} : { listCountEstimateOf: estimateOf }),
+      occurrence: { owner: { instancePath: [], node: asNodeId(instance) }, plannerAvailable: true },
+      tokens: defaultTokens, measure: text => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+    }).links
+  }
+  for (const [instance, count] of [['a', 0], ['b', 7]] as const) {
+    const wires = read(instance)
+    expect(wires.map(wire => wire.listCountFact)).toEqual(Array(2).fill({ kind: 'estimate', count, sources: ['last-run'] }))
+    expect(wires.map(wire => wire.listCount)).toEqual([undefined, undefined])
+  }
+  const changed = { ...artifact, prompt: { ...artifact.prompt, [a]: { ...artifact.prompt[a]!, inputs: { seed: 2 } } } }
+  expect(read('a', false, changed).map(wire => wire.listCountFact)).toEqual([undefined, undefined])
+  expect(read('b', false, changed).map(wire => wire.listCountFact)).toEqual(Array(2).fill({ kind: 'estimate', count: 7, sources: ['last-run'] }))
+  const aliased = { ...execution, artifact: { ...artifact, provenance: { ...artifact.provenance,
+    outputAliases: { [b]: { out: 'state' } },
+  } }, nodes: { ...nodes, [b]: done({ state: { typeId: 'list<STRING>', length: 7 } }) } }
+  expect(read('b', false, artifact, aliased).map(wire => wire.listCountFact)).toEqual(Array(2).fill({ kind: 'estimate', count: 7, sources: ['last-run'] }))
+  nodes[`${a}[1]`] = done({ out: { typeId: 'list<STRING>', length: 2 } })
+  expect(read('a', true).map(wire => wire.listCountFact)).toEqual([undefined, undefined])
+  nodes[`${a}[1]`] = { state: 'running' }
+  expect(read('a', true).map(wire => wire.listCountFact)).toEqual([undefined, undefined])
+  nodes[`${a}[1]`] = done({ out: { typeId: 'list<STRING>', length: 0 } })
+  expect(read('a', true).map(wire => wire.listCountFact)).toEqual(Array(2).fill({ kind: 'estimate', count: 0, sources: ['last-run'] }))
+  expect(body.nodes['producer']!.values).toEqual({ seed: 1 })
 })
 
 describe('deriveCompanions: literals', () => {
