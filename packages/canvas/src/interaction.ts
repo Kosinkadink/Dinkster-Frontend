@@ -476,6 +476,8 @@ export interface InteractionHost {
    * batch after the pick.
    */
   onLinkDropOnEmpty?(context: LinkDropContext, worldX: number, worldY: number): void
+  /** A fresh wire refused at an explicit pin; the input position is in world coordinates. */
+  onLinkTypeRefused?(from: TypeExpr, to: TypeExpr, input: { readonly x: number; readonly y: number }): void
   /** Double-click on an ordinary link; the host chooses reroute vs node splice. */
   onLinkDoubleClick?(context: LinkDoubleClickContext, screenX: number, screenY: number): void
   /**
@@ -4094,6 +4096,19 @@ export class InteractionController {
     const boundaryLegal =
       hit.kind === 'boundary-pin' && hit.regionIndex !== true && g.dropTargets.has(boundaryTargetKey(hit.bnode.side, hit.item))
     if (requireLegalTarget && dropEnd === undefined && !boundaryLegal) return false
+    if (g.moved && g.rewireLinkId === undefined && g.netRewire === undefined &&
+        g.boundarySource === undefined && g.boundaryRewire === undefined && g.moveSource === undefined &&
+        hit.kind === 'pin' && hit.direction === g.seeking && !pinLegal) {
+      const input = g.seeking === 'in' ? hit.pin : scene.nodes.find(node => node.id === g.intoPort?.node)
+        ?.layout.pins.find(pin => pin.direction === 'in' && pin.portId === g.intoPort?.port)
+      const fromType = g.seeking === 'in' ? g.anchorType : hit.type
+      const toType = g.seeking === 'in' ? hit.type : g.anchorType
+      if (input !== undefined && !linkTypesCompatible(scene, fromType, toType, input.acceptsList)) {
+        this.host.onLinkTypeRefused?.(fromType, toType, g.seeking === 'in'
+          ? { x: hit.node.x, y: hit.node.y + hit.pin.y } : g.anchor)
+        return
+      }
+    }
     const graphId = scene.graphId
     const sameEnd = (a: PortEndpointJson, b: PortEndpointJson): boolean =>
       a.node === b.node && a.port === b.port

@@ -1664,11 +1664,15 @@ describe('small flow node wire gestures', () => {
       const to = { x: sink.x, y: sink.y + input.y }
       const start = reverse ? to : from
       const end = reverse ? from : to
-      const harness = interactionHarness(scene, { dispatch: (invocation) => store.dispatch(invocation) })
+      const refused = vi.fn()
+      const harness = interactionHarness(scene, {
+        dispatch: (invocation) => store.dispatch(invocation), onLinkTypeRefused: refused,
+      })
       harness.fire('pointerdown', start.x, start.y, { shiftKey: reverse })
       harness.fire('pointermove', end.x, end.y)
       harness.fire('pointerup', end.x, end.y)
       if (accepted) {
+        expect(refused).not.toHaveBeenCalled()
         expect(Object.values(store.doc.graphs.g0!.links).map((link) => [link.from, link.to]), `reverse=${reverse}`).toEqual([
           [{ node: 'source', port: 'value' }, { node: 'sink', port: 'value' }],
         ])
@@ -1677,6 +1681,7 @@ describe('small flow node wire gestures', () => {
         expect(store.doc.graphs.g0!.nodes).toEqual(before.graphs.g0!.nodes)
       } else {
         expect(store.doc).toEqual(before)
+        expect(refused).toHaveBeenCalledWith(output.type, input.type, to)
       }
       harness.controller.dispose()
     }

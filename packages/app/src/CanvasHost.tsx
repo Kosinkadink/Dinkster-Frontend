@@ -96,6 +96,7 @@ import {
   elabInputsOf,
   lookupSitesOf,
   formatWidgetValue,
+  typeProblemWords,
   flattenShellRefusalDiagnostic,
   scopeClosure,
   parseOccurrenceKey,
@@ -1376,6 +1377,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly y: number
     readonly maxHeight: number
     readonly contentMaxHeight: number
+    readonly input?: { readonly x: number; readonly y: number }
   }>()
   const [fileDropSurface, setFileDropSurface] = createSolidSignal<CanvasFileDropSurface>()
   let gestureRefusalId = 0
@@ -1414,7 +1416,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
   const activeTab = (): Tab | undefined => tabs().find((t) => t.id === activeTabId())
 
-  const showGestureRefusal = (diagnostics: readonly Diagnostic[]): void => {
+  const showGestureRefusal = (diagnostics: readonly Diagnostic[], input?: { readonly x: number; readonly y: number }): void => {
     const diagnostic = diagnostics[0]
     if (diagnostic === undefined) return
     const canvas = canvasEl?.getBoundingClientRect()
@@ -1431,6 +1433,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       y,
       maxHeight: Math.max(0, window.innerHeight - y - 12),
       contentMaxHeight: Math.max(0, window.innerHeight - y - 34),
+      ...(input === undefined ? {} : { input }),
     })
     if (gestureRefusalTimer !== undefined) clearTimeout(gestureRefusalTimer)
     gestureRefusalTimer = setTimeout(() => setGestureRefusal(undefined), 4_000)
@@ -3386,6 +3389,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const tab = activeTab()
         if (!tab) return { ok: false }
         return dispatchGesture(tab, specializeFreshConnect(invocation))
+      },
+      onLinkTypeRefused: (from, to, input) => {
+        const rect = canvasEl.getBoundingClientRect()
+        const viewport = renderer.getViewport()
+        showGestureRefusal([diag('warning', 'command', 'wire.typeRefused',
+          `Expected ${typeProblemWords(to)}; got ${typeProblemWords(from)}.`)], {
+          x: rect.left + viewport.x + input.x * viewport.scale,
+          y: rect.top + viewport.y + input.y * viewport.scale,
+        })
       },
       wheelNavigationMode: () => props.app.settings.get<WheelNavigationMode>('canvas.scrollBehavior'),
       smoothWheelZoom: () => props.app.settings.get<boolean>('canvas.smoothWheelZoom'),
@@ -7441,10 +7453,32 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             data-frozen={refusal.diagnostic.code === 'Frozen' ? '' : undefined}
             role={refusal.diagnostic.code === 'Frozen' ? 'status' : 'alert'}
             style={{ left: `${refusal.x}px`, top: `${refusal.y}px`, 'max-height': `${refusal.maxHeight}px` }}
+            ref={(element) => {
+              if (refusal.input === undefined) return
+              const input = refusal.input
+              const place = (): void => {
+                const canvas = canvasEl.getBoundingClientRect()
+                const placement = placeFloatingSurface({
+                  surface: { width: 340, height: element.scrollHeight },
+                  anchor: { left: input.x, right: input.x, top: input.y, bottom: input.y },
+                  bounds: canvas,
+                  direction: 'block', margin: 12, gap: 12,
+                })
+                element.style.left = `${placement.left}px`
+                element.style.top = `${placement.top}px`
+                element.style.width = `${placement.width}px`
+                element.style.maxHeight = `${placement.maxHeight}px`
+              }
+              queueMicrotask(place)
+              window.addEventListener('resize', place)
+              onCleanup(() => window.removeEventListener('resize', place))
+            }}
           >
             <span style={{ 'max-height': `${refusal.contentMaxHeight}px` }}>
               <Show when={refusal.diagnostic.code === 'Frozen'} fallback={
-                <><strong>{refusal.diagnostic.code}</strong>: {refusal.diagnostic.message}</>
+                <Show when={refusal.diagnostic.code === 'wire.typeRefused'} fallback={
+                  <><strong>{refusal.diagnostic.code}</strong>: {refusal.diagnostic.message}</>
+                }>{refusal.diagnostic.message}</Show>
               }>
                 <Icon icon={Snowflake} /> {message('frozen.refusal', { hint: refusal.diagnostic.message })}
               </Show>
