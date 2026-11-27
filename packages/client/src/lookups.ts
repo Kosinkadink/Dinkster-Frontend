@@ -86,6 +86,8 @@ export interface LookupClient {
   resolve(call: LookupCall, use: 'options' | 'value', options: { readonly signal: AbortSignal }): Promise<LookupResult>
   /** What to show for these arguments now, without asking. */
   entry(call: Pick<LookupCall, 'function' | 'args' | 'typedArgs'>): LookupEntry | undefined
+  /** Read held answers as they are now, even after later requests settle. */
+  snapshot(): LookupClient['entry']
   /** Whether a kept answer was made old by a trigger and should be asked for again. */
   isOld(call: Pick<LookupCall, 'function' | 'args' | 'typedArgs'>): boolean
   subscribe(listener: () => void): () => void
@@ -368,6 +370,10 @@ export function createLookupClient(config: LookupClientConfig): LookupClient {
     },
     entry(call) {
       return kept.get(keyOf(call))?.state
+    },
+    snapshot() {
+      const states = new Map([...kept].map(([key, entry]) => [key, entry.state]))
+      return (call) => states.get(keyOf(call))
     },
     isOld(call) {
       return kept.get(keyOf(call))?.old ?? false

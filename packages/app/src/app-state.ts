@@ -4944,30 +4944,25 @@ export class AppState {
     const lookupGeneration = createSignal(0)
     // Answers often settle together: one rebuild for each turn of the event loop.
     let lookupBump = false
-    let previousAnswers = new Map<string, ReturnType<NonNullable<ElaborateOptions['lookupAnswers']>>>()
+    let previousAnswers = lookupAnswersOf({ entry: lookups.snapshot() })
     lookups.subscribe(() => {
       if (lookupBump) return
       lookupBump = true
       queueMicrotask(() => {
         lookupBump = false
         lookupGeneration.update((value) => value + 1)
-        const answers = new Map<string, ReturnType<NonNullable<ElaborateOptions['lookupAnswers']>>>()
-        const currentAnswers: NonNullable<ElaborateOptions['lookupAnswers']> = (lookup, args) => {
-          const answer = lookupAnswersOf(lookups)(lookup, args)
-          answers.set(JSON.stringify([lookup, args]), answer)
-          return answer
-        }
+        const currentAnswers = lookupAnswersOf({ entry: lookups.snapshot() })
         for (const tab of this.tabs.get()) {
           if (this.backendForTab(tab).id !== id) continue
           this.refreshWorkflowAssets(tab)
           if (tab.execution) continue
-          const before = this.scanTabProblemFixes(tab, tab.store.doc, (lookup, args) => previousAnswers.get(JSON.stringify([lookup, args])))
+          const before = this.scanTabProblemFixes(tab, tab.store.doc, previousAnswers)
           const fixes = this.scanTabProblemFixes(tab, tab.store.doc, currentAnswers).filter((fix) => fix.kind === 'number' &&
             !before.some((old) => problemFixKey(old) === problemFixKey(fix) && old.stamp === fix.stamp))
           // Only a new external cause follows Apply; existing personal Ask me problems stay offered.
           void this.applyProblemFixes(tab, fixes, true)
         }
-        previousAnswers = answers
+        previousAnswers = currentAnswers
       })
     })
     const schemaProblemsOwner = Symbol(`schema-problems:${id}`)

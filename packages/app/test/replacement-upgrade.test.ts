@@ -333,6 +333,11 @@ describe('native open-time replacement', () => {
         { kind: 'input', id: 'unrelated', type: { kind: 'concrete', types: ['INT'] }, default: 0,
           widget: { type: 'NUMBER', min: 0, max: 100, step: 4 } },
       ],
+    }, Known: {
+      displayName: 'Known limit', category: 'test', body: [
+        { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: { lookup: 'test.knownLimit', args: [] }, step: 4 } },
+      ],
     } } }))
     app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
     const source = document()
@@ -367,6 +372,17 @@ describe('native open-time replacement', () => {
     expect(app.undoAdjustments(tab.id)).toBe(true)
     expect(amount()).toBe(29)
     expect(tab.store.doc.view.graphs.g0!.nodes.first!.position).toEqual({ x: 280, y: 190 })
+
+    await backend.lookups.request({ ...call, function: 'test.knownLimit' })
+    await app.openDocument({ ...source, lineage: 'known-limit', graphs: { g0: { ...source.graphs.g0, links: {}, nodes: {
+      first: { id: 'first', type: 'Known', values: { amount: 29 } },
+    } } } }, 'Already known')
+    const knownTab = app.activeTab()!
+    expect(app.scanTabNumberFixes(knownTab).map((fix) => fix.after)).toEqual([16])
+    await backend.lookups.request({ ...call, function: 'test.unrelated' })
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    expect(knownTab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(29)
+    expect(app.adjustmentNotices.get().has(knownTab.id)).toBe(false)
   })
 
   it('stores numeric fixes atomically, keeps later field edits on notice Undo, and does not repeat undone causes', async () => {
