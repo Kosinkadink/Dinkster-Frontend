@@ -221,6 +221,8 @@ describe('app page tabs', () => {
     app.disconnectBackend(backend)
     const workflows = app.tabs.get()
     try {
+      expect(app.settings.get('features.board.enabled')).toBe(true)
+      app.settings.set('features.board.enabled', false)
       dispose = render(() => <App app={app} />, root)
       setPanelOpen(app.panels, app.dock, 'library', 'left', true)
       expect(root.querySelector('[data-source="boards"]')).toBeNull()
@@ -432,6 +434,9 @@ describe('app page tabs', () => {
     const app = createWorkflowApp()
     const workflows = app.tabs.get()
     try {
+      expect(app.settings.get('features.board.enabled')).toBe(true)
+      expect(app.commands.get('board.new')).toBeDefined()
+      app.settings.set('features.board.enabled', false)
       expect(app.commands.get('board.new')).toBeUndefined()
       app.settings.set('features.board.enabled', true)
       const create = app.commands.get('board.new')!
