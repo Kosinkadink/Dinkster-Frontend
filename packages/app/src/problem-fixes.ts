@@ -113,7 +113,16 @@ export class ProblemFixes {
     for (const key of offers.keys()) if (!keys.has(key) && offers.get(key)?.state !== 'storing') offers.delete(key)
     return live.map(({ key, offered }) => {
       const previous = offers.get(key)
-      if (previous !== undefined) return previous
+      if (previous !== undefined) {
+        if (offered.kind !== 'save-targets' || previous.offered.kind !== 'save-targets' || previous.state === 'storing' ||
+          offered.defaultMount === previous.offered.defaultMount && offered.defaultReady === previous.offered.defaultReady &&
+          saveTargetStamp(offered.fixes) === saveTargetStamp(previous.offered.fixes)) return previous
+        const stale = previous.state === 'stale' || previous.offered.defaultReady && offered.defaultReady
+        const updated: ProblemFix = { key, offered, state: stale ? 'stale' : 'offered',
+          ...(stale ? { message: t('problemFix.workflowChanged') } : {}) }
+        offers.set(key, updated)
+        return updated
+      }
       const fix: ProblemFix = { key, offered, state: 'offered' }
       offers.set(key, fix)
       return fix

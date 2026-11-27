@@ -457,7 +457,7 @@ describe('native open-time replacement', () => {
     ] } } }))
     app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
     let mounts: MountSettings = { mounts: [{ id: 'ready', mode: 'readwrite', state: 'ready' }],
-      activeOutputMount: 'ready', mountChangesAllowed: false }
+      mountChangesAllowed: false }
     const fetchMounts = vi.spyOn(backend.connection, 'fetchMountSettings').mockImplementation(async () => mounts)
     const source = document()
     await app.openDocument({ ...source, graphs: { g0: { ...source.graphs.g0, links: {}, nodes: {
@@ -467,6 +467,11 @@ describe('native open-time replacement', () => {
     const tab = app.activeTab()!
     const diagnostics = () => app.problemFixes.diagnostics(tab)
     await vi.waitFor(() => expect(diagnostics().filter((problem) => problem.code === 'saveTarget.mountsMissing')).toHaveLength(1))
+    const groupProblem = () => diagnostics().find((problem) => problem.code === 'saveTarget.mountsMissing')!
+    expect(app.problemFixes.forProblem(tab, groupProblem())).toBeUndefined()
+    mounts = { ...mounts, activeOutputMount: 'ready' }
+    backend.connection.ingest({ type: 'mounts_changed' })
+    await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, groupProblem())?.state).toBe('offered'))
     const offered = app.problemFixes.scan(tab)
     expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'second', inputId: 'target',
       value: { mount: 'other', prefix: 'personal/movie' } } }).ok).toBe(true)
