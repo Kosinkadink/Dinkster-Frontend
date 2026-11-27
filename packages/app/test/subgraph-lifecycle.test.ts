@@ -1679,8 +1679,16 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     } }).ok).toBe(true)
     const selected = session.doc
     const selectedRun = runOf(selected)
-    expect(selectedRun.filter((entry) => entry.includes('"class_type":"Mode"') && entry.includes('"mode.strength":0.73'))).toHaveLength(1)
-    expect(selectedRun.filter((entry) => entry.includes('"class_type":"Mode"') && entry.includes('"mode.strength":0.6'))).toHaveLength(1)
+    for (const current of [selected, loadDocument(JSON.parse(JSON.stringify(selected))).document!]) {
+      const compiled = compile({ document: current, revision: 1, resolve: resolveSchema,
+        scope: { kind: 'full' }, connection: asConnectionId('c0'), schemaHash: 'test' })
+      expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('unreachable')
+      expect(compiled.artifact.prompt['first.d.m']!.inputs['mode.strength']).toBe(0.73)
+      expect(compiled.artifact.prompt['second.d.m']!.inputs['mode.strength']).toBe(0.6)
+      expect(compiled.artifact.prompt['first.d.n']!.inputs['weights.w2']).toBe(0.7)
+      expect(compiled.artifact.prompt['second.d.n']!.inputs['weights.w2']).toBe(0.6)
+    }
     expect(selected.graphs.root!.nodes.first!.values['look.words']).toBe('portrait')
     expect(selected.graphs.root!.nodes.second).toEqual(doc.graphs.root!.nodes.second)
     expect(selected.graphs.detail).toEqual(doc.graphs.detail)
