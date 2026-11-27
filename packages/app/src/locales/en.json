@@ -52,6 +52,8 @@
   "storagePanel.imports": "Added files are copied here",
   "storagePanel.operatorOnly": "Some folder details are unavailable. Operator access is needed to manage model folders and view physical paths.",
   "storagePanel.replacement": "New saves go to",
+  "storagePanel.chooseMount": "Choose a mount",
+  "storagePanel.readAgain": "Read again",
   "storagePanel.stopFailed": "Could not stop using \"{folder}\". {reason}",
   "storagePanel.unreachable": "This folder cannot be reached.",
   "storagePanel.notFolder": "This is not a folder.",

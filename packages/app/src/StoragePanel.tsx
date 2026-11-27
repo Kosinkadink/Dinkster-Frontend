@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from 'solid-js'
 import { RequestFailure, type DinksterConnection, type ModelSettingsState, type MountDescriptor, type MountLocations, type MountSettings, type MountScanProgress } from '@dinkster/client'
 import { canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
 import { formatByteProgress, semanticTokensForTheme } from '@dinkster/core'
@@ -18,6 +18,27 @@ import { MountFolderForm } from './MountFolderForm.js'
 import { failureMessage, folderFailureMessage } from './request-failure.js'
 
 type NativeBackend = Extract<Backend, { protocol: 'dinkster' }>
+
+function FolderPath(props: { readonly value: string }) {
+  const split = () => Math.max(props.value.lastIndexOf('/'), props.value.lastIndexOf('\\'))
+  const [shortened, setShortened] = createSignal(false)
+  let path!: HTMLElement
+  let prefix!: HTMLSpanElement
+  let suffix!: HTMLSpanElement
+  const measure = () => setShortened(prefix.scrollWidth + suffix.scrollWidth > path.clientWidth)
+  onMount(() => {
+    const observer = new ResizeObserver(measure)
+    observer.observe(path)
+    void document.fonts?.ready.then(measure)
+    onCleanup(() => observer.disconnect())
+  })
+  createEffect(() => { props.value; queueMicrotask(measure) })
+  return <code ref={path} class="storage-folder-path" title={props.value}>
+    <span ref={prefix}>{split() < 0 ? '' : props.value.slice(0, split())}</span>
+    <Show when={shortened()}><span>...</span></Show>
+    <span ref={suffix}>{split() < 0 ? props.value : props.value.slice(split())}</span>
+  </code>
+}
 
 export function StoragePanel(props: {
   readonly app: AppState
@@ -203,10 +224,6 @@ export function StorageFolders(props: {
     <ProductNotice tone="warning">{folderFailureMessage(mount.error)} <ProductTextButton label={message('common.tryAgain')} disabled={disabled()}
       onClick={() => { void perform(() => props.connection.retryMount(mount.id)) }} /></ProductNotice>
   </Show>
-  const folderPath = (value: string) => {
-    const split = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'))
-    return <code class="storage-folder-path" title={value}><span>{split < 0 ? '' : value.slice(0, split)}</span><span>{split < 0 ? value : value.slice(split)}</span></code>
-  }
   const modelCount = (ids: readonly string[]) => {
     const mounts = counts(ids)
     return mounts.length !== ids.length || mounts.some((mount) => mount.entryCount === undefined)
@@ -221,7 +238,10 @@ export function StorageFolders(props: {
     <Show when={!model && id === settings()?.outputMount} fallback={<Show when={error()}><p class="dinkster-field-error" role="alert"><ProductIcon icon={CircleAlert} />{message('storagePanel.stopFailed', { folder: id, reason: error() })}</p></Show>}>
       <ProductField label={message('storagePanel.replacement')} error={error() ? message('storagePanel.stopFailed', { folder: id, reason: error() }) : ''}>
         {(attributes) => <ProductSelect {...attributes} value={replacement()} disabled={busy()}
-          options={folders().filter((row) => row.mode === 'readwrite' && row.id !== id && row.state !== 'failed').map((row) => ({ label: row.id, value: row.id }))}
+          options={[
+            { label: message('storagePanel.chooseMount'), value: '', disabled: true },
+            ...folders().filter((row) => row.mode === 'readwrite' && row.id !== id && row.state !== 'failed').map((row) => ({ label: row.id, value: row.id })),
+          ]}
           onChange={setReplacement} />}
       </ProductField>
     </Show>
@@ -232,7 +252,7 @@ export function StorageFolders(props: {
     const disclosure = location.enabled ? { get expanded() { return opened() }, onToggle: setOpened } : {}
     return <Show when={leaving()?.model === true && leaving()?.id === location.id} fallback={<ProductListRow dataAttributes={{ 'data-model-location': location.id }}
       title={<strong>{location.id}</strong>}
-      description={<span class="storage-folder-description">{folderPath(location.path)}
+      description={<span class="storage-folder-description"><FolderPath value={location.path} />
         <Show when={location.mode === 'read'}><span class="storage-folder-role"><ProductIcon icon={Lock} />{message('storagePanel.readOnly')}</span></Show>
         <Show when={models()?.settings.downloadLocation === location.id}><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Download} />{message('storagePanel.downloads')}</span></Show>
         <Show when={!location.active}><span>{message('modelSettings.inactive')}</span></Show>
@@ -261,7 +281,7 @@ export function StorageFolders(props: {
   const folderRow = (mount: MountDescriptor, used: boolean) => <Show when={leaving()?.model === false && leaving()?.id === mount.id} fallback={<ProductListRow dataAttributes={{ 'data-mount-id': mount.id }}
     title={<strong>{mount.id}</strong>} {...(used ? { onActivate: () => props.onOpenAssets(mount.id) } : {})}
     description={<span class="storage-folder-description">
-      <Show when={path(mount)}>{(value) => folderPath(value())}</Show>
+      <Show when={path(mount)}>{(value) => <FolderPath value={value()} />}</Show>
       <Show when={mount.mode === 'read'}><span class="storage-folder-role"><ProductIcon icon={Lock} />{message('storagePanel.readOnly')}</span></Show>
       <Show when={mount.id === settings()?.outputMount}><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Star} />{message('storagePanel.saves')}</span></Show>
       <Show when={mount.id === locations()?.importMount}><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Download} />{message('storagePanel.imports')}</span></Show>
@@ -276,7 +296,7 @@ export function StorageFolders(props: {
         ...(mount.mode === 'readwrite' && mount.id !== settings()?.outputMount ? [{ label: message('storagePanel.saveHere'), disabled: disabled(), onSelect: () => setOutput(mount) }] : []),
         { label: message('projectFolders.up'), disabled: disabled() || selected()[0]?.id === mount.id, onSelect: () => move(mount.id, -1) },
         { label: message('projectFolders.down'), disabled: disabled() || selected().at(-1)?.id === mount.id, onSelect: () => move(mount.id, 1) },
-        { label: message('projectFolders.retry'), disabled: disabled() || mount.state === 'restart-required', onSelect: () => { void perform(() => props.connection.retryMount(mount.id)) } },
+        { label: message('storagePanel.readAgain'), disabled: disabled() || mount.state === 'restart-required', onSelect: () => { void perform(() => props.connection.retryMount(mount.id)) } },
         { label: message('projectFolders.remove'), disabled: disabled(), onSelect: () => { setReplacement(''); setLeaving({ id: mount.id, model: false }) } },
       ] : [{ label: message('storagePanel.use'), intent: 'add', disabled: disabled(), onSelect: () => useFolder(mount.id) }]} />} />}>
       <li class="dinkster-row" data-mount-id={mount.id}>{removalQuestion(mount.id, false)}</li>

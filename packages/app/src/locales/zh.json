@@ -59,6 +59,8 @@
   "storagePanel.imports": "添加的文件复制到这里",
   "storagePanel.operatorOnly": "部分文件夹详情不可用。管理模型文件夹和查看实际路径需要操作员权限。",
   "storagePanel.replacement": "新文件保存到",
+  "storagePanel.chooseMount": "选择挂载点",
+  "storagePanel.readAgain": "重新读取",
   "storagePanel.stopFailed": "无法停止使用 \"{folder}\"。{reason}",
   "storagePanel.unreachable": "无法访问此文件夹。",
   "storagePanel.notFolder": "这不是文件夹。",
