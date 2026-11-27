@@ -3179,6 +3179,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...(previewCapable !== undefined ? { previewCapable } : {}),
         ...(mirrorCapable !== undefined ? { mirrorCapable } : {}),
         ...(menuResolve !== undefined ? { resolve: menuResolve } : {}),
+        ...(viewInstancePath(tab) === undefined ? {} : { instancePath: viewInstancePath(tab)! }),
         shortcuts: Object.fromEntries([
           'edit.delete',
           'node.mute',
@@ -8228,7 +8229,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   onAction={(line, action) => {
                     const open = problemBox()
                     if (!open) return
-                    if (action === 'edit-field' && line.row !== undefined) {
+                    if (action === 'clear-unused-slots') {
+                      const tab = activeTab()
+                      if (tab === undefined || tab.execution !== undefined) return
+                      closeProblemBox()
+                      void props.app.dispatchTo(tab, { command: 'dynamic.compact', params: {
+                        graphId: currentGraphId(tab), nodeId: open.nodeId, clearRetainedOutputs: true,
+                        instancePath: [...(viewInstancePath(tab) ?? [])],
+                      } })
+                    } else if (action === 'edit-field' && line.row !== undefined) {
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, line.row)
                     } else if (action === 'locate-asset') {

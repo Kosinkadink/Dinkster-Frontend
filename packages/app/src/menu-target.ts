@@ -272,6 +272,7 @@ export function canvasMenuContext(input: {
   readonly doc: WorkflowDocument
   readonly namedNets: boolean
   readonly graphId: string
+  readonly instancePath?: readonly string[]
   readonly target: MenuTarget
   readonly selection: MenuContext['selection']
   readonly worldX: number
@@ -298,6 +299,7 @@ export function canvasMenuContext(input: {
     ...(input.resolve !== undefined ? { resolve: input.resolve } : {}),
     ...(input.shortcuts !== undefined ? { shortcuts: input.shortcuts } : {}),
     graphId: input.graphId,
+    ...(input.instancePath === undefined ? {} : { instancePath: input.instancePath }),
     target: input.target,
     selection: input.selection,
     worldX: input.worldX,

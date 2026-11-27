@@ -28,6 +28,7 @@ export function NodeProblemBox(props: {
     : action === 'review-model' ? message('problems.action.reviewModel')
     : action === 'model-management' ? message('problems.action.modelManagement')
     : action === 'model-storage' ? message('problems.action.modelStorage')
+    : action === 'clear-unused-slots' ? message('node.clearUnusedSlots')
     : message('problems.action.locateAsset')
   // A required input never given a value or a wire reads as the row's own sentence.
   const lineText = (line: ProblemBoxLine): string =>

@@ -16,6 +16,7 @@ import type { PatchOp } from '../src/commands/patch.js'
 import { semanticHashOf } from '../src/compile/hash.js'
 import { compile } from '../src/compile/compile.js'
 import { occurrenceDynamicView } from '../src/compile/occurrence-view.js'
+import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
 import { loadDocument } from '../src/format/migrate.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, asRerouteId, occurrenceKey } from '../src/ids.js'
@@ -486,6 +487,74 @@ describe('dynamic.labelMember', () => {
 
 describe('dynamic.compact', () => {
   const state = { images: { members: ['m0', 'm1', 'm2'], seq: 3 } }
+
+  it.each(['known', 'estimate'])('clears only one occurrence of %s count outputs and restores its wires with Undo', (kind) => {
+    const schema = schemaOf([socketInput('count', 'INT'), {
+      kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 },
+      grows: { count: 'count' }, minMembers: 0, maxMembers: 5,
+      value: { kind: 'output', id: 'item', type: { kind: 'concrete', name: 'IMAGE' } },
+    }])
+    const resolve = (type: string) => type === 'Batch' ? schema : type === 'Sink'
+      ? { ...schemaOf([socketInput('a', 'IMAGE'), socketInput('b', 'IMAGE')]), type: 'Sink' } : undefined
+    const left = { instancePath: [], node: asNodeId('left') }
+    const right = { instancePath: [], node: asNodeId('right') }
+    const initial = doc({
+      g0: graph({ id: 'g0', nodes: { left: node('left', { type: '#child' }), right: node('right', { type: '#child' }),
+        sink: node('sink', { type: 'Sink' }) }, links: {
+        leftWire: { id: asLinkId('leftWire'), from: port('left', 'out'), to: port('sink', 'a') },
+        rightWire: { id: asLinkId('rightWire'), from: port('right', 'out'), to: port('sink', 'b') },
+      } }),
+      child: graph({ id: 'child', boundary: boundaryOf([], [{ id: asPortId('out'),
+        binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('items.2') } }]), nodes: {
+        n1: node('n1', { values: { count: 3 } }), sink: node('sink', { type: 'Sink' }),
+      }, links: {
+        live: { id: asLinkId('live'), from: port('n1', 'items.0'), to: port('sink', 'a') },
+        dead: { id: asLinkId('dead'), from: port('n1', 'items.2'), to: port('sink', 'b') },
+      } }),
+    })
+    const owner = { instancePath: [asNodeId('left')], node: asNodeId('n1') }
+    const before: WorkflowDocument = { ...initial, occurrenceListCounts: {
+      [occurrenceKey(owner)]: { owner, graphId: asGraphDefId('child'), counts: { count: kind === 'known' ? 1 : 3 } },
+    } }
+    const store = new DocumentStore(before, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const invocation = { command: 'dynamic.compact', params: {
+      graphId: 'child', nodeId: 'n1', instancePath: ['left'], clearRetainedOutputs: true,
+      ...(kind === 'estimate' ? { outputCountLimits: { count: { count: 1, expected: 3 } } } : {}),
+    } }
+    expect(store.dispatch(invocation).ok).toBe(true)
+    const wires = (owner: typeof left) => effectiveOccurrenceTopology(store.doc, resolve, owner).links
+      .map(link => 'linkId' in link.identity ? link.identity.linkId : '').sort()
+    expect(wires(left)).toEqual(['live'])
+    expect(wires(right)).toEqual(['dead', 'live'])
+    expect(effectiveOccurrenceTopology(store.doc, resolve, left).projectedParentLinks).toHaveLength(0)
+    expect(effectiveOccurrenceTopology(store.doc, resolve, right).projectedParentLinks).toHaveLength(1)
+    expect(store.doc.graphs).toEqual(before.graphs)
+    expect(store.doc.occurrenceListCounts).toEqual(before.occurrenceListCounts)
+    const cleared = store.doc
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(before)
+    const prepared = coreCommandRegistry().get('dynamic.compact')!.prepareForSharedReplay!(before,
+      invocation.params, { kind: 'initial', schemaResolverFor: () => resolve }, undefined)
+    if (prepared?.ok !== true) throw new Error('Missing replay schemas')
+    const replay = new DocumentStore(before, coreCommandRegistry(), 200, undefined, () => ({ kind: 'shared-replay' }))
+    expect(replay.dispatch({ ...invocation, params: prepared.params }).ok).toBe(true)
+    expect(replay.doc).toEqual(cleared)
+    const grown = { ...before, occurrenceListCounts: {
+      [occurrenceKey(owner)]: { owner, graphId: asGraphDefId('child'), counts: { count: 4 } },
+    } }
+    const rebased = new DocumentStore(grown, coreCommandRegistry(), 200, undefined, () => ({ kind: 'shared-replay' }))
+    expect(rebased.dispatch({ ...invocation, params: prepared.params }).ok).toBe(true)
+    expect(rebased.doc).toEqual(grown)
+    if (kind === 'estimate') {
+      const changed = { ...before, graphs: { ...before.graphs, child: { ...before.graphs.child!, nodes: {
+        ...before.graphs.child!.nodes, n1: { ...before.graphs.child!.nodes.n1!, values: { count: 3, seed: 17 } },
+      } } } }
+      const stale = new DocumentStore(changed, coreCommandRegistry(), 200, undefined, () => ({ kind: 'shared-replay' }))
+      expect(stale.dispatch({ ...invocation, params: prepared.params }).ok).toBe(true)
+      expect(stale.doc).toEqual(changed)
+    }
+  })
 
   it('clears dead count-grown output wires and nets without moving live positions, in one undo step', () => {
     const schema = schemaOf([socketInput('count', 'INT'), {

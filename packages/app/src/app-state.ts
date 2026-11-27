@@ -7,7 +7,7 @@
 
 import { desktopSaveBridge } from './desktop-bridge.js'
 import { createAppPageTabs } from './app-page-tabs.js'
-import { answerListCountValueEdits } from './list-count-offers.js'
+import { answerListCountValueEdits, prepareListCountCompaction } from './list-count-offers.js'
 import { recordedListCountEstimates } from './companion-display.js'
 import { isPageTab } from './page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
@@ -6702,14 +6702,17 @@ export class AppState {
     if (tab.execution && !this.frozenPresentationCommand(invocation)) return this.refuseFrozenEdit(tab)
     const registry = this.registryForTab(tab)
     if (!tab.execution && registry !== undefined) {
-      invocation = answerListCountValueEdits(tab.store.doc, documentResolver(tab.store.doc, registry.resolve), () => {
+      const resolve = documentResolver(tab.store.doc, registry.resolve)
+      const estimates = () => {
         const execution = this.executionForTab(tab)
         if (!execution || !Object.values(execution.nodes).some(node =>
           Object.values(node.outputs ?? {}).some(output => output.typeId.startsWith('list<') && output.length !== undefined))) return undefined
         const comparison = this.previewComparisonCompile(tab)
         return recordedListCountEstimates({ execution, frozen: false,
           live: comparison?.ok ? comparison.artifact : undefined })
-      }, invocation)
+      }
+      invocation = answerListCountValueEdits(tab.store.doc, resolve, estimates, invocation)
+      invocation = prepareListCountCompaction(tab.store.doc, resolve, estimates, invocation)
     }
     const before = tab.store.doc
     const outcome = tab.store.dispatch(invocation)

@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import {
   asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, boundaryOf, coreCommandRegistry,
   compile, createLocalSession, documentResolver, occurrenceDynamicView, parseDinksterSchema, semanticHashOf,
+  effectiveOccurrenceTopology,
   type NodeSchema, type OccurrenceListCountEstimate, type WorkflowDocument,
 } from '@dinkster/core'
 import { listCountOffers, useListCountEstimate } from '../src/list-count-offers.js'
@@ -83,13 +84,20 @@ it('uses a larger estimate atomically and remembers a manual answer per occurren
   const source: NodeSchema = { ...parsed, type: 'source', body: [
     { kind: 'output', id: 'out', type: { kind: 'list', element: { kind: 'concrete', name: 'INT' } } },
   ] }
-  const schemas = (type: string) => type === unpack.type ? unpack : type === source.type ? source : undefined
+  const sink: NodeSchema = { ...parsed, type: 'sink', body: ['a', 'b'].map(id => ({
+    kind: 'input', id, optional: true, type: { kind: 'concrete', name: 'INT' },
+  })) }
+  const schemas = (type: string) => type === unpack.type ? unpack : type === source.type ? source : type === sink.type ? sink : undefined
   for (const nested of [false, true]) {
     const body = { id: asGraphDefId('body'), name: 'Body', nextOrdinal: 1, nets: {}, reroutes: {},
       nodes: { source: { id: asNodeId('source'), type: source.type, values: {} },
+        sink: { id: asNodeId('sink'), type: sink.type, values: {} },
         unpack: { id: asNodeId('unpack'), type: unpack.type, values: { count: 3 } } },
       links: { l: { id: asLinkId('l'), from: { node: asNodeId('source'), port: asPortId('out') },
-        to: { node: asNodeId('unpack'), port: asPortId('list') } } }, boundary: boundaryOf([], []) }
+        to: { node: asNodeId('unpack'), port: asPortId('list') } },
+        live: { id: asLinkId('live'), from: { node: asNodeId('unpack'), port: asPortId('items.0') }, to: { node: asNodeId('sink'), port: asPortId('a') } },
+        dead: { id: asLinkId('dead'), from: { node: asNodeId('unpack'), port: asPortId('items.2') }, to: { node: asNodeId('sink'), port: asPortId('b') } },
+      }, boundary: boundaryOf([], []) }
     const document: WorkflowDocument = { format: 'dinkster-workflow', formatVersion: 1, lineage: asLineageId('offers'),
       root: asGraphDefId(nested ? 'root' : 'body'), graphs: { body, ...(nested ? { root: {
         id: asGraphDefId('root'), name: 'Root', nextOrdinal: 1, nets: {}, reroutes: {}, links: {}, nodes: {
@@ -128,7 +136,7 @@ it('uses a larger estimate atomically and remembers a manual answer per occurren
       body: { ...body, boundary: boundaryOf([{ id: asPortId('chosen'), promoted: true,
         binds: { kind: 'port', node: asNodeId('unpack'), port: asPortId('count') } }], []) },
     } } : document
-    const app = createWorkflowApp([unpack, source])
+    const app = createWorkflowApp([unpack, source, sink])
     try {
       await app.openDocument(promoted, 'Count choices')
       const tab = app.activeTab()!
@@ -167,6 +175,27 @@ it('uses a larger estimate atomically and remembers a manual answer per occurren
       expect(read(tab.store.doc, 85)).toEqual([])
       expect(tab.store.undo()).toBe(true)
       expect(read(tab.store.doc, 85)[0]?.count).toBe(85)
+      vi.mocked(app.executionForTab).mockReturnValue({ ...execution,
+        nodes: Object.fromEntries(Object.entries(execution.nodes).map(([id, node]) => [id, {
+          ...node, outputs: { out: { typeId: 'list<INT>', length: 1 } },
+        }])),
+      } as unknown as ExecutionState)
+      const beforeClear = tab.store.doc
+      expect((await app.dispatchTo(tab, { command: 'dynamic.compact', params: {
+        graphId: 'body', nodeId: 'unpack', clearRetainedOutputs: true, instancePath: path,
+      } })).ok).toBe(true)
+      if (nested) {
+        const links = (node: string) => effectiveOccurrenceTopology(tab.store.doc, schemas,
+          { instancePath: [], node: asNodeId(node) }).links.map(link => 'linkId' in link.identity ? link.identity.linkId : '')
+        expect(links('left')).not.toContain('dead')
+        expect(links('right')).toContain('dead')
+        expect(tab.store.doc.graphs).toEqual(beforeClear.graphs)
+      } else {
+        expect(tab.store.doc.graphs.body!.links.dead).toBeUndefined()
+        expect(tab.store.doc.graphs.body!.links.live).toEqual(beforeClear.graphs.body!.links.live)
+      }
+      expect(tab.store.undo()).toBe(true)
+      expect(tab.store.doc).toEqual(beforeClear)
     } finally { app.dispose() }
   }
 })

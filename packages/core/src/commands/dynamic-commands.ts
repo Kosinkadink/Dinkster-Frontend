@@ -22,17 +22,22 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import type { DynamicPortState, GraphDef, Json, JsonObject, NodeData, WorkflowDocument } from '../format/document.js'
 import { resolveDynamicAddress } from '../format/document.js'
-import type { CommandDefinition } from './contract.js'
-import { isPortEndpoint, isWidgetTapRef, MAX_MEMBER_ORDINAL } from '../ids.js'
+import { executeCommand, type CommandDefinition, type TransactionBuilder } from './contract.js'
+import { asLinkId, asNodeId, isPortEndpoint, isWidgetTapRef, MAX_MEMBER_ORDINAL } from '../ids.js'
 import { buildGraphConnectivity, DEFAULT_ELAB_BUDGET, elabInputsOf, elabOutputsOf, elaborateInterface, selectorMembersOf, valueKeyOf } from '../schema/elaborate.js'
 import { documentPrimitiveResolver } from '../compile/compile.js'
+import { effectiveOccurrenceTopology } from '../compile/effective-topology.js'
+import { occurrenceDynamicView } from '../compile/occurrence-view.js'
+import { solveOccurrenceTypes } from '../compile/occurrence-solve.js'
+import { semanticHashOf } from '../compile/hash.js'
+import { OCCURRENCE_LINK_COMMANDS, planOccurrenceLinkCommand } from './occurrence-link-commands.js'
 import { primitiveOf } from '../primitive.js'
 import { buildRerouteIndex, traceEndpoint, traceEndpointAll } from '../reroute.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { schemaResolverForCommand } from './command-support.js'
 import { constructsOf } from '../schema/body.js'
 import type { ChoiceSpec, GroupSpec, NodeSchema, TypeChoiceSpec } from '../schema/model.js'
-import { checkDocument, subgraphDefIdOf } from '../invariants.js'
+import { checkDocument, graphAtInstancePath, subgraphDefIdOf } from '../invariants.js'
 import { allNodesOf, storeStartState } from './start-state.js'
 import { boundaryItems } from '../format/document.js'
 import { removeDefinitionLink, removeNet } from './occurrence-cleanup.js'
@@ -459,15 +464,92 @@ function compactScope(
   return result
 }
 
+function clearRetainedOutputLinks(
+  doc: WorkflowDocument, params: JsonObject, resolve: SchemaResolver, tx: TransactionBuilder,
+): readonly Diagnostic[] {
+  const graphId = params.graphId as string
+  const nodeId = params.nodeId as string
+  if (params.instancePath !== undefined && (!Array.isArray(params.instancePath) ||
+      !params.instancePath.every(hop => typeof hop === 'string'))) return [err('params.invalid', 'dynamic.compact: invalid instancePath')]
+  const path = ((params.instancePath ?? []) as string[]).map(asNodeId)
+  const graph = path.length === 0 ? doc.graphs[graphId] : graphAtInstancePath(doc, path)
+  if (graph?.id !== graphId) return [err('occurrence.missing', 'dynamic.compact: node occurrence is gone')]
+  const stored = graph.nodes[nodeId]!
+  const schema = resolve(stored.type)
+  if (schema === undefined) return []
+  const owner = path.length === 0 ? undefined : { instancePath: path.slice(0, -1), node: path[path.length - 1]! }
+  const topology = owner && effectiveOccurrenceTopology(doc, resolve, owner)
+  if (topology?.diagnostics.some(diagnostic => diagnostic.severity === 'error')) return topology.diagnostics
+  const view = occurrenceDynamicView(doc, resolve, path)
+  const dynamic = view.dynamic.get(nodeId)
+  const node = { ...stored, values: view.values.get(nodeId) ?? stored.values, ...(dynamic === undefined ? {} : { dynamic }) }
+  const effectiveGraph: GraphDef = topology === undefined ? graph : {
+    ...graph, nets: {}, links: Object.fromEntries(topology.links.map((link, index) => {
+      const id = asLinkId(`__compact_${index}`)
+      return [id, { id, from: link.from.endpoint, to: link.to.endpoint }]
+    })),
+  }
+  const base = buildGraphConnectivity(effectiveGraph)(node.id)
+  const projected = topology?.projectedParentLinks ?? []
+  const inOccurrence = (from: typeof projected[number]['from']): boolean => from.graphId === graphId &&
+    from.instancePath.length === path.length && from.instancePath.every((hop, index) => hop === path[index])
+  const outputs: readonly string[] = projected.flatMap(link => inOccurrence(link.from) && isPortEndpoint(link.from.endpoint) &&
+    link.from.endpoint.node === node.id ? [link.from.endpoint.port] : [])
+  const connectivity = { ...base, isOutputConnected: (port: string) => outputs.includes(port) || base.isOutputConnected(port),
+    outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...outputs])] }
+  const limits = new Map<string, number>()
+  const facts = isObj(params.outputCountLimits) ? solveOccurrenceTypes(doc, resolve, graphId, path) : undefined
+  // A changed recipe cannot reuse a destructive decision based on an old run.
+  const estimateCurrent = params.outputCountRecipe === undefined || params.outputCountRecipe === semanticHashOf(doc)
+  for (const [port, raw] of Object.entries(estimateCurrent && isObj(params.outputCountLimits) ? params.outputCountLimits : {})) {
+    if (!isObj(raw) || typeof raw.count !== 'number' || !Number.isSafeInteger(raw.count) || raw.count < 0 ||
+        node.values[port] !== raw.expected) continue
+    const field = elabInputsOf(elaborateInterface(schema, node, connectivity)).find(field => field.address.port === port)
+    // A workflow fact supersedes an estimate when an intention is replayed.
+    if (field?.spec.listCountOf !== undefined && facts?.listCountOf(node.id, 'input', field.spec.listCountOf) !== undefined) continue
+    limits.set(port, raw.count)
+  }
+  const retained = new Set(elabOutputsOf(elaborateInterface(schema, node, connectivity, { outputCountLimits: limits }))
+    .filter(output => output.kept !== undefined).map(output => output.address.port))
+  const reroutes = buildRerouteIndex(effectiveGraph)
+  const isDead = (from: Parameters<typeof traceEndpointAll>[1]): boolean => {
+    const sources = traceEndpointAll(effectiveGraph, from, reroutes)
+    return sources.length > 0 && sources.every(source => source.kind === 'output' &&
+      source.ref.node === node.id && retained.has(source.ref.port))
+  }
+  if (owner !== undefined && topology !== undefined) {
+    const disconnect = OCCURRENCE_LINK_COMMANDS.find(command => command.id === 'occurrence.link.disconnect')!
+    for (const link of [...topology.links, ...projected]) {
+      if (!inOccurrence(link.from) || !isDead(link.from.endpoint)) continue
+      const plan = planOccurrenceLinkCommand(tx.current, resolve, {
+        command: 'occurrence.link.disconnect', owner, bodyGraph: graphId, link: link.identity,
+      })
+      if (plan === undefined) return [err('occurrence.link.planUnavailable', 'dynamic.compact: unused wire cannot be resolved')]
+      const diagnostics = executeCommand(disconnect, tx.current, plan.invocation.params, tx, { kind: 'shared-replay' })
+      if (diagnostics.some(diagnostic => diagnostic.severity === 'error')) return diagnostics
+    }
+  } else {
+    for (const link of Object.values(graph.links)) if (isDead(link.from)) removeDefinitionLink(graphId, link.id, tx)
+    for (const net of Object.values(graph.nets)) if (isDead(net.source)) removeNet(graphId, net.id, tx)
+  }
+  return []
+}
+
 const dynamicCompact: CommandDefinition = {
   id: 'dynamic.compact',
   prepareForSharedReplay(doc, params, context) {
     if (!isObj(params) || params.clearRetainedOutputs !== true || params.schemaSnapshot !== undefined ||
         typeof params.graphId !== 'string' || typeof params.nodeId !== 'string') return undefined
-    const node = doc.graphs[params.graphId]?.nodes[params.nodeId]
-    const schema = node && schemaResolverForCommand(doc, context)?.(node.type)
-    return node === undefined || schema === undefined ? undefined
-      : { ok: true, params: { ...params, schemaSnapshot: { [node.type]: schema } as unknown as Json } }
+    const resolve = schemaResolverForCommand(doc, context)
+    if (resolve === undefined) return undefined
+    const schemas: Record<string, NodeSchema> = {}
+    for (const graph of Object.values(doc.graphs)) for (const node of Object.values(graph.nodes)) {
+      const schema = resolve(node.type)
+      if (schema !== undefined) schemas[node.type] = schema
+    }
+    return { ok: true, params: { ...params, schemaSnapshot: schemas as unknown as Json,
+      ...(isObj(params.outputCountLimits) ? { outputCountRecipe: semanticHashOf(doc) } : {}),
+    } }
   },
   run(doc, params, tx, context) {
     if (!isObj(params) || typeof params.graphId !== 'string' || typeof params.nodeId !== 'string')
@@ -478,6 +560,16 @@ const dynamicCompact: CommandDefinition = {
     if (!node) return [err('node.missing', `dynamic.compact: unknown node '${params.nodeId}'`)]
     if (checkDocument(doc).some((diagnostic) =>
       diagnostic.code.startsWith('doc.occurrenceTopology.') || diagnostic.code === 'doc.dynamic.memberMissing')) return []
+
+    const snapshots = isObj(params.schemaSnapshot) ? params.schemaSnapshot : undefined
+    const resolve = schemaResolverForCommand(doc, context, snapshots === undefined ? undefined
+      : type => snapshots[type] as unknown as NodeSchema | undefined)
+    if (params.clearRetainedOutputs === true && resolve !== undefined) {
+      const diagnostics = clearRetainedOutputLinks(doc, params, resolve, tx)
+      if (diagnostics.some(diagnostic => diagnostic.severity === 'error')) return diagnostics
+      // Count-grown outputs belong to the concrete occurrence, not its definition.
+      if (Array.isArray(params.instancePath) && params.instancePath.length > 0 && node.dynamic === undefined) return diagnostics
+    }
 
     const references: MemberReference[] = []
     const add = (ref: { readonly node: string; readonly port: string }): void => {
@@ -546,24 +638,6 @@ const dynamicCompact: CommandDefinition = {
     const schema = schemaResolverForCommand(doc, context)?.(node.type) ??
       (context.kind === 'shared-replay' && isObj(snapshot) && Array.isArray(snapshot.body)
         ? snapshot as unknown as NodeSchema : undefined)
-    // Automatic post-edit compaction must preserve other retained wires.
-    if (params.clearRetainedOutputs === true && schema !== undefined) {
-      const retained = new Set([...elabOutputsOf(elaborateInterface(schema, node,
-        buildGraphConnectivity(def)(node.id)))].filter((output) => output.kept !== undefined)
-        .map((output) => output.address.port))
-      const reroutes = buildRerouteIndex(def)
-      const isDead = (from: Parameters<typeof traceEndpointAll>[1]): boolean => {
-        const sources = traceEndpointAll(def, from, reroutes)
-        return sources.length > 0 && sources.every((source) => source.kind === 'output' &&
-          source.ref.node === node.id && retained.has(source.ref.port))
-      }
-      for (const link of Object.values(def.links)) {
-        if (isDead(link.from)) removeDefinitionLink(params.graphId, link.id, tx)
-      }
-      for (const net of Object.values(def.nets)) {
-        if (isDead(net.source)) removeNet(params.graphId, net.id, tx)
-      }
-    }
     if (node.dynamic === undefined) return []
 
     for (const item of [...(boundaryItems(def.boundary, 'inputs') ?? []), ...(boundaryItems(def.boundary, 'outputs') ?? [])]) {

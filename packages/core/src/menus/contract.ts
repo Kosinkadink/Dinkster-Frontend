@@ -134,6 +134,8 @@ export interface MenuContext {
   readonly resolve?: (nodeType: string) => NodeSchema | undefined
   /** Graph definition being edited (root or a drilled-in subgraph). */
   readonly graphId: string
+  /** Concrete instance shown when clearing retained count-grown outputs. */
+  readonly instancePath?: readonly string[]
   readonly target: MenuTarget
   /** Selection at menu-open time; the right-clicked item is already in it. */
   readonly selection: {

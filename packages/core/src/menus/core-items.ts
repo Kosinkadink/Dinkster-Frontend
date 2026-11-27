@@ -14,6 +14,7 @@ import { isPreviewExposed } from '../format/exposed-previews.js'
 import { netViewPositions } from '../format/net-views.js'
 import { asNodeId, asPortId, samePortRef, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
+import { constructsOf } from '../schema/body.js'
 import { constructsAround } from '../schema/derive-boundary.js'
 import { boundaryFieldState } from '../commands/boundary-commands.js'
 import { buildGraphConnectivity, elabOutputsOf, elaborateInterface } from '../schema/elaborate.js'
@@ -368,13 +369,15 @@ const nodeCompactDynamic: MenuContribution = {
       if (node === undefined) return false
       if (Object.values(node.dynamic ?? {}).some((state) => (state.members?.length ?? 0) > 0)) return true
       const schema = ctx.resolve?.(node.type)
-      return schema !== undefined && [...elabOutputsOf(elaborateInterface(schema, node, connectivity(node.id)))]
-        .some((output) => output.kept !== undefined)
+      return schema !== undefined && ([...constructsOf(schema, node.dynamic).values()].some(construct =>
+        construct.kind === 'group' && typeof construct.grows === 'object' && 'count' in construct.grows) ||
+        [...elabOutputsOf(elaborateInterface(schema, node, connectivity(node.id)))].some(output => output.kept !== undefined))
     })
     if (nodeIds.length === 0) return []
     const invocations = nodeIds.map((nodeId) => ({
       command: 'dynamic.compact',
-      params: { graphId: ctx.graphId, nodeId, clearRetainedOutputs: true },
+      params: { graphId: ctx.graphId, nodeId, clearRetainedOutputs: true,
+        ...(ctx.instancePath === undefined ? {} : { instancePath: [...ctx.instancePath] }) },
     }))
     return [{
       id: 'core.node.compactDynamic',

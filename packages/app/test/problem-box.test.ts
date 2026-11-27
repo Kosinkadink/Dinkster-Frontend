@@ -86,9 +86,11 @@ describe('problemBoxLines', () => {
       line('error', 'height.positive', 'height'),
       missing,
       line('error', 'rule.whole'),
+      line('warning', 'list.count.retiredOutputs'),
     ], problemBoxRows(node), (row) => row)
     expect(lines.map((entry) => [entry.problem.diagnostic.code, entry.actions])).toEqual([
       ['rule.whole', []],
+      ['list.count.retiredOutputs', ['clear-unused-slots']],
       ['model.required', []],
       ['asset.availability.missing', ['locate-asset']],
       ['height.positive', ['edit-field']],

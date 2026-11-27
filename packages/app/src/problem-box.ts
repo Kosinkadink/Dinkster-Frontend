@@ -2,7 +2,7 @@ import { outputRowKey, type SceneNode } from '@dinkster/canvas'
 import type { NodeProblemKind, NodeProblemLine } from './problem-display.js'
 
 /** What a line in the node's box offers; none of them fetches anything by itself. */
-export type ProblemBoxAction = 'edit-field' | 'locate-asset' | 'review-model' | 'model-management' | 'model-storage'
+export type ProblemBoxAction = 'edit-field' | 'locate-asset' | 'review-model' | 'model-management' | 'model-storage' | 'clear-unused-slots'
 
 /** One line in a node's problem box: one cause, with its row's name and its actions. */
 export interface ProblemBoxLine {
@@ -64,7 +64,8 @@ export function problemBoxLines(
       const row = problem.row === undefined ? undefined : rows.find((candidate) => candidate.key === problem.row)
       const diagnostic = problem.diagnostic
       const nodeMessage = diagnostic.data?.['nodeMessage']
-      const actions: ProblemBoxAction[] = diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'
+      const actions: ProblemBoxAction[] = diagnostic.code === 'list.count.retiredOutputs' ? ['clear-unused-slots']
+        : diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'
         ? [...(typeof diagnostic.data['kind'] === 'string' && diagnostic.data['kind'].startsWith('model/') ? ['review-model' as const] : []), 'locate-asset']
         : diagnostic.code.startsWith('model.availability.') && typeof diagnostic.data?.['input'] === 'string'
           ? [

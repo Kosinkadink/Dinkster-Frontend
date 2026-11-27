@@ -74,6 +74,46 @@ export function useListCountEstimate(graphId: string, instancePath: readonly str
   ] } }
 }
 
+/** Clearing slots records the held estimate, never a list of wires to delete on replay. */
+export function prepareListCountCompaction(
+  document: WorkflowDocument, resolve: SchemaResolver, estimates: () => OccurrenceListCountEstimate | undefined,
+  invocation: CommandInvocation,
+): CommandInvocation {
+  const params = invocation.params as Record<string, Json> | undefined
+  if (invocation.command === 'batch' && Array.isArray(params?.invocations)) return {
+    ...invocation, params: { ...params, invocations: params.invocations.map(child =>
+      prepareListCountCompaction(document, resolve, estimates, child as unknown as CommandInvocation)) } as unknown as Json,
+  }
+  if (invocation.command !== 'dynamic.compact' || params?.clearRetainedOutputs !== true ||
+      typeof params.graphId !== 'string' || typeof params.nodeId !== 'string') return invocation
+  const estimateOf = estimates()
+  if (estimateOf === undefined) return invocation
+  const graph = document.graphs[params.graphId]
+  const stored = graph?.nodes[params.nodeId]
+  const schema = stored && resolve(stored.type)
+  if (graph === undefined || stored === undefined || schema === undefined) return invocation
+  const path = (Array.isArray(params.instancePath) ? params.instancePath as string[] : []).map(asNodeId)
+  const view = occurrenceDynamicView(document, resolve, path)
+  const node = { ...stored, values: view.values.get(stored.id) ?? stored.values }
+  const contexts = new Map<string, FormulaContext>()
+  const elaborated = elaborateInterface(schema, node, buildGraphConnectivity(graph)(node.id), { formulaContexts: contexts })
+  const solved = solveOccurrenceTypes(document, resolve, graph.id, path, estimateOf)
+  const outputCountLimits: Record<string, Json> = {}
+  for (const field of elabInputsOf(elaborated)) {
+    if (field.spec.listCountOf === undefined) continue
+    const prefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
+    const source = contexts.get(prefix)?.paths.get(field.spec.listCountOf)
+    const fact = source === undefined ? undefined : solved?.listCountFactOf(node.id, 'input', source)
+    const stored = node.values[valueKeyOf(field)]
+    const min = field.spec.widget?.options['min']
+    const max = field.spec.widget?.options['max']
+    if (fact?.kind !== 'estimate' || typeof stored !== 'number' || fact.count >= stored ||
+        typeof min === 'number' && fact.count < min || typeof max === 'number' && fact.count > max) continue
+    outputCountLimits[field.address.port] = { count: fact.count, expected: stored }
+  }
+  return { ...invocation, params: { ...params, outputCountLimits } }
+}
+
 /** Explicit value edits answer offers on their concrete count fields, including promoted fields. */
 export function answerListCountValueEdits(
   document: WorkflowDocument, resolve: SchemaResolver, estimates: () => OccurrenceListCountEstimate | undefined,
