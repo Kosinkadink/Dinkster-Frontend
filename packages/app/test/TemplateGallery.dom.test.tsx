@@ -172,9 +172,9 @@ describe('TemplatesPage', () => {
     try {
       await vi.waitFor(() => expect(options('Templates')).toHaveLength(3))
       expect(host.querySelector('.dinkster-template-detail')?.textContent).toContain('1 of 2 on this computer')
-      expect(button('Download 1 model2 MiB')).toBeDefined()
+      expect(button('Download 1 model2 MB')).toBeDefined()
       const tabsBeforeReview = app.tabs.get().length
-      button('Download 1 model2 MiB').click()
+      button('Download 1 model2 MB').click()
       await vi.waitFor(() => expect(app.assetConsent.get()?.models?.map((model) => model.requirement)).toEqual([
         { name: 'Base', kind: 'model/checkpoint' },
         { name: 'VAE', kind: 'model/vae', asset: vae },
@@ -200,7 +200,7 @@ describe('TemplatesPage', () => {
       expect(host.querySelector('output')?.textContent).toBe('Nothing opened')
 
       enter(host.querySelector<HTMLInputElement>('input[type="search"]')!, 'SD1.5')
-      await vi.waitFor(() => expect(options('Templates').map((item) => item.textContent)).toEqual(['2 MiBImage starterSD 1.5']))
+      await vi.waitFor(() => expect(options('Templates').map((item) => item.textContent)).toEqual(['2 MBImage starterSD 1.5']))
       enter(host.querySelector<HTMLInputElement>('input[type="search"]')!, '\u56fe\u50cf')
       await vi.waitFor(() => expect(options('Templates')).toHaveLength(1))
       button('Use template').click()
@@ -215,13 +215,20 @@ describe('TemplatesPage', () => {
     const backend = app.libraryBackend()!
     backend.templatesEnabled.set(true)
     let empty = false
-    vi.spyOn(backend.connection, 'listTemplates').mockImplementation(async () => ({ templates: empty ? [] : [
-      { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', models: ['missing'] },
-    ] }))
+    let failure: 'templates' | 'settings' | undefined = 'templates'
+    vi.spyOn(backend.connection, 'listTemplates').mockImplementation(async () => {
+      if (failure === 'templates') throw new Error('GET /api/templates failed: 503')
+      return { templates: empty ? [] : [
+        { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', models: ['missing'] },
+      ] }
+    })
     vi.spyOn(backend.connection, 'guessAssets').mockResolvedValue([])
-    vi.spyOn(backend.connection, 'fetchModelSettings').mockResolvedValue({
-      settings: { version: 1, locations: [], downloadLocation: null }, locations: [],
-      revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+    vi.spyOn(backend.connection, 'fetchModelSettings').mockImplementation(async () => {
+      if (failure === 'settings') throw new Error('GET /api/models/settings failed: 503')
+      return {
+        settings: { version: 1, locations: [], downloadLocation: null }, locations: [],
+        revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+      }
     })
     const host = document.createElement('div')
     document.body.append(host)
@@ -234,6 +241,16 @@ describe('TemplatesPage', () => {
         <button onClick={() => { setVisible(false); empty = true; queueMicrotask(() => setVisible(true)) }}>Reload empty</button></>
     }, host)
     try {
+      for (const next of ['settings', undefined] as const) {
+        await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Could not load templates'))
+        expect(host.textContent).not.toContain('GET /api/')
+        expect(host.textContent).not.toContain('No templates yet')
+        expect(host.querySelector('.dinkster-template-filter')).toBeNull()
+        expect(host.querySelector('.dinkster-template-detail')).toBeNull()
+        expect(host.querySelector('input[type="search"]')).not.toBeNull()
+        failure = next
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Retry')!.click()
+      }
       await vi.waitFor(() => expect(host.textContent).toContain('No model folder yet'))
       expect(host.querySelector('form')).toBeNull()
       expect([...host.querySelectorAll('button')].some((button) => button.textContent?.startsWith('Download'))).toBe(false)

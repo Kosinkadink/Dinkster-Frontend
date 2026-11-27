@@ -1119,7 +1119,7 @@ test('App view explains an empty flow and an empty arrangement group', async ({ 
 })
 
 test('Templates page presents loading error retry and empty search states', async ({ page }) => {
-  let mode: 'loading' | 'empty' | 'error' = 'loading'
+  let mode: 'loading' | 'empty' | 'error' | 'settings-error' = 'loading'
   let release: (() => void) | undefined
   await page.route('**/gallery-visual/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
@@ -1129,10 +1129,12 @@ test('Templates page presents loading error retry and empty search states', asyn
         ? route.fulfill({ status: 503, body: 'Template fixture unavailable' })
         : route.fulfill({ json: { templates: [] } })
     }
-    if (path.endsWith('/api/models/settings')) return route.fulfill({ json: {
-      settings: { version: 1, locations: [], downloadLocation: null }, locations: [],
-      revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
-    } })
+    if (path.endsWith('/api/models/settings')) return mode === 'settings-error'
+      ? route.fulfill({ status: 503, body: 'Model settings fixture unavailable' })
+      : route.fulfill({ json: {
+        settings: { version: 1, locations: [], downloadLocation: null }, locations: [],
+        revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+      } })
     if (path.endsWith('/api/settings')) return route.fulfill({ json: { features: { templates: { enabled: true } }, categories: { available: [], granted: [] }, settings: {} } })
     await emptyVisualBackend(route)
   })
@@ -1174,9 +1176,18 @@ test('Templates page presents loading error retry and empty search states', asyn
   await expect.poll(() => release !== undefined).toBe(true)
   mode = 'error'
   release?.()
-  await expect(gallery.getByRole('alert')).toContainText('GET /api/templates failed: 503')
+  await expect(gallery.getByRole('alert')).toContainText('Could not load templates')
+  await expect(gallery).not.toContainText('GET /api/templates')
+  await expect(gallery.getByRole('listbox', { name: 'Makes', exact: true })).toHaveCount(0)
+  await expect(gallery.getByText('No templates yet. Packs you add can bring their own.', { exact: true })).toHaveCount(0)
   await expect(gallery.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
   await capture('error')
+  mode = 'settings-error'
+  await gallery.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(gallery.getByRole('alert')).toContainText('Could not load templates')
+  await expect(gallery).not.toContainText('GET /api/models/settings')
+  await expect(gallery.getByRole('listbox', { name: 'Makes', exact: true })).toHaveCount(0)
+  await expect(gallery.getByText('No templates yet. Packs you add can bring their own.', { exact: true })).toHaveCount(0)
   mode = 'empty'
   await gallery.getByRole('button', { name: 'Retry', exact: true }).click()
   await expect(gallery.getByText('No templates yet. Packs you add can bring their own.', { exact: true })).toBeVisible()

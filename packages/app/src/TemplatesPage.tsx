@@ -17,6 +17,7 @@ import { useAppMessage } from './locale.js'
 import type { ModelDownloadState } from './model-downloads.js'
 import { activeProjectId } from './projects.js'
 import { WorkflowPicture } from './projects-page/workflow-picture.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 import { RemoteTemplateCatalog } from './template-catalog.js'
 import { workflowModelOccurrences } from './workflow-asset-locations.js'
@@ -140,23 +141,15 @@ export function TemplatesPage(props: {
       if (!live) return
       setEntries(page.items)
       setLoading(false)
-    }).catch((reason: unknown) => {
+    }).catch(() => {
       if (!live) return
       setLoadFailed(true)
-      setError(message('templateGallery.error', {
-        error: reason instanceof Error ? reason.message : String(reason),
-      }))
       setLoading(false)
     })
     void owner.connection.fetchModelSettings().then((settings) => {
       if (live) setNoFolders(settings.locations.length === 0)
-    }).catch((reason: unknown) => {
-      if (live) {
-        setLoadFailed(true)
-        setError(message('templateGallery.error', {
-          error: reason instanceof Error ? reason.message : String(reason),
-        }))
-      }
+    }).catch(() => {
+      if (live) setLoadFailed(true)
     })
   })
 
@@ -343,15 +336,12 @@ export function TemplatesPage(props: {
   return <Show when={available()}><section class="templates-page dinkster-root" data-testid="templates-page">
     <Show when={error() !== ''}>
       <ProductErrorBanner onDismiss={() => setError('')}>
-        {error()}{' '}
-        <Show when={loadFailed()}>
-          <ProductTextButton label={message('templateGallery.retry')} onClick={() => setRefresh((value) => value + 1)} />
-        </Show>
+        {error()}
       </ProductErrorBanner>
     </Show>
     <ProductTemplatesPage
       title={message('templatesPage.title')}
-      groups={loading() ? [] : groups()}
+      groups={loading() || loadFailed() ? [] : groups()}
       group={group()}
       onGroup={setGroup}
       searchLabel={message('templatesPage.search')}
@@ -361,7 +351,10 @@ export function TemplatesPage(props: {
         setSearch(value)
       }}
       leave={<ProductButton disabled={opening()} onClick={props.onBlank}>{message('templatesPage.blank')}</ProductButton>}
-      templates={loading() ? undefined : shown().map(tile)}
+      templates={loadFailed() ? [] : loading() ? undefined : shown().map(tile)}
+      error={loadFailed() ? <ProductEmptyState tone="error" title={message('templatesPage.loadFailed')} action={
+        <ProductButton onClick={() => setRefresh((value) => value + 1)}>{message('templateGallery.retry')}</ProductButton>
+      } /> : undefined}
       selected={current()?.id}
       onSelect={(id) => { setSelected(id); setView('result') }}
       onOpen={(id) => { void open(id) }}
@@ -369,7 +362,7 @@ export function TemplatesPage(props: {
       loadingLabel={message('templateGallery.loading')}
       empty={message(entries().length === 0 ? 'templatesPage.empty' : 'templatesPage.noMatches')}
     >
-      <Show when={current()}>
+      <Show when={!loadFailed() && current()}>
         {(entry) => <ProductTemplateDetail
           template={tile(entry())}
           drawing={drawing}

@@ -191,6 +191,9 @@ export function ProductTemplatesPage(props: {
   loadingLabel: string
   /** Shown in place of the tiles when no template is in the group or matches the search. */
   empty: string
+  error?: JSX.Element
+  onCancel?: () => void
+  pending?: boolean
   children?: JSX.Element
 }) {
   const heading = createUniqueId()
@@ -214,6 +217,15 @@ export function ProductTemplatesPage(props: {
         ?.focus(),
     )
   }
+  const escape = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape' || event.defaultPrevented || props.pending) return
+    if (detail() && back?.getClientRects().length) showList()
+    else if (props.search !== '') props.onSearch('')
+    else if (props.onCancel) props.onCancel()
+    else return
+    event.preventDefault()
+    event.stopPropagation()
+  }
   const moveGroup = (event: KeyboardEvent) => {
     const rows = props.groups.flatMap((group) => group.rows)
     const index = rows.findIndex((row) => row.id === props.group)
@@ -233,7 +245,7 @@ export function ProductTemplatesPage(props: {
       ?.focus()
   }
   return (
-    <div class="dinkster-templates-viewport" ref={page}>
+    <div class="dinkster-templates-viewport" ref={page} onKeyDown={escape}>
       <div
         class="dinkster-templates"
         data-narrow-panel={detail() ? 'detail' : 'list'}
@@ -321,7 +333,11 @@ export function ProductTemplatesPage(props: {
             {(templates) => (
               <Show
                 when={templates().length > 0}
-                fallback={<p class="dinkster-templates-empty">{props.empty}</p>}
+                fallback={
+                  props.error ?? (
+                    <p class="dinkster-templates-empty">{props.empty}</p>
+                  )
+                }
               >
                 <ProductTemplateTiles
                   label={props.title}
