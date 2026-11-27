@@ -2,6 +2,7 @@ import type { AssetRef, Json, JsonObject } from '@dinkster/core'
 import {
   CanvasEditorButtons,
   CanvasEditorChoice,
+  CanvasEditorControls,
   CanvasEditorLine,
   CanvasEditorNote,
   CanvasEditorNumber,
@@ -50,6 +51,7 @@ export function Load3dSpace(props: {
   /** Changes when what the view reads changes, which reads it again. */
   readonly sourceKey: string
   readonly ports: Load3dPorts
+  readonly measured?: (height: number) => void
   /** The node gives image, mask and normal pictures, so it records the viewport. */
   readonly captures: boolean
   /** This view may run a live WebGL view now. */
@@ -291,6 +293,20 @@ export function Load3dSpace(props: {
     return message(`inNodeLoad3d.${shown}`)
   }
   const ready = () => state() === 'ready'
+  const problemNote = () => <Show when={record() === 'failed' && recordError() !== undefined} fallback={
+    <Show when={state() === 'unavailable' || state() === 'native'}>
+      <CanvasEditorNote tone={state() === 'native' ? 'warning' : 'problem'} details={{ label: message('runs.details'),
+        title: message(state() === 'native' ? 'load3dWidget.native' : 'inNodeLoad3d.unavailableTitle'),
+        ...(sourceError() === undefined ? {} : { body: sourceError()! }) }}>
+        {message(state() === 'native' ? 'inNodeEditor.nativeShort' : 'inNodeLoad3d.unavailableShort')}
+      </CanvasEditorNote>
+    </Show>
+  }>
+    <CanvasEditorNote tone="problem" details={{ label: message('runs.details'), title: message('load3dWidget.recordingFailed'),
+      body: [recordError(), ...(state() === 'native' ? [message('load3dWidget.native')] : state() === 'unavailable' ? [message('inNodeLoad3d.unavailableTitle'), sourceError()] : [])].filter(Boolean).join('\n') }}>
+      {message('inNodeLoad3d.recordingFailedShort')}
+    </CanvasEditorNote>
+  </Show>
   // A still view shows the stored view's settings; pressing the editor makes it live to change them.
   const shownCamera = () => camera() ?? (state() === 'ready' ? storedCamera() : undefined)
   const shownTransform = () => transform() ?? (state() === 'ready' ? storedTransform() : undefined)
@@ -314,7 +330,7 @@ export function Load3dSpace(props: {
     <div class="node-load3d-editor" onPointerDown={wake}>
       <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}
         loading={state() === 'loading'}
-        {...(pictureMessage() === undefined ? {} : { message: pictureMessage()! })}
+        message={ready() ? undefined : state() === 'unavailable' || state() === 'native' || record() === 'failed' ? problemNote() : pictureMessage()}
         {...(props.captures && !props.cameraWired && !props.readOnly && ready() ? {
           actions: <CanvasEditorButtons buttons={recordActions()} />,
         } : {})}>
@@ -331,6 +347,7 @@ export function Load3dSpace(props: {
           </Show>
         </div>
       </CanvasEditorPicture>
+      <CanvasEditorControls measured={props.measured}>
       <CanvasEditorLine readOnly={props.readOnly} dimmed={!ready() || props.cameraWired}>
         <CanvasEditorChoice label={message('load3dWidget.camera')}
           value={message(shownCamera()?.cameraType === 'orthographic' ? 'load3dWidget.orthographic' : 'load3dWidget.perspective')}
@@ -386,20 +403,8 @@ export function Load3dSpace(props: {
           onClick: () => animate(clip(), viewer?.animationTime() ?? time(), !playing(), speed()),
         }]} />
       </CanvasEditorSection>
-      <Show when={record() === 'failed' && recordError() !== undefined} fallback={
-        <Show when={state() === 'unavailable' || state() === 'native'}>
-          <CanvasEditorNote tone={state() === 'native' ? 'warning' : 'problem'} details={{ label: message('runs.details'),
-            title: message(state() === 'native' ? 'load3dWidget.native' : 'inNodeLoad3d.unavailableTitle'),
-            ...(sourceError() === undefined ? {} : { body: sourceError()! }) }}>
-            {message(state() === 'native' ? 'inNodeEditor.nativeShort' : 'inNodeLoad3d.unavailableShort')}
-          </CanvasEditorNote>
-        </Show>
-      }>
-        <CanvasEditorNote tone="problem" details={{ label: message('runs.details'), title: message('load3dWidget.recordingFailed'),
-          body: [recordError(), ...(state() === 'native' ? [message('load3dWidget.native')] : state() === 'unavailable' ? [message('inNodeLoad3d.unavailableTitle'), sourceError()] : [])].filter(Boolean).join('\n') }}>
-          {message('inNodeLoad3d.recordingFailedShort')}
-        </CanvasEditorNote>
-      </Show>
+      <Show when={ready()}>{problemNote()}</Show>
+      </CanvasEditorControls>
     </div>
   )
 }
