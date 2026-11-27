@@ -12,7 +12,8 @@
 .setup-facts dd > span { overflow-wrap: anywhere; }
 .setup-facts dd > div { min-width: 0; overflow-wrap: anywhere; }
 .setup-facts p { margin: var(--dinkster-space-4) 0 0; }
-.editor-first-run-setup { position: absolute; inset: 0; padding: var(--dinkster-space-24); overflow: auto; pointer-events: none; }
+.editor-first-run-setup { position: absolute; inset: 0; display: flex; padding: var(--dinkster-space-24); overflow: auto; pointer-events: none; }
+.editor-first-run-setup .setup-host { display: block; flex: none; width: 100%; max-width: calc(560px + 2 * var(--dinkster-space-24)); height: auto; box-sizing: border-box; margin: auto; padding: var(--dinkster-space-24); background: var(--dinkster-surface-panel); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); pointer-events: auto; }
 .editor-first-run-setup .setup-form, .editor-first-run-setup .dinkster-dialog { pointer-events: auto; }
 .setup-actions { justify-content: flex-end; }
 @media (max-width: 640px) {
