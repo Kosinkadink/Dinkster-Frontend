@@ -4,7 +4,7 @@ import { render } from "solid-js/web";
 import { createSignal, type ComponentProps } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OutputMountSettings } from "../src/OutputMountSettings.js";
-import { DinksterConnection } from "@dinkster/client";
+import { DinksterConnection, RequestFailure } from "@dinkster/client";
 import { asConnectionId } from "@dinkster/core";
 
 const flush = async (): Promise<void> => {
@@ -139,13 +139,13 @@ describe("OutputMountSettings", () => {
 
   it("replaces failed loading with an enabled retry and recovers the mount selector", async () => {
     const fetchMountSettings = vi.fn()
-      .mockRejectedValueOnce(new Error("GET /api/mounts failed: 503"))
+      .mockRejectedValueOnce(new RequestFailure("GET", "/api/mounts", 503))
       .mockResolvedValue({ outputMount: "output", mountChangesAllowed: false, mounts: [{ id: "output", mode: "readwrite", state: "ready" }] });
     const root = document.createElement("div");
     document.body.append(root);
     const dispose = render(() => <OutputMountSettings connection={{ fetchMountSettings, selectOutputMount: async () => {}, onMountsChanged: () => () => {} }} />, root);
     await flush();
-    expect(root.querySelector('[role="alert"]')?.textContent).toContain("GET /api/mounts failed: 503");
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain("The engine reported an error.");
     expect(root.textContent).not.toContain("Loading output mount");
     const retry = root.querySelector<HTMLButtonElement>('[data-testid="output-mount-retry"]')!;
     expect(retry.disabled).toBe(false);

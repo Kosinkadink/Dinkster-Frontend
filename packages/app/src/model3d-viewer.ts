@@ -14,6 +14,7 @@
  *   state and capture images before committing them to the document.
  */
 import { GLB_MIME, SPLAT_PLY_MIME } from './model3d-mime.js'
+import { requestFetch, requestFailure } from '@dinkster/client'
 import type { Model3dCameraState, Model3dTransform } from '@dinkster/canvas'
 export type { Model3dCameraState, Model3dTransform } from '@dinkster/canvas'
 
@@ -265,8 +266,8 @@ const loadFramedSplatScene = async (
   format = 'ply',
 ): Promise<FramedScene> => {
   const { THREE } = modules
-  const response = await fetch(src)
-  if (!response.ok) throw new Error(`splat fetch failed: ${response.status}`)
+  const response = await requestFetch((url, init) => fetch(url, init))(src)
+  if (!response.ok) throw await requestFailure(response)
   const bytes = await response.arrayBuffer()
   const mesh = new spark.SplatMesh({ fileBytes: bytes, fileName: `model.${format}` })
   try {

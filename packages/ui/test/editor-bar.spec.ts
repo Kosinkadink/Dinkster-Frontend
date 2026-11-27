@@ -202,12 +202,14 @@ test('the logo sits over the left bar and the panel switches sit at the right en
     ])
   }
   // With the left bar hidden, the macOS logo follows the window buttons.
-  await page.getByLabel('Left bar', { exact: true }).uncheck()
+  await page.getByText('Left bar', { exact: true }).click()
+  await expect(page.getByLabel('Left bar', { exact: true })).not.toBeChecked()
   await expect(bar.getByRole('button', { name: 'Dinkster menu' })).toBeVisible()
   expect((await project.boundingBox())!.x).toBeGreaterThan(
     (await logo.boundingBox())!.x,
   )
-  await page.getByLabel('Left bar', { exact: true }).check()
+  await page.getByText('Left bar', { exact: true }).click()
+  await expect(page.getByLabel('Left bar', { exact: true })).toBeChecked()
   await chooseOption(page.getByLabel('Platform', { exact: true }), 'Linux')
   const arrow = project.locator('svg').last()
   const rest = await arrow.evaluate((node) => getComputedStyle(node).color)

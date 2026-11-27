@@ -475,7 +475,7 @@ describe('saveWorkflow', () => {
     expect(await app.saveWorkflow(tab.id)).toBe(false)
     expect(app.problems.get().some((entry) => entry.code === 'import.notice')).toBe(true)
     expect(app.problems.get().some((d) => d.code === 'library.saveFailed')).toBe(true)
-    expect(app.transientStatus.get()).toBe('Save failed on Native: boom')
+    expect(app.transientStatus.get()).toBe('The workflow could not be saved on Native.')
   })
 
   it('AP2: an edit made while the save is in flight keeps the tab dirty', async () => {

@@ -86,7 +86,7 @@ async function openAssetEditor(page: Page): Promise<void> {
   await expect(page.getByTestId("asset-editor")).toBeVisible();
 }
 
-test("the browser template gallery grants a read-only model mount and the asset picker browses it", async ({
+test("Storage grants a read-only model mount and the asset picker browses it", async ({
   page,
   request,
 }) => {
@@ -131,16 +131,10 @@ test("the browser template gallery grants a read-only model mount and the asset 
     await expect(page.getByTestId("status-connection")).toHaveAttribute("data-state", "connected");
     await waitForWorkspaceReady(page);
 
-    await page
-      .getByRole("button", { name: "Browse starter templates" })
-      .click();
-    // With zero mounts the gallery explains folder granting and offers the typed form.
-    const gallery = page.getByTestId("template-gallery");
-    await expect(gallery).toBeVisible({ timeout: 15_000 });
-    const mountsSection = gallery.locator(".template-gallery-mounts");
-    await expect(mountsSection).toContainText(
-      "Grant read-only access to an existing folder. Dinkster indexes models in place without copying them.",
-    );
+    await page.getByRole("button", { name: "Storage", exact: true }).click();
+    const folders = page.getByTestId("storage-folders");
+    await expect(folders).toBeVisible({ timeout: 15_000 });
+    await folders.locator(".storage-group-heading").filter({ has: page.getByRole("heading", { name: "Folders", exact: true }) }).getByRole("button", { name: "Add", exact: true }).click();
     expect(zeroMountResponseSeen).toBe(true);
 
     await page.locator("#desktop-mount-path").fill(modelsRoot);

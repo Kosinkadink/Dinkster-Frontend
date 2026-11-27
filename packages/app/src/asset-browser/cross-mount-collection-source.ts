@@ -2,6 +2,7 @@ import type { MountDescriptor } from '@dinkster/client'
 import type { CollectionEntry, CollectionPageRequest, CollectionSource } from '@dinkster/core'
 import { assetCollectionSource, assetEntryOf, assetItemOf } from './collection-adapter.js'
 import type { AssetSourceAdapter } from './types.js'
+import { failureMessage } from '../request-failure.js'
 
 interface CrossMountCursor {
   readonly version: 1
@@ -35,7 +36,7 @@ const requestSignature = (req: CollectionPageRequest): string => JSON.stringify(
   filters: req.filters ?? {},
 })
 
-const errorText = (reason: unknown): string => reason instanceof Error ? reason.message : String(reason)
+const errorText = (reason: unknown): string => failureMessage(reason, 'Assets could not be loaded.')
 
 const errorEntry = (id: string, label: string, reason: string): CollectionEntry => ({
   id: `all-assets:error:${id}`,
@@ -106,16 +107,13 @@ export function allAssetsCollectionSource(
           return { source, page }
         } catch (reason) {
           if (req.signal?.aborted === true) throw reason
-          return { source, error: errorText(reason) }
+          return { source, error: errorText(reason), cause: reason }
         }
       }))
       if (requestGeneration !== generation || activeSignature !== signature) {
         throw new Error('stale All assets response')
       }
       req.signal?.throwIfAborted()
-      const sourceFailures = results.flatMap((result) => result.error === undefined
-        ? []
-        : [{ sourceId: result.source.id, label: result.source.label, message: result.error }])
       if (req.cursor === undefined) activeSourceFailures.clear()
       for (const result of results) {
         if (result.page === undefined && result.error === undefined) continue
@@ -125,7 +123,7 @@ export function allAssetsCollectionSource(
       options.onSourceFailures?.([...activeSourceFailures.values()])
       if ((options.failWhenAllSourcesFail === true || options.onSourceFailures !== undefined)
         && results.length > 0 && results.every((result) => result.error !== undefined)) {
-        throw new Error(sourceFailures.map((failure) => `${failure.label}: ${failure.message}`).join('; '))
+        throw results[0]!.cause
       }
       const nextCursors: Record<string, string> = {}
       const items: CollectionEntry[] = []

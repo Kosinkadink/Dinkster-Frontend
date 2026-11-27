@@ -3,8 +3,8 @@
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { asConnectionId, setLocale } from '@dinkster/core'
-import { DinksterConnection, type LibraryProject, type ProjectCreation } from '@dinkster/client'
+import { asConnectionId, loadDocument, setLocale, type CollectionEntry, type WorkflowDocument } from '@dinkster/core'
+import { DinksterConnection, RequestFailure, type LibraryProject, type ProjectCreation } from '@dinkster/client'
 import '../src/locale.js'
 import {
   processSource,
@@ -475,7 +475,7 @@ it('renames the selected project at the revision it read', async () => {
 
 it('keeps the Delete consequence and selected project after a refused deletion', async () => {
   const data = source(projects)
-  data.deleteProject = async () => { throw new Error('Project changed. Try again.') }
+  data.deleteProject = async () => { throw new RequestFailure('DELETE', '/api/projects/test', 409, 'Project changed. Try again.') }
   render(() => <ProjectsView shell={shell()} source={data} />, document.body)
   await settle()
   document.querySelector<HTMLButtonElement>('[aria-label="Project actions"]')!.click()
@@ -728,4 +728,85 @@ it('draws a workflow tile from its saved document, and keeps the icon for one it
   expect(tile('Readable').querySelector('.dinkster-tile-picture canvas')).not.toBeNull()
   expect(tile('Unreadable').querySelector('canvas')).toBeNull()
   expect(tile('Unreadable').querySelector('.dinkster-tile-empty svg')).not.toBeNull()
+})
+
+it('keeps the project name and exact template choice through picker cancellation, then creates from that document', async () => {
+  const documentFor = (pack: string) => loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: pack, root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'Root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
+    view: { graphs: { g0: { nodes: {} } } } }).document!
+  const entries: CollectionEntry[] = ['photos', 'lines'].map((pack) => ({ id: `${pack}/starter`, title: `${pack} starter`,
+    ref: { kind: 'local', pack, id: 'starter', template: { pack, id: 'starter', name: `${pack} starter`, digest: `sha256:${pack}` }, models: [] } }))
+  let created: ProjectCreation | undefined
+  const data: ProjectsSource = { ...source(projects), templates: async () => ({ entries, resolve: () => undefined,
+    document: async (entry) => documentFor(entry === entries[0] ? 'photos' : 'lines') }),
+    registerProject: async (id, name, creation) => { created = creation; return project(id, name, new Date(NOW).toISOString()) } }
+  render(() => <ProjectsView shell={{ ...shell(), view: () => ({ kind: 'projects', newProject: true }) }} source={data} />, document.body)
+  await settle()
+  const name = document.querySelector<HTMLInputElement>('#new-project-name')!
+  name.value = 'My template project'
+  name.dispatchEvent(new Event('input', { bubbles: true }))
+  document.querySelector<HTMLInputElement>('input[type="radio"][value="template"]')!.click()
+  expect(document.body.textContent).toContain('No template selected')
+  expect(button('Create')!.disabled).toBe(true)
+  button('Choose')!.click()
+  await settle()
+  const tile = (title: string) => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) => row.textContent?.includes(title))!
+  tile('lines starter').click()
+  button('Use template')!.click()
+  await settle()
+  expect(document.querySelector<HTMLInputElement>('#new-project-name')!.value).toBe('My template project')
+  expect(document.querySelector('[role="group"][aria-label="Template"]')?.textContent).toContain('lines starter')
+  expect(created).toBeUndefined()
+  document.querySelector<HTMLButtonElement>('[role="group"][aria-label="Template"] button')!.click()
+  await settle()
+  tile('photos starter').click()
+  const search = document.querySelector<HTMLInputElement>('input[type="search"]')!
+  search.value = 'photos'
+  search.dispatchEvent(new Event('input', { bubbles: true }))
+  search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await settle()
+  expect(search.value).toBe('photos')
+  expect(tile('photos starter')).toBe(document.activeElement)
+  tile('photos starter').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  await settle()
+  expect(search.value).toBe('')
+  expect(document.activeElement).toBe(search)
+  expect(document.querySelector('[data-testid="project-template-picker"]')).not.toBeNull()
+  document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  expect(document.querySelector('[role="group"][aria-label="Template"]')?.textContent).toContain('lines starter')
+  button('Create')!.click()
+  await settle()
+  expect(created?.startWith?.kind).toBe('workflow')
+  expect(created?.startWith).toMatchObject({ kind: 'workflow', name: 'lines starter' })
+  expect(JSON.parse((created!.startWith as { content: string }).content).lineage).toBe('lines')
+})
+
+it('revokes a pending template choice when the feature turns off without creating a project', async () => {
+  let enabled = true
+  let complete!: (document: WorkflowDocument | undefined) => void
+  const body = new Promise<WorkflowDocument | undefined>((resolve) => { complete = resolve })
+  let created = false
+  const entry: CollectionEntry = { id: 'demo/starter', title: 'Starter',
+    ref: { kind: 'local', pack: 'demo', id: 'starter', template: { pack: 'demo', id: 'starter', name: 'Starter', digest: 'sha256:starter' }, models: [] } }
+  const data: ProjectsSource = { ...source(projects), templates: async () => enabled ? { entries: [entry], resolve: () => undefined, document: () => body } : undefined,
+    registerProject: async (id, name) => { created = true; return project(id, name, new Date(NOW).toISOString()) } }
+  render(() => <ProjectsView shell={{ ...shell(), view: () => ({ kind: 'projects', newProject: true }) }} source={data} />, document.body)
+  await settle()
+  document.querySelector<HTMLInputElement>('input[type="radio"][value="template"]')!.click()
+  button('Choose')!.click()
+  await settle()
+  button('Use template')!.click()
+  button('Use template')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  expect(document.querySelector('[data-testid="project-template-picker"]')).not.toBeNull()
+  enabled = false
+  window.dispatchEvent(new Event('focus'))
+  await settle()
+  complete(loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'revoked', root: 'g0',
+    graphs: { g0: { id: 'g0', name: 'Root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
+    view: { graphs: { g0: { nodes: {} } } } }).document)
+  await settle()
+  expect(document.querySelector('[data-testid="project-template-picker"]')).toBeNull()
+  expect(document.querySelector('input[type="radio"][value="template"]')).toBeNull()
+  expect(document.body.textContent).not.toContain('Starter')
+  expect(created).toBe(false)
 })

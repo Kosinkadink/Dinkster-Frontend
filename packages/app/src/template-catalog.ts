@@ -1,5 +1,6 @@
 import { loadDocument, sha256Hex, type WorkflowDocument } from "@dinkster/core";
 import type { TemplateDescriptor } from "@dinkster/client";
+import { requestFetch, requestFailure, type FetchLike } from "@dinkster/client";
 
 const CACHE_VERSION = 1;
 const CACHE_PREFIX = "dinkster.template-catalog.v1:";
@@ -62,13 +63,15 @@ const descriptor = (value: unknown): RemoteTemplateDescriptor | undefined => {
 export class RemoteTemplateCatalog {
   readonly baseUrl: string;
   private readonly storage: Pick<Storage, "getItem" | "setItem"> | undefined;
+  private readonly fetchFn: FetchLike;
 
   constructor(
     baseUrl: string,
     storage?: Pick<Storage, "getItem" | "setItem">,
-    private readonly fetchFn: typeof fetch = (input, init) =>
+    fetchFn: FetchLike = (input, init) =>
       globalThis.fetch(input, init),
   ) {
+    this.fetchFn = requestFetch(fetchFn);
     this.baseUrl = baseUrl.trim().replace(/\/+$/, "");
     if (storage !== undefined) {
       this.storage = storage;
@@ -118,7 +121,7 @@ export class RemoteTemplateCatalog {
           `${this.baseUrl}/index/templates?${query}`,
         );
         if (!response.ok)
-          throw new Error(`GET /index/templates failed: ${response.status}`);
+          throw await requestFailure(response);
         const payload = (await response.json()) as {
           templates?: unknown;
           cursor?: unknown;
@@ -172,7 +175,7 @@ export class RemoteTemplateCatalog {
     );
     if (response.status === 404 || response.status === 410) return undefined;
     if (!response.ok)
-      throw new Error(`GET remote template failed: ${response.status}`);
+      throw await requestFailure(response);
     const text = await response.text();
     const digest = `sha256:${sha256Hex(new TextEncoder().encode(text))}`;
     if (digest !== template.digest)
