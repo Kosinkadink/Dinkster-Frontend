@@ -265,7 +265,7 @@ describe('ProblemsPanel browser interactions', () => {
     const button = [...root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Locate or replace')!
     expect(button).toBeDefined()
     button.click()
-    expect(diagnosticFocus.get()).toMatchObject({ anchor: missing.anchor, openAssetInput: 'image' })
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: missing.anchor, openFieldInput: 'image' })
     expect(workflow.graphs['g0']!.nodes['n2']!.values).toEqual({})
     unmount()
   })
@@ -287,7 +287,7 @@ describe('ProblemsPanel browser interactions', () => {
     expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
     const button = [...root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Locate or replace')!
     button.click()
-    expect(diagnosticFocus.get()).toMatchObject({ anchor: missing.anchor, openAssetInput: 'image' })
+    expect(diagnosticFocus.get()).toMatchObject({ anchor: missing.anchor, openFieldInput: 'image' })
     setEntries([missing])
     expect(root.querySelector<HTMLDetailsElement>('details.problem')!.open).toBe(true)
     expect(root.querySelector('.problems-group')!.getAttribute('data-severity')).toBe('warning')

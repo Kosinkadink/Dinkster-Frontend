@@ -37,7 +37,7 @@ export function createProblemsDisclosure(): ProblemsDisclosure {
   }
 }
 
-export function activateProblem(app: AppState, diagnostic: Diagnostic, openAssetInput?: string): void {
+export function activateProblem(app: AppState, diagnostic: Diagnostic, openFieldInput?: string): void {
   const target = diagnosticFocusTarget(app.tabs.get(), app.activeTabId.get(), diagnostic)
   if (!target || !diagnostic.anchor) return
   app.activeTabId.set(target.tab.id)
@@ -45,8 +45,8 @@ export function activateProblem(app: AppState, diagnostic: Diagnostic, openAsset
     tab: target.tab,
     anchor: diagnostic.anchor,
     diagnostic,
-    ...(openAssetInput === undefined ? {} : { openAssetInput }),
-    ...(openAssetInput !== undefined && typeof diagnostic.data?.['digest'] === 'string'
+    ...(openFieldInput === undefined ? {} : { openFieldInput }),
+    ...(openFieldInput !== undefined && typeof diagnostic.data?.['digest'] === 'string'
       ? { missingAssetDigest: diagnostic.data['digest'] } : {}),
     ...(diagnostic.anchor.occurrence === undefined ? { portInstancePath: target.plan.instancePath } : {}),
   })
@@ -356,6 +356,12 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                           <code>{diagnostic.code}</code>
                           <Show when={diagnostic.data}><pre>{JSON.stringify(diagnostic.data, null, 2)}</pre></Show>
                           <Show when={diagnostic.anchor !== undefined}>
+                            <Show when={diagnostic.code === 'secret.required.missing' && typeof diagnostic.data?.['input'] === 'string'}>
+                              <ProductButton type="button" variant="secondary" size="compact"
+                                onClick={() => activateProblem(props.app, diagnostic, diagnostic.data!['input'] as string)}>
+                                {message('problems.action.setSecret')}
+                              </ProductButton>
+                            </Show>
                             <Show when={diagnostic.code === 'model.availability.model-hidden' || diagnostic.code === 'model.availability.folder-disabled'}>
                               <ProductButton type="button" variant="secondary" size="compact" onClick={() => {
                                 const tab = diagnosticFocusTarget(props.app.tabs.get(), props.app.activeTabId.get(), diagnostic)?.tab

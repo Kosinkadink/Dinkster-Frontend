@@ -4,7 +4,7 @@ import type { ExecutionLogEntry } from '@dinkster/client'
 import type { NodeProblemKind, NodeProblemLine } from './problem-display.js'
 
 /** What a line in the node's box offers; none of them fetches anything by itself. */
-export type ProblemBoxAction = 'edit-field' | 'locate-asset' | 'review-model' | 'model-management' | 'model-storage' | 'show-log' | 'dismiss-run'
+export type ProblemBoxAction = 'set-secret' | 'edit-field' | 'locate-asset' | 'review-model' | 'model-management' | 'model-storage' | 'show-log' | 'dismiss-run'
 
 /** One line in a node's problem box: one cause, with its row's name and its actions. */
 export interface ProblemBoxLine {
@@ -99,7 +99,9 @@ export function problemBoxLines(
       const row = problem.row === undefined ? undefined : rows.find((candidate) => candidate.key === problem.row)
       const diagnostic = problem.diagnostic
       const nodeMessage = diagnostic.data?.['nodeMessage']
-      const actions: ProblemBoxAction[] = diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'
+      const actions: ProblemBoxAction[] = diagnostic.code === 'secret.required.missing'
+        ? ['set-secret']
+        : diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'
         ? [...(typeof diagnostic.data['kind'] === 'string' && diagnostic.data['kind'].startsWith('model/') ? ['review-model' as const] : []), 'locate-asset']
         : diagnostic.code.startsWith('model.availability.') && typeof diagnostic.data?.['input'] === 'string'
           ? [

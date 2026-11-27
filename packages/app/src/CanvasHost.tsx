@@ -5054,7 +5054,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           if (focusRequest?.focusRow !== undefined) {
             focusEditorRow({ nodeId: node.id, valueKey: focusRequest.focusRow }, { markOnly: true })
           }
-          const input = focusRequest?.openAssetInput
+          const input = focusRequest?.openFieldInput
           const row = input === undefined ? undefined : node.layout.rows.find((candidate) =>
             candidate.kind === 'widget' && candidate.valueKey === input)
           if (input !== undefined && hostFocused()) {
@@ -5062,7 +5062,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             queueMicrotask(() => {
               if (!canvasEl.isConnected || activeTab() !== tab || tab.store.doc !== snapshot || currentGraphId(tab) !== graphId ||
                   props.app.diagnosticFocus.get() !== undefined) return
-              if (row?.kind !== 'widget' || !isAssetWidgetInput({ widget: row.spec }) || tab.execution ||
+              if (row?.kind !== 'widget' || (!isAssetWidgetInput({ widget: row.spec }) && row.spec.widgetType !== 'SECRET') || tab.execution ||
                   (row.selector === undefined && companionInputs.get(node.id)?.has(row.address.port))) {
                 reportGestureRefusal(tab.id, [diag('warning', 'validation', 'asset.replacement.unavailable',
                   message('problems.assetReplacementUnavailable'))])
@@ -5159,12 +5159,27 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (elaborated?.diagnostics ?? [])
           .filter((d) => d.code === 'node.rule.failed')
           .map((d): Diagnostic => ({ ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) })))
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags, ...lastRunAutomatic]
+      const secretDiags = tab.execution ? [] : scene.nodes.flatMap((node) =>
+        (node.fieldRows ?? node.layout.rows).flatMap((row): Diagnostic[] => {
+          if (row.kind !== 'widget' || row.spec.widgetType !== 'SECRET' || row.optional === true) return []
+          const name = row.derivedValue ?? node.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
+          if (typeof name !== 'string' || secretFacts()[name] === true) return []
+          return [diag('error', 'validation', 'secret.required.missing', message('secretWidget.required', { name }), {
+            refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
+            anchor: { occurrence: { instancePath: (viewInstancePath(tab) ?? []).map(asNodeId), node: asNodeId(node.id) } },
+            data: { input: row.valueKey },
+          })]
+        }))
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags, ...secretDiags, ...lastRunAutomatic]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
     }
 
     createEffect(on(comparisonCompilesChanged, () => {
+      const tab = activeTab()
+      if (tab) untrack(() => refreshSceneDiagnostics(tab))
+    }, { defer: true }))
+    createEffect(on(secretFacts, () => {
       const tab = activeTab()
       if (tab) untrack(() => refreshSceneDiagnostics(tab))
     }, { defer: true }))
@@ -8215,7 +8230,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                           return next
                         })
                       }
-                    } else if (action === 'edit-field' && line.row !== undefined) {
+                    } else if ((action === 'edit-field' || action === 'set-secret') && line.row !== undefined) {
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, line.row)
                     } else if (action === 'locate-asset') {

@@ -1247,7 +1247,7 @@ export interface DiagnosticFocusRequest {
   readonly anchor: DiagnosticAnchor
   /** Mark this field without opening its editor. */
   readonly focusRow?: string
-  readonly openAssetInput?: string
+  readonly openFieldInput?: string
   readonly missingAssetDigest?: string
   /** The problem Show on canvas picked; the node's box opens on its line. */
   readonly diagnostic?: Diagnostic
@@ -4607,7 +4607,7 @@ export class AppState {
         entry.asset?.digest === requirement.asset?.digest)
     if (!occurrence) return
     this.activeTabId.set(tab.id)
-    this.diagnosticFocus.set({ tab, openAssetInput: occurrence.input,
+    this.diagnosticFocus.set({ tab, openFieldInput: occurrence.input,
       anchor: { occurrence: { instancePath: (occurrence.instancePath ?? []).map(asNodeId), node: asNodeId(occurrence.node) } },
     })
   }
