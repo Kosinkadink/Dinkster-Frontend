@@ -1350,6 +1350,14 @@ for (const theme of ['dark', 'light'] as const) {
             ])
         } else await expect(comparisons).toHaveCount(0)
         const section = page.getByRole('region', { name: label, exact: true })
+        if (id === 'problem-box') {
+          const messageBox = section.locator('figure').filter({
+            has: page.getByTestId('problem-box-run-message'),
+          })
+          const text = await messageBox.locator('.problem-box-text').boundingBox()
+          const actions = await messageBox.locator('.problem-box-actions').boundingBox()
+          expect(actions!.y).toBe(text!.y)
+        }
         await expect(section).toHaveScreenshot(
           `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}-${theme}.png`,
         )
