@@ -90,6 +90,7 @@ beforeEach(() => {
 
 afterEach(() => {
   app.dispose()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -116,14 +117,22 @@ async function twoBackends(): Promise<{
 describe('owned collection pages', () => {
   it.each([['workflow', workflowsSource], ['board', boardsSource]] as const)('%s continuation cursors are refused against another backend', async (kind, source) => {
     const { a, b, tab } = (await twoBackends())
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 27, 12, 0, 0))
     const listA = vi
       .spyOn(a.connection, 'listLibrary')
-      .mockResolvedValue({ records: [record()], cursor: 'pageA2' })
+      .mockResolvedValue({ records: [
+        record({ modified: new Date(2026, 10, 27, 4, 0, 47).getTime() / 1000, labels: [WORKFLOW_LABEL, 'review'] }),
+        record({ id: 'yesterday', modified: new Date(2026, 10, 26, 23, 59, 43).getTime() / 1000 }),
+      ], cursor: 'pageA2' })
     const src = source(app)
 
     const page = await src.page({ query: '', limit: 24 })
     expect(page.items[0]!.owner).toBe(a.id)
-    expect(page.items[0]!.subtitle).toMatch(/^Modified /)
+    expect(page.items.map((entry) => entry.subtitle)).toEqual(['Modified today, 4:00 AM', 'Modified 11/26/2026'])
+    expect(page.items[0]!.badges).toContain('review')
+    expect(page.items[0]!.badges).not.toContain('rev 1')
+    expect(page.items[0]!.details).toContainEqual({ label: 'revision', text: '1' })
     expect(page.items[0]!.details).toContainEqual({ label: `${kind} id`, text: 'r1' })
     expect(page.items[0]!.details).toContainEqual({ label: 'backend', text: 'A' })
     expect(page.cursor).toBeDefined()
