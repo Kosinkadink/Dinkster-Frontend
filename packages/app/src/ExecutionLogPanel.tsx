@@ -321,7 +321,7 @@ export function ExecutionLogPanel(props: ExecutionLogPanelProps) {
                     <LogTimestamp class="execution-log-time" timestamp={row.timestamp} />
                     <span class="execution-log-level">{locale().tag && message(`executionLog.level.${row.level}`)}</span>
                     {nodeButton(row)}
-                    <span class="execution-log-message">
+                    <div class="execution-log-message">
                       <Show when={row.origin !== undefined}><span class="execution-log-origin">{row.origin}</span></Show>{row.message}
                       <Show when={row.runtime}>{(runtime) => <>
                         <Show when={runtime().hints?.length}><RuntimeErrorHints hints={runtime().hints!} /></Show>
@@ -330,7 +330,7 @@ export function ExecutionLogPanel(props: ExecutionLogPanelProps) {
                           <pre class="traceback">{JSON.stringify(runtime().currentInputs, null, 2)}</pre>
                         </Show>
                       </>}</Show>
-                    </span>
+                    </div>
                   </>}
                 />
               )}

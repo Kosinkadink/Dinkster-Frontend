@@ -287,6 +287,21 @@ test('bottom badges expose the run error report and log records per node', async
   await expect(box).toHaveAttribute('data-kind', 'info')
   await expect(box.getByTestId('problem-box-line')).toContainText('loading checkpoint shards')
 
+  // Different tabs on the same node switch the box in a single click.
+  await page.mouse.click(errorPoint.x, errorPoint.y)
+  await expect(box).toHaveAttribute('data-kind', 'error')
+  const sameNodeInfoPoint = await page.evaluate((nodeId) => {
+    const r = window.__dinksterTest!.renderer!
+    const vp = r.getViewport()
+    const node = r.getScene().nodes.find((entry) => entry.id === nodeId)!
+    const tab = r.getNodeBadgeLayout(node).find((entry) => entry.badge.id === 'core.log.info')!
+    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    return { x: rect.left + (tab.x + 8) * vp.scale + vp.x, y: rect.top + (tab.y + tab.height / 2) * vp.scale + vp.y }
+  }, seed.lastNode)
+  await page.mouse.click(sameNodeInfoPoint.x, sameNodeInfoPoint.y)
+  await expect(box).toBeVisible()
+  await expect(box).toHaveAttribute('data-kind', 'info')
+
   // Dismissing the error badge hides it; the error report is untouched.
   await page.mouse.click(errorPoint.x, errorPoint.y)
   await expect(box).toHaveAttribute('data-kind', 'error')

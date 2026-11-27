@@ -874,7 +874,7 @@ export function deriveSceneOverlays(args: {
   for (const node of scene.nodes) {
     if (lastRunNodes.has(node.id) || args.dismissedErrorNodes?.has(node.id)) continue
     const errors = (runErrorsByNode.get(node.id) ?? []).filter((diagnostic) => diagnostic.anchor?.occurrence?.node === node.id)
-    if (!errors.some((diagnostic) => diagnostic.anchor?.port !== undefined || typeof diagnostic.data?.['inputId'] === 'string' || /^(?:execution: )?input ['"]/u.test(diagnostic.runtime?.exceptionMessage ?? diagnostic.message))) continue
+    if (errors.length === 0) continue
     for (const line of runtimeProblemBoxLines(errors, [], 'error', problemBoxRows(node))) {
       if (line.row !== undefined) (runtimeRows[node.id] ??= {})[line.row] = 'error'
     }

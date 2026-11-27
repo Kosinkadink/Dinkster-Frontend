@@ -2150,7 +2150,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [problemBoxTick, setProblemBoxTick] = createSolidSignal(0)
   let problemBoxElement: HTMLDivElement | undefined
   /** The box a pointer press outside closed, so the same press on its tab does not reopen it. */
-  let problemBoxPointerClose: { readonly nodeId: string; readonly at: number } | undefined
+  let problemBoxPointerClose: { readonly nodeId: string; readonly runLevel?: 'error' | 'warning' | 'info'; readonly at: number } | undefined
   let problemBoxHost: {
     readonly place: (nodeId: string) => ReturnType<typeof problemBoxPlacement>
     readonly lines: (nodeId: string, runLevel?: 'error' | 'warning' | 'info') => readonly ProblemBoxLine[]
@@ -2187,7 +2187,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const onPointer = (event: PointerEvent): void => {
       const open = problemBox()
       if (open === undefined || (problemBoxElement?.contains(event.target as Node | null) ?? false)) return
-      problemBoxPointerClose = { nodeId: open.nodeId, at: performance.now() }
+      problemBoxPointerClose = { nodeId: open.nodeId, ...(open.runLevel === undefined ? {} : { runLevel: open.runLevel }), at: performance.now() }
       closeProblemBox()
     }
     window.addEventListener('keydown', onKey)
@@ -3502,6 +3502,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           // Either problem tab opens the node's one box; a second click on
           // it, which the press outside the box already closed, leaves it closed.
           const closedByThisPress = problemBoxPointerClose?.nodeId === node.id &&
+            problemBoxPointerClose.runLevel === runLevel &&
             performance.now() - problemBoxPointerClose.at < 1000
           problemBoxPointerClose = undefined
           if ((problemBox()?.nodeId === node.id && problemBox()?.runLevel === runLevel) || closedByThisPress) closeProblemBox()
