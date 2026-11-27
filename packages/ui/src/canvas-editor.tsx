@@ -107,11 +107,13 @@ export type CanvasFileCopyState = {
 } | {
   readonly phase: 'waiting'
   readonly label: string
+  readonly shortLabel: string
   readonly stopLabel: string
   readonly onStop: () => void
 } | {
   readonly phase: 'checking'
   readonly label: string
+  readonly shortLabel: string
 }
 
 /** Copying and waiting can be stopped; checking waits for the engine's canonical answer. */
@@ -120,6 +122,8 @@ export function CanvasFileCopy(props: { state: CanvasFileCopyState }) {
   const copying = () => props.state.phase === 'copying' ? props.state : undefined
   const description = () => copying()?.description ?? props.state.label
   const [hideDestination, setHideDestination] = createSignal(false)
+  const [useShortLabel, setUseShortLabel] = createSignal(false)
+  const shortLabel = () => props.state.phase !== 'copying' && useShortLabel() ? props.state.shortLabel : undefined
   let heading!: HTMLDivElement
   let prefix!: HTMLSpanElement
   let amount!: HTMLSpanElement
@@ -129,6 +133,7 @@ export function CanvasFileCopy(props: { state: CanvasFileCopyState }) {
       const mount = heading.querySelector<HTMLElement>('.dinkster-canvas-file-copy-mount')
       const mountSpace = mount === null ? 0 : Number.parseFloat(getComputedStyle(mount).minWidth) + Number.parseFloat(getComputedStyle(mount).marginLeft)
       setHideDestination(amount.offsetWidth > 0 && prefix.offsetWidth + mountSpace + amount.offsetWidth + gap > heading.clientWidth)
+      setUseShortLabel(prefix.offsetWidth > heading.clientWidth)
     })
     for (const element of [heading, prefix, amount]) observer.observe(element)
     onCleanup(() => observer.disconnect())
@@ -136,7 +141,8 @@ export function CanvasFileCopy(props: { state: CanvasFileCopyState }) {
   return <div class="dinkster-canvas-file-copy" data-phase={props.state.phase} role="status">
     <div class="dinkster-canvas-file-copy-heading" ref={heading} title={description()}>
       <span class="dinkster-canvas-file-copy-label" data-hidden={hideDestination() ? 'true' : undefined}>
-        <span class="dinkster-canvas-file-copy-prefix" ref={prefix}>{props.state.label}</span>
+        <span class="dinkster-canvas-file-copy-prefix" data-measuring={shortLabel() !== undefined ? 'true' : undefined} ref={prefix}>{props.state.label}</span>
+        <Show when={shortLabel()}>{(label) => <span>{label()}</span>}</Show>
         <Show when={copying()?.mount}>{(mount) => <span class="dinkster-canvas-file-copy-mount">{mount()}</span>}</Show>
       </span>
       <span class="dinkster-canvas-file-copy-amount" ref={amount}>{copying()?.amount}</span>

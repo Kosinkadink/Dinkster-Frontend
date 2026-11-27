@@ -7519,9 +7519,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
         const copyState = () => {
           const state = item()!.state
-          if (state.phase === 'checking') return { phase: 'checking' as const, label: message('assets.import.checking') }
+          if (state.phase === 'checking') return { phase: 'checking' as const,
+            label: message('assets.import.checking'), shortLabel: message('assets.import.checkingShort') }
           const stop = { stopLabel: message('assets.import.stop'), onStop: () => assetFieldImports.stop(state.editor) }
-          if (state.phase === 'waiting') return { phase: 'waiting' as const, label: message('assets.import.waiting'), ...stop }
+          if (state.phase === 'waiting') return { phase: 'waiting' as const,
+            label: message('assets.import.waiting'), shortLabel: message('assets.import.waitingShort'), ...stop }
           const amount = state.phase === 'copying' && state.total !== null && state.total > 0
             ? { received: state.received, total: state.total } : undefined
           return {

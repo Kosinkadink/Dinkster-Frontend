@@ -164,9 +164,9 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
         element.style.width = `${row().width}px`
       }}>
         <CanvasFileCopy state={props.example.copy === 'checking'
-          ? { phase: 'checking', label: 'Checking the file' }
+          ? { phase: 'checking', label: 'Checking the file', shortLabel: 'Checking' }
           : props.example.copy === 'waiting'
-          ? { phase: 'waiting', label: 'Waiting for another file', stopLabel: 'Stop', onStop: () => setStopped(true) }
+          ? { phase: 'waiting', label: 'Waiting for another file', shortLabel: 'Waiting', stopLabel: 'Stop', onStop: () => setStopped(true) }
           : { phase: 'copying', label: 'Copying to', mount: 'input', amount: `${formatSize(210 * 1048576)} of ${formatSize(512 * 1048576)}`,
               description: `Copying to input, ${formatSize(210 * 1048576)} of ${formatSize(512 * 1048576)}`, value: 210 / 512,
               stopLabel: 'Stop', onStop: () => setStopped(true) }} />

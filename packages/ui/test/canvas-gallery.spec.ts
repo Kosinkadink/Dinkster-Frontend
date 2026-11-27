@@ -59,8 +59,12 @@ test('copy amounts and Stop stay readable without widening the node', async ({ p
     const before = (await canvas.boundingBox())!
     const status = (await card.getByRole('status').boundingBox())!
     expect(status.height).toBe(copyHeight)
-    const label = card.getByText(title.startsWith('Waiting') ? 'Waiting for another file' : 'Checking the file', { exact: true })
+    const fullLabel = title.startsWith('Waiting') ? 'Waiting for another file' : 'Checking the file'
+    const label = card.getByText(title === 'Waiting in a narrow node' ? 'Waiting' : fullLabel, { exact: true }).filter({ visible: true })
+    await expect(label).toBeVisible()
     const labelBox = (await label.boundingBox())!
+    expect(labelBox.x + labelBox.width).toBeLessThanOrEqual(status.x + status.width)
+    await expect(card.getByRole('progressbar')).toHaveAccessibleName(fullLabel)
     const progress = (await card.getByRole('progressbar').boundingBox())!
     expect(progress.y).toBeGreaterThanOrEqual(labelBox.y + labelBox.height)
     const stop = card.getByRole('button', { name: 'Stop', exact: true })
