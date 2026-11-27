@@ -75,7 +75,7 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasRowAbsence, CanvasSeedModeIcon, CanvasSidePart } from '@dinkster/ui'
 import {
   defaultValuesOf,
   hasKnownLinkDropAnchorType,
@@ -146,7 +146,7 @@ import {
   type WorkflowDocument,
   widgetRepresentationChoices,
 } from '@dinkster/core'
-import { Check, CheckCircle2, Dice5, FileUp, LoaderCircle, Lock, Minus, Plus, Snowflake, TriangleAlert, X } from 'lucide-solid'
+import { Check, CheckCircle2, FileUp, LoaderCircle, Snowflake, TriangleAlert, X } from 'lucide-solid'
 import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
 import { runClock } from './execution-activity.js'
 import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
@@ -7902,16 +7902,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             >
               <div class="seed-controller-title">After {menu().trigger === 'after_refresh' ? 'refresh' : 'generate'}</div>
               <For each={[
-                { mode: 'fixed' as const, label: 'Fixed', description: menu().trigger === 'after_refresh' ? 'Keep this value after refresh.' : 'Keep this value after a successful run.', icon: Lock },
-                { mode: 'increment' as const, label: 'Increment', description: menu().trigger === 'after_refresh' ? 'Choose the next option after refresh.' : 'Add the widget step after a successful run.', icon: Plus },
-                { mode: 'decrement' as const, label: 'Decrement', description: menu().trigger === 'after_refresh' ? 'Choose the previous option after refresh.' : 'Subtract the widget step after a successful run.', icon: Minus },
+                { mode: 'fixed' as const, label: 'Fixed', description: menu().trigger === 'after_refresh' ? 'Keep this value after refresh.' : 'Keep this value after a successful run.' },
+                { mode: 'increment' as const, label: menu().trigger === 'after_refresh' ? 'Next' : 'Increment', description: menu().trigger === 'after_refresh' ? 'Choose the next option after refresh.' : 'Add the widget step after a successful run.' },
+                { mode: 'decrement' as const, label: menu().trigger === 'after_refresh' ? 'Previous' : 'Decrement', description: menu().trigger === 'after_refresh' ? 'Choose the previous option after refresh.' : 'Subtract the widget step after a successful run.' },
                 {
                   mode: 'randomize' as const,
                   label: menu().trigger === 'after_refresh' ? 'Randomize after refresh' : 'Randomize after run',
                   description: menu().trigger === 'after_refresh'
                     ? 'After each refresh, choose a random option; selecting this mode does not change the current value.'
                     : 'After each successful run, choose a new seed within bounds; selecting this mode does not change the current value.',
-                  icon: Dice5,
                 },
               ]}>
                 {(option) => (
@@ -7924,7 +7923,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                     disabled={pendingController() === menu().lifetime}
                     onClick={() => { void commitControllerMode(menu(), option.mode) }}
                   >
-                    <Icon icon={option.icon} />
+                    <CanvasSeedModeIcon mode={option.mode} trigger={menu().trigger} />
                     <span><strong>{option.label}</strong><small>{option.description}</small></span>
                     <Show when={menu().mode === option.mode}><Icon icon={Check} /></Show>
                   </ProductButton>

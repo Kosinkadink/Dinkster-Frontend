@@ -4969,7 +4969,7 @@ export class CanvasRenderer {
       ctx.strokeStyle = t.colors.selection
       ctx.strokeRect(x, y, chip.width, chip.height)
       const icon = chip.width * canvasPaintTokens.controller.chipIconRatio
-      paintSeedControllerIcon(ctx, row.controllerMode, x + (chip.width - icon) / 2, y + (chip.height - icon) / 2, icon, t.colors.label)
+      paintSeedControllerIcon(ctx, row.controllerMode, x + (chip.width - icon) / 2, y + (chip.height - icon) / 2, icon, t.colors.label, row.spec.controller)
       ctx.globalAlpha = chipAlpha
     }
     const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
