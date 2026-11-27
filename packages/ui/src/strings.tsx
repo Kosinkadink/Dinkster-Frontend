@@ -37,6 +37,8 @@ export const defaultProductStrings = {
   secretSave: 'Save secret',
   secretSaving: 'Saving...',
   secretSaveFailed: 'Could not save this secret.',
+  byteSizeInvalid: 'Enter a size in B, KB, MB, GB or TB.',
+  byteSizeMinimum: 'Enter a size of at least {size}.',
   loading: 'Loading',
   tryAgain: 'Try again',
   version: 'Version',

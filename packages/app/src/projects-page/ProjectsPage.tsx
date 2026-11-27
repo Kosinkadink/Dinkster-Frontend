@@ -8,7 +8,7 @@
 import { createEffect, createMemo, createSignal, createUniqueId, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 import { AudioLines, BookOpen, Database, Ellipsis, Eye, EyeOff, File, Image as ImageIcon, LayoutGrid, Search, Server, Workflow } from 'lucide-solid'
-import { activeLocale, asConnectionId, loadDocument, type SchemaResolver, type WorkflowDocument } from '@dinkster/core'
+import { activeLocale, asConnectionId, formatByteSize, loadDocument, type SchemaResolver, type WorkflowDocument } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import {
   buildDinksterRegistry,
@@ -61,7 +61,7 @@ import { useSignal } from '../solid-adapter.js'
 import { DEFAULT_PROJECT_ID } from '../projects.js'
 import '@dinkster/ui/styles.css'
 import './projects-page.css'
-import { byProjectTime, formatBytes, formatWhen, projectTime } from './project-facts.js'
+import { byProjectTime, formatWhen, projectTime } from './project-facts.js'
 import { WorkflowPicture } from './workflow-picture.js'
 import { EngineLogDialog } from '../EngineRunControl.js'
 
@@ -728,7 +728,7 @@ export function ProjectsView(props: {
                 {
                   label: message('projects.facts.size'),
                   value: <ProductPageAnswer page={projectDetail}>
-                    {formatBytes(usage()!.bytes, locale().tag)}
+                    {formatByteSize(usage()!.bytes)}
                     <span class="dinkster-project-fact-detail">{' - '}{message('projects.facts.outputs', { count: usage()!.outputs })}</span>
                   </ProductPageAnswer>,
                 },
