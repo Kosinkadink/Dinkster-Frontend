@@ -12,6 +12,7 @@ import { ProductEmptyState } from './ProductSurfaces.js'
 import { SearchInput } from './SearchSurface.js'
 import { useSignal } from './solid-adapter.js'
 import { CollectionImage } from './CollectionImage.js'
+import { failureMessage } from './request-failure.js'
 
 interface TemplateFamily {
   readonly id: string
@@ -58,9 +59,7 @@ export function TemplateGallery(props: {
     }).catch((reason: unknown) => {
       if (generation !== request) return
       setEntries([])
-      setError(message('templateGallery.error', {
-        error: reason instanceof Error ? reason.message : String(reason),
-      }))
+      setError(failureMessage(reason, message('templateGallery.error')))
       setLoading(false)
     })
   })

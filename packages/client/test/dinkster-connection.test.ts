@@ -28,6 +28,7 @@ import {
 } from '@dinkster/core'
 import { buildDinksterRegistry, DinksterConnection, ExecutionStore, IMAGE_DOCUMENT_MEDIA_TYPE, hydrateDinksterCompletedExecution, PackInstallError, promptToDinksterGraph, reconcileDinksterExecutions, targetsForArtifact, type FetchLike, type WebSocketLike } from '../src/index.js'
 import { uuidv4 } from '../src/dinkster-connection.js'
+import { requestFailureReason, subscribeRequestFailures } from '../src/request-failure.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
@@ -411,7 +412,7 @@ describe('model provider credentials', () => {
     await connection.cancelModelProviderSignIn('owned / flow')
     expect(calls.at(-1)?.method).toBe('DELETE')
     status = 409; payload = { error: 'private-canary' }
-    await expect(connection.saveModelProviderToken('private-canary')).rejects.toThrow('Hugging Face request failed: 409')
+    await expect(connection.saveModelProviderToken('private-canary')).rejects.toMatchObject({ status: 409, serverMessage: undefined })
     status = 200; payload = { method: 'pkce', flowId: 'bad', authorizationUrl: 'https://example.com/oauth/authorize' }
     await expect(connection.startModelProviderSignIn('pkce')).rejects.toThrow('Invalid provider URL')
   })
@@ -967,7 +968,7 @@ describe('pack settings transport', () => {
   it('surfaces read status and backend mutation errors', async () => {
     const replies = [jsonResponse(503, {}), jsonResponse(400, { error: 'quality must be at most 5' })]
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => replies.shift()! })
-    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings request failed: 503')
+    await expect(connection.fetchPackSettings('pack')).rejects.toMatchObject({ status: 503 })
     await expect(connection.updatePackSettings('pack', { enabled: true, quality: 9 })).rejects.toThrow('quality must be at most 5')
   })
 })
@@ -3733,6 +3734,38 @@ describe('workflow library wire', () => {
   it('CL1 fetchTemplateBody treats a 200 body that fails to load as a protocol error, not absence', async () => {
     const { conn } = submitHarness(() => jsonResponse(200, {}))
     await expect(conn.fetchTemplateBody('p', 't')).rejects.toThrow('malformed response')
+  })
+
+  it('keeps request details in the Log while presenting a plain reason', async () => {
+    const details: string[] = []
+    const unsubscribe = subscribeRequestFailures((failure) => details.push(failure.message))
+    try {
+      for (const [status, body, expected] of [
+        [503, {}, 'The engine reported an error.'],
+        [500, { message: 'The library is being repaired.' }, 'The library is being repaired.'],
+        [401, {}, 'You do not have access.'],
+        [403, {}, 'You do not have access.'],
+        [404, {}, undefined],
+        [499, {}, undefined],
+        [599, {}, 'The engine reported an error.'],
+      ] as const) {
+        const { conn } = submitHarness(() => jsonResponse(status, body))
+        for (const read of [() => conn.listTemplates({}), () => conn.listDocs({}), () => conn.listHistory({ scope: 'local' })]) {
+          const error = await read().catch((failure: unknown) => failure)
+          expect(requestFailureReason(error)).toBe(expected)
+        }
+      }
+      for (const cause of [new TypeError('Failed to fetch'), new DOMException('Timed out', 'TimeoutError')]) {
+        const { conn } = submitHarness(() => { throw cause })
+        const error = await conn.listDocs({}).catch((failure: unknown) => failure)
+        expect(requestFailureReason(error)).toBe('The engine did not answer.')
+      }
+      expect(details).toContain('GET /api/templates failed: 503')
+      expect(details).toContain('GET /api/docs failed: 503')
+      expect(details).toContain('GET /api/history failed: 503')
+      expect(details).toContain('GET /api/docs failed: no answer')
+      expect(requestFailureReason(new Error('GET /private failed: 503'))).toBeUndefined()
+    } finally { unsubscribe() }
   })
 
   it('listDocs decodes the frozen grouped-locale fixture and sends every paging filter', async () => {

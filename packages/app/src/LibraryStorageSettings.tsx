@@ -4,6 +4,7 @@ import { ProductButton, ProductCheckbox } from './ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from './ProductForm.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 
 export function LibraryStorageSettings(props: {
   readonly connection: Pick<DinksterConnection, 'fetchLibraryStorage' | 'updateLibraryStorageLimit' | 'clearLibraryStorage'>
@@ -33,7 +34,7 @@ export function LibraryStorageSettings(props: {
     } catch (cause) {
       if (current) {
         setStatus(undefined)
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setError(failureMessage(cause))
       }
     } finally {
       if (current) setBusy(false)
@@ -49,7 +50,7 @@ export function LibraryStorageSettings(props: {
       if (!current) return
       setStatus(undefined)
     } catch (cause) {
-      if (current) setError(cause instanceof Error ? cause.message : String(cause))
+      if (current) setError(failureMessage(cause))
       return
     } finally {
       if (current) setBusy(false)
@@ -70,7 +71,7 @@ export function LibraryStorageSettings(props: {
         ...previous, collectionEnabled: next.collectionEnabled, blocked: next.blocked, reclaimableBytes: null,
       })
     } catch (cause) {
-      if (current) setError(cause instanceof Error ? cause.message : String(cause))
+      if (current) setError(failureMessage(cause))
     } finally {
       if (current) {
         setClearing(false)
