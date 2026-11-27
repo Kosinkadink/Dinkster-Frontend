@@ -594,6 +594,8 @@ export interface InputSpec extends PortSpecBase {
   readonly forceInput?: boolean
   /** A field with no input pin (declared `pin=False`); values and output taps are unchanged. */
   readonly socketless?: boolean
+  /** The stored string names a host credential; it never contains its value. */
+  readonly secret?: true
   /**
    * Declared `sent=False`: stored and edited like any field, but never sent
    * to the run and outside both signatures. Always socketless.

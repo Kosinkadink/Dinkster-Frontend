@@ -1617,7 +1617,7 @@ const COMMON_FIELDS = ['label', 'tooltip', 'visible'] as const
 const INPUT_FIELDS = [
   'kind', 'id', 'type', 'required', 'default', 'onAbsent', 'widget', 'tooltip', 'label', 'pinFirst', 'pin',
   'afterRun', 'onEdit', 'hidden', 'lazy', 'acceptsStorage', 'acceptsStream', 'acceptsList', 'sourceFilename',
-  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible', 'automatic', 'sent', 'readOnly', 'disabled', 'disabledReason',
+  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible', 'automatic', 'sent', 'readOnly', 'disabled', 'disabledReason', 'secret',
 ]
 
 /** A port's label, literal or worked out by formula, and whether it shows. */
@@ -1671,7 +1671,23 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
     diags,
     wireType(entry['type'], `${where}.type`),
   )
-  let widget = decoded.widget
+  const secret = wireBoolean(entry['secret'], `${where}.secret`, false)
+  if (secret) {
+    if (decoded.type.kind !== 'concrete' || decoded.type.name !== 'STRING' || pin || !sent || lazy
+      || entry['widget'] !== undefined || entry['acceptsList'] === true || automatic !== undefined
+      || onEdit.length > 0 || afterRun !== undefined) {
+      throw new Error(`${where}: a secret requires an unwireable STRING name without a widget, formula, steps or lazy/list behavior`)
+    }
+    if (entry['default'] !== undefined && entry['default'] !== null
+      && (typeof entry['default'] !== 'string' || entry['default'].length > 128
+        || !/^[A-Za-z_]/.test(entry['default']) || /[^A-Za-z0-9_.-]/.test(entry['default']))) {
+      throw new Error(`${where}: secret default must be a credential name`)
+    }
+  }
+  // Secret names have their own editor, never the implicit STRING field.
+  let widget: WidgetSpec | undefined = secret
+    ? { widgetType: 'SECRET', options: {}, ...(entry['default'] !== undefined && entry['default'] !== null ? { default: entry['default'] } : {}) }
+    : decoded.widget
   if (afterRun !== undefined) {
     // As the engine checks it: every field the row can show is a number or
     // list field, or the row has no field and a number or list type.
@@ -1690,6 +1706,7 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
     ...wirePortCommon(entry, where),
     ...(widget !== undefined ? { widget } : {}),
     ...(pinFirst ? { forceInput: true } : {}),
+    ...(secret ? { secret: true } : {}),
     ...(!pin ? { socketless: true } : {}),
     ...(!sent ? { sent: false as const } : {}),
     ...(hidden ? { hidden: true } : {}),
