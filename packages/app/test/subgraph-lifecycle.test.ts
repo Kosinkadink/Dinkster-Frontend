@@ -5,6 +5,7 @@ import { buildParamRows } from '../src/app-view-rows.js'
 import { activateProblem } from '../src/ProblemsPanel.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection } from '../src/subgraph-lifecycle.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { boundarySample, resolveBoundarySample } from '../../core/test/fixtures/boundary-sample.js'
 
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
@@ -911,6 +912,147 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       expect(runOf(reopened, resolve)).toEqual(runOf(flattened, resolve))
       check(reopened, { [`second${suffix}.sample`]: [13, 7], [`second${suffix}.other`]: [11, 17],
         ...(mode === 'active' ? { [depth === 1 ? primary.id : `${primary.id}.sample`]: [21, 4], [secondary]: [11, 17] } : {}) })
+    }
+  })
+
+  it.each([1, 2] as const)('keeps four shared fields independent through fan-out, App View and separate lifecycle changes at depth %s', async (depth) => {
+    const fields = ['strength', 'radius', 'feather', 'balance']
+    const fixture = boundarySample(depth)
+    const leaf = fixture.graphs.detail!.nodes.sample!
+    const doc = { ...fixture, graphs: { ...fixture.graphs, detail: { ...fixture.graphs.detail!, nodes: {
+      ...fixture.graphs.detail!.nodes, other: { ...structuredClone(leaf), id: 'other' as never, values: {
+        ...leaf.values, count: 4, strength: 0.11, radius: 0.12, feather: 0.13, balance: 0.14,
+      } },
+    } } } } as WorkflowDocument
+    const store = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveBoundarySample),
+    }))
+    for (const [id, numbers] of [['first', [0.2, 0.17, 0.37, 0.57]], ['second', [0.8, 0.81, 0.61, 0.41]]] as const) {
+      expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: id,
+        values: Object.fromEntries(fields.map((field, index) => [field, numbers[index]!])) } }).ok).toBe(true)
+    }
+    const graphId = depth === 1 ? 'detail' : 'portrait'
+    const body = store.doc.graphs[graphId]!.boundary!.body
+    expect(store.dispatch({ command: 'boundary.arrange', params: { graphId, body: [
+      ...body.filter((row) => !('id' in row && fields.includes(row.id))).map((row) => ({ kind: row.kind, id: (row as { id: string }).id })),
+      { kind: 'line', rows: fields.map((id) => ({ kind: 'input', id })) },
+    ] } }).ok).toBe(true)
+    expect(store.dispatch({ command: 'link.connect', params: { graphId: 'root', from: { node: 'first', port: 'output91' },
+      to: { node: 'sink', port: 'number' } } }).ok).toBe(true)
+    const initial = store.doc
+    for (const field of fields) expect(store.dispatch({ command: 'boundary.addBinding', params: {
+      graphId: 'detail', itemId: field, node: 'other', port: field,
+    } }).ok).toBe(true)
+    const joined = store.doc
+    const suffix = depth === 1 ? '' : '.detail'
+    const promptOf = (current: WorkflowDocument) => {
+      const result = compile({ document: current, revision: 1, resolve: resolveBoundarySample, scope: { kind: 'full' },
+        connection: asConnectionId('shared-lifecycle'), schemaHash: 'shared-lifecycle' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) throw new Error('shared-line lifecycle did not compile')
+      return result.artifact.prompt
+    }
+    const check = (current: WorkflowDocument, first = [0.2, 0.17, 0.37, 0.57]) => {
+      const prompt = promptOf(current)
+      for (const [id, numbers] of [['first', first], ['second', [0.8, 0.81, 0.61, 0.41]]] as const) for (const target of ['sample', 'other']) {
+        expect(fields.map((field) => prompt[`${id}${suffix}.${target}`]!.inputs[field])).toEqual(numbers)
+      }
+      expect(prompt.sink!.inputs.number).toEqual([`first${suffix}.sample`, 6])
+      const exposed = { ...current, ext: { ...current.ext, 'dinkster.exposed': ['first', 'second'].flatMap((nodeId) => fields.map((inputId) => ({ graphId: 'root', nodeId, inputId }))) } }
+      const rows = buildParamRows(exposed, resolveBoundarySample)
+      expect(rows.map((row) => row.kind === 'live' ? [row.entry, row.valueKey, row.value, row.linked, row.derived] : row.reason))
+        .toEqual(['first', 'second'].flatMap((nodeId) => fields.map((inputId, index) => [{ graphId: 'root', nodeId, inputId }, inputId,
+          (nodeId === 'first' ? first : [0.8, 0.81, 0.61, 0.41])[index], false, false])))
+      expect(current.graphs.root!.nodes.second).toEqual(initial.graphs.root!.nodes.second)
+    }
+    check(joined)
+    expect(store.dispatch({ command: 'boundary.addBinding', params: { graphId: 'detail', itemId: 'strength', node: 'other', port: 'mask' } }).ok).toBe(false)
+    expect(store.doc).toBe(joined)
+    expect(store.undo()).toBe(true)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(joined)
+    expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: 'feather', value: 0.93 } }).ok).toBe(true)
+    const edited = store.doc
+    check(edited, [0.2, 0.17, 0.93, 0.57])
+    check(loadDocument(JSON.parse(JSON.stringify(edited))).document!, [0.2, 0.17, 0.93, 0.57])
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(joined)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(edited)
+    expect(edited.graphs.detail).toEqual(joined.graphs.detail)
+    expect(edited.graphs.portrait).toEqual(joined.graphs.portrait)
+    const detached = new DocumentStore(joined, coreCommandRegistry(), 200, undefined, () => ({
+      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveBoundarySample),
+    }))
+    expect(detached.dispatch({ command: 'occurrence.localize', params: { graphId: 'root', nodeId: 'first' } }).ok).toBe(true)
+    const localized = detached.doc
+    expect(detached.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: 'feather', value: 0.93 } }).ok).toBe(true)
+    check(detached.doc, [0.2, 0.17, 0.93, 0.57])
+    check(loadDocument(JSON.parse(JSON.stringify(detached.doc))).document!, [0.2, 0.17, 0.93, 0.57])
+    expect(detached.doc.graphs.detail).toEqual(joined.graphs.detail)
+    expect(detached.doc.graphs.portrait).toEqual(joined.graphs.portrait)
+    expect(detached.undo()).toBe(true)
+    expect(detached.doc).toEqual(localized)
+    expect(detached.undo()).toBe(true)
+    expect(detached.doc).toEqual(joined)
+    expect(detached.redo()).toBe(true)
+    expect(detached.redo()).toBe(true)
+    check(detached.doc, [0.2, 0.17, 0.93, 0.57])
+    const beforePrivateEdit = detached.doc
+    const privateGraph = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+    expect(detached.dispatch({ command: 'node.setValues', params: { graphId: privateGraph, nodeId: depth === 1 ? 'sample' : 'detail',
+      values: { strength: 0.21, radius: 0.22, feather: 0.23, balance: 0.24 } } }).ok).toBe(true)
+    const privateEdited = detached.doc
+    check(privateEdited, [0.2, 0.17, 0.93, 0.57])
+    expect(detached.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: 'first', values: {}, unset: fields } }).ok).toBe(true)
+    const privateFallback = detached.doc
+    for (const current of [privateFallback, loadDocument(JSON.parse(JSON.stringify(privateFallback))).document!]) {
+      const prompt = promptOf(current)
+      expect(fields.map((field) => prompt[`first${suffix}.sample`]!.inputs[field])).toEqual([0.21, 0.22, 0.23, 0.24])
+      expect(fields.map((field) => prompt[`first${suffix}.other`]!.inputs[field]))
+        .toEqual(depth === 1 ? [0.11, 0.12, 0.13, 0.14] : [0.21, 0.22, 0.23, 0.24])
+      for (const target of ['sample', 'other']) expect(fields.map((field) => prompt[`second${suffix}.${target}`]!.inputs[field])).toEqual([0.8, 0.81, 0.61, 0.41])
+      expect(current.graphs.detail).toEqual(joined.graphs.detail)
+      expect(current.graphs.portrait).toEqual(joined.graphs.portrait)
+      expect(prompt.sink!.inputs.number).toEqual([`first${suffix}.sample`, 6])
+    }
+    expect(detached.undo()).toBe(true)
+    expect(detached.doc).toEqual(privateEdited)
+    expect(detached.undo()).toBe(true)
+    expect(detached.doc).toEqual(beforePrivateEdit)
+    expect(detached.redo()).toBe(true)
+    expect(detached.redo()).toBe(true)
+    expect(detached.doc).toEqual(privateFallback)
+    for (const mode of ['active', 'muted', 'bypassed', 'loop'] as const) {
+      const before = { ...joined, graphs: { ...joined.graphs, root: { ...joined.graphs.root!, nodes: { ...joined.graphs.root!.nodes,
+        first: { ...joined.graphs.root!.nodes.first!, ...(mode === 'loop' ? { region: { kind: 'map', elementPorts: ['strength'] } } : { mode }) },
+      } } } } as WorkflowDocument
+      const result = await flatten(before, 'root', [], 'first', resolveBoundarySample)
+      if (mode === 'bypassed' || mode === 'loop') {
+        expect(result.ok).toBe(false)
+        expect(result.session.doc).toEqual(before)
+        expect(result.session.canUndo).toBe(false)
+        continue
+      }
+      expect(result.ok, JSON.stringify(result.reports)).toBe(true)
+      const flattened = result.session.doc
+      const replacements = Object.values(flattened.graphs.root!.nodes).filter((node) => before.graphs.root!.nodes[node.id] === undefined)
+      const primary = depth === 1 ? replacements.find((node) => node.values.strength === 0.2 && node.values.count === 3)!
+        : replacements[0]!
+      for (const current of [flattened, loadDocument(JSON.parse(JSON.stringify(flattened))).document!]) {
+        const prompt = promptOf(current)
+        const receivers = Object.entries(prompt).filter(([id, node]) => node.class_type === 'Boundary sample' && !id.startsWith('second.'))
+        expect(receivers).toHaveLength(mode === 'active' ? 2 : 0)
+        for (const [, node] of receivers) expect(fields.map((field) => node.inputs[field])).toEqual([0.2, 0.17, 0.37, 0.57])
+        for (const target of ['sample', 'other']) expect(fields.map((field) => prompt[`second${suffix}.${target}`]!.inputs[field])).toEqual([0.8, 0.81, 0.61, 0.41])
+        expect(prompt.sink!.inputs.number).toEqual(mode === 'active' ? [depth === 1 ? primary.id : `${primary.id}.sample`, 6] : undefined)
+        expect(current.graphs.detail).toEqual(joined.graphs.detail)
+        expect(current.graphs.portrait).toEqual(joined.graphs.portrait)
+      }
+      expect(result.session.undo()).toBe(true)
+      expect(result.session.doc.graphs).toEqual({ ...before.graphs, root: { ...before.graphs.root!, nextOrdinal: flattened.graphs.root!.nextOrdinal } })
+      expect(result.session.redo()).toBe(true)
+      expect(result.session.doc).toEqual(flattened)
     }
   })
 

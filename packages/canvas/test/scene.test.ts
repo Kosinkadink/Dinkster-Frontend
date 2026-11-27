@@ -145,6 +145,18 @@ describe('buildScene', () => {
         expect(new Set(shared.map((row) => row.y)).size).toBe(1)
         expect(shared.map((row) => [row.inset, row.width, row.height]))
           .toEqual(reference.map((row) => [row.inset, row.width, row.height]))
+        const receiving = scene.nodes.find((node) => node.id === 'sample')!
+        const inner = receiving.layout.rows.filter((row) => row.kind === 'widget')
+        expect(inner.map((row) => row.valueKey)).toEqual(leaf)
+        expect(new Set(inner.map((row) => row.y)).size).toBe(1)
+        expect(inner.map((row) => [row.inset, row.width, row.height]))
+          .toEqual(reference.map((row) => [row.inset, row.width, row.height]))
+        for (const [index, row] of inner.entries()) {
+          expect(row.familyOwner).toMatchObject({ graphId: 'root', nodeId: id, valueKey: outer[index] })
+          expect(receiving.node.values[leaf[index]!] ?? row.spec.default).toBe(id === 'first' && index === 0 && linked !== undefined ? 0.2 : expected[index])
+        }
+        expect(panel.fields!.wired).toEqual(id === 'first' && linked !== undefined
+          ? { r: linked === 'literal' ? { value: 0.93 } : {} } : {})
         const shown = boundaryFieldNode(panel)!.node.values
         for (const [index, row] of rows.entries()) {
           expect(row.familyOwner).toMatchObject({ graphId: 'root', nodeId: id, valueKey: outer[index] })
