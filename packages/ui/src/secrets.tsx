@@ -136,7 +136,7 @@ export function ProductSecretDialog(props: {
           </ProductField>
         </Show>
         <ProductField label={strings.secretValue}>
-          {(attributes) => <ProductTextInput {...attributes} ref={input} type="password" autocomplete="off" spellcheck={false}
+          {(attributes) => <ProductTextInput {...attributes} ref={input} type="password" autofocus={props.name !== ''} autocomplete="off" spellcheck={false}
             placeholder={presence()?.set ? strings.secretKeepValue : undefined}
             value={value()} disabled={pending()} onInput={(event) => setValue(event.currentTarget.value)} />}
         </ProductField>

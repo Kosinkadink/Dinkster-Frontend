@@ -263,7 +263,7 @@
   "modelDownloads.download": "下载 {count} 个模型",
   "modelDownloads.run": "运行",
   "common.close": "关闭",
-  "secretWidget.unnamedMissing": "密钥尚未设置。",
+  "secretWidget.unnamedMissing": "尚未选择密钥。",
   "secretWidget.set": "已设置",
   "secretWidget.notSet": "未设置",
   "secretWidget.required": "密钥“{name}”尚未设置。",
