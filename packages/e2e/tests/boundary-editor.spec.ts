@@ -39,6 +39,8 @@ async function widenRail(page: Page): Promise<void> {
 }
 
 async function drillIntoOccurrence(page: Page): Promise<void> {
+  await page.getByTestId('rail-resize').focus()
+  await page.keyboard.press('Home')
   await identityViewport(page)
   await runsTab(page).click()
   const activeRailTabId = await page.getByTestId('dock-zone-right')
@@ -50,6 +52,7 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
   await page.mouse.dblclick(mark.x, mark.y)
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   await expect(previousRailTab).toHaveAttribute('aria-selected', 'true')
+  await widenRail(page)
   if (await boundaryTab(page).getAttribute('aria-selected') === 'false') {
     await capture(page, 'boundary-tab-subgraph')
   }
