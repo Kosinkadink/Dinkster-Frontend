@@ -1783,7 +1783,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const heights: Record<string, Record<string, number>> = {}
     for (const [, state] of shownAssetImports()) {
       const target = state.editor.target
-      if (target.kind === 'input') (heights[target.nodeId] ??= {})[target.valueKey] = defaultTokens.rowHeight
+      if (target.kind === 'input') (heights[target.nodeId] ??= {})[target.valueKey] = defaultTokens.rowHeight + canvasPaintTokens.node.editorSpace.pad * 2
     }
     return heights
   }, undefined, { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) })
@@ -5896,7 +5896,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       return {
         nodeId: node.id,
         node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
-        space: { x: row.inset - pad, y: row.y - pad, width: node.layout.width - row.inset * 2 + pad * 2, height: row.height + pad * 2 },
+        space: { x: row.inset - pad, y: row.y, width: node.layout.width - row.inset * 2 + pad * 2, height: row.height },
       }
     }
 
