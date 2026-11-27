@@ -87,6 +87,8 @@ import {
 import { parseAppViewText } from './app-view-text.js'
 import { lookupAnswersOf } from './lookup-demand.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
+import { RequestFailure } from '@dinkster/client'
 import ArrowDown from 'lucide-solid/icons/arrow-down'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
@@ -253,7 +255,7 @@ function AppViewColorPicker(props: {
       if (accepted) close()
       else setRefusal(message('widgetEditor.commitRefused'))
     } catch (error) {
-      if (live && current === generation) setRefusal(error instanceof Error ? error.message : String(error))
+      if (live && current === generation) setRefusal(error instanceof RequestFailure ? failureMessage(error) : error instanceof Error ? error.message : String(error))
     } finally {
       if (live && current === generation) setPending(false)
     }
@@ -781,7 +783,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       return outcome.ok
     } catch (error) {
       if (live && stillWanted() && owner === commitOwner && activeTab() === tab && tab.store === store) {
-        setError(row.entry, error instanceof Error ? error.message : String(error))
+        setError(row.entry, error instanceof RequestFailure ? failureMessage(error) : error instanceof Error ? error.message : String(error))
       }
       return false
     }
@@ -1192,7 +1194,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       })
       .catch((error: unknown) => {
         if (!live || remoteTokens.get(key) !== token) return
-        const message = error instanceof Error ? error.message : String(error)
+        const message = failureMessage(error, 'Choices could not be loaded.')
         setRemoteCombo(key, previous?.state === 'ready' || previous?.state === 'stale'
           ? { state: 'stale', source, options: previous.options, message }
           : { state: 'unavailable', source, message })
@@ -1420,7 +1422,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         return outcome?.ok === true
       } catch (error) {
         if (stillWanted() && owner === generation && activeTab()?.store === store) {
-          setRefusal(error instanceof Error ? error.message : String(error))
+          setRefusal(error instanceof RequestFailure ? failureMessage(error) : error instanceof Error ? error.message : String(error))
         }
         return false
       } finally {

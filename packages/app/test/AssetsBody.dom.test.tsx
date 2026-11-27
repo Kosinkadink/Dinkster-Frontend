@@ -3,7 +3,7 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DinksterConnection } from '@dinkster/client'
+import { DinksterConnection, RequestFailure } from '@dinkster/client'
 import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
 import { AssetsBody } from '../src/AssetsBody.js'
 import { AssetEntrySelection } from '../src/asset-browser/rail.js'
@@ -251,7 +251,7 @@ describe('Assets dock body', () => {
       'assets.state.empty.title': '[Noch keine Assets]',
     })
     const listMountEntries = vi.fn(async (mountId: string) => {
-      if (mountId === 'RAW-broken-source') throw new Error('RAW backend failure')
+      if (mountId === 'RAW-broken-source') throw new RequestFailure('GET', '/api/mounts/RAW-broken-source/entries', 503, 'RAW backend failure')
       return { entries: [] }
     })
     const connection = stubConnection({
@@ -365,7 +365,7 @@ describe('Assets dock body', () => {
           elapsedSeconds: 2.5,
         },
       }])
-      .mockRejectedValueOnce(new Error('temporary mount listing failure'))
+      .mockRejectedValueOnce(new RequestFailure('GET', '/api/mounts', 503, 'temporary mount listing failure'))
       .mockResolvedValue([{ id: 'models', mode: 'read', state: 'ready', entryCount: 10 }])
     const connection = stubConnection({
       listMounts,
@@ -488,8 +488,8 @@ describe('Assets dock body', () => {
   it('renders a ready mount listing failure as a source-specific reason', async () => {
     const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([{ id: 'broken', mode: 'read', state: 'ready' }]),
-      listMountEntries: vi.fn().mockRejectedValue(new Error('index unavailable')),
-      listLocalAssets: vi.fn().mockRejectedValue(new Error('local catalog unavailable')),
+      listMountEntries: vi.fn().mockRejectedValue(new RequestFailure('GET', '/api/mounts/ready/entries', 503, 'index unavailable')),
+      listLocalAssets: vi.fn().mockRejectedValue(new RequestFailure('GET', '/api/assets', 503, 'local catalog unavailable')),
       assetUrl: (digest: string) => `/assets/${digest}`,
       fetchAssetMetadata: vi.fn(),
     })
@@ -497,7 +497,7 @@ describe('Assets dock body', () => {
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
     await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('Assets unavailable'))
-    expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('index unavailable')
+    expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('local catalog unavailable')
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
     expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('Broken')
     expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('index unavailable')
@@ -508,7 +508,7 @@ describe('Assets dock body', () => {
     const digest = `blake3:${'c'.repeat(64)}`
     const asset = { digest, name: 'local.png', size: 5, mediaType: 'image/png', virtualPath: 'imports/local.png' }
     const connection = stubConnection({
-      listMounts: vi.fn().mockRejectedValue(new Error('mount catalog offline')),
+      listMounts: vi.fn().mockRejectedValue(new RequestFailure('GET', '/api/mounts', 503, 'mount catalog offline')),
       listLocalAssets: vi.fn().mockResolvedValue({ assets: [{ asset, aliases: ['local.png'], observations: [] }] }),
       checkAssetAvailability: vi.fn().mockResolvedValue([{ digest, status: 'available' }]),
       assetUrl: (digest: string) => `/assets/${digest}`,

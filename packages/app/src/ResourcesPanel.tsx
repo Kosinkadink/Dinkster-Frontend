@@ -8,6 +8,7 @@ import { ProductSlider } from './ProductSlider.js'
 import { useSignal } from './solid-adapter.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 
 interface ResourceBackend {
   readonly id: string
@@ -72,7 +73,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
     if (open()) controller?.refreshDetails()
   }
   onMount(() => {
-    controller = new MemoryStatusController(connection(), accept, (cause) => { setInitialPending(false); setTelemetryError(String(cause)) })
+    controller = new MemoryStatusController(connection(), accept, (cause) => { setInitialPending(false); setTelemetryError(failureMessage(cause, message('request.resourcesLoadFailed'))) })
     controller.setExpanded('resources', open())
     void connection().fetchRuntimeSettings().then(setSettings, () => {})
     const timer = setInterval(() => setClock(Date.now()), 1000)
@@ -97,7 +98,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
       accept(await connection().fetchMemoryStatus(), false)
       controller?.refreshDetails()
       setNotification({ message: message('resources.updated') })
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
+    } catch (cause) { setError(failureMessage(cause, message('request.resourcesSaveFailed'))) }
     finally { setPending(false) }
   }
   const granted = (category: string) => settings()?.categories.granted.includes(category) === true && settings()?.settings[category]?.writable === true

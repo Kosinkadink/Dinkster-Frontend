@@ -2,6 +2,7 @@ import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { DinksterConnection, ModelSettingsState, MountDescriptor, MountSettings } from '@dinkster/client'
+import { RequestFailure } from '@dinkster/client'
 import { StorageFolders, StoragePanel } from '../src/StoragePanel.js'
 import { AppState } from '../src/app-state.js'
 
@@ -53,7 +54,7 @@ it('groups model grants under one folder and switches project membership without
     fetchModelSettings: async () => models,
     onMountsChanged: () => () => {},
     updateProjectFolders: async (ids: readonly string[], output: string) => {
-      if (!ids.includes('plates') && refuseRemoval) throw new Error('Folder changes are temporarily unavailable.')
+      if (!ids.includes('plates') && refuseRemoval) throw new RequestFailure('PUT', '/api/projects/default/folders', 503, 'Folder changes are temporarily unavailable.')
       settings = { mounts: ids.map((id) => all.find((row) => row.id === id)!), outputMount: output, mountChangesAllowed: true }
     },
   } as unknown as DinksterConnection

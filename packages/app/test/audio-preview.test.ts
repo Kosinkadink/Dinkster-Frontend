@@ -117,7 +117,7 @@ describe('bounded audio previews', () => {
     expect(missing.window).toBeUndefined()
     client.rendition = vi.fn(async () => ({ available: false as const, reason: 'bad-element', status: 404, error: 'batch absent' }))
     const refused = await audioPreview(client, query, descriptor, renditions).load(0, 4, new AbortController().signal)
-    expect(refused.diagnostics.join(' ')).toContain('bad-element (404) - batch absent')
+    expect(refused.diagnostics.join(' ')).toContain('Audio waveform unavailable. batch absent')
     expect(refused.window).toBeUndefined()
   })
 })

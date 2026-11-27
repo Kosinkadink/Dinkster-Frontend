@@ -91,7 +91,7 @@ describe('peek: refusals', () => {
   it('maps a non-JSON error body to http-error with the status', async () => {
     const { client } = harness(() => new Response('nope', { status: 500 }))
     const res = await client.peek(Q)
-    expect(res).toEqual({ available: false, reason: 'http-error', status: 500, error: 'HTTP 500' })
+    expect(res).toEqual({ available: false, reason: 'http-error', status: 500, error: 'The engine reported an error.' })
   })
 
   it('maps network failure to a status-0 http-error refusal', async () => {
@@ -103,7 +103,7 @@ describe('peek: refusals', () => {
       },
     })
     const res = await client.peek(Q)
-    expect(res).toEqual({ available: false, reason: 'http-error', status: 0, error: 'boom' })
+    expect(res).toEqual({ available: false, reason: 'http-error', status: 0, error: 'The engine did not answer.' })
   })
 
 })
@@ -314,7 +314,7 @@ describe('rendition: bytes and immutable cache', () => {
       fetchFn: async () => { throw new Error('offline') },
     })
     expect(await failing.rendition(Q, 'png'))
-      .toEqual({ available: false, reason: 'http-error', status: 0, error: 'offline' })
+      .toEqual({ available: false, reason: 'http-error', status: 0, error: 'The engine did not answer.' })
   })
 
   it('structures response body aborts and failures and never caches them', async () => {
@@ -350,7 +350,7 @@ describe('rendition: bytes and immutable cache', () => {
       },
     })
     expect(await failing.rendition(Q, 'png'))
-      .toEqual({ available: false, reason: 'http-error', status: 0, error: 'stream reset' })
+      .toEqual({ available: false, reason: 'http-error', status: 0, error: 'The engine did not answer.' })
   })
 })
 
