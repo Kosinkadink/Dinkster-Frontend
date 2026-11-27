@@ -135,7 +135,7 @@ export function AutomaticFixField(props: {
     ]} onChange={(value) => commit(asks(), value === 'remove')} />
   return <Show when={!props.inline} fallback={<div data-setting-id={props.kind.setting}>
     <Show when={modified()}><ProductTextButton label={message('settingsDialog.action.reset')} onClick={reset} /></Show>
-    {policy()}<Show when={props.kind.wire}>{wire()}</Show>
+    <Show when={props.kind.wire} fallback={policy()}><div class="dinkster-stack">{policy()}{wire()}</div></Show>
   </div>}>
     <ProductSettingRow id={props.kind.setting} controlId={id} label={label()}
       description={automaticFixLabel(props.kind.id, removesWire(), message)} modified={modified()}
