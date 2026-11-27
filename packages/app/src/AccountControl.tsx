@@ -20,12 +20,20 @@ export interface AccountSession {
   openSignInPage(): void
 }
 
-export function createAccountSession(connection: Accessor<AccountConnection>): AccountSession {
+export function createAccountSession(connection: Accessor<AccountConnection>, baseUrl: string): AccountSession {
   const [status, setStatus] = createSignal<AccountStatus>()
   const [authorizationUrl, setAuthorizationUrl] = createSignal<string>()
   let generation = 0
   let refreshing: object | undefined
   let changing = false
+  let refreshNotified = false
+  let notifications: BroadcastChannel | undefined
+  const accept = (value: AccountStatus): void => {
+    const previous = status()
+    setStatus(value)
+    if (previous !== undefined && (previous.signedIn !== value.signedIn ||
+      previous.principalRevision !== value.principalRevision)) notifications?.postMessage(null)
+  }
   const report = (error: unknown): void => {
     if (error instanceof DOMException && error.name === 'AbortError') return
     console.error('account request failed', error)
@@ -37,7 +45,13 @@ export function createAccountSession(connection: Accessor<AccountConnection>): A
     read().then((value) => {
       if (current === generation) accept(value)
     }, (error: unknown) => { if (current === generation) report(error) }).finally(() => {
-      if (current === generation) changing = false
+      if (current === generation) {
+        changing = false
+        if (refreshNotified) {
+          refreshNotified = false
+          refresh()
+        }
+      }
     })
   }
   const refresh = (): void => {
@@ -46,7 +60,7 @@ export function createAccountSession(connection: Accessor<AccountConnection>): A
     const reading = {}
     refreshing = reading
     connection().accountStatus().then((value) => {
-      if (current === generation) setStatus(value)
+      if (current === generation) accept(value)
     }, (error: unknown) => { if (current === generation) report(error) }).finally(() => {
       if (refreshing === reading) refreshing = undefined
     })
@@ -55,10 +69,23 @@ export function createAccountSession(connection: Accessor<AccountConnection>): A
     const selected = connection()
     generation += 1
     changing = false
+    refreshNotified = false
     setStatus(undefined)
     setAuthorizationUrl(undefined)
-    request(() => selected.accountStatus(), setStatus)
-    onCleanup(() => { generation += 1 })
+    const channel = typeof globalThis.BroadcastChannel === 'function'
+      ? new BroadcastChannel(`dinkster-account:${baseUrl}`) : undefined
+    notifications = channel
+    // Notifications carry no identity; only the engine's reply can change authority.
+    channel?.addEventListener('message', () => {
+      if (changing) refreshNotified = true
+      else request(() => selected.accountStatus(), accept)
+    })
+    request(() => selected.accountStatus(), accept)
+    onCleanup(() => {
+      generation += 1
+      notifications = undefined
+      channel?.close()
+    })
   })
   const pending = () => status()?.signIn === 'pending'
   createEffect(() => {
@@ -81,13 +108,13 @@ export function createAccountSession(connection: Accessor<AccountConnection>): A
     authorizationUrl,
     signIn() {
       request(() => connection().startAccountSignIn(), (started) => {
-        setStatus(started)
+        accept(started)
         setAuthorizationUrl(started.authorizationUrl)
         open(started.authorizationUrl)
       })
     },
-    cancelSignIn() { request(() => connection().cancelAccountSignIn(), setStatus) },
-    signOut() { request(() => connection().signOutAccount(), setStatus) },
+    cancelSignIn() { request(() => connection().cancelAccountSignIn(), accept) },
+    signOut() { request(() => connection().signOutAccount(), accept) },
     openSignInPage() {
       const url = authorizationUrl()
       if (url !== undefined) open(url)
