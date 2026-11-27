@@ -27,11 +27,12 @@ const targetLabel = (target: PanelDragTarget): string | undefined => {
   return `Dock in ${target.zone} zone`
 }
 
-/** One fixed top layer owns the canvas shield, ghost bars, highlight, caret, and cursor ghost. */
+/** One fixed top layer owns the canvas shield, landing areas, and cursor ghost. */
 export function PanelDragOverlay(props: {
   readonly drag: PanelDragModel
   readonly ghostTitle: string
   readonly ghostIcon?: Component | undefined
+  readonly ghostActive?: boolean | undefined
 }) {
   return (
     <div class="panel-drag-layer" data-testid="panel-drag-layer" aria-hidden="true">
@@ -56,24 +57,28 @@ export function PanelDragOverlay(props: {
       </For>
       <Show when={props.drag.preview} keyed>
         {(preview) => {
-          const geometry = panelDragTargetGeometry(props.drag.snapshot, props.drag.panelId, preview.target)
+          const geometry = panelDragTargetGeometry(props.drag.snapshot, preview.target)
+          const target = preview.target
+          const hasSlot = preview.allowed && target.kind === 'tab'
+            && props.drag.snapshot.zones[target.zone].sections
+              .some((section) => section.section === target.section && section.tabStrip.slots.length > 0)
           return (
             <>
+              <Show when={!hasSlot}>
               <div
                 class="panel-drag-target"
                 data-testid="panel-drag-target"
                 data-allowed={preview.allowed}
                 data-kind={preview.target.kind}
                 data-zone={targetZone(preview.target)}
+                data-slot-fallback={props.drag.tabFit?.acceptsSlot === false && target.kind === 'zone' ? 'true' : undefined}
                 style={rectStyle(geometry.rect)}
               >
                 <Show when={targetLabel(preview.target)}>{(label) => (
                   <span class="panel-drag-target-label">{label()}</span>
                 )}</Show>
               </div>
-              <Show when={geometry.caret}>{(caret) => (
-                <div class="panel-drag-caret" data-testid="panel-drag-caret" style={rectStyle(caret())} />
-              )}</Show>
+              </Show>
             </>
           )
         }}
@@ -85,6 +90,7 @@ export function PanelDragOverlay(props: {
           x={props.drag.point.x}
           y={props.drag.point.y}
           refused={props.drag.preview?.allowed === false}
+          active={props.ghostActive}
         />
       </Show>
     </div>

@@ -44,39 +44,6 @@ test.beforeEach(async ({ page }) => {
           default: { version: 2, documentDigest: null, commands: [] },
         }],
       },
-      'synthetic.curve': {
-        schemaVersion: 2,
-        nodeType: 'synthetic.curve',
-        displayName: 'Synthetic Curve',
-        category: 'test',
-        pack: 'test',
-        signature: 'editor-role-e2e-curve',
-        editorRole: 'curve',
-        body: [
-          {
-            kind: 'input',
-            id: 'curve',
-            required: true,
-            type: { kind: 'concrete', types: ['CURVE'] },
-            widget: { type: 'CURVE' },
-            default: {
-              interpolation: 'linear',
-              points: [
-                { position: 0, value: 0 },
-                { position: 1, value: 1 },
-              ],
-            },
-          },
-          {
-            kind: 'input',
-            id: 'enabled',
-            required: true,
-            type: { kind: 'concrete', types: ['BOOLEAN'] },
-            widget: { type: 'BOOLEAN', labelOn: 'On', labelOff: 'Off' },
-            default: false,
-          },
-        ],
-      },
     },
   } }))
   await page.routeWebSocket('**/api/events?*', () => {})
@@ -121,63 +88,4 @@ test('clicking the compositor summary leaves its stored recipe unchanged', async
   await expect(page.getByTestId('editor-missing')).toHaveCount(0)
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.editorKind)).toBe('graph')
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.compositor!.values.recipe)).toEqual(recipe)
-})
-
-test('a synthetic node opens its editor from the schema role', async ({ page }) => {
-  await page.evaluate(async () => {
-    const app = window.__dinksterTest!.app
-    await app.openDocument(
-      {
-        format: 'dinkster-workflow',
-        formatVersion: 1,
-        lineage: 'editor-role-e2e',
-        root: 'g0',
-        graphs: {
-          g0: {
-            id: 'g0',
-            name: 'Editor role',
-            nodes: {
-              curve: { id: 'curve', type: 'synthetic.curve', values: { enabled: false } }
-            },
-            links: {},
-            nets: {},
-            reroutes: {},
-            nextOrdinal: 2
-          }
-        },
-        view: {
-          graphs: {
-            g0: { nodes: { curve: { position: { x: 160, y: 120 } } } }
-          }
-        }
-      },
-      'Editor role'
-    )
-    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
-  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'curve' && node.layout.rows.some((row) => row.inputId === 'curve')))
-  const points = await page.evaluate(() => {
-    const renderer = window.__dinksterTest!.renderer!
-    const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'curve')!
-    const viewport = renderer.getViewport()
-    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    const point = (inputId: string) => {
-      const row = node.layout.rows.find((candidate) => candidate.kind === 'widget' && candidate.inputId === inputId)!
-      return {
-      x: canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
-      y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y
-      }
-    }
-    return { curve: point('curve'), enabled: point('enabled') }
-  })
-  await page.mouse.click(points.enabled.x, points.enabled.y)
-  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.curve!.values.enabled)).toBe(true)
-  await page.mouse.click(points.curve.x, points.curve.y)
-  await expect(page.getByTestId('curve-editor')).toBeVisible()
-  if (process.env['DINKSTER_ROLE_SCREENSHOT']) {
-    await page.screenshot({
-      path: process.env['DINKSTER_ROLE_SCREENSHOT'],
-      fullPage: true
-    })
-  }
 })

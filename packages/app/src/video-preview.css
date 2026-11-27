@@ -10,7 +10,7 @@
 .video-preview button:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .video-preview button[aria-pressed="true"] { background: var(--dinkster-surface-selected); border-color: var(--dinkster-border-selected); }
 .video-preview button:disabled, .video-preview button[aria-disabled="true"] { opacity: 0.5; cursor: default; }
-.video-preview :focus-visible { outline: 2px solid var(--dinkster-border-focus); outline-offset: -2px; }
+.video-preview :focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: -2px; }
 .video-preview-readout { display: block; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin-top: 1px; }
 .video-preview-notice { display: block; color: var(--dinkster-warning-foreground); overflow-wrap: anywhere; }
 .video-preview-thumbs { position: relative; background: var(--dinkster-surface-canvas); pointer-events: none; }

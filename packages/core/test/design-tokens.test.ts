@@ -37,6 +37,12 @@ describe('semantic design tokens', () => {
     }
   })
 
+  it('keeps meaning text readable on its fill in the dark theme', () => {
+    for (const meaning of Object.values(semanticTokensForTheme('dark').meaning)) {
+      expect(contrast(meaning.foreground, meaning.fill)).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
   it('keeps light information notices and success toasts readable over their tinted host surfaces', () => {
     const { meaning, surface } = semanticTokensForTheme('light')
     for (const { foreground, quietBackground } of [

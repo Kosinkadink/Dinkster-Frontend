@@ -213,7 +213,7 @@ test('wire-34 primitive identity declarations show typed values before execution
   const tooltip = page.getByTestId('app-tooltip')
   await expect(async () => {
     await coercedFloat.focus()
-    await expect(tooltip).toContainText('Current expected value: -11.0')
+    await expect(tooltip).toContainText('Arriving: -11.0')
   }).toPass()
   await page.addStyleTag({ content: '[data-testid="canvas-widget-a11y"] { opacity: 0 !important; }' })
   const screenshotPath = testInfo.outputPath('primitive-known-values.png')

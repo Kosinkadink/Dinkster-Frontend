@@ -1,6 +1,6 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { createSignal } from '@dinkster/core'
+import { createSignal, boundaryOf } from '@dinkster/core'
 import { diagnosticFocusPlan, diagnosticFocusTarget, AppState, pushGraph, truncateGraphStack, viewInstancePath, type Tab } from '../src/app-state.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
@@ -17,7 +17,7 @@ const makeTab = (): Tab =>
         root: { id: 'root', name: 'root', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 },
         child: {
           id: 'child', name: 'child', nodes: {}, links: {}, nets: {}, reroutes: {},
-          boundary: { inputs: [], outputs: [] }, nextOrdinal: 1,
+          boundary: boundaryOf([], []), nextOrdinal: 1,
         },
       },
     } },
@@ -43,7 +43,7 @@ describe('graph navigation helpers', () => {
     expect(outcome.ok).toBe(true)
     expect(tab.graphStack.get()).toEqual([root, 'g0'])
     expect(tab.instancePath.get()).toEqual(['n1'])
-    expect(tab.store.doc.graphs.g0?.boundary).toEqual({ inputs: [], outputs: [] })
+    expect(tab.store.doc.graphs.g0?.boundary).toEqual({ body: [] })
     expect(tab.store.doc.graphs[root]!.nodes.n1).toMatchObject({ type: '#g0', values: {} })
     app.commands.get('edit.undo')!.run()
     expect(tab.store.doc.graphs.g0).toBeUndefined()

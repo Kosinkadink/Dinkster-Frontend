@@ -25,6 +25,8 @@ import {
   type NodeProgress,
   type NodeSchema,
   type WorkflowDocument,
+  boundaryOf,
+  boundaryItems,
 } from '@dinkster/core'
 import { historicalSchemas as schemas } from './historical-schemas.js'
 import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, nodeStatesForGraph, scenesEqual, updateSceneNodePositions, updateSceneNodeValues, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, type Scene } from '../src/scene.js'
@@ -51,7 +53,48 @@ function sceneOf(workflow: string, graphId = 'g0') {
 }
 
 describe('buildScene', () => {
-  it('gives folded editors and sections their height back through one-step undo and redo, sized or not', async () => {
+  it('keeps mapped Save wires on their real inputs through folding and undo', () => {
+    const schema: NodeSchema = {
+      type: 'Save', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
+      body: [
+        { kind: 'input', id: 'destination', optional: true, type: { kind: 'concrete', name: 'MOUNT' } },
+        { kind: 'input', id: 'filename', optional: false, type: { kind: 'concrete', name: 'STRING' } },
+        { kind: 'editor', id: 'save', widget: { widgetType: 'SAVE_TARGET', options: {}, writes: { mount: 'destination', name: 'filename' } } },
+      ],
+    }
+    const source: NodeSchema = { ...schema, type: 'Source', body: [
+      { kind: 'output', id: 'disk', type: { kind: 'concrete', name: 'MOUNT' } },
+      { kind: 'output', id: 'path', type: { kind: 'concrete', name: 'STRING' } },
+    ] }
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'mapped-save', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Save', nextOrdinal: 3, nodes: {
+        save: { id: 'save', type: 'Save', values: { destination: 'archive', filename: 'portraits/final' } },
+        source: { id: 'source', type: 'Source', values: {} },
+      }, links: {
+        mount: { id: 'mount', from: { node: 'source', port: 'disk' }, to: { node: 'save', port: 'destination' } },
+        name: { id: 'name', from: { node: 'source', port: 'path' }, to: { node: 'save', port: 'filename' } },
+      }, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { save: { position: { x: 400, y: 0 } }, source: { position: { x: 0, y: 0 } } } } } },
+    })
+    const session = createLocalSession(loaded.document!, coreCommandRegistry())
+    const scene = () => buildScene({ document: session.doc, graphId: 'g0', resolve: (type) => type === 'Save' ? schema : source,
+      tokens: defaultTokens, measure, widgetMeasure: () => ({ viewId: 'core.saveTarget', rows: 1 }) })
+    const folded = scene()
+    const pins = folded.nodes.find((node) => node.id === 'save')!.layout.pins
+    expect(pins.map((pin) => pin.portId)).toEqual(['destination', 'filename'])
+    expect(pins[1]!.y - pins[0]!.y).toBe(7)
+    const graph = session.doc.graphs.g0
+    expect(session.dispatch({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', nodeId: 'save', valueKey: 'save', unfolded: true } }).ok).toBe(true)
+    const open = scene()
+    expect(open.links.map((link) => link.id)).toEqual(folded.links.map((link) => link.id))
+    expect(open.nodes.find((node) => node.id === 'save')!.layout.pins.map((pin) => pin.portId)).toEqual(['destination', 'filename'])
+    expect(session.doc.graphs.g0).toEqual(graph)
+    expect(session.undo()).toBe(true)
+    expect(scene()).toEqual(folded)
+  })
+
+  it('gives folded editors, sections and field lines their height back through one-step undo and redo, sized or not', async () => {
     const base = loadDocument(readJson('fixtures/workflows/exec-basic.json')).document as WorkflowDocument
     const editorViews = [
       ['CURVE', 'core.curve', 3], ['WEBCAM', 'core.webcam', 1],
@@ -72,6 +115,8 @@ describe('buildScene', () => {
           }] },
           { kind: 'group', id: 'extras', keys: { kind: 'named', names: ['first', 'second'] }, grows: 'button', minMembers: 0,
             value: { kind: 'input', id: 'value', optional: false, type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } } },
+          { kind: 'row', rows: ['first', 'last'].map((id) => ({ kind: 'input', id, optional: false,
+            type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } })) },
         ] }],
       }
       const graph = base.graphs.g0!
@@ -134,6 +179,8 @@ describe('buildScene', () => {
       checkFold('view.setSectionCollapsed', { sectionId: 'inner', collapsed: startsOpen })
       checkFold('view.setSectionCollapsed', { sectionId: 'group:extras', collapsed: true })
       checkFold('view.setSectionCollapsed', { sectionId: 'group:extras', collapsed: false })
+      checkFold('view.setLineFolded', { lineKey: 'first', folded: false })
+      checkFold('view.setLineFolded', { lineKey: 'first', folded: true })
       checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: true })
       checkFold('view.setSectionCollapsed', { sectionId: 'outer', collapsed: false })
       const openHeight = scene().height
@@ -346,6 +393,35 @@ describe('buildScene', () => {
     // The link from the instance's boundary output resolves like any node's.
     expect(scene.links).toHaveLength(1)
     expect(scene.links[0]!.from).toMatchObject({ kind: 'port', port: 'image' })
+  })
+
+  it('centers a folded line on drawn boundary wires, not hidden ones, without carrying its fold to the face', () => {
+    const field = (id: string): Extract<NodeSchema['body'][number], { kind: 'input' }> => ({ kind: 'input', id, optional: false,
+      type: { kind: 'concrete', name: 'INT' }, widget: { widgetType: 'INT', options: {} } })
+    const schema: NodeSchema = { type: 'Fields', displayName: 'Fields', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: [field('first'), field('last')] }] }
+    const document = structuredClone(loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document!)
+    ;(document.graphs.g1!.nodes as Record<string, unknown>).n0 = { id: 'n0', type: 'Fields', values: { first: 7, last: 19 } }
+    ;(document.graphs.g1 as { boundary: unknown }).boundary = { body: [
+      { kind: 'input', id: 'first', promoted: true, wireHidden: true, binds: { kind: 'port', node: 'n0', port: 'first' } },
+      { kind: 'input', id: 'last', promoted: true, binds: { kind: 'port', node: 'n0', port: 'last' } },
+    ] }
+    const resolve = documentResolver(document, (type) => type === 'Fields' ? schema : schemas.get(type))
+    const scene = (graphId: string) => buildScene({ document, graphId, resolve, tokens: defaultTokens, measure, widgetMeasure })
+    for (const hidden of [true, false]) {
+      const item = boundaryItems(document.graphs.g1!.boundary!, 'inputs')[0]!
+      ;(item as { wireHidden: boolean }).wireHidden = hidden
+      const inner = scene('g1')
+      const layout = inner.nodes[0]!.layout
+      const row = layout.rows[0]!
+      const center = row.y + defaultTokens.rowHeight / 2
+      const lastPin = layout.pins.find((pin) => pin.portId === 'last' && pin.direction === 'in')!
+      expect(lastPin.y).toBe(hidden ? center : center + canvasPaintTokens.node.box.clusterPitch.two / 2)
+      expect(inner.links.find((link) => link.to.kind === 'port' && link.to.port === 'first')?.hidden === true).toBe(hidden)
+      const face = scene('g0').nodes.find((node) => node.id === 'n0')!.layout
+      expect(face.lines).toBeUndefined()
+      expect(face.rows[0]!.y).not.toBe(face.rows[1]!.y)
+    }
   })
 
   it('inner subgraph definitions render standalone by graph id', () => {
@@ -703,8 +779,8 @@ describe('buildScene', () => {
           links: {},
           nets: {},
           reroutes: {},
-          boundary: {
-            inputs: [{
+          boundary: boundaryOf(
+            [{
               id: 'input',
               binds: {
                 kind: 'port',
@@ -712,8 +788,8 @@ describe('buildScene', () => {
                 port: asPortId('items.value0'),
               },
             }],
-            outputs: [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('result') } }],
-          },
+            [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('result') } }],
+          ),
           nextOrdinal: 1,
         },
       },
@@ -827,10 +903,10 @@ describe('buildScene', () => {
           links: {},
           nets: {},
           reroutes: {},
-          boundary: {
-            inputs: [{ id: 'input', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('input') } }],
-            outputs: [{ id: 'output', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('output') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: 'input', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('input') } }],
+            [{ id: 'output', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('output') } }],
+          ),
           nextOrdinal: 1,
         },
         body: {
@@ -840,10 +916,10 @@ describe('buildScene', () => {
           links: {},
           nets: {},
           reroutes: {},
-          boundary: {
-            inputs: [{ id: 'input', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('in') } }],
-            outputs: [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('out') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: 'input', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('in') } }],
+            [{ id: 'output', binds: { kind: 'port', node: asNodeId('match'), port: asPortId('out') } }],
+          ),
           nextOrdinal: 1,
         },
       },
@@ -1524,10 +1600,10 @@ describe('solver verdicts on scene edges', () => {
           id: asGraphDefId('body'), name: 'Body',
           nodes: { work: { id: asNodeId('work'), type: bodyNode.type, values: {} } },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-          boundary: {
-            inputs: [{ id: asPortId('item'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
-            outputs: [{ id: asPortId('result'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: asPortId('item'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
+            [{ id: asPortId('result'), binds: { kind: 'port', node: asNodeId('work'), port: asPortId('image') } }],
+          ),
         },
       },
       view: { graphs: { root: { nodes: {} }, body: { nodes: {} } } },
@@ -1601,17 +1677,13 @@ describe('solver verdicts on scene edges', () => {
 
 describe('groups', () => {
 
-  it('nodesInGroup: membership is spatial (node center inside bounds)', () => {
+  it('initializes legacy membership with full bounds and keeps stored membership independent of bounds', () => {
     const scene = sceneOf('subgraph')
     const group = scene.groups[0]!
-    // All three g0 nodes (positions 60/380/720 x ~200) center inside the
-    // 40..800 x 140..440 rect.
-    expect(nodesInGroup(scene, group).sort()).toEqual(['n0', 'n1', 'n2'])
-    // Shrink the rect so only n0's center fits: membership follows.
-    const narrow = { ...group, x: 40, width: 200 }
-    expect(nodesInGroup(scene, narrow)).toEqual(['n0'])
-    // A rect over empty space carries nothing.
-    expect(nodesInGroup(scene, { ...group, x: -5_000, y: -5_000, width: 10, height: 10 })).toEqual([])
+    expect(nodesInGroup(scene, group).sort()).toEqual(['n0', 'n1'])
+    const stored = { ...scene, groupMembership: { nodes: { n0: group.id }, reroutes: {}, groups: {}, boundary: {} } }
+    expect(nodesInGroup(stored, group)).toEqual(['n0'])
+    expect(nodesInGroup(stored, { ...group, x: -5_000, y: -5_000, width: 10, height: 10 })).toEqual(['n0'])
   })
 
 })
@@ -1753,14 +1825,14 @@ describe('boundary pseudo-nodes', () => {
     expect(sceneOf('exec-subgraph').boundaryNodes).toEqual([])
   })
 
-  it('participate in spatial group membership by center', () => {
+  it('initializes fully enclosed legacy boundary panels as group members', () => {
     const scene = g1SceneWith({ inputs: { position: { x: 100, y: 100 } } })
     const inputs = scene.boundaryNodes.find((node) => node.side === 'inputs')!
     const group = {
       id: 'group', title: 'Boundary', x: inputs.x - 10, y: inputs.y - 10,
       width: inputs.layout.width + 20, height: inputs.layout.height + 20,
     }
-    expect(boundaryNodesInGroup(scene, group)).toContain('inputs')
+    expect(boundaryNodesInGroup({ ...scene, groups: [group] }, group)).toContain('inputs')
   })
 
   it('a definition derives Inputs (pins face out) and Outputs (pins face in)', () => {
@@ -1830,10 +1902,10 @@ describe('boundary pseudo-nodes', () => {
         ...doc.graphs,
         g1: {
           ...g1,
-          boundary: {
-            ...g1.boundary!,
-            outputs: [{ id: 'color', binds: { kind: 'widgetTap', node: 'n0', tap: 'color' } }],
-          },
+          boundary: boundaryOf(
+            boundaryItems(g1.boundary, 'inputs'),
+            [{ id: asPortId('color'), binds: { kind: 'widgetTap', node: asNodeId('n0'), tap: asPortId('color') } }],
+          ),
         },
       },
     } as unknown as WorkflowDocument
@@ -1872,17 +1944,17 @@ describe('boundary pseudo-nodes', () => {
   it('fan-out (alsoBinds) renders one noodle per binding from the same boundary pin', () => {
     const doc = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document as WorkflowDocument
     const g1 = doc.graphs['g1']!
-    const item = g1.boundary!.inputs[0]! // 'color' -> n0/color
+    const item = boundaryItems(g1.boundary, 'inputs')[0]! // 'color' -> n0/color
     const patched: WorkflowDocument = {
       ...doc,
       graphs: {
         ...doc.graphs,
         g1: {
           ...g1,
-          boundary: {
-            ...g1.boundary!,
-            inputs: [{ ...item, alsoBinds: [{ kind: 'port', node: 'n0', port: 'width' } as (typeof item)['binds']] }],
-          },
+          boundary: boundaryOf(
+            [{ ...item, alsoBinds: [{ kind: 'port', node: 'n0', port: 'width' } as (typeof item)['binds']] }],
+            boundaryItems(g1.boundary, 'outputs'),
+          ),
         },
       },
     } as WorkflowDocument
@@ -1923,9 +1995,9 @@ describe('boundary pseudo-nodes', () => {
       }, g1: { ...body,
       reroutes: { junction: { id: r } },
       links: { feed: { id: asLinkId('feed'), from: { reroute: r }, to: { node: asNodeId('n0'), port: asPortId('color') } } },
-      boundary: { ...body.boundary!, inputs: [{ ...body.boundary!.inputs[0]!, binds: {
+      boundary: boundaryOf([{ ...boundaryItems(body.boundary, 'inputs')[0]!, binds: {
         kind: 'port', node: asNodeId('n0'), port: asPortId('color'), viaReroute: r,
-      } }] },
+      } }], boundaryItems(body.boundary, 'outputs')),
     } }, view: { ...original.view, graphs: { ...original.view.graphs, g1: {
       ...original.view.graphs.g1!, reroutes: { junction: { position: { x: -80, y: 95 } } },
     } } } }
@@ -1945,6 +2017,27 @@ describe('boundary pseudo-nodes', () => {
       expect(scene.reroutes.map((reroute) => reroute.id)).toEqual(['junction'])
     }
     expect(JSON.stringify(doc)).toBe(before)
+  })
+
+  it('draws only the local delivery when it replaces a promoted boundary value', () => {
+    const original = loadDocument(readJson('fixtures/workflows/exec-subgraph.json')).document!
+    const source: NodeSchema = { type: 'IntegerSource', displayName: 'Integer source', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'output', id: 'number', type: { kind: 'concrete', name: 'INT' } }] }
+    const doc: WorkflowDocument = { ...original, graphs: { ...original.graphs, g1: { ...original.graphs.g1!,
+      nodes: { ...original.graphs.g1!.nodes, source: { id: asNodeId('source'), type: source.type, values: {} } },
+      links: { drive: { id: asLinkId('drive'), from: { node: asNodeId('source'), port: asPortId('number') },
+        to: { node: asNodeId('n0'), port: asPortId('color') } } },
+    } } }
+    const resolve = documentResolver(doc, (type) => type === source.type ? source : schemas.get(type))
+    const definition = buildScene({ document: doc, graphId: 'g1', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    expect(definition.links.some((link) => link.id === 'boundary:inputs:color')).toBe(true)
+    const occurrence = { owner: { instancePath: [], node: asNodeId('n0') }, plannerAvailable: true }
+    const local = buildScene({ document: doc, graphId: 'g1', resolve, tokens: defaultTokens, measure, widgetMeasure, occurrence })
+    expect(local.links.filter((link) => link.to.kind === 'port' && link.to.node === 'n0' && link.to.port === 'color')
+      .map((link) => link.from)).toEqual([{ kind: 'port', node: 'source', port: 'number' }])
+    const unwired = buildScene({ document: original, graphId: 'g1', resolve: documentResolver(original, (type) => schemas.get(type)),
+      tokens: defaultTokens, measure, widgetMeasure, occurrence })
+    expect(unwired.links.some((link) => link.id === 'boundary:inputs:color')).toBe(true)
   })
 
   it('saved view positions win over defaults, per side', () => {
@@ -1995,7 +2088,7 @@ describe('an editor on the Inputs panel', () => {
         g1: {
           id: 'g1', name: 'Sub', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
           nodes: { inner: { id: 'inner', type: 'Rec', values: {} } },
-          boundary: { inputs: [{ id: 'clip', promoted: true, binds: { kind: 'port', node: 'inner', port: 'clip' } }], outputs: [] },
+          boundary: { body: [{ kind: 'input', id: 'clip', promoted: true, binds: { kind: 'port', node: 'inner', port: 'clip' } }] },
         },
       },
       view: { graphs: {

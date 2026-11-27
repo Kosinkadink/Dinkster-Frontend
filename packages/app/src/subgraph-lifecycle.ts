@@ -19,11 +19,13 @@ import {
   type NodeSchema,
   type ResolvedGeometryItem,
   type WorkflowDocument,
+  type GroupMembership,
   scopeRowsOf,
 } from '@dinkster/core'
 
 export interface LifecycleSelectionSnapshot extends LifecycleSelectionInput {
   readonly geometry: readonly ResolvedGeometryItem[]
+  readonly groupMembership?: GroupMembership
 }
 
 export type ExtractCommit =
@@ -54,7 +56,7 @@ export function extractInvocation(
   name: string | undefined,
   resolveSchema: (type: string) => NodeSchema | undefined,
 ): CommandInvocation | undefined {
-  const expanded = expandLifecycleSelectionFromGroups(snapshot, snapshot.geometry)
+  const expanded = expandLifecycleSelectionFromGroups(snapshot, snapshot.geometry, doc.view.graphs[graphId]?.groupMembership)
   if (expanded === undefined) return undefined
   const selected = new Set([
     ...expanded.selection.nodeIds.map((id) => `node:${id}`),
@@ -169,6 +171,6 @@ export function isFlattenSelection(doc: WorkflowDocument, graphId: string, nodeI
 }
 
 export const hasExtractSelection = (snapshot: LifecycleSelectionSnapshot): boolean => {
-  const expanded = expandLifecycleSelectionFromGroups(snapshot, snapshot.geometry)
+  const expanded = expandLifecycleSelectionFromGroups(snapshot, snapshot.geometry, snapshot.groupMembership)
   return expanded !== undefined && hasSemanticLifecycleSelection(expanded.selection)
 }

@@ -127,7 +127,7 @@ export function WorkflowQueueControl(props: {
           data-testid="queue-button"
           aria-label={`Run ${props.owner.title}`}
           data-tooltip-label={props.blockedReason ?? message('command.workflow.queue')}
-          data-tooltip-detail={props.blockedReason === undefined ? 'Ctrl+Enter' : undefined}
+          data-tooltip-shortcut={props.blockedReason === undefined ? 'Ctrl+Enter' : undefined}
           disabled={!props.canQueue}
           onClick={() => onQueue()()}
         >

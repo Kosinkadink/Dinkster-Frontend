@@ -145,6 +145,19 @@ function run(testCase: VectorCase): string | undefined {
 }
 
 describe('formula vector file', () => {
+  it('memoizes shared derived availability without reusing it for demanded reads', () => {
+    const derived = new Map([['d0', 'value']])
+    for (let index = 1; index <= 12; index++) derived.set(`d${index}`, `d${index - 1} + d${index - 1}`)
+    const scope = { names: new Map<string, FormulaNameKind>([['value', 'int']]), derived }
+    let reads = 0
+    expect(Formula.parse('known(d12)', scope).evaluate({ read: () => { reads++; return 1n } }))
+      .toEqual({ kind: 'value', value: true })
+    expect(reads).toBe(1)
+    expect(Formula.parse('int(known(d12)) + d12', scope).evaluate({
+      read: (_name, availability) => availability ? UNKNOWN : 1n,
+    })).toEqual({ kind: 'value', value: 4096n })
+  })
+
   it('is the file the engine checks, for this language version', () => {
     expect(createHash('sha256').update(vectorBytes).digest('hex')).toBe(VECTORS_SHA256)
     expect((JSON.parse(vectorBytes.toString('ascii')) as { language: number }).language).toBe(

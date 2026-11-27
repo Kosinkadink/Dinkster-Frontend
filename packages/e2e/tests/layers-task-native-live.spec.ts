@@ -235,7 +235,7 @@ test('the layers task: add, close, forward through two subgraphs, add and edit o
   await expect(showFromAdd).toContainText('Show Layers on subgraph node')
   if (proofDir) await page.screenshot({ path: join(proofDir, '05-add-row-menu.png'), clip: { x: 0, y: 0, width: 760, height: 360 } })
   await showFromAdd.click()
-  await expect.poll(async () => (await activeDoc(page)).graphs[await graphIdOfView(page)]!.boundary?.inputs.map((item) => item.binds))
+  await expect.poll(async () => (await activeDoc(page)).graphs[await graphIdOfView(page)]!.boundary?.body.flatMap((entry) => entry.kind === 'input' ? [entry.binds] : []))
     .toEqual([{ kind: 'construct', node: inner, port: 'layers' }])
   // The inner subgraph node counts its own layers from 1; rows inside the
   // member's box draw only their own labels.

@@ -10,6 +10,7 @@ import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId } from
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { initialDynamicStateOf } from '../src/schema/body.js'
+import { boundaryOf, boundaryItems } from '../src/format/document.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
@@ -1214,7 +1215,7 @@ describe('view.setEditorUnfolded and view.setPictureHeight', () => {
   const unfold = (nodeId: string, valueKey: string, unfolded: boolean | null) =>
     ({ command: 'view.setEditorUnfolded', params: { graphId: 'g0', nodeId, valueKey, unfolded } })
 
-  it.each(['link.connect', 'link.rewire', 'net.connectInput'])('folds on %s arrival, keeps later choices and restores the open state on undo', (command) => {
+  it.each(['link.connect', 'link.rewire', 'net.connectInput'])('preserves editor folds on %s arrival, disconnect and undo', (command) => {
     const schema: NodeSchema = {
       type: 'Editor', displayName: 'Editor', category: '', source: 'v3', isOutputNode: false,
       body: [
@@ -1232,10 +1233,11 @@ describe('view.setEditorUnfolded and view.setPictureHeight', () => {
       () => ({ kind: 'initial', schemaResolverFor: () => (type) => type === 'Editor' ? schema : undefined }))
     const send = (portId: string) => store.dispatch({ command, params: { graphId: 'g0', from: port('n1', 'out'), to: port('n2', portId), linkId: 'l1', netId: 'net1' } })
     expect(send('curve').ok).toBe(true)
-    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toBeUndefined()
     expect(store.undo()).toBe(true)
     expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toBeUndefined()
     expect(store.redo()).toBe(true)
+    expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toBeUndefined()
     expect(store.dispatch(unfold('n2', 'curve', true)).ok).toBe(true)
     expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'value', value: 9 } }).ok).toBe(true)
     expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: true })
@@ -1245,12 +1247,18 @@ describe('view.setEditorUnfolded and view.setPictureHeight', () => {
       : { command: 'link.disconnect', params: { graphId: 'g0', linkId: links[0]! } }).ok).toBe(true)
     expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: true })
     if (command !== 'link.rewire') {
+      expect(store.dispatch(unfold('n2', 'compare', true)).ok).toBe(true)
       expect(send('image').ok).toBe(true)
-      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: false })
+      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: true })
+      expect(store.undo()).toBe(true)
+      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: true })
+      expect(store.redo()).toBe(true)
       expect(store.dispatch(unfold('n2', 'compare', false)).ok).toBe(true)
       expect(store.dispatch(command === 'net.connectInput'
         ? { command: 'net.disconnectInput', params: { graphId: 'g0', to: port('n2', 'image') } }
         : { command: 'link.disconnect', params: { graphId: 'g0', linkId: Object.keys(store.doc.graphs.g0!.links)[0]! } }).ok).toBe(true)
+      expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: false })
+      expect(send('image').ok).toBe(true)
       expect(store.doc.view.graphs.g0?.nodes.n2?.editors?.compare).toEqual({ unfolded: false })
     }
   })
@@ -1312,7 +1320,7 @@ describe('view.setEditorUnfolded and view.setPictureHeight', () => {
       ...doc({
         g0: graph({ id: 'g0', nodes: { sub: node('sub', '#g1') } }),
         g1: graph({
-          id: 'g1', name: 'sub', boundary: { inputs: [], outputs: [] }, nodes: { m1: node('m1') },
+          id: 'g1', name: 'sub', boundary: { body: [] }, nodes: { m1: node('m1') },
         }),
       }),
     })
@@ -1812,7 +1820,7 @@ describe('named net commands', () => {
           nodes: { n1: node('n1') },
           nets: { t9: { id: asNetId('t9'), name: 'ctx', source: port('n1', 'out0'), sinks: [] } },
         }),
-        g1: graph({ id: 'g1', name: 'sub', boundary: { inputs: [], outputs: [] }, nodes: { m1: node('m1') } }),
+        g1: graph({ id: 'g1', name: 'sub', boundary: boundaryOf([], []), nodes: { m1: node('m1') } }),
       }),
       coreCommandRegistry(),
     )
@@ -2105,7 +2113,7 @@ describe('group commands (view-only)', () => {
     const store = new DocumentStore(
       doc({
         g0: graph({ id: 'g0', nodes: { n1: node('n1') } }),
-        g1: graph({ id: 'g1', name: 'sub', boundary: { inputs: [], outputs: [] }, nodes: { m1: node('m1') } }),
+        g1: graph({ id: 'g1', name: 'sub', boundary: boundaryOf([], []), nodes: { m1: node('m1') } }),
       }),
       coreCommandRegistry(),
     )
@@ -2136,10 +2144,10 @@ describe('view.moveBoundaryNode', () => {
           id: 'sub',
           name: 'sub',
           nodes: { m1: node('m1') },
-          boundary: {
-            inputs: [{ id: 'weird.id', binds: { kind: 'port', ...port('m1', 'model') } }],
-            outputs: [{ id: 'image', binds: { kind: 'port', ...port('m1', 'out0') } }],
-          },
+          boundary: boundaryOf(
+            [{ id: 'weird.id', binds: { kind: 'port', ...port('m1', 'model') } }],
+            [{ id: 'image', binds: { kind: 'port', ...port('m1', 'out0') } }],
+          ),
         }),
       }),
       coreCommandRegistry(),
@@ -2186,7 +2194,7 @@ describe('view.moveBoundaryNode', () => {
     expect(store.dispatch(move('inputs', { x: 1, y: 2 })).ok).toBe(true)
     expect(store.dispatch(move('outputs', { x: 3, y: 4 })).ok).toBe(true)
     expect(semanticHashOf(store.doc)).toBe(before)
-    expect(store.doc.graphs.sub!.boundary!.inputs[0]!.id).toBe('weird.id')
+    expect(boundaryItems(store.doc.graphs.sub!.boundary, 'inputs')[0]!.id).toBe('weird.id')
   })
 
   it('rejects a graph without a boundary (not a subgraph definition)', () => {
@@ -2223,7 +2231,7 @@ describe('view bookmarks (numbered camera shortcuts, view-only)', () => {
           id: 'sub',
           name: 'sub',
           nodes: { m1: node('m1') },
-          boundary: { inputs: [], outputs: [] },
+          boundary: boundaryOf([], []),
         }),
       }),
       coreCommandRegistry(),

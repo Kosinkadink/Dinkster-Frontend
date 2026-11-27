@@ -15,7 +15,7 @@
   align-items: flex-start;
 }
 .search-dialog-host[open] { display: flex; }
-.search-dialog-host::backdrop { background: color-mix(in srgb, var(--dinkster-surface-canvas) 72%, transparent); }
+.search-dialog-host::backdrop { background: var(--dinkster-modal-backdrop); }
 .search-dialog {
   display: flex;
   width: min(620px, calc(100vw - var(--dinkster-space-32)));
@@ -34,7 +34,7 @@
   background: var(--dinkster-surface-inset);
   border-bottom: 1px solid var(--dinkster-border-subtle);
 }
-.search-input-shell:focus-within { color: var(--dinkster-border-focus); box-shadow: inset 0 calc(var(--dinkster-focus-ring-width) * -1) var(--dinkster-border-focus); }
+.search-input-shell:focus-within { color: var(--dinkster-border-focus); box-shadow: inset 0 calc(var(--dinkster-indicator-width) * -1) var(--dinkster-border-focus); }
 .search-input-shell .search-input {
   appearance: none;
   width: 100%;
@@ -67,7 +67,7 @@
   cursor: pointer;
 }
 .search-input-clear:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
-.search-input-clear:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); }
+.search-input-clear:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); }
 .search-input-shell[data-variant='toolbar'] {
   min-height: var(--dinkster-control-compact-height);
   box-sizing: border-box;
@@ -141,7 +141,7 @@
 }
 .search-result-row:hover { background: var(--dinkster-interaction-hover); }
 .search-result-row.active { color: var(--dinkster-text-on-selected); background: var(--dinkster-surface-selected); border-color: var(--dinkster-border-selected); }
-.search-result-row:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: calc(var(--dinkster-focus-ring-width) * -1); }
+.search-result-row:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: calc(var(--dinkster-focus-ring-width) * -1); }
 .search-result-row-copy { display: flex; min-width: 0; flex-direction: column; }
 .search-result-row-title { font-weight: var(--dinkster-weight-regular); overflow-wrap: anywhere; }
 .search-result-row-detail,

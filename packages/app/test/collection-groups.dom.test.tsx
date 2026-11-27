@@ -137,7 +137,7 @@ describe('CollectionPanel grouped rows', () => {
     expect(activate).toHaveBeenCalledWith('new')
   })
 
-  it('requires an explicit second activation before deleting a run record', async () => {
+  it('hands a run removal request to its host without deleting on row activation', async () => {
     const action = vi.fn()
     const source: CollectionSource = {
       id: 'runs',
@@ -155,39 +155,8 @@ describe('CollectionPanel grouped rows', () => {
 
     root.querySelector<HTMLElement>('[data-entry="run-1"]')!.click()
     const remove = root.querySelector<HTMLButtonElement>('[data-action="delete"]')!
-    remove.click()
-    expect(remove.textContent).toBe('Confirm delete')
-    expect(remove.getAttribute('aria-pressed')).toBe('true')
     expect(action).not.toHaveBeenCalled()
     remove.click()
     expect(action).toHaveBeenCalledWith('run-1', 'delete')
-  })
-
-  it('cancels inline delete confirmation whenever selection changes', async () => {
-    const action = vi.fn()
-    const source: CollectionSource = {
-      id: 'runs',
-      label: 'Runs',
-      page: async () => ({ items: [
-        { id: 'run-1', title: 'First run', actions: [{ id: 'delete', label: 'Delete record' }] },
-        { id: 'run-2', title: 'Second run', actions: [{ id: 'delete', label: 'Delete record' }] },
-      ] }),
-    }
-    const root = document.createElement('div')
-    document.body.append(root)
-    render(() => <CollectionPanel sources={[source]} onAction={(_source, entry, id) => action(entry.id, id)} />, root)
-    await flush()
-
-    root.querySelector<HTMLElement>('[data-entry="run-1"]')!.click()
-    root.querySelector<HTMLButtonElement>('[data-action="delete"]')!.click()
-    expect(root.querySelector<HTMLButtonElement>('[data-action="delete"]')!.textContent).toBe('Confirm delete')
-
-    root.querySelector<HTMLElement>('[data-entry="run-2"]')!.click()
-    root.querySelector<HTMLElement>('[data-entry="run-1"]')!.click()
-    const remove = root.querySelector<HTMLButtonElement>('[data-action="delete"]')!
-    expect(remove.textContent).toBe('Delete record')
-    remove.click()
-    expect(remove.textContent).toBe('Confirm delete')
-    expect(action).not.toHaveBeenCalled()
   })
 })

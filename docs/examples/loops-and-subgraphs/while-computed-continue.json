@@ -105,8 +105,9 @@
       "nets": {},
       "reroutes": {},
       "boundary": {
-        "inputs": [
+        "body": [
           {
+            "kind": "input",
             "id": "count",
             "binds": {
               "kind": "port",
@@ -115,16 +116,16 @@
             }
           },
           {
+            "kind": "input",
             "id": "increment",
             "binds": {
               "kind": "port",
               "node": "increment",
               "port": "value"
             }
-          }
-        ],
-        "outputs": [
+          },
           {
+            "kind": "output",
             "id": "next",
             "binds": {
               "kind": "port",
@@ -133,6 +134,7 @@
             }
           },
           {
+            "kind": "output",
             "id": "continue",
             "binds": {
               "kind": "port",

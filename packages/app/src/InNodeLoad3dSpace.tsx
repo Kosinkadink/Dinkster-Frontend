@@ -2,6 +2,7 @@ import type { AssetRef, Json, JsonObject } from '@dinkster/core'
 import {
   CanvasEditorButtons,
   CanvasEditorChoice,
+  CanvasEditorControls,
   CanvasEditorLine,
   CanvasEditorNote,
   CanvasEditorNumber,
@@ -46,9 +47,11 @@ const plain = (value: unknown): Json => JSON.parse(JSON.stringify(value)) as Jso
 export function Load3dSpace(props: {
   readonly value: Json | undefined
   readonly wired?: boolean
+  readonly readOnly?: boolean
   /** Changes when what the view reads changes, which reads it again. */
   readonly sourceKey: string
   readonly ports: Load3dPorts
+  readonly measured?: (height: number) => void
   /** The node gives image, mask and normal pictures, so it records the viewport. */
   readonly captures: boolean
   /** This view may run a live WebGL view now. */
@@ -63,6 +66,7 @@ export function Load3dSpace(props: {
 }) {
   const message = useAppMessage()
   const [state, setState] = createSignal<ViewState>('loading')
+  const [sourceError, setSourceError] = createSignal<string>()
   const [camera, setCamera] = createSignal<Model3dCameraState>()
   const [transform, setTransform] = createSignal<Model3dTransform>()
   const [clips, setClips] = createSignal<readonly { name: string; duration: number }[]>([])
@@ -99,7 +103,7 @@ export function Load3dSpace(props: {
 
   /** Stores the view as it is now: the camera unless a wire gives it, and the placement. */
   const storeView = (): void => {
-    if (viewer === undefined) return
+    if (viewer === undefined || props.readOnly) return
     const value = stored()
     const models = Array.isArray(value['model_3d_info']) ? value['model_3d_info'] : []
     const next: Record<string, Json> = {
@@ -133,6 +137,7 @@ export function Load3dSpace(props: {
     const live = untrack(() => props.live)
     const abort = new AbortController()
     setState('loading')
+    setSourceError(undefined)
     onCleanup(() => {
       setPoster((image) => { image?.close(); return undefined })
       abort.abort()
@@ -164,6 +169,7 @@ export function Load3dSpace(props: {
       setState('ready')
     })().catch((reason: unknown) => {
       if (abort.signal.aborted) return
+      setSourceError(reason instanceof Load3dSourceError ? undefined : reason instanceof Error ? reason.message : String(reason))
       setState(reason instanceof Load3dSourceError ? reason.problem : 'unavailable')
     })
   }))
@@ -183,13 +189,13 @@ export function Load3dSpace(props: {
   onCleanup(() => upload?.abort())
 
   const changeCamera = (update: Partial<Model3dCameraState>): void => {
-    if (viewer === undefined || props.cameraWired) return
+    if (viewer === undefined || props.cameraWired || props.readOnly) return
     viewer.setCameraState({ ...viewer.cameraState(), ...update })
     setCamera(viewer.cameraState())
     storeView()
   }
   const changePlacement = (field: 'position' | 'quaternion' | 'scale', numbers: readonly number[]): void => {
-    if (viewer === undefined || props.placementWired) return
+    if (viewer === undefined || props.placementWired || props.readOnly) return
     const current = viewer.modelTransform()
     const [x, y, z, w] = numbers as [number, number, number, number?]
     if (field === 'quaternion' && Math.hypot(x, y, z, w ?? 0) === 0) return
@@ -208,7 +214,7 @@ export function Load3dSpace(props: {
   /** Uploads the finished recording and stores it on the node; a failed upload keeps it to try again. */
   const storeRecording = async (): Promise<void> => {
     const send = props.ports.upload
-    if (take === undefined || send === undefined) return
+    if (take === undefined || send === undefined || props.readOnly) return
     upload?.abort()
     const abort = new AbortController()
     upload = abort
@@ -228,6 +234,7 @@ export function Load3dSpace(props: {
     }
   }
   const toggleRecording = (): void => {
+    if (props.readOnly) return
     if (record() === 'recording') {
       if (recorder?.state === 'recording') recorder.stop()
       return
@@ -267,15 +274,39 @@ export function Load3dSpace(props: {
     setRecordError(undefined)
     setRecord('idle')
   }
+  createEffect(() => {
+    if (!props.readOnly) return
+    const current = recorder
+    recorder = undefined
+    if (current?.state === 'recording') current.stop()
+    discardRecording()
+    const camera = storedCamera()
+    const placement = storedTransform()
+    if (camera !== undefined) viewer?.setCameraState(camera)
+    if (placement !== undefined) viewer?.setModelTransform(placement)
+  })
 
   const pictureMessage = (): string | undefined => {
     const shown = state()
-    if (shown === 'ready') return undefined
-    if (shown === 'native') return message('load3dWidget.native')
+    if (shown === 'ready' || shown === 'unavailable' || shown === 'native') return undefined
     if (shown === 'noModel' && props.wired) return message('inNodeLoad3d.notKnown')
     return message(`inNodeLoad3d.${shown}`)
   }
   const ready = () => state() === 'ready'
+  const problemNote = () => <Show when={record() === 'failed' && recordError() !== undefined} fallback={
+    <Show when={state() === 'unavailable' || state() === 'native'}>
+      <CanvasEditorNote tone={state() === 'native' ? 'warning' : 'problem'} details={{ label: message('runs.details'),
+        title: message(state() === 'native' ? 'load3dWidget.native' : 'inNodeLoad3d.unavailableTitle'),
+        ...(sourceError() === undefined ? {} : { body: sourceError()! }) }}>
+        {message(state() === 'native' ? 'inNodeEditor.nativeShort' : 'inNodeLoad3d.unavailableShort')}
+      </CanvasEditorNote>
+    </Show>
+  }>
+    <CanvasEditorNote tone="problem" details={{ label: message('runs.details'), title: message('load3dWidget.recordingFailed'),
+      body: [recordError(), ...(state() === 'native' ? [message('load3dWidget.native')] : state() === 'unavailable' ? [message('inNodeLoad3d.unavailableTitle'), sourceError()] : [])].filter(Boolean).join('\n') }}>
+      {message('inNodeLoad3d.recordingFailedShort')}
+    </CanvasEditorNote>
+  </Show>
   // A still view shows the stored view's settings; pressing the editor makes it live to change them.
   const shownCamera = () => camera() ?? (state() === 'ready' ? storedCamera() : undefined)
   const shownTransform = () => transform() ?? (state() === 'ready' ? storedTransform() : undefined)
@@ -299,18 +330,11 @@ export function Load3dSpace(props: {
     <div class="node-load3d-editor" onPointerDown={wake}>
       <CanvasEditorPicture resizeLabel={message('inNodeEditor.pictureHeight')}
         loading={state() === 'loading'}
-        {...(pictureMessage() === undefined ? {} : { message: pictureMessage()! })}
-        {...(props.captures && !props.cameraWired && ready() ? {
-          actions: (
-            <>
-              <Show when={record() === 'failed' && recordError() !== undefined}>
-                <CanvasEditorNote tone="problem">{recordError()}</CanvasEditorNote>
-              </Show>
-              <CanvasEditorButtons buttons={recordActions()} />
-            </>
-          ),
+        message={ready() ? undefined : state() === 'unavailable' || state() === 'native' || record() === 'failed' ? problemNote() : pictureMessage()}
+        {...(props.captures && !props.cameraWired && !props.readOnly && ready() ? {
+          actions: <CanvasEditorButtons buttons={recordActions()} />,
         } : {})}>
-        <div class="node-load3d-view" data-live={props.live ? 'true' : 'false'} data-wired={props.cameraWired ? 'true' : undefined}
+        <div class="node-load3d-view" data-live={props.live ? 'true' : 'false'} data-wired={props.cameraWired || props.readOnly ? 'true' : undefined}
           ref={(element) => { container = element }}>
           <Show when={!props.live ? poster() : undefined}>
             {(image) => <canvas
@@ -323,29 +347,30 @@ export function Load3dSpace(props: {
           </Show>
         </div>
       </CanvasEditorPicture>
-      <CanvasEditorLine dimmed={!ready() || props.cameraWired}>
+      <CanvasEditorControls measured={props.measured}>
+      <CanvasEditorLine readOnly={props.readOnly} dimmed={!ready() || props.cameraWired}>
         <CanvasEditorChoice label={message('load3dWidget.camera')}
           value={message(shownCamera()?.cameraType === 'orthographic' ? 'load3dWidget.orthographic' : 'load3dWidget.perspective')}
           options={[message('load3dWidget.perspective'), message('load3dWidget.orthographic')]}
           onChange={(label) => changeCamera({ cameraType: label === message('load3dWidget.orthographic') ? 'orthographic' : 'perspective' })} />
       </CanvasEditorLine>
-      <CanvasEditorLine dimmed={!ready() || props.cameraWired || shownCamera()?.cameraType === 'orthographic'}>
+      <CanvasEditorLine readOnly={props.readOnly} dimmed={!ready() || props.cameraWired || shownCamera()?.cameraType === 'orthographic'}>
         <CanvasEditorNumber label={message('load3dWidget.fov')} value={shownCamera()?.fov} min={1} max={179} step={1}
           onChange={(fov) => changeCamera({ fov })} />
       </CanvasEditorLine>
       <CanvasEditorSection label={message('inNodeLoad3d.placement')} open={props.openSections.includes('placement')}
         onToggle={(open) => props.ports.setSection('placement', open)}>
-        <CanvasEditorLine dimmed={!ready() || props.placementWired}>
+        <CanvasEditorLine readOnly={props.readOnly} dimmed={!ready() || props.placementWired}>
           <CanvasEditorNumbers label={message('inNodeLoad3d.position')} count={3}
             value={rounded([shownTransform()?.position.x, shownTransform()?.position.y, shownTransform()?.position.z])}
             onChange={(numbers) => changePlacement('position', numbers)} />
         </CanvasEditorLine>
-        <CanvasEditorLine dimmed={!ready() || props.placementWired}>
+        <CanvasEditorLine readOnly={props.readOnly} dimmed={!ready() || props.placementWired}>
           <CanvasEditorNumbers label={message('inNodeLoad3d.rotation')} count={4}
             value={rounded([shownTransform()?.quaternion.x, shownTransform()?.quaternion.y, shownTransform()?.quaternion.z, shownTransform()?.quaternion.w ?? 1])}
             onChange={(numbers) => changePlacement('quaternion', numbers)} />
         </CanvasEditorLine>
-        <CanvasEditorLine dimmed={!ready() || props.placementWired}>
+        <CanvasEditorLine readOnly={props.readOnly} dimmed={!ready() || props.placementWired}>
           <CanvasEditorNumbers label={message('inNodeLoad3d.scale')} count={3}
             value={rounded([shownTransform()?.scale.x ?? 1, shownTransform()?.scale.y ?? 1, shownTransform()?.scale.z ?? 1])}
             onChange={(numbers) => changePlacement('scale', numbers)} />
@@ -378,6 +403,8 @@ export function Load3dSpace(props: {
           onClick: () => animate(clip(), viewer?.animationTime() ?? time(), !playing(), speed()),
         }]} />
       </CanvasEditorSection>
+      <Show when={ready()}>{problemNote()}</Show>
+      </CanvasEditorControls>
     </div>
   )
 }

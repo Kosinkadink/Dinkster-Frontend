@@ -34,6 +34,7 @@ import type { GraphDef, Json, WorkflowDocument } from '../src/format/document.js
 import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
 import { lifecycleFlattenFingerprint, lifecycleSelectionFingerprint, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
 import type { NodeSchema } from '../src/schema/model.js'
+import { boundaryOf, boundaryItems } from '../src/format/document.js'
 
 // ---------------------------------------------------------------------------
 // Document helpers (same shapes as session.test.ts)
@@ -724,20 +725,20 @@ describe('shared DocumentSession', () => {
           },
           unrelated: node('unrelated'),
         },
-        boundary: {
-          inputs: [
+        boundary: boundaryOf(
+          [
             { id: 'unrelatedBoundary', binds: { kind: 'port', node: asNodeId('unrelated'), port: 'in' as never } },
             { id: 'incidentBoundary', binds: { kind: 'port', node: asNodeId('occurrence'), port: 'wired' as never } },
           ],
-          outputs: [],
-        },
+          [],
+        ),
         actorCursors: { peer: 1000 },
       }),
       body: graph({
         id: 'body',
         nodes: { innerPrimary: node('innerPrimary'), innerAdditional: node('innerAdditional') },
-        boundary: {
-          inputs: [
+        boundary: boundaryOf(
+          [
             {
               id: 'input', promoted: true,
               binds: { kind: 'port', node: asNodeId('innerPrimary'), port: 'value' as never },
@@ -749,8 +750,8 @@ describe('shared DocumentSession', () => {
               alsoBinds: [{ kind: 'port', node: asNodeId('innerAdditional'), port: 'in' as never }],
             },
           ],
-          outputs: [],
-        },
+          [],
+        ),
         nextOrdinal: 1,
       }),
     })
@@ -806,7 +807,7 @@ describe('shared DocumentSession', () => {
     }
     resolverMayRun = !checkResolver
     unrelated.conn.appendForeign('peer', [
-      { op: 'add', path: ['graphs', 'g0', 'boundary', 'inputs', 0, 'displayName'], value: 'peer edit' },
+      { op: 'add', path: ['graphs', 'g0', 'boundary', 'body', 0, 'displayName'], value: 'peer edit' },
     ])
     unrelatedGate.resolve()
     await unrelated.session.settle()
@@ -817,10 +818,10 @@ describe('shared DocumentSession', () => {
       expect(unrelated.session.doc.graphs.g0!.nodes[id]!.values).toEqual({ value: 7 })
       expect(unrelated.session.doc.graphs.g0!.nodes[id]!.controllers).toEqual({ value: 'fixed' })
     }
-    expect(unrelated.session.doc.graphs.g0!.boundary!.inputs[1]!.binds).toEqual({
+    expect(boundaryItems(unrelated.session.doc.graphs.g0!.boundary, 'inputs')[1]!.binds).toEqual({
       kind: 'port', node: 'n1-actorA', port: 'in',
     })
-    expect(unrelated.session.doc.graphs.g0!.boundary!.inputs[1]!.alsoBinds).toEqual([{
+    expect(boundaryItems(unrelated.session.doc.graphs.g0!.boundary, 'inputs')[1]!.alsoBinds).toEqual([{
       kind: 'port', node: 'n0-actorA', port: 'in',
     }])
     expect(unrelated.session.doc.graphs.body).toBeDefined()
@@ -1029,31 +1030,37 @@ describe('shared DocumentSession', () => {
     expect(detached).toBe(1)
   })
 
-  it.each([false, true])('keeps a wire arrival folded through a shared rebase without consulting changed schemas (batch=%s)', async (batch) => {
+  it.each([false, true].flatMap((batch) => [undefined, false, true].map((unfolded) => ({ batch, unfolded }))))('preserves editor folds through a wire arrival and shared rebase (batch=$batch, unfolded=$unfolded)', async ({ batch, unfolded }) => {
     const schema: NodeSchema = { type: 'KSampler', displayName: 'Editor', category: '', source: 'v3', isOutputNode: false,
       body: [{ kind: 'input', id: 'curve', optional: true, type: { kind: 'concrete', name: 'CURVE' },
         widget: { widgetType: 'CURVE', options: { unfolded: true } } }] }
     let available = true
-    const { conn, session } = await makeShared('actorA', baseDoc(), () => () => available ? schema : undefined)
+    const initial = baseDoc()
+    const editor = unfolded === undefined ? undefined : { unfolded }
+    const size = { width: 360, height: 420 }
+    const { conn, session } = await makeShared('actorA', {
+      ...initial, view: { graphs: { g0: { nodes: { n2: { size, ...(editor === undefined ? {} : { editors: { curve: editor } }) } } } } },
+    }, () => () => available ? schema : undefined)
     const gate = deferred()
     conn.postHook = () => { conn.postHook = undefined; return gate.promise }
     const connect = { command: 'link.connect', params: { graphId: 'g0',
       from: { node: 'n1', port: 'out' }, to: { node: 'n2', port: 'curve' } } }
     expect(session.dispatch(batch ? { command: 'batch', params: { invocations: [connect] } } : connect).ok).toBe(true)
-    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual(editor)
     await until(() => conn.postedOps.length === 1)
     available = false
     conn.appendForeign('peer', foreignAddNode('n9-peer'))
-    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual(editor)
     gate.resolve()
     await session.settle()
-    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual(editor)
     expect(session.undo()).toBe(true)
     await session.settle()
-    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toBeUndefined()
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual(editor)
     expect(session.redo()).toBe(true)
     await session.settle()
-    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual(editor)
+    expect(session.doc.view.graphs.g0?.nodes.n2?.size).toEqual(size)
     session.close()
   })
 

@@ -112,7 +112,7 @@ async function placeFromPalette(
   })
   await page.mouse.dblclick(point.x, point.y)
   await page.getByTestId('palette-search').fill(type)
-  const option = page.locator(`[data-node-type="${type}"]`).getByRole('option')
+  const option = page.locator(`[data-key="entry:${type}"]`)
   await expect(option).toBeVisible()
   await option.click()
   await page.mouse.click(point.x, point.y)
@@ -257,7 +257,7 @@ test('Math Expression keeps named inputs ordered through growth and compaction',
   await drag(page, source, { x: 800, y: 500 })
   await expect(page.getByTestId('node-palette')).toBeVisible()
   await page.getByTestId('palette-search').fill('dinkster.utilities.comfy_math_expression')
-  await page.locator('[data-node-type="dinkster.utilities.comfy_math_expression"]').getByRole('option').click()
+  await page.locator('[data-key="entry:dinkster.utilities.comfy_math_expression"]').click()
 
   const mathId = await expect.poll(() => page.evaluate(() => {
     const doc = window.__dinksterTest!.app.activeTab()!.store.doc

@@ -84,11 +84,24 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
   await expect(editor).toBeVisible()
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(0)
+  let finishLocation: (() => Promise<void>) | undefined
+  await page.route((url) => url.pathname === '/api/mounts/locations' && url.searchParams.get('digest') === available.digest, async (route) => {
+    const response = await route.fetch()
+    const body = await response.json() as { locations: { path: string }[] }
+    finishLocation = async () => {
+      await route.fulfill({ response })
+      expect(body.locations.length).toBeGreaterThan(0)
+      for (const location of body.locations) await expect(page.getByTestId('asset-file-location')).toContainText(location.path)
+    }
+  }, { times: 1 })
   await problem.getByRole('button', { name: 'Locate or replace', exact: true }).click()
   await editor.getByTestId('collection-search').fill(available.name)
   await editor.getByTestId('collection-entry').filter({ hasText: available.name }).click()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs['g0']!.nodes['absent']!.values['file'])).toEqual(missing)
   await editor.getByTestId('asset-apply').scrollIntoViewIfNeeded()
+  await expect(editor.getByTestId('asset-apply')).toBeInViewport()
+  await expect.poll(() => finishLocation !== undefined).toBe(true)
+  await finishLocation!()
   await expect(editor.getByTestId('asset-apply')).toBeInViewport()
   await expect(editor.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport()
   await page.screenshot({ path: info.outputPath('workflow-explicit-replacement.png') })

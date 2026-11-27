@@ -62,9 +62,11 @@ import { buildGraphConnectivity } from '../schema/elaborate.js'
 import { graphAllocator } from './alloc.js'
 import type { CommandDefinition, CommandExecutionContext, TransactionBuilder } from './contract.js'
 import { groupAllocationFloor } from '../group-alloc.js'
+import { belongsToGroup, initialGroupMembership, remapGroupMembership } from '../group-membership.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
 import { planSubgraphDefinitionCleanup } from '../lifecycle/definition-cleanup.js'
 import { NET_VIEWS_EXT_KEY, netViewToJson, parseNetViewPosition, type NetViewGeometry } from '../format/net-views.js'
+import { boundaryItems, boundaryOf, mapBoundaryItems } from '../format/document.js'
 
 const err = (code: string, message: string): Diagnostic => diag('error', 'command', code, message)
 const warn = (code: string, message: string): Diagnostic => diag('warning', 'command', code, message)
@@ -354,6 +356,9 @@ function remapNestedItem(
     ...(nested.alsoBinds !== undefined ? { alsoBinds: nested.alsoBinds.map((binding) => remapBinding(binding, ids.nodes, ids.reroutes)) } : {}),
     ...(nested.promoted === true ? { promoted: true } : {}),
     ...(nested.wireHidden === true ? { wireHidden: true } : {}),
+    ...(nested.tooltip !== undefined ? { tooltip: nested.tooltip } : {}),
+    ...(nested.limits !== undefined ? { limits: nested.limits } : {}),
+    ...(nested.visible !== undefined ? { visible: nested.visible } : {}),
     ...(nested.displayName !== undefined ? { displayName: nested.displayName } : {}),
   }
 }
@@ -400,11 +405,6 @@ function hasSelectedModePanelBinding(
   return false
 }
 
-function pointInsideGroup(position: { readonly x: number; readonly y: number }, group: GroupViewState): boolean {
-  return position.x >= group.bounds.x && position.x <= group.bounds.x + group.bounds.width &&
-    position.y >= group.bounds.y && position.y <= group.bounds.y + group.bounds.height
-}
-
 function emptiedParentGroups(
   view: GraphViewState,
   selection: LifecycleSelection,
@@ -412,7 +412,11 @@ function emptiedParentGroups(
 ): readonly string[] {
   const movedInside = (group: GroupViewState): boolean => resolvedGeometry.some((item) => {
     if (item.kind === 'group') return false
-    return pointInsideGroup({ x: item.x + item.width / 2, y: item.y + item.height / 2 }, group)
+    if (view.groupMembership !== undefined)
+      return belongsToGroup(view.groupMembership, item.kind === 'node' ? 'nodes' : 'reroutes', item.id, group.id)
+    return item.x >= group.bounds.x && item.y >= group.bounds.y &&
+      item.x + item.width <= group.bounds.x + group.bounds.width &&
+      item.y + item.height <= group.bounds.y + group.bounds.height
   })
   const hasRetainedPositionable =
     Object.keys(view.nodes).some((id) => !selection.nodeIds.includes(id)) ||
@@ -685,7 +689,7 @@ const subgraphExtract: CommandDefinition = {
     }
     const innerBoundaryOutputs: BoundaryItem[] = []
     const wholeOutput = (cut: (typeof audit.outputs)[number]): boolean =>
-      cut.boundaryItems.some(({ itemIndex }) => parent.boundary!.outputs[itemIndex]!.binds.kind === 'construct')
+      cut.boundaryItems.some(({ itemIndex }) => boundaryItems(parent.boundary, 'outputs')[itemIndex]!.binds.kind === 'construct')
     for (const [index, cut] of audit.outputs.entries()) {
       innerBoundaryOutputs.push({
         id: outputNames[index]!.id,
@@ -774,8 +778,8 @@ const subgraphExtract: CommandDefinition = {
 
     let parentBoundary = parent.boundary
     if (parentBoundary !== undefined) {
-      const inputs = [...parentBoundary.inputs]
-      const outputs = [...parentBoundary.outputs]
+      const inputs = [...boundaryItems(parentBoundary, 'inputs')]
+      const outputs = [...boundaryItems(parentBoundary, 'outputs')]
       for (const cut of audit.boundaries) {
         if (cut.kind === 'in-cut') {
           inputs[cut.itemIndex] = rewriteEnclosingInput(inputs[cut.itemIndex]!, cut, occurrenceId, inputIdByBoundary.get(cut.itemId)!)
@@ -789,7 +793,7 @@ const subgraphExtract: CommandDefinition = {
           }
         }
       }
-      parentBoundary = { inputs, outputs }
+      parentBoundary = mapBoundaryItems(parentBoundary, (_item, side, index) => (side === 'inputs' ? inputs : outputs)[index])
     }
 
     const parentNodes: Record<string, NodeData> = { ...parent.nodes }
@@ -805,11 +809,15 @@ const subgraphExtract: CommandDefinition = {
       links: innerLinks,
       nets: innerNets,
       reroutes: innerReroutes,
-      boundary: { inputs: innerBoundaryInputs, outputs: innerBoundaryOutputs },
+      boundary: boundaryOf(innerBoundaryInputs, innerBoundaryOutputs),
       nextOrdinal: innerCursor.nextOrdinal,
       ...(innerCursor.actorCursors !== undefined ? { actorCursors: innerCursor.actorCursors } : {}),
     }
     const parentViewState = doc.view.graphs[graphId] ?? { nodes: {} }
+    const parentMembership = parentViewState.groupMembership ?? initialGroupMembership([
+      ...Object.values(parentViewState.groups ?? {}).map((group) => ({ kind: 'groups' as const, id: group.id, ...group.bounds })),
+      ...resolvedGeometry.filter((item) => item.kind !== 'group').map((item) => ({ ...item, kind: item.kind === 'node' ? 'nodes' as const : 'reroutes' as const })),
+    ])
     const emptiedGroups = emptiedParentGroups(parentViewState, selection, resolvedGeometry)
     const parentViewNodes = { ...parentViewState.nodes }
     for (const id of selection.nodeIds) delete parentViewNodes[id]
@@ -835,9 +843,11 @@ const subgraphExtract: CommandDefinition = {
     }
     const parentGroups = { ...(parentViewState.groups ?? {}) }
     const innerGroups: Record<string, GroupViewState> = {}
+    const groupIds = new Map<string, string>()
     for (const [index, oldId] of selection.groupIds.entries()) {
       const group = parentViewState.groups![oldId]!
       const id = `grp${index}`
+      groupIds.set(oldId, id)
       delete parentGroups[oldId]
       const position = translatedPosition(translatedGeometry, 'group', oldId)
       innerGroups[id] = { ...group, id, bounds: { ...group.bounds, ...position } }
@@ -854,6 +864,9 @@ const subgraphExtract: CommandDefinition = {
       .map(([, newId]) => newId)
     const freshView: GraphViewState = {
       nodes: innerViewNodes,
+      ...(selection.groupIds.length > 0 || parentViewState.groupMembership !== undefined ? { groupMembership: remapGroupMembership(parentMembership, {
+        nodes: nodeIds, reroutes: rerouteIds, groups: groupIds, boundary: new Map(),
+      }) } : {}),
       ...(selection.rerouteIds.length > 0 ? { reroutes: innerViewReroutes } : {}),
       ...(selection.groupIds.length > 0 ? { groups: innerGroups, groupSeq: selection.groupIds.length } : {}),
       ...(innerCollapsedNets.length > 0 ? { collapsedNets: innerCollapsedNets } : {}),
@@ -921,6 +934,12 @@ const subgraphExtract: CommandDefinition = {
         tx.set(['view', 'graphs', graphId, 'guideNets'], parentGuideNets as unknown as Json)
       }
     }
+    if (parentViewState.groupMembership !== undefined) tx.set(['view', 'graphs', graphId, 'groupMembership'], remapGroupMembership(parentMembership, {
+      nodes: new Map(Object.keys(parentViewNodes).map((id) => [id, id])),
+      reroutes: new Map(Object.keys(parentViewReroutes).map((id) => [id, id])),
+      groups: new Map(Object.keys(parentGroups).map((id) => [id, id])),
+      boundary: new Map(['inputs', 'outputs'].map((side) => [side, side])),
+    }) as unknown as Json)
     parentAllocator.commit()
     return [
       ...(geometryPlan.usedPlacementFallback
@@ -962,8 +981,8 @@ function flattenRoutePlanFromJson(
 ): ReadonlyMap<string, FlattenRouteKind> | undefined {
   if (!Array.isArray(value) || body.boundary === undefined) return undefined
   const expected = [
-    ...body.boundary.inputs.map((item) => ({ side: 'input', id: item.id, item })),
-    ...body.boundary.outputs.map((item) => ({ side: 'output', id: item.id, item })),
+    ...boundaryItems(body.boundary, 'inputs').map((item) => ({ side: 'input', id: item.id, item })),
+    ...boundaryItems(body.boundary, 'outputs').map((item) => ({ side: 'output', id: item.id, item })),
   ]
   if (value.length !== expected.length) return undefined
   const result = new Map<string, FlattenRouteKind>()
@@ -1059,8 +1078,8 @@ function flattenStatePlanFromJson(
           typeof entry.viaReroute === 'string' && entry.viaReroute.length > 0)
   )
   const expected = [
-    ...(body.boundary?.inputs ?? []).map((item) => ({ side: 'input', item })),
-    ...(body.boundary?.outputs ?? []).map((item) => ({ side: 'output', item })),
+    ...(boundaryItems(body.boundary, 'inputs') ?? []).map((item) => ({ side: 'input', item })),
+    ...(boundaryItems(body.boundary, 'outputs') ?? []).map((item) => ({ side: 'output', item })),
   ]
   if (value.routes.length !== expected.length) return undefined
   for (const [index, route] of value.routes.entries()) {
@@ -1216,7 +1235,7 @@ function validateFlattenDispatch(
 
   const snapshot = params.schemaSnapshot as unknown as Record<string, never>
   const boundAuthoredTypes = new Set(Object.values(body.nodes).map((node) => node.type))
-  for (const item of [...body.boundary.inputs, ...body.boundary.outputs]) {
+  for (const item of [...boundaryItems(body.boundary, 'inputs'), ...boundaryItems(body.boundary, 'outputs')]) {
     for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
       if (!isNodeBoundaryBinding(binding)) continue
       const authoredType = body.nodes[binding.node]?.type
@@ -1257,8 +1276,8 @@ function validateFlattenDispatch(
     }
   }
   const expected = [
-    ...body.boundary.inputs.map((item) => ({ side: 'input', item } as const)),
-    ...body.boundary.outputs.map((item) => ({ side: 'output', item } as const)),
+    ...boundaryItems(body.boundary, 'inputs').map((item) => ({ side: 'input', item } as const)),
+    ...boundaryItems(body.boundary, 'outputs').map((item) => ({ side: 'output', item } as const)),
   ]
   for (const { side, item } of expected) {
     const route = routes.get(JSON.stringify([side, item.id]))
@@ -1397,9 +1416,9 @@ const subgraphFlatten: CommandDefinition = {
     if (occurrence.ext !== undefined && Object.keys(occurrence.ext).length > 0) {
       return [lifecycleError('subgraph.flatten.extensionStateUnsupported', 'subgraph.flatten: occurrence-owned extension state has no flattened owner', graphId, instancePath, nodeId)]
     }
-    const boundaryInputs = new Map(body.boundary.inputs.map((item) => [item.id, item]))
-    const boundaryOutputs = new Map(body.boundary.outputs.map((item) => [item.id, item]))
-    if ([...body.boundary.inputs, ...body.boundary.outputs].some((item) =>
+    const boundaryInputs = new Map(boundaryItems(body.boundary, 'inputs').map((item) => [item.id, item]))
+    const boundaryOutputs = new Map(boundaryItems(body.boundary, 'outputs').map((item) => [item.id, item]))
+    if ([...boundaryItems(body.boundary, 'inputs'), ...boundaryItems(body.boundary, 'outputs')].some((item) =>
       item.ext !== undefined && Object.keys(item.ext).length > 0)) {
       return [lifecycleError('subgraph.flatten.boundaryExtensionUnsupported', 'subgraph.flatten: body boundary extension state has no flattened owner', graphId, instancePath, nodeId)]
     }
@@ -1479,11 +1498,11 @@ const subgraphFlatten: CommandDefinition = {
 
     for (const link of Object.values(parent.links)) {
       if (isPortEndpoint(link.to) && link.to.node === nodeId) {
-        const match = matchBoundaryItem(body.boundary.inputs, link.to)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), link.to)
         if (!match.ok) return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: input '${link.to.port}' has no unique body boundary route`, graphId, instancePath, nodeId, link.to)]
       }
       if (isPortEndpoint(link.from) && link.from.node === nodeId) {
-        const match = matchBoundaryItem(body.boundary.outputs, link.from)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'outputs'), link.from)
         if (!match.ok) return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: output '${link.from.port}' has no unique body boundary route`, graphId, instancePath, nodeId, link.from)]
       }
       if (isWidgetTapRef(link.from) && link.from.node === nodeId) {
@@ -1496,11 +1515,11 @@ const subgraphFlatten: CommandDefinition = {
       }
     }
     for (const net of Object.values(parent.nets)) {
-      if (net.source.node === nodeId && !matchBoundaryItem(body.boundary.outputs, net.source).ok) {
+      if (net.source.node === nodeId && !matchBoundaryItem(boundaryItems(body.boundary, 'outputs'), net.source).ok) {
         return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: net source '${net.source.port}' has no unique body boundary route`, graphId, instancePath, nodeId, net.source)]
       }
       for (const sink of net.sinks) {
-        if (sink.node === nodeId && !matchBoundaryItem(body.boundary.inputs, sink).ok) {
+        if (sink.node === nodeId && !matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), sink).ok) {
           return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: net sink '${sink.port}' has no unique body boundary route`, graphId, instancePath, nodeId, sink)]
         }
       }
@@ -1508,12 +1527,12 @@ const subgraphFlatten: CommandDefinition = {
 
     const additionalDeliveries = occurrencePlan === undefined ? Object.values(parent.links).reduce((count, link) => {
       if (!isPortEndpoint(link.to) || link.to.node !== nodeId) return count
-      const match = matchBoundaryItem(body.boundary!.inputs, link.to)
+      const match = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), link.to)
       return count + (match.ok ? Math.max(0, match.item.alsoBinds?.length ?? 0) : 0)
     }, 0) : 0
     const netJunctionDeliveries = occurrencePlan === undefined ? Object.values(parent.nets).flatMap((net) =>
       net.sinks.filter((sink) => sink.node === nodeId).flatMap((sink) => {
-        const match = matchBoundaryItem(body.boundary!.inputs, sink)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), sink)
         return match.ok ? [match.item.binds, ...(match.item.alsoBinds ?? [])].filter((binding) => binding.kind === 'port' && binding.viaReroute !== undefined) : []
       })).length : 0
     const materializedDeliveryCount = occurrencePlan?.links.length ??
@@ -1550,7 +1569,7 @@ const subgraphFlatten: CommandDefinition = {
     if (occurrencePlan === undefined) {
       for (const link of Object.values(parent.links).sort((a, b) => compareStrings(a.id, b.id))) {
         if (!isPortEndpoint(link.to) || link.to.node !== nodeId) continue
-        const matched = matchBoundaryItem(body.boundary.inputs, link.to)
+        const matched = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), link.to)
         const additions = matched.ok ? matched.item.alsoBinds?.length ?? 0 : 0
         for (let index = 0; index < additions; index++) {
           deliveryIds.set(JSON.stringify([link.id, index]), allocator.mint('l'))
@@ -1581,7 +1600,7 @@ const subgraphFlatten: CommandDefinition = {
       if (seen.has(key)) return undefined
       seen.add(key)
       if (isPortEndpoint(endpoint) && endpoint.node === nodeId) {
-        const match = matchBoundaryItem(body.boundary!.outputs, endpoint)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'outputs'), endpoint)
         const targets = match.ok ? targetsAt(match.item, endpoint.port) : undefined
         return targets?.length === 1 ? redirectFrom(endpointFromBinding(targets[0]!), seen) : undefined
       }
@@ -1627,7 +1646,7 @@ const subgraphFlatten: CommandDefinition = {
       let from = link.from
       if (isPortEndpoint(from) && from.node === nodeId) {
         fromShellOutput.add(id)
-        const match = matchBoundaryItem(body.boundary.outputs, from)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'outputs'), from)
         const targets = match.ok ? targetsAt(match.item, from.port) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: output '${from.port}' has an unmapped materialized route`, graphId, instancePath, nodeId, from)]
@@ -1644,7 +1663,7 @@ const subgraphFlatten: CommandDefinition = {
         from = { node: target.node, tap: target.port }
       }
       if (isPortEndpoint(link.to) && link.to.node === nodeId) {
-        const match = matchBoundaryItem(body.boundary.inputs, link.to)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), link.to)
         const targets = match.ok ? targetsAt(match.item, link.to.port) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: input '${link.to.port}' has no materialized target`, graphId, instancePath, nodeId, link.to)]
@@ -1703,7 +1722,7 @@ const subgraphFlatten: CommandDefinition = {
       if (occurrencePlan !== undefined && net.source.node === nodeId) continue
       let source = net.source
       if (source.node === nodeId) {
-        const match = matchBoundaryItem(body.boundary.outputs, source)
+        const match = matchBoundaryItem(boundaryItems(body.boundary, 'outputs'), source)
         const targets = match.ok ? targetsAt(match.item, source.port) : undefined
         if (targets === undefined) {
           return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: net source '${source.port}' has no materialized target`, graphId, instancePath, nodeId, source)]
@@ -1726,7 +1745,7 @@ const subgraphFlatten: CommandDefinition = {
         if (sink.node !== nodeId) sinks.push(sink)
         else if (occurrencePlan !== undefined) continue
         else {
-          const match = matchBoundaryItem(body.boundary.inputs, sink)
+          const match = matchBoundaryItem(boundaryItems(body.boundary, 'inputs'), sink)
           const targets = match.ok ? targetsAt(match.item, sink.port) : undefined
           if (targets === undefined) {
             return [lifecycleError('subgraph.flatten.stateUnresolved', `subgraph.flatten: net sink '${sink.port}' has no materialized target`, graphId, instancePath, nodeId, sink)]
@@ -1787,7 +1806,7 @@ const subgraphFlatten: CommandDefinition = {
         return { ...rest, binds: expanded[0]!, ...(expanded.length > 1 ? { alsoBinds: expanded.slice(1) } : {}) }
       }
       const inputs: BoundaryItem[] = []
-      for (const [itemIndex, item] of boundary.inputs.entries()) {
+      for (const [itemIndex, item] of boundaryItems(boundary, 'inputs').entries()) {
         const rewritten = rewriteItem(item, 'input', itemIndex)
         if (rewritten === undefined) {
           return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: enclosing input '${item.id}' cannot expand through the occurrence`, graphId, instancePath, nodeId)]
@@ -1795,14 +1814,14 @@ const subgraphFlatten: CommandDefinition = {
         inputs.push(rewritten)
       }
       const outputs: BoundaryItem[] = []
-      for (const [itemIndex, item] of boundary.outputs.entries()) {
+      for (const [itemIndex, item] of boundaryItems(boundary, 'outputs').entries()) {
         const rewritten = rewriteItem(item, 'output', itemIndex)
         if (rewritten === undefined || rewritten.alsoBinds !== undefined) {
           return [lifecycleError('subgraph.lifecycle.boundaryUnresolved', `subgraph.flatten: enclosing output '${item.id}' has no unique inner producer`, graphId, instancePath, nodeId)]
         }
         outputs.push(rewritten)
       }
-      boundary = { inputs, outputs }
+      boundary = mapBoundaryItems(boundary, (_item, side, index) => (side === 'inputs' ? inputs : outputs)[index])
     }
 
     for (const [id, link] of Object.entries(links)) {
@@ -1834,9 +1853,11 @@ const subgraphFlatten: CommandDefinition = {
       }
     }
     const groups = { ...(parentView.groups ?? {}) }
+    const groupIds = new Map<string, string>()
     for (const [index, oldId] of bodySelection.groupIds.entries()) {
       const old = bodyView!.groups![oldId]!
       const id = `grp${groupFloor + index}`
+      groupIds.set(oldId, id)
       const position = translatedPosition(translated, 'group', oldId)
       groups[id] = { ...old, id, bounds: { ...old.bounds, ...position } }
     }
@@ -1848,9 +1869,25 @@ const subgraphFlatten: CommandDefinition = {
       ...(parentView.guideNets ?? []).filter((id) => !removedParentNetIds.has(id)),
       ...(bodyView?.guideNets ?? []).map((id) => clonedNetIds.get(id)).filter((id): id is string => id !== undefined),
     ]
+    const bodyMembership = bodyView?.groupMembership ?? initialGroupMembership(bodyItems!.map((item) => ({
+      ...item, kind: item.kind === 'group' ? 'groups' as const : item.kind === 'node' ? 'nodes' as const : 'reroutes' as const,
+    })))
+    const clonedMembership = remapGroupMembership(bodyMembership, { nodes: nodeIds, reroutes: rerouteIds, groups: groupIds, boundary: new Map() })
+    const parentMembership = parentView.groupMembership === undefined ? undefined : remapGroupMembership(parentView.groupMembership, {
+      nodes: new Map(Object.keys(viewNodes).map((id) => [id, id])),
+      reroutes: new Map(Object.keys(viewReroutes).map((id) => [id, id])),
+      groups: new Map(Object.keys(groups).map((id) => [id, id])),
+      boundary: new Map(['inputs', 'outputs'].map((side) => [side, side])),
+    })
     const stagedView: GraphViewState = {
       ...parentView,
       nodes: viewNodes,
+      ...(groupCount > 0 || parentView.groupMembership !== undefined ? { groupMembership: {
+        nodes: { ...parentMembership?.nodes, ...clonedMembership.nodes },
+        reroutes: { ...parentMembership?.reroutes, ...clonedMembership.reroutes },
+        groups: { ...parentMembership?.groups, ...clonedMembership.groups },
+        boundary: { ...parentMembership?.boundary },
+      } } : {}),
       ...(Object.keys(viewReroutes).length > 0 || parentView.reroutes !== undefined ? { reroutes: viewReroutes } : {}),
       ...(Object.keys(groups).length > 0 || parentView.groups !== undefined ? { groups } : {}),
       ...(groupCount > 0 ? { groupSeq: groupFloor + groupCount } : {}),
