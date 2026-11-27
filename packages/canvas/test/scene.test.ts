@@ -2611,6 +2611,50 @@ describe('an editor on the Inputs panel', () => {
     }
   })
 
+  it('shows the entered occurrence group keys in a separately promoted picker', () => {
+    const { schema, diagnostics } = parseDinksterSchema('GroupPicker', { body: [
+      { kind: 'group', id: 'layers', grows: 'button', keys: { named: ['base', 'red', 'blue', 'gold'] },
+        value: { kind: 'input', id: 'weight', type: { kind: 'concrete', types: ['INT'] }, default: 1 } },
+      { kind: 'input', id: 'pick', type: { kind: 'concrete', types: ['COMBO'] },
+        widget: { type: 'COMBO', options: { formula: 'keys(layers)' } } },
+    ] })
+    if (!schema) throw new Error(JSON.stringify(diagnostics))
+    const graph = (id: string, nodes: unknown, body?: unknown) => ({ id, name: id, nodes,
+      links: {}, nets: {}, reroutes: {}, nextOrdinal: 10, ...(body ? { boundary: { body } } : {}) })
+    const bind = (id: string, node: string, port: string, kind: 'port' | 'construct') => ({
+      kind: 'input', id, ...(kind === 'port' ? { promoted: true } : {}), binds: { kind, node, port },
+    })
+    for (const depth of [1, 2]) {
+      const group = depth === 1 ? 'stack' : 'list'
+      const document = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'entered-group-options', root: 'root',
+        graphs: {
+          root: graph('root', {
+            first: { id: 'first', type: depth === 1 ? '#detail' : '#portrait', values: {}, dynamic: { [group]: { members: ['gold', 'red'] } } },
+            second: { id: 'second', type: depth === 1 ? '#detail' : '#portrait', values: {}, dynamic: { [group]: { members: ['blue', 'gold'] } } },
+          }),
+          detail: graph('detail', { sample: { id: 'sample', type: 'GroupPicker', values: {}, dynamic: { layers: { members: [] } } } },
+            [bind('stack', 'sample', 'layers', 'construct'), bind('selection', 'sample', 'pick', 'port')]),
+          ...(depth === 1 ? {} : { portrait: graph('portrait', { detail: { id: 'detail', type: '#detail', values: {}, dynamic: { stack: { members: ['base'] } } } },
+            [bind('list', 'detail', 'stack', 'construct'), bind('chosen', 'detail', 'selection', 'port')]) }),
+        }, view: { graphs: {} },
+      }).document!
+      const resolve = documentResolver(document, type => type === 'GroupPicker' ? schema : undefined)
+      for (const [id, keys] of [['first', ['gold', 'red']], ['second', ['blue', 'gold']]] as const) {
+        const path = [asNodeId(id), ...(depth === 1 ? [] : [asNodeId('detail')])]
+        const scene = buildScene({ document, graphId: 'detail', resolve, tokens: defaultTokens, measure,
+          widgetMeasure: () => ({ viewId: 'core.select', rows: 1 }),
+          occurrence: { owner: { instancePath: path.slice(0, -1), node: path.at(-1)! }, plannerAvailable: true },
+          occurrenceView: occurrenceDynamicView(document, resolve, path),
+        })
+        const panel = scene.boundaryNodes.find(node => node.side === 'inputs')!
+        expect(panel.layout.rows.find(row => row.kind === 'widget' && row.valueKey === 'selection')).toMatchObject({
+          spec: { options: { options: depth === 1 ? keys : ['base', ...keys] } },
+          familyOwner: { graphId: 'root', nodeId: id, valueKey: depth === 1 ? 'selection' : 'chosen' },
+        })
+      }
+    }
+  })
+
   it('shows native lookup options for the entered occurrence through renamed boundaries', () => {
     const { schema, diagnostics } = parseDinksterSchema('Picker', { body: [
       { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] }, pin: false, sent: false,

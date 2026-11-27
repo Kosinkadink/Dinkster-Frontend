@@ -707,7 +707,10 @@ describe('whole constructs on the subgraph node', () => {
     const { schema: picker, diagnostics } = parseDinksterSchema('GroupPicker', { body: [
       { kind: 'group', id: 'layers', grows: 'button', keys: { named: ['red', 'blue', 'gold'] },
         value: { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 } },
-      { kind: 'input', id: 'pick', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', options: { formula: 'keys(layers)' } } },
+      { kind: 'input', id: 'pick', label: 'Selected layer', tooltip: 'Choose an existing member',
+        required: false, onAbsent: 'omit', readOnly: false, disabled: false, disabledReason: 'Selection unavailable',
+        acceptsStorage: true, acceptsStream: true, type: { kind: 'concrete', types: ['COMBO'] },
+        widget: { type: 'COMBO', options: { formula: 'keys(layers)' } } },
     ] } as never)
     expect(diagnostics).toEqual([])
     const inner = asDef({ id: 'gW', name: 'Detail pass', nodes: { sample: { id: 'sample', type: 'GroupPicker', values: {}, dynamic: { layers: { members: [] } } } },
@@ -732,7 +735,15 @@ describe('whole constructs on the subgraph node', () => {
     const options = (node: typeof first) => {
       const result = elaborateInterface(schema, node)
       expect(result.diagnostics).toEqual([])
-      return elabInputsOf(result).find((row) => row.spec.id === selection)!.spec.widget!.options['options']
+      const { outer: _scope, lookupScope: _lookup, ...field } = elabInputsOf(result).find((row) => row.spec.id === selection)!.spec
+      expect(field).toEqual({
+        kind: 'input', id: selection, type: { kind: 'concrete', name: 'COMBO' }, optional: true,
+        onAbsent: 'omit', displayName: 'Selected layer', tooltip: 'Choose an existing member',
+        readOnly: false, disabled: false, disabledReason: 'Selection unavailable', acceptsStorage: true, acceptsStream: true,
+        widget: { widgetType: 'COMBO', options: { options: node.dynamic[group]!.members },
+          looked: { options: { formula: 'keys(layers)' } } },
+      })
+      return field.widget!.options['options']
     }
     expect(options(first)).toEqual(['gold', 'red'])
     expect(options(second)).toEqual(['red', 'blue'])

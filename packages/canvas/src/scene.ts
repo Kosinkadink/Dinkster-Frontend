@@ -1809,8 +1809,11 @@ export function buildScene(input: BuildSceneInput): Scene {
       const fieldSchema = (ownerNode !== undefined && ownerGraph !== undefined
         ? resolveNode(ownerGraph.id, ownerNode, input.occurrence!.owner.instancePath)
         : resolveNode(def.id, fieldNode)) ?? derived
+      const ownerDynamic = ownerNode === undefined ? undefined
+        : occurrenceDynamicView(input.document, input.resolve, input.occurrence!.owner.instancePath).dynamic.get(ownerNode.id) ?? ownerNode.dynamic
       const flatSchema = { ...fieldSchema, body: inputsOf(fieldSchema).filter((item) => fieldOwners.has(item.id)) }
-      fieldElaborated = elaborateShown(flatSchema, fieldNode, EMPTY_CONNECTIVITY, fieldNode.id, undefined, fieldRepresentations, false)
+      fieldElaborated = elaborateShown(flatSchema, { ...fieldNode, ...(ownerDynamic !== undefined ? { dynamic: ownerDynamic } : {}) },
+        EMPTY_CONNECTIVITY, fieldNode.id, undefined, fieldRepresentations, false)
       const outside = layoutNode(fieldSchema, fieldNode, input.tokens, measure, input.widgetMeasure, {
         elaborated: fieldElaborated,
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
