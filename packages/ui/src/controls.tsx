@@ -452,7 +452,12 @@ export function ProductCheckbox(
   const [local, input] = splitProps(props, ['label', 'children'])
   return (
     <label class="dinkster-choice">
-      <input {...input} type="checkbox" class="dinkster-check" />
+      <input
+        {...input}
+        type="checkbox"
+        class="dinkster-check dinkster-visually-hidden"
+      />
+      <span class="product-checkbox-mark" aria-hidden="true" />
       <span>{local.label}</span>
     </label>
   )
