@@ -121,6 +121,18 @@ export interface OccurrenceDynamicView {
   readonly selectorOwners: ReadonlyMap<string, ReadonlyMap<string, SelectorOwner>>
   /** Per inner-node, per family construct: occurrence-local suffix owner. */
   readonly familyOwners: ReadonlyMap<string, ReadonlyMap<string, FamilyOwner>>
+  /**
+   * Per value source a promoted boundary input binds: where an edit of the
+   * input must be written, and the value and controller the occurrence
+   * gives the source when it sets one.
+   */
+  readonly valueSources: ReadonlyMap<string, OccurrenceValueSource>
+}
+
+export interface OccurrenceValueSource {
+  readonly owner: ValueOwner
+  readonly value?: Json
+  readonly controller?: NonNullable<NodeData['controllers']>[string]
 }
 
 interface InputEvidence {
@@ -166,7 +178,7 @@ export function occurrenceDynamicView(
   instancePath: readonly string[],
   rootGraph: string = doc.root,
 ): OccurrenceDynamicView {
-  const empty = (): OccurrenceDynamicView => ({ inputPorts: new Map(), dynamic: new Map(), values: new Map(), controllers: new Map(), subtreeOwners: new Map(), valueOwners: new Map(), selectorOwners: new Map(), familyOwners: new Map() })
+  const empty = (): OccurrenceDynamicView => ({ inputPorts: new Map(), dynamic: new Map(), values: new Map(), controllers: new Map(), subtreeOwners: new Map(), valueOwners: new Map(), selectorOwners: new Map(), familyOwners: new Map(), valueSources: new Map() })
 
   const resolveNode = documentNodeResolver(doc, resolve)
   const effectiveState = boundaryStateResolver(doc, resolveNode)
@@ -178,6 +190,7 @@ export function occurrenceDynamicView(
   let valueOwners = new Map<string, ReadonlyMap<string, ValueOwner>>()
   let owners = new Map<string, ReadonlyMap<string, SelectorOwner>>()
   let familyOwners = new Map<string, ReadonlyMap<string, FamilyOwner>>()
+  let valueSources: OccurrenceDynamicView['valueSources'] = new Map()
   const traversedPath: string[] = []
   let inputEvidence = authoredInputEvidence(doc, def, traversedPath)
   const inheritBody = (body: GraphDef | undefined): void => {
@@ -216,6 +229,7 @@ export function occurrenceDynamicView(
     const childValueOwners = new Map<string, Map<string, ValueOwner>>()
     const childOwners = new Map<string, Map<string, SelectorOwner>>()
     const childFamilyOwners = new Map<string, Map<string, FamilyOwner>>()
+    const childValueSources = new Map<string, OccurrenceValueSource>()
     // A recorded route ends in this body; only unrecorded deliveries may continue freely.
     const instanceEvidence = inputEvidence.filter(({ ref, route }) => ref.node === node.id && route?.length !== 0)
     const instanceInputs = instanceEvidence.map(({ ref }) => ref.port)
@@ -246,6 +260,11 @@ export function occurrenceDynamicView(
     for (const item of child.boundary.inputs) {
       if (item.promoted !== true) continue
       const owner = valueOwners.get(hop)?.get(item.id) ?? { graphId: def.id, nodeId: hop, valueKey: item.id }
+      if (item.binds.kind === 'valueSource') childValueSources.set(item.binds.valueSource, {
+        owner,
+        ...(Object.hasOwn(instanceValues, item.id) ? { value: instanceValues[item.id]! } : {}),
+        ...(Object.hasOwn(instanceControllers ?? {}, item.id) ? { controller: instanceControllers![item.id]! } : {}),
+      })
       for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (binding.kind !== 'port') continue
         const target = child.nodes[binding.node]
@@ -390,6 +409,7 @@ export function occurrenceDynamicView(
     valueOwners = childValueOwners
     owners = childOwners
     familyOwners = childFamilyOwners
+    valueSources = childValueSources
     inputEvidence = childEvidence
     traversedPath.push(hop)
     inheritBody(def)
@@ -400,5 +420,5 @@ export function occurrenceDynamicView(
     if (!inputPorts.has(ref.node)) inputPorts.set(ref.node, ports)
     if (!ports.includes(ref.port)) ports.push(ref.port)
   }
-  return { inputPorts, dynamic: overlays, values, controllers, subtreeOwners, valueOwners, selectorOwners: owners, familyOwners }
+  return { inputPorts, dynamic: overlays, values, controllers, subtreeOwners, valueOwners, selectorOwners: owners, familyOwners, valueSources }
 }

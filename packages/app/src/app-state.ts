@@ -2827,6 +2827,12 @@ export class AppState {
    * the Context panel. Undefined while no widget editor is open.
    */
   readonly widgetFocus: Signal<WidgetFocus | undefined> = createSignal<WidgetFocus | undefined>(undefined)
+  /**
+   * The boundary input the Boundary panel shows selected, set by a click on
+   * a field's subgraph mark. Session state, never serialized.
+   */
+  readonly boundaryFocus: Signal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined> =
+    createSignal<{ readonly tabId: string; readonly graphId: string; readonly item: string } | undefined>(undefined)
 
   /** Default backend's schema registry (single-backend code path). */
   readonly registry: Signal<SchemaRegistry | undefined>
@@ -3257,10 +3263,11 @@ export class AppState {
     this.settings.register({ id: 'search.registryUrl', get name() { return t('search.registryUrl.name') }, get description() { return t('search.registryUrl.description') }, category: 'search', type: 'string', defaultValue: 'https://registry.dinkster.org/static' })
     this.frontendDoors.canvasLayer('core.canvas.grid', canvasGridLayer(defaultTokens))
     this.frontendDoors.nodeDecoration('core.node.mode', {
+      // The decoration contract has no title placement, so the mode tabs name their side.
       decorate: (node) => node.mode === 'muted'
-        ? { badges: [MUTED_BADGE] }
+        ? { badges: [{ ...MUTED_BADGE, placement: 'above' }] }
         : node.mode === 'bypassed'
-          ? { badges: [BYPASSED_BADGE] }
+          ? { badges: [{ ...BYPASSED_BADGE, placement: 'above' }] }
           : undefined,
     })
     registerCoreWidgets(this.frontendDoors)

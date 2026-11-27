@@ -162,6 +162,7 @@
   "modelConsent.phase.failed": "传输失败。重新查看后可明确重试。",
   "common.close": "关闭",
   "saveTargetWidget.title": "保存目标",
+  "saveTargetWidget.default": "默认输出",
   "saveTargetWidget.mount": "可写挂载点",
   "saveTargetWidget.prefix": "相对文件名前缀",
   "saveTargetWidget.naming": "仅填写子文件夹与文件名主体。保存时自动添加编号和 {suffix}。",
@@ -1638,6 +1639,7 @@
   "load3dWidget.pauseAnimation": "暂停动画",
   "load3dWidget.recordingFailed": "视口录制失败。",
   "load3dWidget.record": "录制视口",
+  "load3dWidget.nothingChanged": "尚未更改",
   "load3dWidget.stopRecording": "停止录制",
   "load3dWidget.help": "旋转查看所选模型并编辑其位置。图像输入按节点宽高捕获场景、透明度遮罩和法线；视口状态输入仅保存元数据，不捕获图像。取消不会更改文档。"
 }

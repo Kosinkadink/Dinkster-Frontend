@@ -2104,6 +2104,7 @@ export interface BoundaryCut {
     readonly binds: BoundaryBinding
     readonly alsoBinds?: readonly BoundaryBinding[]
     readonly promoted?: true
+    readonly wireHidden?: true
     readonly displayName?: string
   }
   readonly promoted: boolean
@@ -2352,6 +2353,7 @@ export function auditExtractionCuts(
             binds: nestedBindings[0]!,
             ...(nestedBindings.length > 1 ? { alsoBinds: nestedBindings.slice(1) } : {}),
             ...(item.promoted === true ? { promoted: true as const } : {}),
+            ...(item.wireHidden === true ? { wireHidden: true as const } : {}),
             ...(item.displayName !== undefined ? { displayName: item.displayName } : {}),
           }
         : undefined

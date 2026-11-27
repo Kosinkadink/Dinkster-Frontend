@@ -19,6 +19,10 @@ import Minus from 'lucide/dist/esm/icons/minus.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Dice5 from 'lucide/dist/esm/icons/dice-5.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ArrowUp from 'lucide/dist/esm/icons/arrow-up.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ArrowDown from 'lucide/dist/esm/icons/arrow-down.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Boxes from 'lucide/dist/esm/icons/boxes.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import FolderOpen from 'lucide/dist/esm/icons/folder-open.mjs'
@@ -55,7 +59,41 @@ import List from 'lucide/dist/esm/icons/list.mjs'
 import ListChecks from 'lucide/dist/esm/icons/list-checks.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Spline from 'lucide/dist/esm/icons/spline.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Mic from 'lucide/dist/esm/icons/mic.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Camera from 'lucide/dist/esm/icons/camera.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Box from 'lucide/dist/esm/icons/box.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Crop from 'lucide/dist/esm/icons/crop.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Columns2 from 'lucide/dist/esm/icons/columns-2.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import FolderOutput from 'lucide/dist/esm/icons/folder-output.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Film from 'lucide/dist/esm/icons/film.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Rotate3d from 'lucide/dist/esm/icons/rotate-3d.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Layers from 'lucide/dist/esm/icons/layers.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Ruler from 'lucide/dist/esm/icons/ruler.mjs'
 
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import CircleX from 'lucide/dist/esm/icons/circle-x.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ListTree from 'lucide/dist/esm/icons/list-tree.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ScrollText from 'lucide/dist/esm/icons/scroll-text.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Forward from 'lucide/dist/esm/icons/forward.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Archive from 'lucide/dist/esm/icons/archive.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Unplug from 'lucide/dist/esm/icons/unplug.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import Repeat from 'lucide/dist/esm/icons/repeat.mjs'
 import type { ToolboxButton } from './toolbox.js'
 import { canvasPaintTokens } from './tokens.js'
 
@@ -67,6 +105,17 @@ const CONTROLLER_ICONS: Record<SeedControllerMode, IconNode> = {
   fixed: Lock,
   increment: Plus,
   decrement: Minus,
+  randomize: Dice5,
+}
+
+/**
+ * In-row editing draws the mode beside the row's own minus and plus buttons,
+ * so increment and decrement are arrows there rather than a third plus or minus.
+ */
+const SEED_MODE_ICONS: Record<SeedControllerMode, IconNode> = {
+  fixed: Lock,
+  increment: ArrowUp,
+  decrement: ArrowDown,
   randomize: Dice5,
 }
 
@@ -82,6 +131,16 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   list: List,
   'list-checks': ListChecks,
   spline: Spline,
+  mic: Mic,
+  camera: Camera,
+  box: Box,
+  crop: Crop,
+  'columns-2': Columns2,
+  'folder-output': FolderOutput,
+  film: Film,
+  'rotate-3d': Rotate3d,
+  layers: Layers,
+  ruler: Ruler,
   'volume-x': VolumeX,
   ban: Ban,
   play: Play,
@@ -108,9 +167,24 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   'sliders-horizontal': SlidersHorizontal,
   'panel-top-close': PanelTopClose,
   'panel-top-open': PanelTopOpen,
+  'circle-x': CircleX,
+  'list-tree': ListTree,
+  'scroll-text': ScrollText,
+  forward: Forward,
+  archive: Archive,
+  unplug: Unplug,
+  repeat: Repeat,
+  lock: Lock,
 }
 
-/** Paint Lucide's 24px SVG node data into a square canvas button. */
+/** Whether a name from outside the canvas, such as an extension badge's icon, is one the canvas paints. */
+export const isCanvasIconName = (name: string): name is NonNullable<ToolboxButton['icon']> => Object.hasOwn(ICONS, name)
+
+/**
+ * Paint a Lucide icon with its 24-unit box drawn at exactly `size` px from
+ * (x, y). A caller that sets an icon inside a larger box, such as a button,
+ * works out the icon's size and place itself.
+ */
 export function paintToolboxIcon(
   ctx: CanvasRenderingContext2D,
   icon: NonNullable<ToolboxButton['icon']>,
@@ -144,11 +218,22 @@ export function paintSeedControllerIcon(
   paintIcon(ctx, CONTROLLER_ICONS[mode], x, y, size, color)
 }
 
+/** Paint a seed's after-run mode as drawn before the value of an in-row number. */
+export function paintSeedModeIcon(
+  ctx: CanvasRenderingContext2D,
+  mode: SeedControllerMode,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+): void {
+  paintIcon(ctx, SEED_MODE_ICONS[mode], x, y, size, color)
+}
+
 function paintIcon(ctx: CanvasRenderingContext2D, nodes: IconNode, x: number, y: number, size: number, color: string): void {
-  const pad = size * canvasPaintTokens.icon.paddingRatio
-  const scale = (size - pad * 2) / canvasPaintTokens.icon.viewBoxSize
+  const scale = size / canvasPaintTokens.icon.viewBoxSize
   ctx.save()
-  ctx.translate(x + pad, y + pad)
+  ctx.translate(x, y)
   ctx.scale(scale, scale)
   ctx.strokeStyle = color
   ctx.lineWidth = canvasPaintTokens.icon.stroke

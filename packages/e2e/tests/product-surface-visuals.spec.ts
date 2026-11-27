@@ -1,4 +1,4 @@
-import { expect, nativeAppViewTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, nativeAppViewTest as test, subgraphMarkPoint, waitForWorkspaceReady, type Page } from './fixtures.js'
 import type { Route } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
@@ -510,15 +510,9 @@ test('Boundary is hidden at root and shows definition empty states at desktop an
       }, 'Boundary visual')
     })).toEqual([])
     await expect(page.getByTestId('boundary-panel')).toHaveCount(0)
-    const header = await page.evaluate(() => {
-      const renderer = window.__dinksterTest!.renderer!
-      renderer.setViewport({ x: 0, y: 0, scale: 1 })
-      const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'occurrence')!
-      const point = { x: node.x + node.layout.width / 2, y: node.y + node.layout.headerHeight / 2 }
-      const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-      return { x: rect.left + point.x, y: rect.top + point.y }
-    })
-    await page.mouse.dblclick(header.x, header.y)
+    await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 }))
+    const mark = await subgraphMarkPoint(page, 'occurrence')
+    await page.mouse.dblclick(mark.x, mark.y)
     await openRail(page, 'Boundary')
     await expect(page.getByTestId('boundary-prompt')).toHaveCount(0)
     await expect(page.getByTestId('boundary-empty')).toHaveCount(2)

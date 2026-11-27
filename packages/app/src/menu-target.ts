@@ -209,6 +209,7 @@ export function widgetMenuTarget(
     kind: 'widget',
     nodeId,
     inputId: row.inputId,
+    address: { port: row.address.port, ...(row.address.members?.length ? { members: row.address.members } : {}) },
     ...owner,
     ...(synthetic ? { synthetic: true as const } : {}),
   }
@@ -275,7 +276,9 @@ export function menuTargetOf(hit: Hit): MenuTarget {
           : {}),
       }
     case 'widget':
-      return widgetMenuTarget(hit.node.id, hit.row)
+      // A field on a subgraph's Inputs panel belongs to the panel, which has
+      // no menu of its own.
+      return hit.bnode !== undefined ? { kind: 'canvas' } : widgetMenuTarget(hit.node.id, hit.row)
     case 'section':
       return {
         kind: 'section',

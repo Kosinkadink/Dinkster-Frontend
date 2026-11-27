@@ -254,7 +254,9 @@ that dependency and projects it into both injected CSS custom properties
 and typed canvas tokens. There is no separate hand-maintained theme CSS.
 The dark frame is `#090D0D`; the light frame uses the existing raised shade,
 `#EDEFF2`. Node value fields have their own `bg.field` role, dark `#0B1111`
-and light `#F7F8FA`. Queued and skipped node outlines have dedicated
+and light `#F7F8FA`; an open field uses `bg.fieldOpen`, dark `#060A0A`. A
+node's title rule uses `border.divider`, dark `#222E2F`, and a group's
+outline `border.group`, dark `#435557`; in light both keep `border.default`. Queued and skipped node outlines have dedicated
 `border.pending` and `border.skipped` entries; their light values remain
 `#5C5C5C` and `#7D8792`.
 

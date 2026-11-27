@@ -162,6 +162,7 @@
   "modelConsent.phase.completed": "Verified and ready. Run once remains a separate action.",
   "modelConsent.phase.failed": "Transfer failed. Review again for a fresh explicit retry.",
   "saveTargetWidget.title": "Save destination",
+  "saveTargetWidget.default": "Default output",
   "saveTargetWidget.mount": "Writable mount",
   "saveTargetWidget.prefix": "Relative filename prefix",
   "saveTargetWidget.naming": "Subfolders and filename stem only. The writer adds numbering and {suffix}.",
@@ -1638,6 +1639,7 @@
   "load3dWidget.pauseAnimation": "Pause animation",
   "load3dWidget.recordingFailed": "Viewport recording failed.",
   "load3dWidget.record": "Record viewport",
+  "load3dWidget.nothingChanged": "Nothing changed yet",
   "load3dWidget.stopRecording": "Stop recording",
   "load3dWidget.help": "Orbit the selected model and edit its placement. Image slots capture scene, alpha mask and normals at the node's width and height; viewport state slots store metadata without captures. Cancel leaves the document unchanged."
 }

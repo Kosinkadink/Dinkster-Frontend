@@ -291,7 +291,8 @@ function semanticGraph(g: GraphDef, isVirtualType: (type: string) => boolean): J
     ),
     links: semanticConnections(g),
     nets: g.nets,
-    ...(g.boundary ? { boundary: g.boundary } : {}),
+    // Whether a boundary input's wire is drawn is presentation only.
+    ...(g.boundary ? { boundary: { ...g.boundary, inputs: g.boundary.inputs.map(({ wireHidden: _wireHidden, ...item }) => item) } } : {}),
     // Guarded on non-empty so `selectors: {}` and absent hash identically.
     ...(selectors.length > 0
       ? { selectors: Object.fromEntries(selectors.map(([k, s]) => [k, semanticSelector(s)])) }

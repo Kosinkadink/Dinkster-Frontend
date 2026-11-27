@@ -10,6 +10,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { render } from 'solid-js/web'
+import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
   CircleAlert,
@@ -77,7 +78,13 @@ import {
   type ProductAttention,
 } from '../src/index.js'
 import '../dist/dinkster.css'
-import { CanvasGallery } from './canvas.js'
+import {
+  CanvasGallery,
+  canvasNavigationGroups,
+  canvasPage,
+  canvasPageHref,
+  selectCanvasPage,
+} from './canvas.js'
 import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 
@@ -88,7 +95,12 @@ const navigation = [
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
-  { label: 'Canvas', href: '#canvas', icon: LayoutList },
+  {
+    label: 'Canvas',
+    href: '#canvas',
+    icon: LayoutList,
+    groups: canvasNavigationGroups,
+  },
   { label: 'Desktop information', href: '#desktop-about', icon: User },
 ]
 
@@ -120,6 +132,11 @@ function Gallery() {
   let navigationTimer: number | undefined
   onCleanup(() => window.clearTimeout(navigationTimer))
   const navigate = (href: string) => {
+    if (href.startsWith('?page=')) {
+      selectCanvasPage(href)
+      if (route() === '#canvas') return
+      href = '#canvas'
+    }
     window.clearTimeout(navigationTimer)
     window.location.hash = href
     setRoute(href)
@@ -140,8 +157,11 @@ function Gallery() {
     <ProductShell
       title="Component gallery"
       navigation={route() === '#signed-out' ? [] : navigation}
-      currentHref={route()}
+      currentHref={
+        route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
+      }
       onNavigate={navigate}
+      contentDensity={route() === '#canvas' ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -159,7 +179,11 @@ function Gallery() {
             : (navigation.find((item) => item.href === route())?.label ??
               (route() === '#resource-usage' ? 'Resource usage' : 'Buttons and fields'))
         }
-        description="The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states."
+        description={
+          route() === '#canvas'
+            ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
+            : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
+        }
         table={route() === '#lists' || route() === '#canvas'}
       >
         <Show
@@ -994,9 +1018,11 @@ function Gallery() {
             </Match>
           </Switch>
         </Show>
-        <p class="dinkster-metadata" role="status">
-          {activity()}
-        </p>
+        <Show when={route() !== '#canvas'}>
+          <p class="dinkster-metadata" role="status">
+            {activity()}
+          </p>
+        </Show>
       </ProductPage>
       <ProductToast
         notification={toast()}
@@ -1027,6 +1053,11 @@ function Gallery() {
     </ProductShell>
   )
 }
+
+// The same width at which the stylesheet switches to the narrow layout.
+const narrowQuery = matchMedia(
+  `(max-width: ${components.layout.sidebarBreakpoint}px)`,
+)
 
 function WindowToolbarGallery() {
   const [state, setState] = createSignal('idle')
@@ -1387,14 +1418,21 @@ function WindowToolbarGallery() {
 
 function GalleryRoot() {
   const [route, setRoute] = createSignal(window.location.hash)
+  const [narrow, setNarrow] = createSignal(narrowQuery.matches)
+  // The site pages use the site form throughout. The gallery uses the Canvas
+  // page's frame, except that below the breakpoint its other pages keep the
+  // site form's narrow frame; their content always uses the site form.
   createEffect(() => {
-    document.documentElement.dataset.density = [
-      '#canvas',
-      '#window-toolbar',
-      '#editor-bar',
-    ].includes(route())
-      ? 'app'
-      : 'site'
+    document.documentElement.dataset.density = route().startsWith('#site-')
+      ? 'site'
+      : !['#canvas', '#window-toolbar', '#editor-bar'].includes(route()) && narrow()
+        ? 'site'
+        : 'app'
+  })
+  onMount(() => {
+    const change = () => setNarrow(narrowQuery.matches)
+    narrowQuery.addEventListener('change', change)
+    onCleanup(() => narrowQuery.removeEventListener('change', change))
   })
   onMount(() => {
     const update = () => setRoute(window.location.hash)

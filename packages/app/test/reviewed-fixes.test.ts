@@ -3,8 +3,8 @@ import { coreCommandRegistry, DocumentStore, type MenuItem, type NodeSchema } fr
 import { type Scene } from '@dinkster/canvas'
 
 vi.mock('lucide-solid', () => ({
-  Ban: {}, Check: {}, CirclePlay: {}, Copy: {}, CopyPlus: {}, Eye: {}, FolderOpen: {}, Group: {},
-  Palette: {}, SlidersHorizontal: {}, Trash2: {}, Ungroup: {}, VolumeX: {}, X: {},
+  ArrowDown: {}, ArrowUp: {}, Ban: {}, Check: {}, CirclePlay: {}, Copy: {}, CopyPlus: {}, Dice5: {}, Eye: {},
+  FolderOpen: {}, Group: {}, Lock: {}, Palette: {}, SlidersHorizontal: {}, Trash2: {}, Ungroup: {}, VolumeX: {}, X: {},
 }))
 
 import { menuStep, rootPanelPosition, submenuPanelPosition } from '../src/ContextMenu.js'

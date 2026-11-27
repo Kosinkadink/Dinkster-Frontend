@@ -9,6 +9,7 @@ import type { Json } from '@dinkster/core'
 import { InteractionController } from '../src/interaction.js'
 import type { LayoutRow } from '../src/layout.js'
 import type { Scene, SceneLink } from '../src/scene.js'
+import { defaultTokens } from '../src/tokens.js'
 
 const entries: Array<[string, Json]> = [
   ['INT', 7], ['FLOAT', 1.25], ['STRING line', 'hello'],
@@ -49,6 +50,7 @@ function controllerFor(scene: Scene, activate: (hit: unknown, x: number, y: numb
     cancelViewportAnimation: () => undefined,
     getOverlay: () => ({}), setOverlay: () => {}, onSceneReplaced: () => () => {}, getBadges: () => ({}),
     getToolboxLayout: () => undefined,
+    getDesignTokens: () => defaultTokens,
   } as never, { dispatch: () => ({ ok: true }), onWidgetActivate: activate })
   const click = (x: number, y: number) => {
     const event = { clientX: x, clientY: y, button: 0, pointerId: 1, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, preventDefault: () => {} }

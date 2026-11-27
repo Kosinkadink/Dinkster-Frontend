@@ -5,7 +5,7 @@
  * quantization, min/max clamping, and the randomize grids.
  */
 import { describe, expect, it } from 'vitest'
-import { numericStepConstraints, randomNumericValue, stepNumericValue } from '../src/index.js'
+import { dragNumericValue, numericStepConstraints, randomNumericValue, stepNumericValue } from '../src/index.js'
 
 describe('numericStepConstraints', () => {
 
@@ -146,5 +146,32 @@ describe('randomNumericValue', () => {
     // valid grid point is 0.2 - clamping to this max would be off-grid.
     const float = numericStepConstraints({ widgetType: 'FLOAT', options: { min: 0, max: 0.29999999999996, step: 0.1 } })
     expect(randomNumericValue(float, () => 0.999999)).toBe(0.2)
+  })
+})
+
+describe('dragNumericValue', () => {
+  const cfg = numericStepConstraints({ widgetType: 'FLOAT', options: { min: 0, max: 100, step: 0.01 } })
+
+  it('moves one step per 4 px near the press, then faster with distance, and back to the start value', () => {
+    expect(dragNumericValue(7, 40, cfg)).toBe(7.1)
+    expect(dragNumericValue(7, -40, cfg)).toBe(6.9)
+    expect(dragNumericValue(7, 3, cfg)).toBe(7)
+    // 25 + ((200 - 100) / 4)^2 = 650 steps at 200 px; 2,525 at 300 px.
+    expect(dragNumericValue(7, 200, cfg)).toBe(13.5)
+    expect(dragNumericValue(7, 300, cfg)).toBe(32.25)
+    expect(dragNumericValue(7, 0, cfg)).toBe(7)
+  })
+
+  it('is ten times faster with Shift and stays inside the limits', () => {
+    expect(dragNumericValue(7, 40, cfg, true)).toBe(8)
+    expect(dragNumericValue(7, 400, cfg)).toBe(63.5)
+    expect(dragNumericValue(7, 2000, cfg)).toBe(100)
+    expect(dragNumericValue(7, -2000, cfg)).toBe(0)
+  })
+
+  it('keeps 64-bit whole numbers exact', () => {
+    const seed = numericStepConstraints({ widgetType: 'INT', options: { min: 0, max: '18446744073709551615' } })
+    expect(dragNumericValue('18446744073709551600', 40, seed)).toBe('18446744073709551610')
+    expect(dragNumericValue('18446744073709551600', 400, seed)).toBe('18446744073709551615')
   })
 })

@@ -2,14 +2,15 @@
  * Companion (propagated) value painting: when a widget row carries a
  * companion, BOTH painters render the companion text in the shared
  * read-only style (companion color, italic, right-aligned) instead of the
- * stored value, and the registry painter never consults the kind view -
- * companion display is one style for every widget kind by contract.
+ * stored value. The registry painter takes only the text its kind view
+ * shows for the value, never the view's presentation - companion display
+ * is one style for every widget kind by contract.
  */
-import type { WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
+import type { Json, WidgetKind, WidgetRegistry, WidgetView } from '@dinkster/core'
 import { describe, expect, it } from 'vitest'
 import { createRegistryPainter } from '../src/registry-painter.js'
 import { defaultWidgetPainter, type WidgetPaintArgs } from '../src/renderer.js'
-import { defaultTokens } from '../src/tokens.js'
+import { defaultTokens, type DesignTokens } from '../src/tokens.js'
 import type { LayoutRow } from '../src/layout.js'
 
 interface TextCall {
@@ -164,8 +165,8 @@ describe('companion value painting', () => {
     expect(companion.fill).toBe(defaultTokens.colors.companionUnproven)
     expect(companion.alpha).toBe(1)
     expect(strikes).toEqual([{
-      from: [170, 16],
-      to: [188, 16],
+      from: [160, 16],
+      to: [178, 16],
       color: defaultTokens.colors.companionUnproven,
       width: 1,
       dash: [1, 2],
@@ -187,12 +188,47 @@ describe('companion value painting', () => {
     expect(strikes).toEqual([])
   })
 
+  it('registry painter shows a passed value as its own row would summarize it, a color code after its square', () => {
+    const curveView: WidgetView = {
+      ...stubView, id: 'core.curve', kind: 'CURVE',
+      drawCompact: (scene, value) => scene.text(1, 0, `${(value as { points: unknown[] }).points.length} points`, { role: 'widgetValue', align: 'right', width: 1 }),
+    }
+    const colorView: WidgetView = {
+      ...stubView, id: 'core.color', kind: 'COLOR',
+      drawCompact: (scene, value) => scene.text(1, 0, String(value), { role: 'widgetValue', align: 'right', width: 1, swatch: value }),
+    }
+    const views = [curveView, colorView]
+    const summaries: WidgetRegistry = {
+      ...registry,
+      kind: (type) => ({ ...stubKind, type }),
+      viewsFor: (type) => views.filter((view) => view.kind === type),
+    }
+    const paintPassed = (view: WidgetView, value: Json, look: DesignTokens['widgetRowLook']) => {
+      const painted = fakeCtx()
+      const fills: string[] = []
+      const ctx = painted.ctx as unknown as { fillRect: () => void; fillStyle: string }
+      ctx.fillRect = () => fills.push(ctx.fillStyle)
+      createRegistryPainter(summaries)({
+        ...argsWith(painted.ctx, { companion: { value }, connected: true, tokens: { ...defaultTokens, widgetRowLook: look } }),
+        row: { ...row, viewId: view.id, spec: { widgetType: view.kind, options: {} } },
+      })
+      return { texts: painted.calls.map((call) => call.text), fills }
+    }
+    const curve = { points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] }
+    expect(paintPassed(curveView, curve, 'raised-editors').texts).toContain('2 points')
+    expect(paintPassed(curveView, curve, 'inset-raised').texts.some((text) => text.startsWith('{"points"'))).toBe(true)
+    const color = paintPassed(colorView, '#3366cc80', 'raised-editors')
+    expect(color.texts).toContain('#3366cc80')
+    expect(color.fills).toContain('#3366cc80')
+    expect(paintPassed(colorView, '#3366cc80', 'inset-raised').fills).not.toContain('#3366cc80')
+  })
+
   it('registry painter strikes compact-view value text when connected without a companion', () => {
     const { ctx, strikes } = fakeCtx()
     createRegistryPainter(registry)(argsWith(ctx, { connected: true }))
     expect(strikes).toEqual([{
-      from: [174, 12],
-      to: [186, 12],
+      from: [164, 12],
+      to: [176, 12],
       color: defaultTokens.colors.value,
       width: 1.5,
       dash: [],

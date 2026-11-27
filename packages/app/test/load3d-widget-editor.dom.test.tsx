@@ -214,6 +214,10 @@ it.each(['stored', 'tap', 'broken-link', 'broken-net', 'capture-close', 'capture
     let capturing = false
     fixtures.capture = () => { capturing = true; return pending }
     fail = false
+    expect(button('Apply').disabled).toBe(true)
+    expect(document.body.textContent).toContain('Nothing changed yet')
+    document.querySelector('[data-testid="load3d-viewport"]')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    expect(button('Apply').disabled).toBe(false)
     button('Apply').click()
     {
       await vi.waitFor(() => expect(capturing).toBe(true))
@@ -312,6 +316,7 @@ it.each(['read', 'upload'] as const)('refuses a stored-source backend retarget d
   }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
   if (phase === 'upload') {
     await vi.waitFor(() => expect(document.querySelector('#load3d-position-x')).not.toBeNull())
+    document.querySelector('[data-testid="load3d-viewport"]')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
     Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!.click()
   }
   await vi.waitFor(() => expect(entered).toBe(true))
@@ -411,6 +416,7 @@ it.each(['valid', 'explicit-precedence', 'empty-gltf', 'empty-glb', 'empty-obj',
   expect(fixtures.loads[0]?.resources).toEqual({ 'buffers/mesh.bin': 'blob:fixture' })
   expect(document.querySelector<HTMLInputElement>('#load3d-position-x')!.value).toBe('7')
   expect(document.body.textContent).not.toContain('Record viewport')
+  document.querySelector('[data-testid="load3d-viewport"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
   Array.from(document.querySelectorAll('button')).find((element) => element.textContent === 'Apply')!.click()
   await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual({ ...initial,
     camera_info: cameraInfo, model_3d_info: models,
@@ -549,6 +555,7 @@ it.each(['current', 'nested', 'stale', 'foreign', 'unknown-path', 'refused', 'no
   await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>('#load3d-fov')?.value).toBe('79'))
   expect(document.querySelector<HTMLInputElement>('#load3d-position-x')!.value).toBe('-8')
   expect(reads).toEqual(variant === 'bytes-held' ? [primary.digest, `blake3:${'a'.repeat(64)}`] : [primary.digest])
+  document.querySelector('[data-testid="load3d-viewport"]')!.dispatchEvent(new WheelEvent('wheel', { bubbles: true }))
   Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'Apply')!.click()
   await vi.waitFor(() => expect(store.doc.graphs.g0!.nodes.n1!.values.viewport_state).toEqual({ ...initial, camera_info: cameraInfo, model_3d_info: models }))
   dispose()

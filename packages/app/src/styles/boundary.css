@@ -76,6 +76,7 @@
   box-shadow: var(--dinkster-elevation-low);
 }
 .boundary-item[data-binding-kind='family'] { border-left: 3px solid var(--dinkster-accent-border); }
+.boundary-item[data-selected] { border-color: var(--dinkster-border-focus); background: var(--dinkster-surface-selected); }
 .boundary-head { align-items: flex-start; }
 .boundary-identity,
 .boundary-badges,

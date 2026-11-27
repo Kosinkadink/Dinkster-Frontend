@@ -75,6 +75,8 @@ for (const nested of [false, true]) for (const batchSupported of [false, true]) 
     const reason = 'IMAGE batch preview unavailable: backend does not advertise the PNG batch parameter.'
     await expect(pager.getByRole('alert')).toHaveText(reason)
     await expect(pager.getByRole('button')).toHaveCount(0)
+    // The caption row paints the same reason.
+    expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getNodePreviews()['image']?.statusMessage)).toBe(reason)
     await page.screenshot({ path: testInfo.outputPath('canvas-unsupported-batch.png') })
     await page.getByTestId('views-switcher').click()
     await page.getByRole('menuitemradio', { name: 'App view' }).click()

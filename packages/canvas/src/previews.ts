@@ -105,6 +105,34 @@ export interface NodeOutputText {
 /** node id -> automatic Standard-view text or scalar result surface. */
 export type OutputTextMap = Readonly<Record<string, NodeOutputText>>
 
+/**
+ * What a minimized node shows in its folded caption row: real content only. A
+ * decoded picture the canvas paints (an image or a 3D model's poster) comes
+ * before a recorded text result. A pending or unavailable preview, or a ready
+ * audio or video player (hidden while minimized), is not content to show.
+ */
+export function minimizedStripContent(
+  preview: NodePreview | undefined,
+  text: NodeOutputText | undefined,
+): 'picture' | 'text' | undefined {
+  if (preview?.image !== undefined && preview.status === undefined &&
+      !(preview.src !== undefined && (preview.kind === 'video' || preview.kind === 'audio'))) return 'picture'
+  return text === undefined ? undefined : 'text'
+}
+
+/**
+ * True when a preview has something to open under its caption row: a
+ * decoded picture, or a ready video, audio or 3D player the host mounts. A
+ * pending or failed preview is only its caption row, which says so, except
+ * for an executed output (it has a page index) or a list, whose host
+ * controls (the pager, the output viewer, the original's download) need the
+ * panel to stay.
+ */
+export function previewHasPanel(preview: NodePreview): boolean {
+  return (preview.status === undefined && (preview.image !== undefined || preview.src !== undefined)) ||
+    preview.index !== undefined || (preview.count ?? 0) > 1 || preview.download !== undefined
+}
+
 export interface PreviewRect {
   readonly x: number
   readonly y: number
@@ -112,16 +140,15 @@ export interface PreviewRect {
   readonly height: number
 }
 
-/** Reserve a bottom caption while retaining a distinct media region. */
+/** Split a preview region into its caption row on top and the media below. */
 export function splitPreviewRect(
   rect: PreviewRect,
   captionHeight: number,
 ): { readonly media: PreviewRect; readonly caption: PreviewRect } {
   const height = Math.max(0, Math.min(rect.height, captionHeight))
-  const mediaHeight = rect.height - height
   return {
-    media: { ...rect, height: mediaHeight },
-    caption: { x: rect.x, y: rect.y + mediaHeight, width: rect.width, height },
+    media: { x: rect.x, y: rect.y + height, width: rect.width, height: rect.height - height },
+    caption: { x: rect.x, y: rect.y, width: rect.width, height },
   }
 }
 

@@ -54,6 +54,13 @@ export interface SemanticDesignTokens {
     readonly inset: string
     readonly raised: string
     readonly selected: string
+    /** A canvas row's field while it is open for editing. */
+    readonly fieldOpen: string
+  }
+  /** The two squares of the pattern drawn under a color with opacity; nothing is written on them. */
+  readonly checker: {
+    readonly dark: string
+    readonly light: string
   }
   readonly text: {
     readonly primary: string
@@ -72,6 +79,10 @@ export interface SemanticDesignTokens {
     readonly strong: string
     readonly focus: string
     readonly selected: string
+    /** A quiet line between two parts of one shape, such as a title bar and its body. */
+    readonly divider: string
+    /** The edge around a group of controls picked from as one. */
+    readonly group: string
   }
   readonly meaning: {
     readonly accent: MeaningToken
@@ -136,7 +147,9 @@ export const semanticTokensForTheme = (
       inset: colors.bg.canvas,
       raised: colors.bg.raised,
       selected: colors.bg.hover,
+      fieldOpen: colors.bg.fieldOpen,
     },
+    checker: { dark: '#8D97A1', light: '#E8E8E8' },
     text: {
       primary: colors.text.primary,
       secondary: colors.text.secondary,
@@ -153,6 +166,9 @@ export const semanticTokensForTheme = (
       strong: colors.text.muted,
       focus: colors.status.info,
       selected: colors.text.primary,
+      // Looks are decided in the dark theme; the light theme keeps its border.
+      divider: colors.border.divider,
+      group: colors.border.group,
     },
     meaning: {
       accent: meaning(colors.status.info),
@@ -288,6 +304,9 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-surface-inset': semanticDesignTokens.surface.inset,
     '--dinkster-surface-raised': semanticDesignTokens.surface.raised,
     '--dinkster-surface-selected': semanticDesignTokens.surface.selected,
+    '--dinkster-surface-field-open': semanticDesignTokens.surface.fieldOpen,
+    '--dinkster-checker-dark': semanticDesignTokens.checker.dark,
+    '--dinkster-checker-light': semanticDesignTokens.checker.light,
     '--dinkster-text-primary': semanticDesignTokens.text.primary,
     '--dinkster-text-secondary': semanticDesignTokens.text.secondary,
     '--dinkster-text-muted': semanticDesignTokens.text.muted,
@@ -299,6 +318,8 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-border-strong': semanticDesignTokens.border.strong,
     '--dinkster-border-focus': semanticDesignTokens.border.focus,
     '--dinkster-border-selected': semanticDesignTokens.border.selected,
+    '--dinkster-border-divider': semanticDesignTokens.border.divider,
+    '--dinkster-border-group': semanticDesignTokens.border.group,
     '--dinkster-accent-foreground':
       semanticDesignTokens.meaning.accent.foreground,
     '--dinkster-accent-background':

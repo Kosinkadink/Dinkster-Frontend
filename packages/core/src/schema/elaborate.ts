@@ -544,6 +544,14 @@ const nextMemberBase = (state: DynamicPortState | undefined): number =>
 
 interface AutogrowNames {
   readonly nameOf: (ordinal: number) => string
+  /**
+   * The label a member shows when it has none of its own, and the label of
+   * the member a family offers next. A prefix family counts the member's
+   * place in the stored order from 1 after a space ("image 1", "image 2",
+   * then the offer "image 3"), never the number in its generated id; an
+   * empty prefix shows the position alone. A names family shows the name.
+   */
+  readonly labelOf: (position: number) => string
   readonly min: number
   readonly max: number
 }
@@ -557,13 +565,18 @@ const autogrowNames = (spec: AutogrowSpec): AutogrowNames => {
   // local index is correct as-is. min/max stay LOCAL bounds.
   const offset = spec.ordinalOffset ?? 0
   if (naming.kind === 'names') {
-    return { nameOf: (i) => naming.names[i]!, min, max }
+    return { nameOf: (i) => naming.names[i]!, labelOf: (i) => naming.names[i]!, min, max }
   }
   if (naming.kind === 'native') {
     // Native suffix state is not materialized, so this arm has zero capacity.
-    return { nameOf: () => '', min, max }
+    return { nameOf: () => '', labelOf: () => '', min, max }
   }
-  return { nameOf: (i) => `${naming.prefix}${i + offset}`, min, max }
+  return {
+    nameOf: (i) => `${naming.prefix}${i + offset}`,
+    labelOf: (i) => naming.prefix === '' ? `${i + offset + 1}` : `${naming.prefix} ${i + offset + 1}`,
+    min,
+    max,
+  }
 }
 
 /** Template InputSpec reshaped for the output side (family carries isList). */
@@ -721,7 +734,7 @@ function elaborateWire15Family(
 
   const grouped = spec.template.length !== 1 || spec.template[0]!.dynamic !== undefined
   const syntheticIds: string[] = []
-  const emitMember = (member: string, ordinal: number, ghost: boolean, isSynthetic: boolean): boolean => {
+  const emitMember = (member: string, ordinal: number, ghost: boolean, isSynthetic: boolean, position = ordinal): boolean => {
     if (!WIRE15_MEMBER_SEGMENT.test(member)) {
       ctx.report('error', 'elab.autogrow.badMember', `${ctx.nodeType}.${family}: member suffix '${member}' must match [A-Za-z0-9_-]+`, family)
       return false
@@ -765,7 +778,8 @@ function elaborateWire15Family(
         address: { port: memberPath },
         ...(memberApi !== undefined ? { apiName: memberApi } : {}),
         spec: {
-          ...slot, id: memberPath, displayName: apiSegment,
+          ...slot, id: memberPath,
+          displayName: spec.naming.kind === 'prefix' ? autogrowNames(spec).labelOf(position) : apiSegment,
           ...(spec.optionalAfterMinimum ? { optional: ghost || !!slot.optional || ordinal >= min } : {}),
         },
         origin,
@@ -811,8 +825,8 @@ function elaborateWire15Family(
     return
   }
 
-  for (const [ordinal, member] of members.entries()) {
-    if (!emitMember(member, spec.optionalAfterMinimum ? positions.get(member)! : ordinal, false, synthetic.has(member))) return
+  for (const [index, member] of members.entries()) {
+    if (!emitMember(member, spec.optionalAfterMinimum ? positions.get(member)! : index, false, synthetic.has(member), index)) return
   }
 
   if (members.length >= max || scope.ghost) return
@@ -834,7 +848,7 @@ function elaborateWire15Family(
     return
   }
   const before = ctx.itemCount()
-  if (!emitMember(ghost, ghostOrdinal, true, true)) return
+  if (!emitMember(ghost, ghostOrdinal, true, true, members.length)) return
   if (ctx.itemCount() === before) {
     ctx.emit({
       kind: 'growth',
@@ -982,7 +996,9 @@ function elaborateAutogrowFamily(
   const emitMember = (memberId: string, ghost: boolean, synthetic: boolean): boolean => {
     if (!ctx.countMember()) return false
     const total = ordinal + ordinalOffset
-    const generatedName = ordinal < names.max ? names.nameOf(ordinal) : `${item.id}[${total}]`
+    const generatedName = ordinal >= names.max
+      ? `${item.id}[${total}]`
+      : names.labelOf(ordinal)
     const bare = !ghost && !synthetic ? state?.memberLabels?.[memberId] ?? generatedName : generatedName
     const base = displayJoin(scope.displayPrefix, bare)
     const memberApi =
@@ -1100,8 +1116,8 @@ function elaborateAutogrowFamily(
     // which the member's inner families ghost normally.
     if (counted && ctx.itemCount() === before) {
       // Nested families arrive with displayName rewritten to the parent
-      // member's base ('item0'); the authored slot id plus the member-scoped
-      // prefix is the truthful label there ('item0.sub').
+      // member's base ('item 1'); the authored slot id plus the member-scoped
+      // prefix is the truthful label there ('item 1.sub').
       const label =
         scope.displayPrefix === undefined ? (item.displayName ?? item.id) : `${scope.displayPrefix}.${item.id}`
       ctx.emit(
