@@ -96,6 +96,8 @@ export interface BoardDocument {
   readonly lineage: string
   readonly items: Readonly<Record<string, BoardItem>>
   readonly order: readonly string[]
+  /** Delivered runs outlive removed cards/results, so replay never restores dismissed media. */
+  readonly runs?: Readonly<Record<string, { readonly card: string; readonly items: readonly string[] }>>
 }
 
 export const emptyBoard = (): BoardDocument =>
@@ -279,7 +281,7 @@ export function loadBoard(input: unknown): BoardLoadResult {
   if (!owned.ok) return { diagnostics: [fail('json.invalid', `board is not JSON: ${owned.reason}`)] }
   const raw = owned.value
   if (!isObject(raw)) return { diagnostics: [fail('shape.invalid', 'board must be an object')] }
-  if (Object.keys(raw).some((key) => !['format', 'formatVersion', 'lineage', 'items', 'order'].includes(key))) return { diagnostics: [fail('shape.invalid', 'board contains unsupported fields')] }
+  if (Object.keys(raw).some((key) => !['format', 'formatVersion', 'lineage', 'items', 'order', 'runs'].includes(key))) return { diagnostics: [fail('shape.invalid', 'board contains unsupported fields')] }
   const lineage = raw['lineage']
   if (typeof lineage !== 'string' || lineage.length === 0) return { diagnostics: [fail('lineage.invalid', 'board needs a stable nonempty lineage')] }
   if (raw['format'] !== BOARD_FORMAT) return { diagnostics: [fail('format.invalid', `format must be '${BOARD_FORMAT}'`)] }
@@ -288,6 +290,19 @@ export function loadBoard(input: unknown): BoardLoadResult {
     return {
       diagnostics: [fail(typeof version === 'number' && version > BOARD_FORMAT_VERSION ? 'version.future' : 'version.invalid',
         `board formatVersion ${JSON.stringify(version)} is not supported (expected ${BOARD_FORMAT_VERSION})`)],
+    }
+  }
+  const runs = raw['runs']
+  if (runs !== undefined) {
+    if (!isObject(runs)) return { diagnostics: [fail('runs.invalid', 'runs must be an object')] }
+    for (const [job, run] of Object.entries(runs)) {
+      if (!text(job, 2048) || job.length === 0 || !isObject(run) ||
+        Object.keys(run).length !== 2 || typeof run['card'] !== 'string' || !ITEM_ID.test(run['card']) ||
+        !Array.isArray(run['items']) || run['items'].length > BOARD_MAX_ITEMS ||
+        new Set(run['items']).size !== run['items'].length ||
+        !run['items'].every((id) => typeof id === 'string' && ITEM_ID.test(id))) {
+        return { diagnostics: [fail('runs.invalid', 'each run needs a job reference, card id and unique delivered item ids')] }
+      }
     }
   }
   const items = raw['items']
@@ -313,7 +328,9 @@ export function loadBoard(input: unknown): BoardLoadResult {
       parent = parsed[parent]!.sectionId
     }
   }
-  const document: BoardDocument = { format: BOARD_FORMAT, formatVersion: BOARD_FORMAT_VERSION, lineage, items: parsed, order: order as string[] }
+  const document: BoardDocument = { format: BOARD_FORMAT, formatVersion: BOARD_FORMAT_VERSION, lineage, items: parsed, order: order as string[],
+    ...(runs === undefined ? {} : { runs: runs as NonNullable<BoardDocument['runs']> }),
+  }
   const frozen = ownJson(document)
   if (!frozen.ok) return { diagnostics: [fail('json.invalid', frozen.reason)] }
   return { document: frozen.value as unknown as BoardDocument, diagnostics: [] }

@@ -87,6 +87,11 @@ describe('board document', () => {
     expect(loadBoard(newer).diagnostics[0]!.code).toBe('board.version.future')
     expect(loadBoard({ ...store.doc, lineage: '' }).document).toBeUndefined()
     expect(loadBoard({ ...store.doc, camera: { x: 0, y: 0 } }).document).toBeUndefined()
+    for (const runs of [null, [], { job: { card: 'Card', items: [] } },
+      { job: { card: 'card', items: ['result', 'result'] } }, { job: { card: 'card', items: [false] } },
+      { job: { card: 'card', items: [], extra: true } }]) {
+      expect(loadBoard({ ...store.doc, runs }).document).toBeUndefined()
+    }
     saved.items['picture-1'].asset.digest = digest(1)
     saved.items['picture-1'].playing = true
     expect(loadBoard(saved).document).toBeUndefined()

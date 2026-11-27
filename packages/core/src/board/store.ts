@@ -30,6 +30,11 @@ export type BoardItemInput = BoardItem extends infer T ? T extends BoardItem ? O
 
 export type BoardCommandInvocation =
   | { readonly command: 'board.item.add'; readonly params: { readonly items: readonly BoardItemInput[] } }
+  | { readonly command: 'board.run.add'; readonly params: {
+      readonly job: string
+      readonly card: string
+      readonly items: readonly BoardItemInput[]
+    } }
   | { readonly command: 'board.item.move'; readonly params: { readonly moves: readonly { readonly id: string; readonly x: number; readonly y: number }[] } }
   | { readonly command: 'board.item.resize'; readonly params: { readonly id: string; readonly rect: BoardRect } }
   | { readonly command: 'board.item.remove'; readonly params: { readonly ids: readonly string[] } }
@@ -99,6 +104,21 @@ export function planBoardCommand(
 ): { readonly ok: true; readonly forward: readonly PatchOp[]; readonly created: readonly string[] } | Refusal {
   const missing = (id: string): Refusal => refuse('item.missing', `no item '${id}' on this board`)
   switch (invocation.command) {
+    case 'board.run.add': {
+      const { job, card, items } = invocation.params
+      if (Object.hasOwn(board.runs ?? {}, job)) return { ok: true, forward: [], created: [] }
+      const source = board.items[card]
+      if (source?.kind !== 'workflow' && source?.kind !== 'blueprint') return missing(card)
+      if (items.some((item) => item.kind !== 'picture' && item.kind !== 'video' && item.kind !== 'sound'))
+        return refuse('run.invalid', 'a run can deliver only media items')
+      const addition = items.length === 0 ? { ok: true as const, forward: [], created: [] }
+        : planBoardCommand(board, { command: 'board.item.add', params: { items } })
+      if (!addition.ok) return addition
+      const forward: PatchOp[] = [...addition.forward]
+      if (board.runs === undefined) forward.push({ op: 'add', path: ['runs'], value: {} })
+      forward.push({ op: 'add', path: ['runs', job], value: { card, items: [...addition.created] } })
+      return { ok: true, forward, created: addition.created }
+    }
     case 'board.item.add': {
       const { items } = invocation.params
       if (items.length === 0) return refuse('add.empty', 'nothing to add')
@@ -252,6 +272,11 @@ interface HistoryEntry {
   readonly inverse: readonly PatchOp[]
 }
 
+/** Delivery receipts survive undo; only the delivered items are editable history. */
+export function boardUndoableOps(operations: readonly PatchOp[]): readonly PatchOp[] {
+  return operations.filter((operation) => operation.path[0] !== 'runs')
+}
+
 export class BoardStore implements BoardSession {
   private current: BoardDocument
   private currentRevision = 0
@@ -276,11 +301,16 @@ export class BoardStore implements BoardSession {
   dispatch(invocation: BoardCommandInvocation): BoardDispatchOutcome {
     const plan = planBoardCommand(this.current, invocation)
     if (!plan.ok) return plan
+    if (invocation.command === 'board.run.add' && plan.forward.length === 0)
+      return { ok: true, document: this.current, revision: this.currentRevision, created: [] }
     const next = this.apply(plan.forward)
     if (!next.ok) return next
-    this.undoStack.push({ forward: plan.forward, inverse: invertOps(plan.forward) })
-    if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
-    this.redoStack.length = 0
+    const forward = boardUndoableOps(plan.forward)
+    if (invocation.command !== 'board.run.add' || forward.length > 0) {
+      this.undoStack.push({ forward, inverse: invertOps(forward) })
+      if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
+      this.redoStack.length = 0
+    }
     const revision = this.commit(next.document, invocation.command, plan.forward)
     return { ok: true, document: next.document, revision, created: plan.created }
   }
