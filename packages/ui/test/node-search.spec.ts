@@ -1,5 +1,24 @@
 import { expect, test } from '@playwright/test'
 
+test('catalog recovery replaces empty-search announcements until nodes return', async ({ page }) => {
+  await page.goto('/#node-search')
+  const search = page.getByTestId('node-search-disabled')
+  const input = search.getByRole('combobox')
+  await expect(input).toHaveValue('image')
+  await expect(search.getByRole('status')).not.toContainText('No matches')
+  await expect(search.getByRole('note')).toContainText('No packs are enabled in this project')
+  await input.press('Enter')
+  await expect(search.getByRole('option')).toHaveCount(0)
+  await input.press('Tab')
+  const action = search.getByRole('button', { name: 'Enable all installed packs', exact: true })
+  await expect(action).toBeFocused()
+  await action.press('Enter')
+  await expect(input).toHaveValue('image')
+  await expect(search.getByRole('option').first()).toBeVisible()
+  await input.fill('not-a-node')
+  await expect(search.getByRole('status')).toHaveText('No matches')
+})
+
 test('a dropped image wire offers compatible installed nodes and blueprints and names their target inputs', async ({ page }) => {
   await page.goto('/#node-search')
   const search = page.getByTestId('node-search-wire')

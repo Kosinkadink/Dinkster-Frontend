@@ -161,7 +161,7 @@ function NodeSearchExample(props: { id: string; query?: string; wire?: boolean; 
             label: props.recovery === 'uninstalled' ? 'Set up' : 'Enable all installed packs',
             onSelect: () => { if (props.recovery !== 'failed') setRecovered(true) },
           } })}
-          {...(props.recovery === 'failed' ? { error: 'Project changed elsewhere. Refresh before saving.' } : {})} /> : undefined}
+          {...(props.recovery === 'failed' ? { error: 'Could not enable the packs. The project changed elsewhere.' } : {})} /> : undefined}
         empty={{ title: 'No matches', detail: 'Try another name or type.' }}
         hints={[
           { keys: ['Up', 'Down'], label: 'move' },
