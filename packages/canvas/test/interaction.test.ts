@@ -77,6 +77,10 @@ function interactionHarness(
       connected: driven !== undefined,
     }),
     getOverlay: () => overlay,
+    getLineListLayout: () => CanvasRenderer.prototype.getLineListLayout.call({
+      scene: currentScene, overlay, tokens: defaultTokens,
+      canvas: { getContext: () => ({ save() {}, restore() {}, measureText: (text: string) => ({ width: text.length * 6 }) }) },
+    } as unknown as CanvasRenderer),
     setOverlay: (next: Record<string, unknown>) => {
       overlay = next
       overlays.push(next)
@@ -1410,8 +1414,8 @@ describe('node-body link drops', () => {
 })
 
 describe('link drops on a field row', () => {
-  const FLOAT = { kind: 'concrete', name: 'FLOAT' }
-  const INT = { kind: 'concrete', name: 'INT' }
+  const FLOAT = { kind: 'concrete', name: 'FLOAT' } as const
+  const INT = { kind: 'concrete', name: 'INT' } as const
   const row = (inputId: string, type: object, y: number, inset = 9.5, width?: number) => ({
     kind: 'widget', inputId, valueKey: inputId, label: inputId, type, y, height: 24, inset,
     ...(width !== undefined ? { width } : {}),
@@ -1451,6 +1455,53 @@ describe('link drops on a field row', () => {
     return scene
   }
   const CFG_ROW = { x: 250, y: 66 }
+
+  it('opens the folded list, starts the named field wire, unfolds and dismisses without changing the fold during wiring', () => {
+    const scene = fieldScene()
+    const node = scene.nodes[1]!
+    const schema: NodeSchema = { type: 'Fields', displayName: 'Fields', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: [{ id: 'seed', type: INT }, { id: 'denoise', type: FLOAT }].map(({ id, type }) => ({
+        kind: 'input', id, type, optional: false, widget: { widgetType: type.name, options: {} },
+      })) }],
+    }
+    const layout = layoutNode(schema, node.node, defaultTokens, (text) => text.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
+    const harness = interactionHarness({ ...scene, nodes: [scene.nodes[0]!, { ...node, layout }] })
+    const row = layout.rows[0] as Extract<LayoutRow, { kind: 'widget' }>
+    const rowY = node.y + layout.rows[0]!.y + layout.rows[0]!.height / 2
+    const startX = node.x + row.inset + row.width! / 2
+    const hover = () => harness.fire('pointermove', startX, rowY)
+    hover()
+    expect(harness.renderer.getOverlay().hoveredLine).toMatchObject({ nodeId: 'n2', key: 'seed' })
+    const list = harness.renderer.getLineListLayout()!
+    const x = list.x + 20
+    const second = list.y + canvasPaintTokens.node.line.list.padY + canvasPaintTokens.node.line.list.rowHeight * 1.5
+    for (let step = 1; step <= 12; step++) {
+      const progress = step / 12
+      harness.fire('pointermove', startX + (x - startX) * progress, rowY + (second - rowY) * progress)
+      expect(harness.renderer.getOverlay().hoveredLine?.key).toBe('seed')
+    }
+    harness.fire('pointermove', x, second)
+    harness.fire('pointerdown', x, second)
+    harness.fire('pointermove', 10, 48)
+    harness.fire('pointerup', 10, 48)
+    expect(harness.dispatched).toEqual([{ command: 'link.connect', params: {
+      graphId: 'g0', from: { node: 'n2', tap: 'denoise' }, to: { node: 'n1', port: 'in' },
+    } }])
+    hover()
+    const action = list.y + canvasPaintTokens.node.line.list.padY + canvasPaintTokens.node.line.list.rowHeight * 2.5 + 1
+    harness.fire('pointerdown', x, action)
+    harness.fire('pointerup', x, action)
+    expect(harness.dispatched.at(-1)).toEqual({ command: 'view.setLineFolded', params: {
+      graphId: 'g0', nodeId: 'n2', lineKey: 'seed', folded: false,
+    } })
+    hover()
+    harness.fireWindow('keydown', { code: 'Escape' })
+    expect(harness.renderer.getOverlay().hoveredLine).toBeUndefined()
+    hover()
+    harness.fire('pointermove', 500, 500)
+    expect(harness.renderer.getOverlay().hoveredLine).toBeUndefined()
+    harness.controller.dispose()
+  })
 
   it('wires the fitting field under the pointer and outlines that row, not the node', () => {
     const harness = interactionHarness(fieldScene())
@@ -1497,18 +1548,21 @@ describe('link drops on a field row', () => {
     })
   })
 
-  it('tries the fields on the same line before the rest of the node', () => {
-    const harness = interactionHarness(fieldScene())
+  it('refuses a field of a declared line that does not fit instead of wiring its compatible sibling', () => {
+    const scene = fieldScene()
+    const node = scene.nodes[1]!
+    const harness = interactionHarness({ ...scene, nodes: [scene.nodes[0]!, { ...node, layout: { ...node.layout,
+      lines: [{ key: 'seed', folded: true, first: 2, last: 3, fields: [
+        { portId: 'seed', label: 'Seed', type: INT }, { portId: 'denoise', label: 'Denoise', type: FLOAT },
+      ] }],
+    } }] })
     harness.fire('pointerdown', 110, 32)
     harness.fire('pointermove', 225, 90)
     const overlay = harness.overlays.at(-1) as any
     expect(overlay.dropRow).toBeUndefined()
-    expect(overlay.bodyDropNode).toBe('n2')
-    expect([...overlay.dropTargets]).toEqual(['n2:denoise:in'])
+    expect(overlay.bodyDropNode).toBeUndefined()
     harness.fire('pointerup', 225, 90)
-    expect(harness.dispatched.at(-1)).toMatchObject({
-      command: 'link.connect', params: { to: { node: 'n2', port: 'denoise' } },
-    })
+    expect(harness.dispatched).toEqual([])
   })
 
   it('keeps the declared order for a drop on the title', () => {

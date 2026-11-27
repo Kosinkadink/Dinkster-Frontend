@@ -514,6 +514,8 @@ export interface PinLayout extends DynamicAnnotations {
   readonly collapsedSection?: string
   /** Pin in a shared field line's compact cluster. */
   readonly pressed?: true
+  /** Unwired folded-line pin: available to its field and list, not on the node edge. */
+  readonly lineHidden?: true
   /** A wire's end under the last drawn pin of a full closed-box cluster: not drawn and not grabbed. */
   readonly stacked?: true
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
@@ -2301,7 +2303,8 @@ export function layoutNode(
       const own = (pin: PinLayout): boolean => fields.has(pin.portId) && pin.direction === direction &&
         (direction === 'in' ? pin.widgetBacked === true && !options.wirelessInputs?.has(pin.portId) : pin.widgetTap === true)
       const wired = pins.filter((pin) => own(pin) && isConnected(direction, pin.portId))
-      pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...wired.map((pin, index) => {
+      const unwired = pins.filter((pin) => own(pin) && !isConnected(direction, pin.portId))
+      pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...unwired.map((pin) => ({ ...pin, y: center, lineHidden: true as const })), ...wired.map((pin, index) => {
         const { dy, stacked } = pressed(index, wired.length)
         return { ...pin, y: center + dy, pressed: true as const, ...(stacked ? { stacked: true as const } : {}) }
       }))
