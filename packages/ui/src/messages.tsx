@@ -169,7 +169,7 @@ function ConfirmationBody(props: ProductConfirmationProps) {
   }))
   return (
     <>
-      <p class="dinkster-description">{props.consequence}</p>
+      <Show when={props.consequence}><p class="dinkster-description">{props.consequence}</p></Show>
       <Show when={props.items?.length}>
         <ul class="dinkster-confirmation-items">
           <For each={props.items}>{(item) => <li>

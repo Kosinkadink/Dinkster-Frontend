@@ -342,6 +342,7 @@ it.each([false, true])('edits structured save destinations with writable grants 
       { id: 'archive', mode: 'readwrite', state: 'ready' },
       { id: 'reference', mode: 'read', state: 'ready' },
       { id: 'offline', mode: 'readwrite', state: 'missing' },
+      { id: 'denied', mode: 'readwrite', state: 'ready', saveError: 'Cannot save here: Permission denied' },
     ] }) } }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
@@ -554,6 +555,7 @@ it('edits only the schema-backed mount string, preserving prefix and undoable de
       { id: 'archive', mode: 'readwrite', state: 'ready' },
       { id: 'reference', mode: 'read', state: 'ready' },
       { id: 'offline', mode: 'readwrite', state: 'missing' },
+      { id: 'denied', mode: 'readwrite', state: 'ready', saveError: 'Cannot save here: Permission denied' },
     ] }) } }),
     dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState

@@ -36,7 +36,7 @@ const SaveTargetImplementation: Component<WidgetEditorImplementationProps> = (pr
       if (live) setError(failureMessage(reason, message('request.storageLoadFailed')))
     })
   } else setError(message('mountWidget.error'))
-  const writable = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready') ?? []
+  const writable = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready' && !entry.saveError) ?? []
   const options = () => {
     const entries = writable().map((entry) => ({ id: entry.id, value: entry.id, label: entry.id, disabled: false }))
     if (mount() !== '' && !entries.some((entry) => entry.id === mount())) entries.unshift({ id: mount(), value: mount(), label: message('mountWidget.unavailable', { id: mount() }), disabled: true })

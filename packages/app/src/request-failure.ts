@@ -18,3 +18,10 @@ export function folderFailureMessage(error: unknown, onFailure?: (detail: string
   if (/permission denied|not allowed to read|EACCES|EPERM/i.test(detail)) return t('storagePanel.readDenied')
   return t('storagePanel.unreachable')
 }
+
+export function folderWriteFailureMessage(detail: string): string {
+  const reason = /read-only file system|read-only disk|EROFS/i.test(detail) ? 'storagePanel.readOnlyDisk'
+    : /permission denied|not allowed to write|access is denied|EACCES|EPERM/i.test(detail) ? 'storagePanel.writeDenied'
+    : 'storagePanel.writeFailed'
+  return `${t('storagePanel.cannotSave')} ${t(reason)}`
+}
