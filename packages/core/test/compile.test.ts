@@ -144,8 +144,8 @@ describe('golden pairs', () => {
         { kind: 'input', id: 'h', type: { kind: 'concrete', types: ['INT'] }, required: true, default: 3, widget: { type: 'NUMBER', min: 0 } },
       ],
       validate: [
-        { check: { formula: 'w <= 6' }, message: 'Width must be 6 or less', fix },
-        { check: { formula: 'w + h <= 10' }, message: 'Too big', fix },
+        { check: { formula: 'w <= 6' }, message: 'Width must be 6 or less', fix, ...(fix.length > 0 ? { fixLabel: 'Use 6' } : {}) },
+        { check: { formula: 'w + h <= 10' }, message: 'Too big', fix, ...(fix.length > 0 ? { fixLabel: 'Use 6' } : {}) },
       ],
     } as never).schema!
     const base = loadWorkflow('minimal')

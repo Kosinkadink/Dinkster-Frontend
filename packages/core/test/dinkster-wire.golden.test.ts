@@ -14,6 +14,25 @@ const SELECTION_DEFAULTS: Record<string, string> = {
 
 describe('Dinkster schema wire', () => {
 
+  it('requires a declared action label for a rule fix and preserves its exact words', () => {
+    const fix = [{ step: 'Set', row: 'width', value: { value: 512 } }]
+    const decode = (rule: Record<string, unknown>) => parseDinksterSchema('Resize', {
+      body: [{ kind: 'input', id: 'width', type: concrete('INT') }],
+      validate: [{ check: { formula: 'width > 0' }, message: '  Width must be positive.  ', ...rule }],
+    } as never)
+    const labeled = decode({ fix, fixLabel: '  Use 512!  ' })
+    expect(labeled.diagnostics).toEqual([])
+    expect(labeled.schema!.validate![0]!.fixLabel).toBe('  Use 512!  ')
+    expect(labeled.schema!.validate![0]!.message).toBe('  Width must be positive.  ')
+    for (const label of [undefined, '', ' \t ', 512, { formula: '"Use 512"' }]) {
+      expect(decode({ fix, ...(label === undefined ? {} : { fixLabel: label }) }).schema).toBeUndefined()
+    }
+    const noFix = decode({})
+    expect(noFix.diagnostics).toEqual([])
+    expect(noFix.schema!.validate![0]!.fix).toEqual([])
+    expect(noFix.schema!.validate![0]!.fixLabel).toBeUndefined()
+  })
+
   it('keeps portable Mount inputs and their legacy string union without accepting other sockets', () => {
     const decode = (type: unknown) => parseDinksterSchema('Save', { body: [
       { kind: 'input', id: 'mount', type, required: false, default: null, widget: { type: 'MOUNT' } },
