@@ -69,8 +69,9 @@ describe('recorded run answers', () => {
           const node = document.graphs.root!.nodes[id]!
           const elaborated = elaborateInterface(derived(node.type)!, node, EMPTY_CONNECTIVITY, { lookupAnswers: answers })
           const rows = elabInputsOf(elaborated)
+          const categoryDefault = level === 2 ? document.graphs.portrait!.nodes.detail!.values.kind ?? 'sd' : 'sd'
           const reference = elabInputsOf(elaborateInterface(schema, { values: {
-            category: node.values[category]!, lora: node.values[selection]!,
+            category: node.values[category] ?? categoryDefault, lora: node.values[selection]!,
           } }, EMPTY_CONNECTIVITY, { lookupAnswers: answers }))
           expect(rows.map((row) => row.spec.id)).toEqual([category, selection])
           rows.forEach((row, index) => {
@@ -78,7 +79,7 @@ describe('recorded run answers', () => {
             const expected = reference[index]!.spec
             expect(spec).toEqual({ ...expected, id: row.spec.id,
               ...(level === 0 ? {} : { optional: true,
-                ...(index === 0 ? { widget: { ...expected.widget!, default: level === 1 ? 'sd' : 'sdxl' } } : {}) }),
+                ...(index === 0 ? { widget: { ...expected.widget!, default: categoryDefault } } : {}) }),
             })
             expect([row.readOnly, row.disabled, row.disabledReason]).toEqual([
               reference[index]!.readOnly, reference[index]!.disabled, reference[index]!.disabledReason,
@@ -278,6 +279,27 @@ describe('recorded run answers', () => {
         checkPrompt(reopenedSelection, 'edited-first')
         expect(store.doc.graphs.detail).toEqual(doc.graphs.detail)
         expect(store.doc.graphs.portrait).toEqual(doc.graphs.portrait)
+        if (level > 0) {
+          expect(store.dispatch({ command: 'node.setValues', params: {
+            graphId: 'root', nodeId: 'first', values: {}, unset: [category],
+          } }).ok).toBe(true)
+          expect(draw()[0]).toEqual({ node: 'first', value: 'edited-first', state: 'ready',
+            options: level === 2 ? ['undo-second'] : ['cold-first'] })
+          checkPrompt(store.doc, 'edited-first')
+          if (level === 2) {
+            expect(store.dispatch({ command: 'node.setValues', params: {
+              graphId: 'portrait', nodeId: 'detail', values: {}, unset: ['kind'],
+            } }).ok).toBe(true)
+            expect(draw()[0]).toEqual({ node: 'first', value: 'edited-first', state: 'ready', options: ['cold-first'] })
+            expect(draw()[1]).toEqual({ node: 'second', value: 'kept-second', state: 'ready', options: ['undo-second'] })
+            checkPrompt(store.doc, 'edited-first')
+            expect(store.undo()).toBe(true)
+            expect(draw()[0]).toEqual({ node: 'first', value: 'edited-first', state: 'ready', options: ['undo-second'] })
+          }
+          expect(store.undo()).toBe(true)
+          expect(store.doc).toEqual(afterSelection)
+          expect(draw()[0]).toEqual({ node: 'first', value: 'edited-first', state: 'ready', options: ['cold-second'] })
+        }
       } finally {
         demand.dispose()
         client.dispose()
