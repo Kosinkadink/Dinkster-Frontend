@@ -767,6 +767,7 @@ describe('whole constructs on the subgraph node', () => {
       expect(run(first).row.looked!.options).toMatchObject({ state: 'loading', call: { args: ['sdxl'] } })
       expect(second.values[selection]).toBe('kept-second.safetensors')
       expect(first.values[selection]).toBe('kept-first.safetensors')
+      first.values[category] = 'sd'
 
       const outer = asDef({
         id: 'gO', name: 'outer', links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
@@ -794,11 +795,14 @@ describe('whole constructs on the subgraph node', () => {
           { state: 'unavailable', reason: 'offline' },
         ] as const
         const results = heldStates.map((held) => {
+          const calls: unknown[] = []
           const compiled = compile({ document: doc, revision: 1, resolve: resolver,
             scope: { kind: 'full' }, connection: asConnectionId('lookup-grid'), schemaHash: 'lookup-grid',
-            lookupAnswers: () => held })
+            lookupAnswers: (lookup, args) => { calls.push([lookup, args]); return held } })
           expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
           if (!compiled.ok) throw new Error('Remote options document did not compile')
+          expect(calls).toContainEqual(['pack.loras', ['sd']])
+          expect(calls).toContainEqual(['pack.loras', ['sdxl']])
           const suffix = ['', '.p0', '.s0.p0'][depth]
           expect(Object.keys(compiled.artifact.prompt).sort()).toEqual([`first${suffix}`, `second${suffix}`])
           return ['first', 'second'].map((instance) => compiled.artifact.prompt[`${instance}${suffix}`]!.inputs.lora)
