@@ -8,8 +8,101 @@ import { EMPTY_CONNECTIVITY, asConnectionId, asPortId, compile, coreCommandRegis
 import { LookupDemand, lookupAnswersOf, recordRunAnswers } from '../src/lookup-demand.js'
 import { buildParamRows } from '../src/app-view-rows.js'
 import { boundarySample } from '../../core/test/fixtures/boundary-sample.js'
+import { withPrimitives } from '../../core/test/fixtures/primitive-schemas.js'
 
 describe('recorded run answers', () => {
+  it('keeps linked remote selections read-only and restores each occurrence after disconnect and reload', () => {
+    const { schema: picker } = parseDinksterSchema('Picker', { body: [
+      { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] }, pin: false, sent: false,
+        widget: { type: 'COMBO', options: ['intrinsic', 'sd', 'sdxl'] } },
+      { kind: 'input', id: 'lora', type: { kind: 'concrete', types: ['COMBO'] },
+        widget: { type: 'COMBO', options: { lookup: 'pack.loras', args: ['category'] } } },
+    ] } as never)
+    const { schema: source } = parseDinksterSchema('AdapterSource', { body: [
+      { kind: 'output', id: 'adapter', type: { kind: 'concrete', types: ['COMBO'] } },
+    ] } as never)
+    const resolve = withPrimitives((type) => type === 'Picker' ? { ...picker!, isOutputNode: true }
+      : type === 'AdapterSource' ? source : undefined)
+    const binding = (id: string, node: string, port: string) => ({
+      kind: 'input', id, binds: { kind: 'port', node, port }, promoted: true,
+    })
+    for (const depth of [0, 1, 2] as const) for (const literal of [true, false]) {
+      const original = boundarySample(depth)
+      const selection = depth === 0 ? 'lora' : depth === 1 ? 'pick' : 'list'
+      const category = depth === 1 ? 'kind' : 'category'
+      const doc = { ...original, graphs: {
+        root: { ...original.graphs.root!, nodes: {
+          first: { id: 'first', type: depth === 0 ? 'Picker' : depth === 1 ? '#detail' : '#portrait',
+            values: { [category]: 'sd', [selection]: 'kept-first' } },
+          second: { id: 'second', type: depth === 0 ? 'Picker' : depth === 1 ? '#detail' : '#portrait',
+            values: { [category]: 'sdxl', [selection]: 'kept-second' } },
+          outside: { id: 'outside', type: literal ? 'dinkster.utilities.primitive_choice' : 'AdapterSource',
+            values: literal ? { value: 'outside-literal' } : {} },
+        } },
+        ...(depth > 0 ? { detail: { ...original.graphs.detail!, nodes: {
+          sample: { id: 'sample', type: 'Picker', values: { category: 'sd' } },
+        }, boundary: { body: [binding('kind', 'sample', 'category'), binding('pick', 'sample', 'lora')] } } } : {}),
+        ...(depth === 2 ? { portrait: { ...original.graphs.portrait!, nodes: {
+          detail: { id: 'detail', type: '#detail', values: { kind: 'sdxl' } },
+        }, boundary: { body: [binding('category', 'detail', 'kind'), binding('list', 'detail', 'pick')] } } } : {}),
+      } } as unknown as typeof original
+      const store = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+        kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve),
+      }))
+      for (const nodeId of ['first', 'second']) expect(store.dispatch({ command: 'params.expose', params: {
+        graphId: 'root', nodeId, inputId: selection,
+      } }).ok).toBe(true)
+      const baseline = store.doc
+      const answers = (_lookup: string, args: readonly unknown[]) => ({ state: 'ready' as const, answer: [`${args[0]}-only`] })
+      const check = (document = store.doc, linked = false) => {
+        expect(buildParamRows(document, resolve, answers).map((row) => {
+          if (row.kind !== 'live') throw new Error(row.reason)
+          return [row.entry.nodeId, row.entry.inputId, row.value, row.linked, row.spec!.options.options]
+        })).toEqual([
+          ['first', selection, 'kept-first', linked, ['sd-only']],
+          ['second', selection, 'kept-second', false, ['sdxl-only']],
+        ])
+        const result = compile({ document, revision: 1, resolve, scope: { kind: 'full' },
+          connection: asConnectionId('linked-options'), schemaHash: 'linked-options', lookupAnswers: answers })
+        expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+        if (!result.ok) throw new Error('linked remote selection did not compile')
+        const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
+        expect(result.artifact.prompt[`first${suffix}`]!.inputs).toEqual({
+          lora: linked ? literal ? 'outside-literal' : ['outside', 0] : 'kept-first',
+        })
+        expect(result.artifact.prompt[`second${suffix}`]!.inputs).toEqual({ lora: 'kept-second' })
+        expect(document.graphs.detail).toEqual(doc.graphs.detail)
+        expect(document.graphs.portrait).toEqual(doc.graphs.portrait)
+      }
+      check()
+      expect(store.dispatch({ command: 'link.connect', params: { graphId: 'root',
+        from: { node: 'outside', port: literal ? 'value' : 'adapter' }, to: { node: 'first', port: selection },
+      } }).ok).toBe(true)
+      const wired = store.doc
+      check(wired, true)
+      check(loadDocument(JSON.parse(JSON.stringify(wired))).document!, true)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual({ ...baseline, graphs: { ...baseline.graphs,
+        root: { ...baseline.graphs.root!, nextOrdinal: wired.graphs.root!.nextOrdinal },
+      } })
+      check()
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(wired)
+      check(wired, true)
+      expect(store.dispatch({ command: 'link.disconnect', params: {
+        graphId: 'root', linkId: Object.values(wired.graphs.root!.links)[0]!.id,
+      } }).ok).toBe(true)
+      check()
+      const disconnected = store.doc
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(wired)
+      check(store.doc, true)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(disconnected)
+      check(loadDocument(JSON.parse(JSON.stringify(disconnected))).document!)
+    }
+  })
+
   it('keeps remote option answers and stored selections occurrence-local through boundary edits and failed refreshes', async () => {
     const { schema: parsed } = parseDinksterSchema('Picker', { body: [
       { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] },
