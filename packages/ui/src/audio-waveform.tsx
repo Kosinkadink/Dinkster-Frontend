@@ -64,6 +64,7 @@ export function ProductAudioWaveform(props: {
       <svg
         ref={track}
         class="dinkster-audio-waveform"
+        data-empty={!props.image && !props.path ? '' : undefined}
         viewBox="0 0 288 72"
         preserveAspectRatio="none"
         role={props.interactive === false ? 'img' : 'slider'}

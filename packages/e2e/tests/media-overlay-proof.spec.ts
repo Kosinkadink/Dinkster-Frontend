@@ -337,7 +337,24 @@ test('sound controls fit the node and retain playback, seeking, looping and volu
           y: canvas.top + node.y * viewport.scale + viewport.y - 12,
           width: node.layout.width * viewport.scale + 24, height: node.layout.height * viewport.scale + 24 }
       })
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
       await page.screenshot({ path: testInfo.outputPath(`sound-${state}-${scale}.png`), animations: 'disabled', clip })
+      if (state === 'waveform' && scale === 1) {
+        await element.evaluate((audio: HTMLAudioElement) => { audio.playbackRate = 0.0625; audio.currentTime = 0.4 })
+        await play.click()
+        const pause = preview.getByRole('button', { name: 'Pause audio' })
+        await expect(pause).toBeVisible()
+        await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(false)
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+        await page.screenshot({ path: testInfo.outputPath('sound-playing-1.png'), animations: 'disabled', clip })
+        await pause.click()
+        await loop.click()
+        await expect(loop).toHaveAttribute('aria-pressed', 'true')
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+        await page.screenshot({ path: testInfo.outputPath('sound-loop-on-1.png'), animations: 'disabled', clip })
+        await loop.click()
+        await seek.focus(); await page.keyboard.press('Home')
+      }
     }
   }
 })
