@@ -59,6 +59,7 @@ function harness(scene: Scene) {
     getViewport: () => ({ x: 0, y: 0, scale: 1 }), getToolboxLayout: () => undefined,
     getDetailLevel: () => 'controls', getDesignTokens: () => defaultTokens,
     cancelViewportAnimation: () => undefined,
+    setViewportGesture: () => undefined,
     getBadges: () => ({}), setOverlay: (value: any) => overlays.push(value),
     onSceneReplaced: () => () => undefined,
   } as unknown as CanvasRenderer
