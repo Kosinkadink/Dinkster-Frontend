@@ -1,5 +1,6 @@
 import { Show, createEffect, createSignal, createUniqueId, onCleanup } from 'solid-js'
-import { ProductButton, ProductField, ProductSelect, ProductTextInput } from './controls.js'
+import { ProductButton, ProductField, ProductTextInput } from './controls.js'
+import { ProductSelect } from './select.js'
 import { ProductDialog, ProductErrorBanner } from './messages.js'
 import { useProductStrings } from './strings.js'
 
@@ -77,12 +78,12 @@ export function ProductSecretDialog(props: {
         </Show>
         <Show when={props.canManageDeployment}>
           <ProductField label={strings.secretScope}>
-            {(attributes) => <ProductSelect {...attributes} value={scope()} disabled={pending()} onChange={(event) => {
-              setScope(event.currentTarget.value === 'deployment' ? 'deployment' : 'account')
-            }}>
-              <option value="account">{strings.secretAccountScope}</option>
-              <option value="deployment">{strings.secretDeploymentScope}</option>
-            </ProductSelect>}
+            {(attributes) => <ProductSelect {...attributes} value={scope()} disabled={pending()}
+              options={[
+                { value: 'account', label: strings.secretAccountScope },
+                { value: 'deployment', label: strings.secretDeploymentScope },
+              ]}
+              onChange={(value) => setScope(value === 'deployment' ? 'deployment' : 'account')} />}
           </ProductField>
         </Show>
         <ProductField label={strings.secretValue}>

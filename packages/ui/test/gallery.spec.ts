@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '../../e2e/visual.js'
+import { chooseOption } from '../../e2e/choices.js'
 import axe from 'axe-core'
 
 declare global {
@@ -63,6 +64,55 @@ test('list rows expand independently of their sibling menu and navigation does n
   await expect(version).toHaveAttribute('aria-pressed', 'false')
   await expect(version).not.toHaveAttribute('aria-expanded')
   await expect(version).not.toHaveAttribute('aria-controls')
+})
+
+test('product dropdowns keep candidates separate from saved values and work inside dialogs', async ({ page }) => {
+  await page.goto('/#dropdowns')
+  const runtime = page.getByRole('combobox', { name: 'Runtime', exact: true })
+  await expect(runtime).toHaveAccessibleDescription('The check marks the saved value; the highlight is the keyboard candidate.')
+  await expect(page.getByRole('combobox', { name: 'Unavailable runtime', exact: true })).toBeDisabled()
+  const invalid = page.getByRole('combobox', { name: 'Invalid runtime', exact: true })
+  await expect(invalid).toHaveAttribute('aria-invalid', 'true')
+  await expect(invalid).toHaveAccessibleDescription('Choose a runtime.')
+  await runtime.click()
+  const list = page.getByRole('listbox')
+  await expect(list.getByRole('option', { name: 'Automatic', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(list.getByRole('option', { name: 'Unavailable runtime', exact: true })).toBeDisabled()
+  await page.keyboard.press('ArrowDown')
+  await expect(runtime).toHaveText('Automatic')
+  await expect(runtime).toHaveAttribute('aria-activedescendant', (await list.getByRole('option', { name: 'CPU', exact: true }).getAttribute('id'))!)
+  await page.keyboard.press('Enter')
+  await expect(runtime).toHaveText('CPU')
+  await expect(runtime).toBeFocused()
+  await expect(list).toHaveCount(0)
+  await runtime.press('g')
+  await runtime.press('Escape')
+  await expect(runtime).toHaveText('CPU')
+  await runtime.press('g')
+  await runtime.press('Enter')
+  await expect(runtime).toHaveText('GPU')
+  await runtime.click()
+  await page.getByRole('heading', { name: 'Dropdowns' }).first().click()
+  await expect(list).toHaveCount(0)
+  const long = page.getByRole('combobox', { name: 'Long list', exact: true })
+  await long.press('End')
+  const last = page.getByRole('option', { name: 'Environment 24 - shared production runtime', exact: true })
+  await expect(last).toBeInViewport()
+  await long.press('Enter')
+  await expect(long).toHaveText('Environment 24 - shared production runtime')
+  await page.getByRole('button', { name: 'Open dropdown dialog' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Runtime choice', exact: true })
+  const dialogRuntime = dialog.getByRole('combobox', { name: 'Dialog runtime', exact: true })
+  await dialogRuntime.click()
+  await expect(dialog.getByRole('listbox')).toBeVisible()
+  await dialogRuntime.press('Escape')
+  await expect(dialog).toBeVisible()
+  await dialogRuntime.click()
+  await dialog.getByRole('option', { name: 'CPU', exact: true }).click()
+  expect(await dialog.locator('form').evaluate((form: HTMLFormElement) => new FormData(form).get('runtime'))).toBe('cpu')
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog.getByRole('status').filter({ hasText: 'Saved cpu' })).toBeVisible()
+  await expect(page.locator('select')).toHaveCount(0)
 })
 
 test('multiline fields grow, scroll at their height cap, and shrink after deletion', async ({ page }) => {
@@ -550,10 +600,8 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await page.getByLabel('First choice').focus()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByLabel('Second choice')).toBeChecked()
-  await page
-    .getByLabel('Access', { exact: true })
-    .selectOption({ label: 'Mint only' })
-  await expect(page.getByLabel('Access', { exact: true })).toHaveValue(
+  await chooseOption(page.getByLabel('Access', { exact: true }), 'Mint only')
+  await expect(page.getByLabel('Access', { exact: true })).toHaveText(
     'Mint only',
   )
   await page.getByLabel('Selected unavailable radio').scrollIntoViewIfNeeded()
@@ -936,11 +984,15 @@ test('secret form masks credentials, retains failed edits, and clears them after
   await page.keyboard.press('Escape')
   await page.getByLabel('Administrator', { exact: true }).check()
   await open.click()
-  await expect(dialog.getByLabel('Scope')).toHaveValue('account')
-  await dialog.getByLabel('Scope').selectOption('deployment')
+  const scope = dialog.getByRole('combobox', { name: 'Scope', exact: true })
+  await expect(scope).toHaveText('Your account')
+  await scope.click()
+  await page.getByRole('option', { name: 'Deployment', exact: true }).click()
+  await expect(scope).toHaveText('Deployment')
+  await expect(page.getByRole('listbox')).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   await open.click()
-  await expect(dialog.getByLabel('Scope')).toHaveValue('account')
+  await expect(scope).toHaveText('Your account')
   await expect(value).toHaveValue('')
 })
 

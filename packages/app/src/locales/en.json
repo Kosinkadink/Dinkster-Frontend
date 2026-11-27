@@ -1290,6 +1290,8 @@
   "palette.typeFilter.selected": "{count} selected",
   "problemBox.label": "Problems of {node}",
   "problemBox.editField": "Edit field",
+  "problemBox.showLog": "Show in Log",
+  "problemBox.dismiss": "Dismiss",
   "problemBox.required": "{label} is required.",
   "problemBox.requiredHidden": "this node requires it but hides it, so it cannot be set. The node's author has to fix this.",
   "problems.action.showOnCanvas": "Show on canvas",
