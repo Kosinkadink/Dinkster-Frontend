@@ -2480,7 +2480,7 @@ export class CanvasRenderer {
     const overlay = this.overlay
     // Node/link bins prove transparency only when nothing else can paint
     // between them. Overlay transitions also invalidate cached empty tiles.
-    const skipEmpty = scale >= cache.emptyTileMinScale && scale <= cache.emptyTileMaxScale && this.getDetailLevel() !== 'overview' &&
+    const skipEmpty = scale >= cache.detailMinScale && scale <= cache.detailMaxScale && this.getDetailLevel() !== 'overview' &&
       this.scene.groups.length === 0 && this.scene.reroutes.length === 0 && this.scene.netStubs.length === 0 && this.scene.boundaryNodes.length === 0 &&
       !overlay.selection?.size && !overlay.ghostLink && !overlay.ghostLinks && !overlay.hoveredLine &&
       !overlay.marquee && !overlay.groupResizeGhost && !overlay.placementGhost
@@ -2961,7 +2961,7 @@ export class CanvasRenderer {
       ) {
         continue
       }
-      this.drawNode(ctx, node, detailLevel, o.dx, o.dy)
+      this.drawNode(ctx, node, detailLevel, view, o.dx, o.dy)
     }
 
     // Boundary pseudo-nodes: drawn after regular nodes (they sit at the
@@ -3713,6 +3713,7 @@ export class CanvasRenderer {
     ctx: CanvasRenderingContext2D,
     sceneNode: SceneNode,
     detailLevel: CanvasDetailLevel,
+    view: Readonly<{ y: number; h: number }>,
     dx = 0,
     dy = 0,
   ): void {
@@ -4115,8 +4116,15 @@ export class CanvasRenderer {
       // A skipped node's fields are quiet; its problem marks keep contrast.
       const skippedRows = progress?.state === 'skipped'
       this.problemMarkAlpha = rowsAlpha
+      const cache = canvasPaintTokens.graphCache
+      const cullFields = scale >= cache.detailMinScale && scale <= cache.detailMaxScale
+      const rowPad = structureCullPad(scale, t.pinRadius, detailLevel)
       for (const row of l.rows) {
         const rowY = node.y + row.y
+        // A field outside this tile cannot contribute pixels; its pins and
+        // enclosing boxes still paint through their independent paths.
+        if (cullFields && row.kind === 'widget' &&
+            (rowY + row.height + rowPad < view.y || rowY - rowPad > view.y + view.h)) continue
         // A member box's header starts where its outline does.
         const rowTop = row.kind === 'member' ? row.top : row.y
         ctx.globalAlpha = dragged !== undefined && rowTop >= dragged.top && rowTop < dragged.bottom
