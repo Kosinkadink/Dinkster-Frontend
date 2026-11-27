@@ -8,6 +8,7 @@ import { asConnectionId, createSignal as createCoreSignal, DINKSTER_SCHEMA_WIRE_
 import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
+import { createAssetFieldImports } from '../src/asset-field-imports.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { importLitegraph } from '@dinkster/core'
 
@@ -410,7 +411,7 @@ describe('ASSET widget modal integration', () => {
     } finally { changed.unmount() }
   })
 
-  it('opens the system chooser before the import dialog and leaves cancellation unchanged', async () => {
+  it('opens the system chooser and leaves cancellation unchanged', async () => {
     const mounted = catalogAssetEditor('file/binary', undefined, null, true, true)
     try {
       const chooser = mounted.root.querySelector<HTMLInputElement>('input[type="file"]')!
@@ -478,7 +479,66 @@ describe('ASSET widget modal integration', () => {
     } finally { dispose() }
   })
 
-  it.each([true, false])('commits an imported quick-list file only after successful import: %s', async (accepted) => {
+  it.each([false, true])('keeps a host-owned copy alive after its chooser closes, stopped=%s', async (stopped) => {
+    const spec = { widgetType: 'ASSET', kind: 'file/binary', options: { accept: ['application/x-safetensors'] } }
+    const schema: NodeSchema = { type: 'CopyFixture', displayName: 'Copy', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'asset', optional: false, type: { kind: 'concrete', name: 'ASSET' }, widget: spec }],
+    }
+    const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [null] }], links: [] }, () => schema).document!
+    const app = createWorkflowApp([schema])
+    await app.openDocument(doc, 'Copy')
+    const tab = app.activeTab()!
+    const initial = { digest: `blake3:${'b'.repeat(64)}`, name: 'saved.safetensors', size: 20,
+      mediaType: 'application/x-safetensors', virtualPath: 'mounts/input/saved.safetensors' }
+    const imported = { ...initial, digest: `blake3:${'a'.repeat(64)}`, name: 'chosen.safetensors', size: 3,
+      virtualPath: 'mounts/input/chosen.safetensors' }
+    expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n1', inputId: 'asset', value: initial,
+    } })).ok).toBe(true)
+    vi.spyOn(app.connection, 'listMounts').mockResolvedValue([])
+    vi.spyOn(app.connection, 'fetchMountSettings').mockResolvedValue({ mounts: [], mountChangesAllowed: false })
+    let finish!: (asset: typeof imported) => void
+    let signal!: AbortSignal
+    vi.spyOn(app.connection, 'uploadNamedAsset').mockImplementation((_file, options) => {
+      signal = options!.signal!
+      return new Promise((resolve) => { finish = resolve })
+    })
+    const ed: WidgetEditorState = { tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'asset' },
+      label: 'File', spec, declaredType: { kind: 'concrete', name: 'ASSET' }, initial, multiline: false,
+      rect: { x: 20, y: 20, width: 180, height: 24 },
+      inRow: { look: 'original', nodeTop: 0, nodeBottom: 100, storedAtOpen: initial },
+    }
+    const imports = createAssetFieldImports(app, () => true)
+    const [open, setOpen] = createSignal(true)
+    const root = document.createElement('div'); document.body.append(root)
+    let pending: Promise<void> | undefined
+    const dispose = render(() => <Show when={open()}><WidgetEditor app={app} ed={ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })}
+      onAssetFileImport={(file) => { pending = imports.start(ed, file) }} onClose={() => setOpen(false)} /></Show>, root)
+    const stored = () => tab.store.doc.graphs['g0']!.nodes['n1']!.values['asset']
+    try {
+      const chooser = root.querySelector<HTMLInputElement>('input[type="file"]')!
+      Object.defineProperty(chooser, 'files', { value: [new File(['abc'], 'chosen.safetensors', { type: 'application/x-safetensors' })] })
+      chooser.dispatchEvent(new Event('change', { bubbles: true }))
+      expect(open()).toBe(false)
+      expect(root.querySelector('[data-testid="widget-editor"]')).toBeNull()
+      expect(root.querySelector('dialog')).toBeNull()
+      await vi.waitFor(() => expect(finish).toBeDefined())
+      expect(signal.aborted).toBe(false)
+      expect(stored()).toEqual(initial)
+      expect([...imports.states().values()][0]?.phase).toBe('copying')
+      if (stopped) {
+        imports.stop(ed)
+        expect(signal.aborted).toBe(true)
+      }
+      finish(imported)
+      await pending
+      expect(stored()).toEqual(stopped ? initial : imported)
+      expect(imports.states().size).toBe(0)
+    } finally { imports.dispose(); dispose(); app.dispose(); vi.unstubAllGlobals() }
+  })
+
+  it.each([true, false])('commits an imported quick-list file without a host only after successful import: %s', async (accepted) => {
     const initial = { digest: `blake3:${'b'.repeat(64)}`, name: 'saved.safetensors', size: 20,
       mediaType: 'application/x-safetensors', virtualPath: 'mounts/left/saved.safetensors' }
     const mounted = catalogAssetEditor('file/binary', undefined, initial, false, true)

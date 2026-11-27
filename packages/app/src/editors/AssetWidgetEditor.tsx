@@ -1078,7 +1078,15 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
     !assetQuickListAllowed(props.ed.spec, props.ed.declaredType, props.ed.mergeableTypes))
   const [file, setFile] = createSolidSignal<File>()
   const QuickList: Component<WidgetEditorImplementationProps> = (implementation) => <AssetQuickList {...implementation}
-    browse={() => setPicker(true)} add={(chosen) => { setFile(chosen); setPicker(true) }} />
+    browse={() => setPicker(true)} add={(chosen) => {
+      if (props.onAssetFileImport !== undefined) {
+        props.onAssetFileImport(chosen)
+        implementation.close()
+      } else {
+        setFile(chosen)
+        setPicker(true)
+      }
+    }} />
   return <Show when={picker()} fallback={<WidgetEditorController {...props} implementation={QuickList} />}>
     <AssetPickerWidgetEditor {...props} ed={file() === undefined ? props.ed : { ...props.ed, stagedFile: file()! }}
       commitImportedFile={file() !== undefined} />

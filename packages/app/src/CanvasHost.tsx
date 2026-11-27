@@ -8425,6 +8425,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               focusRow: (from: { readonly nodeId: string; readonly valueKey: string }) => focusEditorRow(from),
             } : {})}
             onAssetBackdropPointerDown={(event) => openAssetWidgetAt(event.clientX, event.clientY)}
+            onAssetFileImport={(file) => { void assetFieldImports.start(ed, file) }}
             onClose={() => {
               setEditor(undefined)
               if (editorRestoresCanvasFocus(ed)) queueMicrotask(() => canvasEl.focus())

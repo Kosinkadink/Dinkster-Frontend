@@ -219,6 +219,8 @@ export interface WidgetEditorProps {
   bindClickAway?: (handler: (() => unknown) | undefined) => void
   /** Lets the canvas activate an exposed ASSET row after this modal closes. */
   onAssetBackdropPointerDown?: (event: PointerEvent) => void
+  /** Transfers a chosen file to work owned by the host, independent of this chooser. */
+  onAssetFileImport?: (file: File) => void
   onClose: () => void
 }
 
