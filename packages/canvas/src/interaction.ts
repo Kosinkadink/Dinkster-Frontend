@@ -866,10 +866,7 @@ export class InteractionController {
   private hoveredPinPort: string | undefined
   private hoveredPinDirection: 'in' | 'out' | undefined
   private hoveredPinWidgetTap: true | undefined
-  private focusedPinNode: string | undefined
-  private focusedPinPort: string | undefined
-  private focusedPinDirection: 'in' | 'out' | undefined
-  private focusedPinWidgetTap: true | undefined
+  private focusedTarget: OverlayState['focusedTarget']
   private hoveredWidgetNode: string | undefined
   private hoveredWidgetValue: string | undefined
   /** Text box edge under the idle pointer, and the one arrow keys size. */
@@ -1513,21 +1510,13 @@ export class InteractionController {
     this.pushOverlay()
   }
 
-  /** Set or clear the keyboard-focused semantic pin. */
-  setFocusedPin(pin: {
-    readonly nodeId: string
-    readonly portId: string
-    readonly direction: 'in' | 'out'
-    readonly widgetTap?: true
-  } | undefined): void {
-    if (pin?.nodeId === this.focusedPinNode &&
-        pin?.portId === this.focusedPinPort &&
-        pin?.direction === this.focusedPinDirection &&
-        pin?.widgetTap === this.focusedPinWidgetTap) return
-    this.focusedPinNode = pin?.nodeId
-    this.focusedPinPort = pin?.portId
-    this.focusedPinDirection = pin?.direction
-    this.focusedPinWidgetTap = pin?.widgetTap
+  /** Set or clear the paint-only keyboard-list location. */
+  setFocusedTarget(target: OverlayState['focusedTarget']): void {
+    if (target?.nodeId === this.focusedTarget?.nodeId &&
+        target?.pin?.portId === this.focusedTarget?.pin?.portId &&
+        target?.pin?.direction === this.focusedTarget?.pin?.direction &&
+        target?.pin?.widgetTap === this.focusedTarget?.pin?.widgetTap) return
+    this.focusedTarget = target
     this.pushOverlay()
   }
 
@@ -4780,14 +4769,7 @@ export class InteractionController {
           ...(this.hoveredPinWidgetTap === true ? { widgetTap: true as const } : {}),
         },
       } : {}),
-      ...(this.focusedPinNode !== undefined ? {
-        focusedPin: {
-          nodeId: this.focusedPinNode,
-          portId: this.focusedPinPort!,
-          direction: this.focusedPinDirection!,
-          ...(this.focusedPinWidgetTap === true ? { widgetTap: true as const } : {}),
-        },
-      } : {}),
+      ...(this.focusedTarget !== undefined ? { focusedTarget: this.focusedTarget } : {}),
       ...(this.hoveredWidgetNode !== undefined ? {
         hoveredWidget: { nodeId: this.hoveredWidgetNode, valueKey: this.hoveredWidgetValue! },
       } : {}),

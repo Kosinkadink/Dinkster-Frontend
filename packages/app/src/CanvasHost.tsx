@@ -1515,7 +1515,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   })
   let semanticTargetSelected: (target: CanvasSemanticTarget) => boolean = () => false
   let activateSemanticTarget: (target: CanvasSemanticTarget) => void = () => {}
-  let focusSemanticPin: (item: CanvasSemanticItem | undefined) => void = () => {}
+  let focusSemanticTarget: (item: CanvasSemanticItem | undefined) => void = () => {}
   let semanticPinPoint: (item: CanvasSemanticItem) => { x: number; y: number } | undefined = () => undefined
   let focusCanvas = (): void => {}
   const [editorViewport, setEditorViewport] = createSolidSignal({ x: 0, y: 0, scale: 1 })
@@ -3862,16 +3862,35 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     canvasEl.addEventListener('wheel', camera.cancel, { capture: true })
     onCleanup(() => canvasEl.removeEventListener('wheel', camera.cancel, { capture: true }))
     focusCanvas = () => canvasEl.focus()
-    focusSemanticPin = (item): void => controller.setFocusedPin(
-      item?.target.kind === 'port'
-        ? {
-          nodeId: item.target.nodeId,
-          portId: item.target.id,
-          direction: item.target.direction,
-          ...(item.target.widgetTap === true ? { widgetTap: true as const } : {}),
-        }
-        : undefined,
-    )
+    focusSemanticTarget = (item): void => {
+      const target = item?.target
+      const focused = target?.kind === 'port'
+        ? { nodeId: target.nodeId, pin: { portId: target.id, direction: target.direction,
+          ...(target.widgetTap === true ? { widgetTap: true as const } : {}) } }
+        : target?.kind === 'node' || target?.kind === 'boundary' ? { nodeId: target.id } : undefined
+      controller.setFocusedTarget(focused)
+      if (focused === undefined) return
+      const scene = renderer.getScene()
+      const node = scene.nodes.find((node) => node.id === focused.nodeId) ??
+        scene.boundaryNodes.find((node) => boundarySceneId(node.side) === focused.nodeId)
+      if (node === undefined) return
+      let rect = { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height }
+      if (focused.pin !== undefined) {
+        const pin = node.layout.pins.find((pin) => pin.portId === focused.pin!.portId &&
+          pin.direction === focused.pin!.direction && (pin.widgetTap === true) === (focused.pin!.widgetTap === true))
+        if (pin === undefined) return
+        rect = { x: node.x + (pin.direction === 'in' ? 0 : node.layout.width), y: node.y + pin.y, width: 0, height: 0 }
+      }
+      const viewport = renderer.getViewport()
+      const left = viewport.x + rect.x * viewport.scale
+      const top = viewport.y + rect.y * viewport.scale
+      if (left < 0 || top < 0 || left + rect.width * viewport.scale > canvasEl.clientWidth ||
+          top + rect.height * viewport.scale > canvasEl.clientHeight) {
+        camera.cancel()
+        renderer.setViewport(viewportCenteredOnNode(viewport, rect,
+          { width: canvasEl.clientWidth, height: canvasEl.clientHeight }))
+      }
+    }
     semanticPinPoint = (item) => {
       const target = item.target
       if (target.kind !== 'port') return undefined
@@ -7079,7 +7098,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setOutputViewerKey(undefined)
       semanticTargetSelected = () => false
       activateSemanticTarget = () => {}
-      focusSemanticPin = () => {}
+      focusSemanticTarget = () => {}
       semanticPinPoint = () => undefined
       focusCanvas = () => {}
     })
@@ -7215,7 +7234,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           onActivate={(item) => activateSemanticTarget(item.target)}
           onExit={() => focusCanvas()}
           onFocusChange={(focused) => setSemanticFocused(focused)}
-          onActiveChange={(item) => focusSemanticPin(item)}
+          onActiveChange={(item) => focusSemanticTarget(item)}
           activePoint={(item) => { void editorViewport(); return semanticPinPoint(item) }}
         />
       </Show>
