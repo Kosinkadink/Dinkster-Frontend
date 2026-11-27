@@ -449,6 +449,162 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
   }
 
   for (const depth of [1, 2]) {
+    it(`boundary/standalone-option-links/native-depth-${depth}`, async () => {
+      const connection = new DinksterConnection({ id: asConnectionId('standalone-option-live'),
+        baseUrl: LIVE_URL!, clientId: `standalone-option-${process.pid}` })
+      const registry = await connection.fetchSchemas()
+      const primitive: NodeSchema = {
+        type: 'dinkster.utilities.primitive_string', displayName: 'String', category: 'utilities', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'STRING' }, optional: false,
+            widget: { widgetType: 'STRING', options: {}, default: '' } },
+          { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'STRING' }, knownValue: { input: 'value' } },
+        ],
+      }
+      const resolve = (type: string) => type === primitive.type ? primitive : registry.resolve(type)
+      const document = JSON.parse(readFileSync(new URL('./fixtures/boundary-sample.json', import.meta.url), 'utf8')) as WorkflowDocument
+      if (depth === 1) {
+        delete (document.graphs as Record<string, unknown>).portrait
+        for (const id of ['first', 'second']) Object.assign(document.graphs.root!.nodes[id]!, { type: '#detail' })
+      }
+      for (const graph of Object.values(document.graphs)) {
+        for (const node of Object.values(graph.nodes)) if (types[node.type]) Object.assign(node, { type: types[node.type] })
+        if (graph.boundary !== undefined) Object.assign(graph, { boundary: { body: graph.boundary.body
+          .filter((row) => !('id' in row && row.id === 'mode')) } })
+      }
+      Object.assign(document.graphs.detail!.nodes, { extra: {
+        ...structuredClone(document.graphs.detail!.nodes.sample!), id: 'extra',
+        values: { ...document.graphs.detail!.nodes.sample!.values, strength: 0.53,
+          'mode.text': 'native private extra caption', 'mode.mix': 0.73 },
+      } })
+      const caption = depth === 1 ? 'caption' : 'heading'
+      const picture = depth === 1 ? 'photo' : 'picture'
+      Object.assign(document.graphs.root!.nodes.first!, {
+        values: { strength: 0.2, count: 3, [caption]: 'native first leaf caption' }, dynamic: {},
+      })
+      Object.assign(document.graphs.root!.nodes.second!, {
+        values: { strength: 0.8, count: 2, [caption]: 'native sibling leaf caption' }, dynamic: {},
+      })
+      Object.assign(document.graphs.root!.nodes, {
+        literal: { id: 'literal', type: primitive.type, values: { value: 'native literal leaf caption' } },
+        runtime: { id: 'runtime', type: 'boundary-sample.formula', values: { seed: 23, bias: 11 } },
+      })
+      const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve) }))
+      const edit = (command: string, params: Record<string, Json>) => {
+        const before = store.doc
+        const result = store.dispatch({ command, params })
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+        const after = store.doc
+        expect(store.undo()).toBe(true)
+        expect(store.doc.graphs).toEqual({ ...before.graphs, root: { ...before.graphs.root!,
+          nextOrdinal: after.graphs.root!.nextOrdinal, actorCursors: after.graphs.root!.actorCursors } })
+        expect(store.redo()).toBe(true)
+        expect(store.doc).toEqual(after)
+      }
+      const select = (nodeId: string, option: string) => edit('dynamic.selectOption', {
+        graphId: 'detail', nodeId, construct: 'mode', option,
+      })
+      for (const id of ['sample', 'extra']) select(id, 'text')
+      for (const [itemId, port] of [['caption', 'mode.text'], ['photo', 'mode.picture']] as const) {
+        edit('boundary.addItem', { graphId: 'detail', side: 'inputs', itemId, node: 'sample', port })
+        const before = store.doc
+        const refused = store.dispatch({ command: 'boundary.addBinding', params: {
+          graphId: 'detail', itemId, node: 'extra', port: port === 'mode.text' ? 'mode.picture' : 'mode.text',
+        } })
+        expect(refused.ok).toBe(false)
+        expect(refused.diagnostics.map((item) => item.code)).toContain('boundary.fanoutTypeMismatch')
+        expect(store.doc).toBe(before)
+        edit('boundary.addBinding', { graphId: 'detail', itemId, node: 'extra', port })
+      }
+      if (depth === 2) for (const [itemId, port] of [['heading', 'caption'], ['picture', 'photo']] as const) {
+        edit('boundary.addItem', { graphId: 'portrait', side: 'inputs', itemId, node: 'detail', port })
+      }
+      const wire = (node: string, port: string, input: string) => edit('link.connect', {
+        graphId: 'root', from: { node, port }, to: { node: 'first', port: input },
+      })
+      edit('link.connect', { graphId: 'root', from: { node: 'first', port: 'output91' },
+        to: { node: 'sink', port: 'number' } })
+      const sibling = store.doc.graphs.root!.nodes.second
+      const path = (instance: string, extra: boolean) => `${instance}${depth === 2 ? '.detail' : ''}.${extra ? 'extra' : 'sample'}`
+      const expected = (second: boolean, extra: boolean, image: boolean, text: string, pixels: boolean) => ({
+        description: {}, image: null, mask: null, source: null, strength: extra ? 0.53 : second ? 0.8 : 0.2,
+        layers: [{ key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null }],
+        mode: { key: image ? 'image' : 'text', mix: extra ? 0.73 : 0.3,
+          picture: image && pixels ? [0.125, 0.25, 0.5] : null, text: image ? null : text },
+        nested: [{ key: 'n0', weights: [{ key: 'w0', value: 0.3 }] },
+          { key: 'n1', weights: [{ key: 'w0', value: 0.3 }, { key: 'w1', value: 0.3 }] }],
+      })
+      const run = async (phase: string, text: string, imageTargets: readonly boolean[]) => {
+        const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+        expect(loaded).toEqual(store.doc)
+        expect(loaded.graphs.root!.nodes.second).toEqual(sibling)
+        const compiled = compile({ document: loaded, revision: 1, resolve, scope: { kind: 'full' },
+          connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Standalone option workflow did not compile')
+        const expectedReceivers = Object.fromEntries([false, true].flatMap((second) => [false, true].map((extra) => [
+          path(second ? 'second' : 'first', extra), expected(second, extra, imageTargets[extra ? 1 : 0]!,
+            second ? 'native sibling leaf caption' : text, !second),
+        ])))
+        const submitted = await connection.submit(compiled.artifact)
+        expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
+        if (!submitted.ok) throw new Error('Standalone option workflow was refused')
+        console.info('Boundary standalone option submission', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt }))
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline) {
+          const job = await connection.fetchJob(submitted.execution.prompt)
+          if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
+          if (job?.state === 'completed') {
+            const outputs = job.outputs as unknown as Record<string, Record<string, { value: unknown }>>
+            const actual: Record<string, unknown> = {}
+            for (const [nodeId, receipt] of Object.entries(expectedReceivers)) {
+              const query = { jobId: submitted.execution.prompt, nodeId, outputId: 'receipt' }
+              const peek = await connection.values().peek(query)
+              expect(peek.available, JSON.stringify(peek)).toBe(true)
+              if (!peek.available) throw new Error('Standalone option receipt unavailable')
+              const text = await connection.values().rendition(query, 'text', { descriptor: peek.descriptor })
+              expect(text.available, JSON.stringify(text)).toBe(true)
+              if (!text.available) throw new Error('Standalone option receipt text unavailable')
+              actual[nodeId] = JSON.parse(new TextDecoder().decode(text.bytes))
+              console.info('Boundary standalone option node receipt', JSON.stringify({ depth, phase,
+                jobId: submitted.execution.prompt, nodeId, expected: receipt, actual: actual[nodeId] }))
+              expect(actual[nodeId], nodeId).toEqual(receipt)
+              expect(outputs[nodeId]?.output91?.value).toBe(91)
+            }
+            expect(outputs.sink?.received?.value).toBe('91')
+            console.info('Boundary standalone option receipt', JSON.stringify({ depth, phase,
+              jobId: submitted.execution.prompt, expected: expectedReceivers, actual }))
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        throw new Error('Standalone option workflow did not complete')
+      }
+      await run('stored', 'native first leaf caption', [false, false])
+      wire('literal', 'value', caption)
+      await run('literal', 'native literal leaf caption', [false, false])
+      wire('runtime', 'receipt', caption)
+      await run('runtime', '{"seed": 23, "bias": 11, "total": 57}', [false, false])
+      select('sample', 'image')
+      select('extra', 'image')
+      wire('imageA', 'image', picture)
+      await run('image-both', '', [true, true])
+      select('extra', 'text')
+      await run('image-primary-only', '{"seed": 23, "bias": 11, "total": 57}', [true, false])
+      select('sample', 'text')
+      await run('image-inactive', '{"seed": 23, "bias": 11, "total": 57}', [false, false])
+      select('extra', 'image')
+      await run('image-secondary-only', '{"seed": 23, "bias": 11, "total": 57}', [false, true])
+      select('extra', 'text')
+      const link = Object.values(store.doc.graphs.root!.links).find((entry) =>
+        'port' in entry.to && entry.to.node === 'first' && entry.to.port === caption)!
+      edit('link.disconnect', { graphId: 'root', linkId: link.id })
+      await run('disconnected', 'native first leaf caption', [false, false])
+    }, 120_000)
+  }
+
+  for (const depth of [1, 2]) {
     it(`boundary/construct-lifecycle/native-depth-${depth}`, async () => {
       const connection = new DinksterConnection({ id: asConnectionId('construct-lifecycle-live'),
         baseUrl: LIVE_URL!, clientId: `construct-lifecycle-${process.pid}` })
