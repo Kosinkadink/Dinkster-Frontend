@@ -3283,8 +3283,6 @@ export function App(props: {
         </>}
       />
       <ProductToast notification={projectPackNotification()} onDismiss={() => app.projectPackNotification.set(undefined)} />
-      <Show when={catalogSetupRequested()}><EditorFirstRunSetup backendUrl={activeBackend().baseUrl} requested
-        onComplete={() => { app.nodeCatalogSetupRequested.set(false); void app.refreshBackendSchemas(activeBackend()) }} /></Show>
       <Show when={searchOpen()}><UniversalSearch app={app} /></Show>
       <Show when={nodeInstallRequest()} keyed>{(request) => <NodeInstallPrompt app={app} request={request} />}</Show>
       <Show when={nodeInstallRequest() === undefined && modalPanel() === '' ? projectNeedsReview() : undefined} keyed>{(review) => <ProjectNeedsPrompt app={app} review={review} />}</Show>
@@ -3488,6 +3486,8 @@ export function App(props: {
         </aside></Show>
       </div>
 
+      <Show when={catalogSetupRequested()}><EditorFirstRunSetup backendUrl={activeBackend().baseUrl} requested
+        onComplete={() => { app.nodeCatalogSetupRequested.set(false); void app.refreshBackendSchemas(activeBackend()) }} /></Show>
       <Show when={panelDrag()}>{(drag) => {
         const descriptor = () => app.panels.get(drag().panelId)
         return (
