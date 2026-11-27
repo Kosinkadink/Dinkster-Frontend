@@ -582,10 +582,11 @@ export function App(props: {
     endRegionResize?.()
     if (region === 'left') app.shell.previewSize(region, renderedDockWidth())
     if (region === 'right') app.shell.previewSize(region, renderedRailWidth())
-    endRegionResize = beginRegionResize(app.shell, region, down, sign)
+    if (region === 'bottom') app.shell.previewSize(region, renderedBottomHeight())
+    endRegionResize = beginRegionResize(app.shell, region, down, sign, () => maximumRegionSize(region))
   }
   const resizeFromKeyboard = (region: ShellRegion) => (value: number): void => {
-    app.shell.previewSize(region, value)
+    app.shell.previewSize(region, Math.min(maximumRegionSize(region), value))
     app.shell.commitSize(region)
   }
   onCleanup(() => endRegionResize?.())
@@ -2178,6 +2179,7 @@ export function App(props: {
   const bottomOpen = () => zoneOpen('bottom') && bottomZonePanels().length > 0
   let bodyElement!: HTMLDivElement
   const [sideSpace, setSideSpace] = createSolidSignal<{ single: number; both: number }>()
+  const [bottomSpace, setBottomSpace] = createSolidSignal(REGION_SIZE_BOUNDS.bottom.fallback)
   onMount(() => {
     if (managedContext().kind === 'panel') return
     const sidebar = bodyElement.querySelector<HTMLElement>(':scope > .left-sidebar')!
@@ -2187,19 +2189,33 @@ export function App(props: {
       const sidebarWidth = sidebar.getBoundingClientRect().width
       const sidebarShare = sidebarWidth > 0 ? sidebarWidth + gap + Number.parseFloat(getComputedStyle(sidebar).marginRight) : 0
       const available = bodyElement.clientWidth - Number.parseFloat(style.paddingLeft)
-        - Number.parseFloat(style.paddingRight) - sidebarShare - 320
+        - Number.parseFloat(style.paddingRight) - sidebarShare - 200
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
-        : { single: Math.max(0, available - gap), both: Math.max(0, available - 2 * gap) })
+        : { single: Math.max(0, Math.floor(available - gap)), both: Math.max(0, Math.floor(available - 2 * gap)) })
+      const tabHeight = Math.max(0, ...Array.from(bodyElement.querySelectorAll<HTMLElement>('.editor-group > .tab-strip'),
+        (strip) => strip.getBoundingClientRect().height))
+      setBottomSpace(Math.max(REGION_SIZE_BOUNDS.bottom.min, Math.floor(bodyElement.clientHeight - tabHeight - 160 - gap)))
     }
     const observer = new ResizeObserver(measure)
     observer.observe(bodyElement)
     observer.observe(sidebar)
+    if (regionElement) observer.observe(regionElement)
     measure()
     onCleanup(() => observer.disconnect())
   })
-  const renderedDockWidth = () => Math.min(dockWidth(), Math.max(REGION_SIZE_BOUNDS.left.min, sideSpace()?.single ?? dockWidth()))
-  const renderedRailWidth = () => Math.min(railWidth(), Math.max(REGION_SIZE_BOUNDS.right.min, sideSpace()?.single ?? railWidth()))
+  const maximumRegionSize = (region: ShellRegion): number => {
+    if (region === 'bottom') return bottomSpace()
+    const space = sideSpace()
+    const opposite = region === 'left' ? railWidth() : dockWidth()
+    const oppositeOpen = region === 'left' ? railOpen() : leftOpen()
+    return Math.max(REGION_SIZE_BOUNDS[region].min, space === undefined
+      ? bodyElement?.clientWidth ?? REGION_SIZE_BOUNDS[region].fallback
+      : oppositeOpen ? space.both - opposite : space.single)
+  }
+  const renderedDockWidth = () => Math.min(dockWidth(), maximumRegionSize('left'))
+  const renderedRailWidth = () => Math.min(railWidth(), maximumRegionSize('right'))
+  const renderedBottomHeight = () => Math.min(bottomHeight(), maximumRegionSize('bottom'))
   let previousRailOpen = railOpen()
   createEffect(() => {
     const right = railOpen()
@@ -3317,7 +3333,7 @@ export function App(props: {
               label={message('shell.resize.primaryDockPanels')}
               value={renderedDockWidth()}
               min={REGION_SIZE_BOUNDS.left.min}
-              max={REGION_SIZE_BOUNDS.left.max}
+              max={maximumRegionSize('left')}
               testId="dock-resize"
               onPointerDown={beginResize('left', 1)}
               onResize={resizeFromKeyboard('left')}
@@ -3367,14 +3383,14 @@ export function App(props: {
               class="bottom-panel"
               data-testid="bottom-panel"
               data-active-panel={bottomActiveId()}
-              style={{ height: `${bottomHeight()}px` }}
+              style={{ height: `${renderedBottomHeight()}px` }}
             >
               <ShellResizeHandle
                 region="bottom"
                 label={message('shell.resize.bottomPanels')}
-                value={bottomHeight()}
+                value={renderedBottomHeight()}
                 min={REGION_SIZE_BOUNDS.bottom.min}
-                max={REGION_SIZE_BOUNDS.bottom.max}
+                max={maximumRegionSize('bottom')}
                 testId="bottom-resize"
                 onPointerDown={beginResize('bottom', -1)}
                 onResize={resizeFromKeyboard('bottom')}
@@ -3402,7 +3418,7 @@ export function App(props: {
             label={message('shell.resize.inspectorPanels')}
             value={renderedRailWidth()}
             min={REGION_SIZE_BOUNDS.right.min}
-            max={REGION_SIZE_BOUNDS.right.max}
+            max={maximumRegionSize('right')}
             testId="rail-resize"
             onPointerDown={beginResize('right', -1)}
             onResize={resizeFromKeyboard('right')}

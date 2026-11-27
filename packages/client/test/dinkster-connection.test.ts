@@ -418,13 +418,19 @@ describe('model provider credentials', () => {
 
   it('returns credential and provider-grant refusals without treating either as download consent', async () => {
     let error = 'credential-required'
+    let provider = 'huggingface'
+    let source = 'https://huggingface.co/example/gated/resolve/main/gated.safetensors'
     const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test',
-      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider: 'huggingface', requirementId: 'opaque' }) })
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required' })
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider, source, requirementId: 'opaque', token: 'private-canary' }) })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required', provider, source })
     error = 'provider-grant-required'
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required' })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required', provider, source })
     error = 'civitai-access-required'
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'civitai-access-required' })
+    provider = 'civitai'
+    source = 'https://civitai.com/models/123'
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'civitai-access-required', provider, source })
+    provider = 'untrusted-host'
+    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Malformed model download provider')
     error = 'unrecognized-private-message'
     await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Model download POST failed: 409')
   })
@@ -506,6 +512,23 @@ describe('model download planning and owned jobs', () => {
     await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source)
     expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
       project: selected.project, scope: 'local', source: selected.source })
+    for (const destinationSpace of [
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 0 },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 310 },
+      { status: 'available', filesystem: 'other-volume', freeBytes: 1000 },
+      { status: 'unavailable' },
+    ]) {
+      payload = { ...selected, status: 'consent-required', planId: 'opaque-plan', destinationSpace }
+      expect(await connection.planModelDownload(selected)).toEqual(payload)
+    }
+    for (const destinationSpace of [null, { status: 'unknown' },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: -1 },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 0.5 },
+      { status: 'available', freeBytes: 10 },
+    ]) {
+      payload = { ...selected, status: 'consent-required', planId: 'opaque-plan', destinationSpace }
+      await expect(connection.planModelDownload(selected)).rejects.toThrow()
+    }
     const civitai = { ...selected, provider: 'civitai', repo: '19', revision: '72',
       source: 'https://civitai.com/api/download/models/72?fileId=84', status: 'consent-required', planId: 'civitai-plan' }
     payload = civitai
@@ -535,11 +558,16 @@ describe('model download planning and owned jobs', () => {
   it('retains verified actual paths and reuse independently of collision renaming', async () => {
     const asset = { digest: `blake3:${'d'.repeat(64)}`, name: 'existing.safetensors', size: selected.size,
       mediaType: 'application/octet-stream', virtualPath: 'model-files/studio-vae/unconventional/existing.safetensors' }
-    const payload = { ...active, received: selected.size, status: 'completed', asset,
+    let payload = { ...active, received: selected.size, status: 'completed', asset,
       path: '/models/unconventional/existing.safetensors', reused: true, renamed: false, indexingPending: true }
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
       webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
     expect(await connection.fetchModelDownload('job')).toEqual(payload)
+    const exact = { ...payload, digest: asset.digest }
+    payload = exact
+    expect(await connection.fetchModelDownload('job')).toEqual(exact)
+    payload = { ...exact, asset: { ...asset, digest: `blake3:${'e'.repeat(64)}` } }
+    await expect(connection.fetchModelDownload('job')).rejects.toThrow('Malformed verified model result')
   })
 
   it.each([

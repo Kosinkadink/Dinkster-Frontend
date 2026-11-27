@@ -166,6 +166,8 @@ import {
   reconcileDinksterExecutions,
   restartSupervisorEngine,
   type ConnectionStatus,
+  type ModelDownloadJob,
+  type ModelDownloadRequirement,
   type ExecutionState,
   type ExecutionStatus,
   type LibraryRecord,
@@ -210,6 +212,7 @@ import type { CanvasLens } from './data-lens.js'
 import { registerLocaleSetting } from './locale.js'
 import { runClock } from './execution-activity.js'
 import { registerThemeSetting } from './theme.js'
+import { ModelDownloadsController, type ModelDownloadState, type ModelDownloadTask } from './model-downloads.js'
 import {
   assetGuessCandidateToRef,
   installAssetConsent,
@@ -3017,6 +3020,87 @@ export class AppState {
   readonly frozenEditRefusal = createSignal<{ readonly tabId: string } | undefined>(undefined)
   readonly cancellingExecutions = createSignal<ReadonlySet<string>>(new Set())
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
+  private readonly modelDownloadControllers = new Map<Backend, Map<string, ModelDownloadsController>>()
+  private readonly observedModelDownloads = new Map<Backend, readonly ModelDownloadJob[]>()
+  private readonly modelDownloadsChanged = createSignal(0)
+  readonly modelDownloadTasks = createSignal<ReadonlyMap<Backend, readonly ModelDownloadTask[]>>(new Map())
+
+  modelDownloadsFor(backend: Backend, project = activeProjectId()): ModelDownloadsController {
+    let projects = this.modelDownloadControllers.get(backend)
+    if (!projects) { projects = new Map(); this.modelDownloadControllers.set(backend, projects) }
+    let controller = projects.get(project)
+    if (!controller) {
+      controller = new ModelDownloadsController(backend.connection, project, (jobs) => {
+        this.observedModelDownloads.set(backend, jobs)
+        this.publishModelDownloadTasks(backend)
+      })
+      projects.set(project, controller)
+      controller.rows.subscribe(() => this.publishModelDownloadTasks(backend))
+    }
+    return controller
+  }
+
+  /** Exact per-variant state, including transfers discovered outside this window. */
+  modelDownloadStateFor(backend: Backend, requirement: ModelDownloadRequirement, project = activeProjectId()): ReadonlySignal<ModelDownloadState | undefined> {
+    const get = (): ModelDownloadState | undefined => {
+      const row = this.modelDownloadControllers.get(backend)?.get(project)?.rows.get().find((entry) =>
+        entry.requirement.name === requirement.name && entry.requirement.kind === requirement.kind &&
+        entry.requirement.asset?.digest === requirement.asset?.digest)
+      const job = [...(this.observedModelDownloads.get(backend) ?? [])].reverse().find((entry) =>
+        entry.project === project && entry.name === requirement.name && entry.kind === requirement.kind &&
+        entry.digest === requirement.asset?.digest)
+      if (!job) return row
+      if (row && row.job?.jobId !== job.jobId && ['completed', 'cancelled', 'failed'].includes(job.status)) return row
+      if (row?.job?.jobId === job.jobId && !['completed', 'cancelled', 'failed'].includes(job.status) &&
+        (['completed', 'cancelled', 'failed'].includes(row.job.status) || row.job.received > job.received)) return row
+      return { requirement, pending: row?.pending ?? false, job }
+    }
+    return { get, subscribe: (listener) => {
+      const unsubscribe = this.modelDownloadsChanged.subscribe(() => listener(get()))
+      const stop = !this.disposed && this.backends.get().includes(backend)
+        ? this.modelDownloadsFor(backend, project).observe() : () => {}
+      return () => { unsubscribe(); stop() }
+    } }
+  }
+
+  private publishModelDownloadTasks(backend: Backend): void {
+    const tasks = new Map<string, ModelDownloadTask>()
+    const addJob = (job: ModelDownloadJob): void => {
+      if (['completed', 'cancelled', 'failed'].includes(job.status)) { tasks.delete(job.jobId); return }
+      tasks.set(job.jobId, { key: job.jobId, name: job.name, size: job.size, received: job.received, queued: false })
+    }
+    const observed = new Map((this.observedModelDownloads.get(backend) ?? []).map((job) => [job.jobId, job]))
+    for (const job of observed.values()) addJob(job)
+    for (const [project, controller] of this.modelDownloadControllers.get(backend) ?? []) {
+      for (const row of controller.rows.get()) {
+        if (row.job) {
+          const latest = observed.get(row.job.jobId)
+          if (!latest || (!['completed', 'cancelled', 'failed'].includes(latest.status) &&
+            (['completed', 'cancelled', 'failed'].includes(row.job.status) || row.job.received >= latest.received))) addJob(row.job)
+        }
+        if (row.queued && row.plan?.status === 'consent-required') {
+          const key = `queue:${JSON.stringify([project, row.requirement.name, row.requirement.kind, row.requirement.asset?.digest])}`
+          tasks.set(key, { key, name: row.requirement.name, size: row.plan.size, received: 0, queued: true })
+        }
+      }
+    }
+    this.modelDownloadTasks.update((current) => {
+      const next = new Map(current)
+      if (tasks.size) next.set(backend, [...tasks.values()]); else next.delete(backend)
+      return next
+    })
+    this.modelDownloadsChanged.update((revision) => revision + 1)
+  }
+
+  private releaseModelDownloads(backend: Backend): void {
+    for (const controller of this.modelDownloadControllers.get(backend)?.values() ?? []) {
+      if (this.assetConsent.get()?.modelDownloadController === controller) this.assetConsent.set(undefined)
+      controller.dispose()
+    }
+    this.modelDownloadControllers.delete(backend)
+    this.observedModelDownloads.delete(backend)
+    this.publishModelDownloadTasks(backend)
+  }
   readonly storageOpenRequest = createSignal<{ readonly id: string; readonly hiddenModels: boolean } | undefined>(undefined)
   private modelReview: AbortController | undefined
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
@@ -3728,6 +3812,11 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    for (const projects of this.modelDownloadControllers.values()) for (const controller of projects.values()) controller.dispose()
+    this.modelDownloadControllers.clear()
+    this.observedModelDownloads.clear()
+    this.modelDownloadTasks.set(new Map())
+    this.modelDownloadsChanged.update((revision) => revision + 1)
     this.pages.dispose()
     for (const request of this.pendingComparisonCompiles.values()) {
       if (request.frame !== undefined) cancelAnimationFrame(request.frame)
@@ -4306,6 +4395,7 @@ export class AppState {
     const registry = this.registryForTab(tab)
     const document = tab.store.doc
     const occurrences = registry === undefined || backend.protocol !== 'dinkster' ? [] : workflowModelOccurrences(document, registry.resolve, lookupAnswersOf(backend.lookups))
+      .filter((occurrence) => occurrence.asset === undefined)
     const signature = JSON.stringify(occurrences)
     const status = backend.connection.status.get()
     const previous = this.workflowModelChecks.get(tab.store)
@@ -4361,26 +4451,100 @@ export class AppState {
     }).catch(unchecked)
   }
 
-  /** Open a row's model review only while that row still belongs to this document and backend. */
-  reviewModelDownload(tab: Tab, diagnostic: Diagnostic): void {
+  /** Missing model identities and their diagnostics from the current workflow checks. */
+  missingWorkflowModels(tab: Tab): { readonly models: readonly ModelDownloadRequirement[]; readonly diagnostics: readonly Diagnostic[] } | undefined {
     const check = this.workflowModelChecks.get(tab.store)
     const backend = this.backendForTab(tab)
     const current = (): boolean => !this.disposed && this.tabs.get().includes(tab) &&
       check?.document === tab.store.doc && check.backend === this.backendForTab(tab) && check.registry === this.registryForTab(tab)
-    const data = diagnostic.data
-    if (!current() || backend.protocol !== 'dinkster' || diagnostic.code !== 'model.availability.missing' ||
-        data?.['plannable'] !== true || typeof data['name'] !== 'string' || typeof data['kind'] !== 'string' ||
-        !this.problems.get().some((entry) => entry === diagnostic && entry.owner === tab.id)) return
+    if (!current() || backend.protocol !== 'dinkster') return undefined
+    const ownedProblems = this.problems.get().filter((entry) => entry.owner === tab.id)
+    const problems = ownedProblems.filter((entry) =>
+      entry.code === 'model.availability.missing' &&
+      entry.data?.['backend'] === backend.id && typeof entry.data['name'] === 'string' && typeof entry.data['kind'] === 'string')
+    const registry = this.registryForTab(tab)
+    const exactProblems = this.workflowAssetChecks.get(tab.store)?.backend === backend ? ownedProblems.filter((entry) =>
+      entry.code === 'asset.availability.missing') : []
+    const matches = (entry: Diagnostic, occurrence: WorkflowModelOccurrence): boolean => occurrence.asset !== undefined &&
+      entry.data?.['digest'] === occurrence.asset.digest && entry.data['graph'] === occurrence.graph &&
+      entry.data['node'] === occurrence.node && entry.data['input'] === occurrence.input
+    const exactOccurrences = registry === undefined ? [] : workflowModelOccurrences(tab.store.doc, registry.resolve,
+      lookupAnswersOf(backend.lookups)).filter((occurrence) => exactProblems.some((entry) => matches(entry, occurrence)))
+    const exactModels = exactOccurrences.map((occurrence): ModelDownloadRequirement => ({
+      name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset!,
+    }))
+    const keys = new Set<string>()
+    const models = [...problems.map((entry): ModelDownloadRequirement => ({
+      name: entry.data!['name'] as string, kind: entry.data!['kind'] as string,
+    })), ...exactModels].filter((requirement) => {
+      const key = JSON.stringify([requirement.name, requirement.kind, requirement.asset?.digest])
+      if (keys.has(key)) return false
+      keys.add(key)
+      return true
+    })
+    return { models, diagnostics: [...problems, ...exactProblems.filter((entry) =>
+      exactOccurrences.some((occurrence) => matches(entry, occurrence)))] }
+  }
+
+  /** Review this workflow's missing models only while its checked document and backend remain current. */
+  reviewModelDownload(tab: Tab, diagnostic?: Diagnostic): void {
+    const missing = this.missingWorkflowModels(tab)
+    if (!missing?.models.length || (diagnostic !== undefined && !missing.diagnostics.includes(diagnostic))) return
+    const registry = this.registryForTab(tab)
+    const exact = diagnostic?.code === 'asset.availability.missing' && registry !== undefined
+      ? workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(this.backendForTab(tab).lookups)).find((occurrence) =>
+        occurrence.asset?.digest === diagnostic.data?.['digest'] && occurrence.graph === diagnostic.data?.['graph'] &&
+        occurrence.node === diagnostic.data?.['node'] && occurrence.input === diagnostic.data?.['input']) : undefined
+    const focusedModel = exact ? { name: exact.name, kind: exact.kind, asset: exact.asset! } : (diagnostic && missing.models.find((model) => model.asset === undefined &&
+      model.name === diagnostic.data?.['name'] && model.kind === diagnostic.data?.['kind']))
+    this.openModelDownloads(this.backendForTab(tab), missing.models, { workflowTitle: tab.title, tab,
+      ...(focusedModel === undefined ? {} : { focusedModel }),
+    })
+  }
+
+  /** Review without submitting a run; supplied sources must come from authoritative model metadata. */
+  openModelDownloads(backend: Backend, models: readonly (ModelDownloadRequirement & { readonly source?: string })[], options: {
+    readonly workflowTitle?: string
+    readonly focusedModel?: ModelDownloadRequirement
+    readonly tab?: Tab
+    readonly signal?: AbortSignal
+    readonly stillCurrent?: () => boolean
+  } = {}): void {
+    if (this.disposed || backend.protocol !== 'dinkster' || !this.backends.get().includes(backend) || models.length === 0) return
+    const { tab, workflowTitle } = options
+    const document = tab?.store.doc
+    const registry = tab && this.registryForTab(tab)
+    const project = activeProjectId()
+    const current = (): boolean => !this.disposed && activeProjectId() === project && this.backends.get().includes(backend) &&
+      !options.signal?.aborted && (options.stillCurrent?.() ?? true) &&
+      (!tab || (this.tabs.get().includes(tab) && this.backendForTab(tab) === backend &&
+        tab.store.doc === document && this.registryForTab(tab) === registry))
+    if (!current()) return
     this.modelReview?.abort()
     const controller = new AbortController()
     this.modelReview = controller
-    const project = activeProjectId()
-    const invalidate = (): void => { if (!current() || activeProjectId() !== project) controller.abort() }
-    const unsubscribe = [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate), this.backendsTick.subscribe(invalidate)]
+    const transfers = this.modelDownloadsFor(backend, project)
+    transfers.ensure(models)
+    for (const requirement of models) {
+      const row = this.modelDownloadStateFor(backend, requirement, project).get()
+      if (requirement.source !== undefined && !row?.source && !row?.plan && !row?.job)
+        transfers.setSource(requirement, requirement.source)
+    }
+    const invalidate = (): void => { if (!current()) controller.abort() }
+    const unsubscribe = [this.backendsTick.subscribe(invalidate),
+      ...(tab ? [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate)] : [])]
     installAssetConsent({
-      models: [{ name: data['name'], kind: data['kind'] }], slot: this.assetConsent, signal: controller.signal,
-      modelDownloads: { connection: backend.connection, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+      models, ...(workflowTitle === undefined ? {} : { workflowTitle }), slot: this.assetConsent,
+      ...(options.focusedModel === undefined ? {} : { focusedModel: options.focusedModel }),
+      signal: options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal,
+      beforeRetry: current,
+      modelDownloads: { connection: backend.connection, controller: transfers, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+      unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
+      locateModel: (requirement, status) => {
+        if (tab) this.locateModelDownload(tab, backend, requirement, status)
+        else if (status === 'destination-required' && current()) this.storageOpenRequest.set({ id: backend.id, hiddenModels: false })
+      },
       onSettled: () => {
         unsubscribe.forEach((dispose) => dispose())
         if (this.modelReview === controller) this.modelReview = undefined
@@ -4394,6 +4558,23 @@ export class AppState {
     const backend = this.backendForTab(tab)
     if (diagnostic.data?.['backend'] !== backend.id) return
     this.storageOpenRequest.set({ id: backend.id, hiddenModels: diagnostic.code === 'model.availability.model-hidden' })
+  }
+
+  private locateModelDownload(tab: Tab, backend: Backend, requirement: ModelDownloadRequirement, status: 'duplicate' | 'destination-required'): void {
+    if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return
+    if (status === 'destination-required') {
+      this.storageOpenRequest.set({ id: backend.id, hiddenModels: false })
+      return
+    }
+    const registry = this.registryForTab(tab)
+    const occurrence = registry && workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(backend.lookups))
+      .find((entry) => entry.name === requirement.name && entry.kind === requirement.kind &&
+        entry.asset?.digest === requirement.asset?.digest)
+    if (!occurrence) return
+    this.activeTabId.set(tab.id)
+    this.diagnosticFocus.set({ tab, openAssetInput: occurrence.input,
+      anchor: { occurrence: { instancePath: (occurrence.instancePath ?? []).map(asNodeId), node: asNodeId(occurrence.node) } },
+    })
   }
 
   private refreshWorkflowAssets(tab: Tab): void {
@@ -4431,9 +4612,12 @@ export class AppState {
     }).then(async (rows) => {
       if (signal.aborted) return unchecked()
       const missing = new Set(rows.filter((row) => row.status === 'missing').map((row) => row.digest))
+      const registry = this.registryForTab(tab)
+      const models = registry === undefined ? [] : workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(backend.lookups))
       publish(occurrences.filter(({ asset }) => missing.has(asset.digest)).map((occurrence) => {
         const { graph, node, input, index, asset } = occurrence
         const hint = this.workflowAssetLocations.get(tab.store)?.get(asset.digest) ?? savedAssetLocation(tab.store.doc, occurrence)
+        const model = models.find((entry) => entry.graph === graph && entry.node === node && entry.input === input && entry.asset?.digest === asset.digest)
         return diag('warning', 'validation', 'asset.availability.missing',
           `${asset.name} is missing on ${backend.label}: ${graph}/${node}/${input} [${index + 1}].`, {
             refs: [{ graphId: graph, nodeId: node, valueKey: input, direction: 'input' }],
@@ -4442,6 +4626,7 @@ export class AppState {
             } }),
             data: { name: asset.name, backend: backend.label, graph, node, input,
               digest: asset.digest, virtualPath: asset.virtualPath, index,
+              ...(model === undefined ? {} : { kind: model.kind }),
               ...(hint ? { lastKnownMachine: hint.machine, lastKnownPaths: [...hint.paths] } : {}) },
           })
       }))
@@ -5279,6 +5464,7 @@ export class AppState {
     const list = this.backends.get()
     const entry = list.find((b) => b.id === id)
     if (!entry || entry === list[0]) return // default is not removable
+    this.releaseModelDownloads(entry)
     this.supervisorPolls.get(id)?.()
     entry.connection.disconnect()
     entry.dispose()
@@ -5298,6 +5484,7 @@ export class AppState {
 
   /** Stop transport and supervisor polling without forgetting the server or its targets. */
   disconnectBackend(backend: Backend): void {
+    this.releaseModelDownloads(backend)
     this.supervisorPolls.get(backend.id)?.()
     backend.connection.disconnect()
   }
@@ -9838,6 +10025,10 @@ export class AppState {
       return
     }
     const initialArtifact = result.artifact
+    let modelReferences = workflowModelOccurrences(initialArtifact.snapshot, registry.resolve,
+      lookupAnswersOf(this.backendForTab(tab).lookups)).flatMap((occurrence) => occurrence.asset === undefined ? [] : [{
+        name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset,
+      }])
     const missingRequired = requiredRootNodes.filter((required) =>
       !Object.values(initialArtifact.provenance.toSource).some((key) => {
         const occurrence = parseOccurrenceKey(key)
@@ -9890,6 +10081,11 @@ export class AppState {
         }
         this.replaceProblems(tab.id, result.artifact.diagnostics)
         plan = this.preparedAdvancement(tab.store, result.artifact)
+        const compiledRegistry = this.retainedRegistries.get(result.artifact)!
+        modelReferences = workflowModelOccurrences(result.artifact.snapshot, compiledRegistry.resolve,
+          lookupAnswersOf(this.backendForTab(tab).lookups)).flatMap((occurrence) => occurrence.asset === undefined ? [] : [{
+            name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset,
+          }])
       }
       if (lease.signal.aborted) return
       // The artifact records its target connection; submit() cross-checks it.
@@ -9948,6 +10144,7 @@ export class AppState {
             plan,
             scope,
             compiledDocument,
+            modelReferences,
             backend,
             sourceDocument,
             workflowName,
@@ -10022,6 +10219,7 @@ export class AppState {
     plan: AdvancementPlan | undefined,
     scope: ExecutionScope,
     compiledDocument: WorkflowDocument,
+    modelReferences: readonly ModelDownloadRequirement[],
     backend: Backend,
     sourceDocument: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
     workflowName: string,
@@ -10039,9 +10237,13 @@ export class AppState {
     // Problems instead of reopening over the newer owner's dialog.
     installAssetConsent({
       result: submitted,
+      workflowTitle: tab.title,
+      modelReferences,
       slot: this.assetConsent,
-      modelDownloads: { connection: backend.connection, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+      modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+      unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
+      locateModel: (requirement, status) => this.locateModelDownload(tab, backend, requirement, status),
       signal: lease.signal,
       onSettled: lease.release,
       // retryWithAssets re-POSTs the body captured by the first submit. Apply
@@ -10049,7 +10251,7 @@ export class AppState {
       beforeRetry: () =>
         activeProjectId() === project && tabLive() &&
         this.backendForTab(tab) === backend && this.backends.get().includes(backend) &&
-        (submitted.assetsMissing.models === undefined || tab.store.doc === compiledDocument) &&
+        ((submitted.assetsMissing.models === undefined && modelReferences.length === 0) || tab.store.doc === compiledDocument) &&
         !this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument),
       onSubmitted: (ok) => {
         if (this.disposed) return
