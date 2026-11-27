@@ -855,6 +855,7 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     check(privateDoc, initial)
     expect(detached.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: 'first', values: {}, unset: [`${key}.seed`] } }).ok).toBe(true)
     check(detached.doc, { ...initial, [`first${suffix}.sample`]: [19, 4] })
+    check(loadDocument(JSON.parse(JSON.stringify(detached.doc))).document!, { ...initial, [`first${suffix}.sample`]: [19, 4] })
     expect(detached.undo()).toBe(true)
     expect(detached.doc).toEqual(privateDoc)
     expect(privateDoc.graphs.detail).toEqual(doc.graphs.detail)
@@ -882,6 +883,12 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       const replacements = Object.values(flattened.graphs.root!.nodes).filter((entry) => before.graphs.root!.nodes[entry.id] === undefined)
       const primary = replacements.find((entry) => depth === 2 || entry.values['pack.seed'] === 21)!
       const secondary = depth === 1 ? replacements.find((entry) => entry.id !== primary.id)!.id : `${primary.id}.other`
+      const primaryId = depth === 1 ? primary.id : `${primary.id}.sample`
+      for (const current of [flattened, loadDocument(JSON.parse(JSON.stringify(flattened))).document!]) {
+        expect(notes(current, primaryId)).toEqual(expectedNotes('pack', 21))
+        expect(notes(current, secondary)).toEqual(expectedNotes('pack', 11))
+        if (depth === 2) expect(notes(current, primary.id)).toEqual(expectedNotes('bundle', 21))
+      }
       check(flattened, { [`second${suffix}.sample`]: [13, 7], [`second${suffix}.other`]: [11, 17],
         ...(mode === 'active' ? { [depth === 1 ? primary.id : `${primary.id}.sample`]: [21, 4], [secondary]: [11, 17] } : {}) })
       expect(flattened.graphs.detail).toEqual(doc.graphs.detail)
