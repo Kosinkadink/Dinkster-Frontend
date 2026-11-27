@@ -92,6 +92,7 @@ export interface FormulaValues {
   readonly linked?: ReadonlyMap<string, boolean>
   readonly linkedTypes?: ReadonlyMap<string, string | null>
   readonly groupSizes?: ReadonlyMap<string, number>
+  readonly groupKeys?: ReadonlyMap<string, readonly string[]>
   readonly memberIndex?: number | null
   readonly memberKey?: string | null
   /** Keyed by `fact(name)`, such as `fps(video)`. */
@@ -601,6 +602,7 @@ const ARITY: Readonly<Record<string, readonly [number, number | null]>> = {
   int: [1, 1],
   float: [1, 1],
   len: [1, 1],
+  keys: [1, 1],
   lower: [1, 1],
   upper: [1, 1],
   strip: [1, 1],
@@ -1244,6 +1246,12 @@ class Checker {
       this.count()
       return
     }
+    if (name === 'keys') {
+      const target = dotted(node.args[0]!)
+      if (target === undefined || this.scope.names.get(target) !== 'group') refuse('keys() takes the name of a group')
+      this.count()
+      return
+    }
     if (name === 'len') {
       const target = dotted(node.args[0]!)
       if (target !== undefined && this.scope.names.get(target) === 'group') {
@@ -1606,6 +1614,13 @@ class Evaluator {
         this.checkingAvailability = previous
       }
       return true
+    }
+    if (name === 'keys') {
+      const target = dotted(node.args[0]!)!
+      this.values.onRead?.(target)
+      const keys = this.values.groupKeys?.get(target)
+      if (keys === undefined) throw STOP_UNKNOWN
+      return check([...keys])
     }
     if (name === 'len') {
       const target = dotted(node.args[0]!)

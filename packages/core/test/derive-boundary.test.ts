@@ -703,6 +703,47 @@ describe('whole constructs on the subgraph node', () => {
       .toEqual(['item 1 name'])
   })
 
+  it.each([0, 1, 2])('keeps group-key option order occurrence-local through %i boundaries', (depth) => {
+    const { schema: picker, diagnostics } = parseDinksterSchema('GroupPicker', { body: [
+      { kind: 'group', id: 'layers', grows: 'button', keys: { named: ['red', 'blue', 'gold'] },
+        value: { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 } },
+      { kind: 'input', id: 'pick', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', options: { formula: 'keys(layers)' } } },
+    ] } as never)
+    expect(diagnostics).toEqual([])
+    const inner = asDef({ id: 'gW', name: 'Detail pass', nodes: { sample: { id: 'sample', type: 'GroupPicker', values: {}, dynamic: { layers: { members: [] } } } },
+      links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+      boundary: { body: [
+        { kind: 'input', id: 'stack', binds: { kind: 'construct', node: 'sample', port: 'layers' } },
+        { kind: 'input', id: 'selection', binds: { kind: 'port', node: 'sample', port: 'pick' }, promoted: true },
+      ] } })
+    const innerSchema = deriveBoundarySchema(inner, (type) => type === 'GroupPicker' ? picker : undefined).schema!
+    const outer = asDef({ id: 'gO', name: 'Portrait fix', nodes: { detail: { id: 'detail', type: '#gW', values: {}, dynamic: { stack: { members: [] } } } },
+      links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+      boundary: { body: [
+        { kind: 'input', id: 'list', binds: { kind: 'construct', node: 'detail', port: 'stack' } },
+        { kind: 'input', id: 'chosen', binds: { kind: 'port', node: 'detail', port: 'selection' }, promoted: true },
+      ] } })
+    const schema = depth === 0 ? picker! : depth === 1 ? innerSchema
+      : deriveBoundarySchema(outer, (type) => type === '#gW' ? innerSchema : undefined).schema!
+    const group = ['layers', 'stack', 'list'][depth]!
+    const selection = ['pick', 'selection', 'chosen'][depth]!
+    const first = { values: { [selection]: 'blue' }, dynamic: { [group]: { members: ['gold', 'red'] } } }
+    const second = { values: { [selection]: 'gold' }, dynamic: { [group]: { members: ['red', 'blue'] } } }
+    const options = (node: typeof first) => {
+      const result = elaborateInterface(schema, node)
+      expect(result.diagnostics).toEqual([])
+      return elabInputsOf(result).find((row) => row.spec.id === selection)!.spec.widget!.options['options']
+    }
+    expect(options(first)).toEqual(['gold', 'red'])
+    expect(options(second)).toEqual(['red', 'blue'])
+    first.dynamic[group]!.members = ['red', 'gold']
+    expect(options(first)).toEqual(['red', 'gold'])
+    first.dynamic[group]!.members = []
+    expect(options(first)).toEqual([])
+    expect(first.values[selection]).toBe('blue')
+    expect(options(second)).toEqual(['red', 'blue'])
+  })
+
   it("a field's lookup on a subgraph node two levels out reads that node's rows, else the definition's values", () => {
     const { schema: picker } = parseDinksterSchema('Picker', { body: [
       { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] }, pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl'] } },

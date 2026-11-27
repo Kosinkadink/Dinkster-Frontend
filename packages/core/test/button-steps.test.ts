@@ -1608,7 +1608,7 @@ describe('steps inside a subgraph occurrence', () => {
           { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
         ] },
       { kind: 'button', id: 'increase', label: 'Increase', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: 'value + 7' } }] },
-      { kind: 'button', id: 'position', label: 'Position', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: 'value + index() + len(items)' } }] },
+      { kind: 'button', id: 'position', label: 'Position', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: 'value + index() + len(keys(items)) + int(key() != keys(items)[index()]) * 1000' } }] },
       { kind: 'button', id: 'range', label: 'Range', steps: [{ step: 'setEach', group: 'items', field: 'value', value: { formula: '10 + index() * 90 // (len(items) - 1)' } }] },
     ])
     const root = documentOf({ first: { type: depth === 1 ? '#g1' : '#g2' }, second: { type: depth === 1 ? '#g1' : '#g2' } })

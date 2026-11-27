@@ -796,10 +796,14 @@ interface Locals {
 }
 
 /** Forwarded member steps count the edited face, not its definition-owned prefix. */
-function shownMemberContext(context: FormulaContext, group: string, index: number, count: number): FormulaContext {
+function shownMemberContext(context: FormulaContext, group: string, index: number, members: readonly string[]): FormulaContext {
   const sizes = new Map(context.values.groupSizes)
-  for (const [name, path] of context.paths) if (path === group) sizes.set(name, count)
-  return { ...context, values: { ...context.values, memberIndex: index, groupSizes: sizes } }
+  const keys = new Map(context.values.groupKeys)
+  for (const [name, path] of context.paths) if (path === group) {
+    sizes.set(name, members.length)
+    keys.set(name, members)
+  }
+  return { ...context, values: { ...context.values, memberIndex: index, groupSizes: sizes, groupKeys: keys } }
 }
 
 function evaluateIn(context: FormulaContext, locals: Locals, text: string, read?: (name: string, availability: boolean) => Value | typeof UNKNOWN | undefined, onRead?: FormulaValues['onRead'], inspectReads = false): FormulaOutcome {
@@ -1341,8 +1345,9 @@ class Press {
       contexts.push(context)
     }
     const evaluated: [FormulaContext, unknown][] = []
+    const shownMembers = contexts.map((context) => context.values.memberKey!)
     for (const [index, context] of contexts.entries()) {
-      const shown = this.shownWrites === undefined ? context : shownMemberContext(context, group.path, index, contexts.length)
+      const shown = this.shownWrites === undefined ? context : shownMemberContext(context, group.path, index, shownMembers)
       evaluated.push([context, await this.value(value, shown)])
     }
     this.stage(evaluated.flatMap(([context, item]) => this.write(row, item, context)))
@@ -1957,7 +1962,10 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
         return scope === undefined || (shownWrites !== undefined &&
           (field === undefined || !shownWrites.has(writeOwnerKey(view, target, field)))) ? [] : [scope]
       })
-      if (shownWrites !== undefined && path !== undefined) scopes = scopes.map((scope, index) => shownMemberContext(scope, path, index, scopes.length))
+      if (shownWrites !== undefined && path !== undefined) {
+        const shownMembers = scopes.map((scope) => scope.values.memberKey!)
+        scopes = scopes.map((scope, index) => shownMemberContext(scope, path, index, shownMembers))
+      }
     }
     const writes = targetsOf([step])
     other ||= writes.other

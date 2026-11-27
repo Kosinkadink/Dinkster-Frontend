@@ -1285,6 +1285,24 @@ describe('formula properties', () => {
   // `pick` holds `under` only while option a is chosen, so a formula outside reads it as unknown under b.
   const pick = { kind: 'choice', id: 'pick', options: [{ key: 'a', rows: [field('under')] }, { key: 'b', rows: [] }] }
 
+  it('uses current group key order for combo options and leaves an inactive group unknown', () => {
+    const group = { kind: 'group', id: 'layers', grows: 'button', keys: { named: ['red', 'blue', 'gold'] }, value: field('name') }
+    const body = [group,
+      { kind: 'choice', id: 'mode', options: [{ key: 'on', rows: [group] }, { key: 'off', rows: [] }] },
+      field('selection', { type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', options: { formula: 'keys(layers)' } } }),
+      { kind: 'note', id: 'order', text: { formula: 'join(",", keys(mode.layers))' }, unknown: 'unknown' },
+    ]
+    const run = (members: string[], selected: string) => elaborate(body, { selection: 'blue' }, EMPTY_CONNECTIVITY, {
+      layers: { members }, 'mode.layers': { members: ['blue', 'gold'] }, mode: { selected },
+    })
+    const options = (result: ReturnType<typeof run>) => elabInputsOf(result).find((input) => input.spec.id === 'selection')!.spec.widget!.options['options']
+    expect(options(run(['gold', 'red'], 'on'))).toEqual(['gold', 'red'])
+    expect(options(run(['red', 'gold'], 'on'))).toEqual(['red', 'gold'])
+    expect(options(run([], 'off'))).toEqual([])
+    expect(run(['gold'], 'on').items.find((item) => item.kind === 'note')).toMatchObject({ text: 'blue,gold' })
+    expect(run(['gold'], 'off').items.find((item) => item.kind === 'note')).toMatchObject({ text: 'unknown', unknown: true })
+  })
+
   it('hides a row whose visible is false, still sends it to the run, and shows it while unknown, failed or wired', () => {
     const body = (visible: string) => [field('w'), pick, field('extra', { visible: { formula: visible } })]
     expect(hiddenInputs(elaborate(body('w > 5'), { w: 3 }))).toEqual(['extra'])

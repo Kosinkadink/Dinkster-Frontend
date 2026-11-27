@@ -145,6 +145,22 @@ function run(testCase: VectorCase): string | undefined {
 }
 
 describe('formula vector file', () => {
+  it('enumerates ordered group keys without treating an inactive group as empty', () => {
+    const scope = { names: new Map<string, FormulaNameKind>([['layers', 'group'], ['mode.layers', 'group'], ['count', 'int']]) }
+    const formula = Formula.parse('join(",", keys(layers))', scope)
+    expect(formula.evaluate({ groupKeys: new Map([['layers', ['layer9', 'layer2']]]) }))
+      .toEqual({ kind: 'value', value: 'layer9,layer2' })
+    expect(formula.evaluate({ groupKeys: new Map([['layers', []]]) }))
+      .toEqual({ kind: 'value', value: '' })
+    expect(formula.evaluate({ })).toEqual({ kind: 'unknown' })
+    expect(Formula.parse('keys(mode.layers)', scope).evaluate({ groupKeys: new Map([['mode.layers', ['blue', 'red']]]) }))
+      .toEqual({ kind: 'value', value: ['blue', 'red'] })
+    for (const text of ['keys(count)', 'keys(missing)', 'keys("layers")', 'keys([])']) {
+      expect(() => Formula.parse(text, scope)).toThrow('keys() takes the name of a group')
+    }
+    expect([...formula.uses().names]).toEqual(['layers'])
+  })
+
   it('memoizes shared derived availability without reusing it for demanded reads', () => {
     const derived = new Map([['d0', 'value']])
     for (let index = 1; index <= 12; index++) derived.set(`d${index}`, `d${index - 1} + d${index - 1}`)

@@ -1478,6 +1478,7 @@ function elaboratePass(
     const linkedTypes = new LazyValues<string | null>()
     const facts = new LazyValues<FormulaValue>()
     const sizes = new Map<string, number>()
+    const keys = new Map<string, readonly string[]>()
     const fixedValues = new LazyValues<{ readonly value: unknown; readonly linked?: true }>()
     for (const [name, reference] of fixed) fixedValues.setLazy(name, () => {
       const constant = readFixedValue(reference)
@@ -1511,7 +1512,9 @@ function elaboratePass(
         if (kind !== 'opaque' && kind !== 'group') values.setLazy(name, () => UNKNOWN)
         if (names.inputs.has(name)) wired.set(name, false)
       } else if (kind === 'group') {
-        sizes.set(name, membersFor(path).length)
+        const members = membersFor(path)
+        sizes.set(name, members.length)
+        keys.set(name, members)
       } else if (kind.endsWith('[]')) {
         const dot = path.lastIndexOf('.')
         const group = path.slice(0, dot)
@@ -1546,6 +1549,7 @@ function elaboratePass(
         linkedTypes,
         facts,
         groupSizes: sizes,
+        groupKeys: keys,
         memberIndex: member?.index ?? null,
         memberKey: member?.key ?? null,
       },
