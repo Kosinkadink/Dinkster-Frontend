@@ -85,7 +85,7 @@ it('renders plan answers, selected filesystem capacity, and independent download
     await vi.waitFor(() => expect(button('Download 2 models')).toBeDefined())
     expect(rows().map((row) => row.dataset['state'])).toEqual(['ready', 'available', 'available', ...Array(9).fill('needs')])
     expect(root.textContent).toContain('needs 11 models that are not ready on this computer.')
-    expect(rows()[0]!.textContent).toContain('VAEs - 2 KiB')
+    expect(rows()[0]!.textContent).toContain('VAEs - 2 KB')
     expect(rows()[0]!.textContent).toContain('an identical file was already here')
     for (const reason of ['No known source', 'More than one source', 'No folder to save it in', 'Two files have this name',
       'Hidden on this computer', 'Not signed in to Hugging Face', 'No access to this file on Hugging Face', 'No access to this file on Civitai'])

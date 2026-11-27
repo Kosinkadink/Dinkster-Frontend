@@ -77,10 +77,3 @@ export function assetSourcesStatus(sources: readonly unknown[] | undefined, erro
   if (sources === undefined) return 'loading'
   return sources.length === 0 ? 'empty' : 'ready'
 }
-
-export function formatSize(size?: number): string {
-  if (size === undefined) return 'unknown'
-  if (size < 1024) return `${size} B`
-  if (size < 1048576) return `${(size / 1024).toFixed(size < 10240 ? 1 : 0)} KiB`
-  return `${(size / 1048576).toFixed(size < 10485760 ? 1 : 0)} MiB`
-}
