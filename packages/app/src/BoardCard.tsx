@@ -93,14 +93,18 @@ export function BoardCard(props: {
     try { await props.app.queueBoardCard(props.entry, props.card.id) }
     catch (reason) { if (live) setError(reason instanceof Error ? reason.message : String(reason)) }
   }
-  createEffect(on([identity, registry, backend], ([, schemas]) => {
+  createEffect(on([identity, registry, backend, tick], ([, schemas]) => {
     setSource(undefined)
     setError(undefined)
     if (!schemas) return
     let live = true
     onCleanup(() => { live = false })
     void props.app.boards.loadCardSource(props.entry.id, props.card.id, schemas.resolve, () => live)
-      .then((document) => { if (live) setSource(document) })
+      .then((document) => {
+        if (!live) return
+        props.app.boards.resolveCardInputs(props.entry.id, props.card.id, document, schemas.resolve)
+        setSource(document)
+      })
       .catch((reason) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })
   }))
   const projection = createMemo(() => {

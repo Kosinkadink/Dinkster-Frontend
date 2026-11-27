@@ -290,6 +290,16 @@ export class BoardWorkspace {
     const document = await this.loadCardSource(id, cardId, resolve, () => stillWanted() && entry.session.doc.items[cardId] === card)
     if (this.disposed || !stillWanted() || !this.entries.get().includes(entry) || entry.session.doc.items[cardId] !== card ||
       this.options.mediaConnection(entry.baseUrl) !== connection) throw new Error('Card changed while loading')
+    return this.resolveCardInputs(id, cardId, document, resolve)
+  }
+
+  /** Discard hidden controls made fixed in the source before they can be exposed again. */
+  resolveCardInputs(id: string, cardId: string, document: WorkflowDocument,
+    resolve: (type: string) => NodeSchema | undefined,
+  ): WorkflowDocument {
+    const entry = this.mediaEntry(id)
+    const card = entry.session.doc.items[cardId]
+    if (!card || (card.kind !== 'workflow' && card.kind !== 'blueprint')) throw new Error('Card is no longer on this Board')
     const snapshot = applyCardInputs(document, card.values, resolve)
     const exposed = new Set(buildParamRows(snapshot, documentResolver(snapshot, resolve))
       .flatMap((row) => [exposedKey(row.entry), ...(row.kind === 'live' ? [exposedKey({ ...row.entry, inputId: row.valueKey })] : [])]))
