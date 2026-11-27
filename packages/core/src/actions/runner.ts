@@ -539,7 +539,7 @@ export function storedNumberFixes(doc: WorkflowDocument, target: StepPlace, host
     const widget = field.spec.widget
     const path = valueKeyOf(field)
     if (widget === undefined || !['INT', 'FLOAT'].includes(widget.widgetType) || field.derivedValue !== undefined || field.kept !== undefined ||
-      view.connectivity.isInputConnected(path) || !Object.hasOwn(view.node.values, path)) return []
+      field.numericConstraintsPending === true || view.connectivity.isInputConnected(path) || !Object.hasOwn(view.node.values, path)) return []
     const before = view.node.values[path]
     if (!isIntegerWidgetValue(before)) return []
     const after = correctNumericValue(before, numericStepConstraints(widget))

@@ -123,16 +123,18 @@ describe('one press is one undo step, or nothing', () => {
         widget: { type: 'NUMBER', min: 0, max: 10, step: 0.1 } },
       { kind: 'input', id: 'clamped', type: { kind: 'concrete', types: ['FLOAT'] }, default: 0,
         widget: { type: 'NUMBER', min: 0, max: 10, step: 0.1 } },
+      { kind: 'input', id: 'late', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: { formula: 'wired' }, step: 4 } },
       { kind: 'output', id: 'out', type: { kind: 'concrete', types: ['INT'] } },
     ])
     const session = sessionOf(documentOf({ n1: { type: 'test.numeric-fixes', values: {
-      whole: 14, wired: 99, special: -1, large: '9007199254740998', decimal: 7.53, clamped: 12.5,
+      whole: 14, wired: 99, special: -1, large: '9007199254740998', decimal: 7.53, clamped: 12.5, late: 29,
     } } }, link('feed', ['n1', 'out'], ['n1', 'wired'])))
     const original = session.doc
     const host = hostOf()
     const fixes = storedNumberFixes(session.doc, at('unused'), host)
     expect(await applyStoredNumberFixes(session, fixes, host)).toMatchObject({ kind: 'done' })
-    expect(valuesOf(session)).toEqual({ whole: 12, wired: 99, special: -1, large: '9007199254740997', decimal: 7.53, clamped: 10 })
+    expect(valuesOf(session)).toEqual({ whole: 12, wired: 99, special: -1, large: '9007199254740997', decimal: 7.53, clamped: 10, late: 29 })
     expect(storedNumberFixes(session.doc, at('unused'), host)).toEqual([])
     expect(session.undo()).toBe(true)
     expect(session.doc).toEqual(original)
@@ -148,6 +150,13 @@ describe('one press is one undo step, or nothing', () => {
     expect(valuesOf(session)['clamped']).toBe(12.5)
     expect(await applyStoredNumberFixes(session, storedNumberFixes(session.doc, at('unused'), host), host)).toMatchObject({ kind: 'done' })
     expect(valuesOf(session)['whole']).toBe(16)
+    expect(session.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'feed' } }).ok).toBe(true)
+    expect(session.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'wired', value: 20 } }).ok).toBe(true)
+    expect(await applyStoredNumberFixes(session, storedNumberFixes(session.doc, at('unused'), host), host)).toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)['late']).toBe(20)
+    expect(session.undo()).toBe(true)
+    expect(valuesOf(session)['late']).toBe(29)
+    expect(valuesOf(session)['wired']).toBe(20)
 
     const outer = documentOf({ left: { type: '#g1', values: { shown: 14 } }, right: { type: '#g1', values: { shown: 18 } } })
     const nested: WorkflowDocument = { ...outer, graphs: { ...outer.graphs, g1: {
