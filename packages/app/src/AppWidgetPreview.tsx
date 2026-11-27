@@ -18,9 +18,10 @@ export function AppWidgetPreview(props: {
 
   const paint = (): void => {
     const element = canvas
+    if (element === undefined) return
     const resolved = presentation()
     const spec = props.row.spec
-    if (element === undefined || resolved === undefined || spec === undefined) return
+    if (resolved === undefined || spec === undefined) return
     const width = Math.max(1, element.clientWidth || element.parentElement?.clientWidth || canvasPaintTokens.preview.appWidgetFallbackWidth)
     const height = resolved.view.id === 'core.text'
       ? multilineWidgetHeight(resolved.rows, defaultTokens)
@@ -35,6 +36,7 @@ export function AppWidgetPreview(props: {
     ctx.clearRect(0, 0, width, height)
     ctx.font = `${defaultTokens.fontSize}px ${defaultTokens.fontFamily}`
     ctx.textBaseline = 'middle'
+    ctx.globalAlpha = props.row.item.disabled ? canvasPaintTokens.widget.inactiveOpacity : 1
     const row: Extract<LayoutRow, { kind: 'widget' }> = {
       kind: 'widget',
       y: 0,
@@ -49,6 +51,8 @@ export function AppWidgetPreview(props: {
       spec,
       address: props.row.item.address,
       ...(props.row.item.spec.optional ? { optional: true } : {}),
+      ...(props.row.item.readOnly ? { readOnly: true } : {}),
+      ...(props.row.item.disabled ? { disabled: true } : {}),
       ...(props.row.item.derivedValue !== undefined ? { derivedValue: props.row.item.derivedValue } : {}),
     }
     createRegistryPainter(props.registry)({
@@ -77,7 +81,10 @@ export function AppWidgetPreview(props: {
     observer.observe(canvas)
     paint()
   })
-  onCleanup(() => observer?.disconnect())
+  onCleanup(() => {
+    observer?.disconnect()
+    canvas = undefined
+  })
 
   return (
     <Show when={presentation()}>

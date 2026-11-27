@@ -755,7 +755,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   /** All controls converge on the same undoable document command. */
   const commit = async (row: Extract<ParamRow, { kind: 'live' }>, value: Json, stillWanted: () => boolean = () => true): Promise<boolean> => {
     const tab = activeTab()
-    if (!tab || frozen()) return false
+    const current = rows().find((candidate) => exposedKey(candidate.entry) === exposedKey(row.entry))
+    if (!tab || current?.kind !== 'live' || !editable(current)) return false
+    row = current
     if (row.spec !== undefined) {
       const error = widgetCommitError(widgetRegistry().kind(row.spec.widgetType), value, row.spec)
       if (error !== undefined) {
@@ -1276,6 +1278,8 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     !frozen() &&
     !row.linked &&
     !row.derived &&
+    !row.item.readOnly &&
+    !row.item.disabled &&
     row.spec !== undefined &&
     editableKinds.has(row.spec.widgetType)
 
@@ -1284,7 +1288,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       ? message('appView.readOnly.linked')
       : row.derived
         ? message('appView.readOnly.derived')
-        : message('appView.readOnly.unsupported')
+        : row.item.disabled || row.item.readOnly
+          ? (row.item.disabled && row.item.disabledReason) || message('storagePanel.readOnly')
+          : message('appView.readOnly.unsupported')
 
   const display = (value: Json | undefined): string => {
     return value === undefined ? message('appView.value.unset') : typeof value === 'string' ? value : JSON.stringify(value)
