@@ -1342,6 +1342,7 @@
   "problemFix.useNumber": "Use {value}",
   "problemFix.storing": "Storing...",
   "problemFix.checkAgain": "Check again",
+  "problemFix.fixAll": "Fix all",
   "fixesNotice.change.replaced": "Replaced an older node.",
   "fixesNotice.change.wireFromRemoved": "Its wire from {row} was removed.",
   "fixesNotice.change.wireIntoRemoved": "Its wire into {row} was removed.",

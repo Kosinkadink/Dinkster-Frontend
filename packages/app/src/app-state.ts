@@ -250,6 +250,7 @@ import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
 import { registerAutomaticFixSettings } from './automatic-fixes.js'
 import { createActionHost } from './button-presses.js'
+import { NumberProblemFixes } from './number-problem-fixes.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
 import { activeProjectId, migrateBrowserProjects, scopedSharedName, scopedStorageKey } from './projects.js'
@@ -5499,6 +5500,7 @@ export class AppState {
     return invocation !== undefined && (await this.dispatchTo(tab, invocation)).ok
   }
 
+  readonly numberProblemFixes = new NumberProblemFixes(this)
   private readonly keptNumberFixes = new WeakMap<DocumentSession, Map<string, Pick<StoredNumberFix, 'before' | 'stamp' | 'owner'>>>()
 
   /** Every occurrence is checked: siblings can store different promoted values. */

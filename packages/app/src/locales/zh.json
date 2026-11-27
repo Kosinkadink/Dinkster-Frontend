@@ -1344,6 +1344,7 @@
   "problemFix.useNumber": "使用 {value}",
   "problemFix.storing": "正在存储...",
   "problemFix.checkAgain": "重新检查",
+  "problemFix.fixAll": "修复全部",
   "fixesNotice.change.replaced": "已替换旧节点。",
   "fixesNotice.change.wireFromRemoved": "从 {row} 引出的连线已移除。",
   "fixesNotice.change.wireIntoRemoved": "连入 {row} 的连线已移除。",

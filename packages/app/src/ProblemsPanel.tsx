@@ -50,6 +50,17 @@ export function activateProblem(app: AppState, diagnostic: Diagnostic, openAsset
   })
 }
 
+export interface ProblemFixAction {
+  readonly label: string
+  readonly disabled?: boolean
+  readonly run: () => void
+}
+
+export interface ProblemFixActions {
+  readonly forProblem: (diagnostic: Diagnostic) => ProblemFixAction | undefined
+  readonly all: () => ProblemFixAction | undefined
+}
+
 export interface ProblemsPanelProps {
   readonly app: AppState
   readonly diagnostics: () => readonly Diagnostic[]
@@ -58,6 +69,7 @@ export interface ProblemsPanelProps {
   readonly importedNodes?: () => readonly ImportedNodePackResolution[]
   readonly disclosure?: ProblemsDisclosure
   readonly selection?: ReturnType<typeof useSelectionContext>
+  readonly fixes?: ProblemFixActions
 }
 
 interface PackInstallReview {
@@ -199,13 +211,17 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
 
   return (
     <section class="rail-section" data-testid="problems-panel" data-native-text-scope>
-      <ProductPanelHeader title={message('shell.panel.problems.title')} actions={
+      <ProductPanelHeader title={message('shell.panel.problems.title')} actions={<>
         <label class="problems-selection-control">
           <ProductCheckbox checked={selectionOnly()} onChange={setSelectionOnly}
             ariaLabel={message('problems.selection.only')} testId="problems-selection-only" />
           {message('problems.selection.only')}
         </label>
-      } />
+        <Show when={packDiagnostics().length === 0 && !(props.importedNodes?.() ?? []).some((node) => node.status === 'installable') ? props.fixes?.all() : undefined}>{(action) => (
+          <ProductButton variant="secondary" size="compact" disabled={action().disabled}
+            onClick={() => action().run()}>{action().label}</ProductButton>
+        )}</Show>
+      </>} />
       <Show when={selectionOnly()}><p data-testid="problems-selection">{selectionLabel()}</p></Show>
       <Show when={missingPacks().length > 0}>
         <section class="problems-group imported-packs-report" data-testid="imported-packs-report" data-severity="warning">
@@ -316,7 +332,11 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                         </summary>
                         <div class="problem-detail">
                           <code>{diagnostic.code}</code>
-                          <Show when={diagnostic.data}><pre>{JSON.stringify(diagnostic.data, null, 2)}</pre></Show>
+                          <Show when={props.fixes?.forProblem(diagnostic)}>{(action) => (
+                            <ProductButton type="button" variant="secondary" size="compact" disabled={action().disabled}
+                              onClick={() => action().run()}>{action().label}</ProductButton>
+                          )}</Show>
+                          <Show when={diagnostic.data && diagnostic.data['numberFixKey'] === undefined}><pre>{JSON.stringify(diagnostic.data, null, 2)}</pre></Show>
                           <Show when={diagnostic.anchor !== undefined}>
                             <Show when={diagnostic.code === 'model.availability.missing' && diagnostic.data?.['plannable'] === true}>
                               <ProductButton type="button" variant="secondary" size="compact" onClick={() => {

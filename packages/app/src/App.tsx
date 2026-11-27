@@ -67,7 +67,8 @@ import { CollabPanel } from './CollabPanel.js'
 import { ImportAssetResolutionDialog } from './ImportAssetResolutionDialog.js'
 import { ModalSurface } from './ModalSurface.js'
 import { attachDomTooltips, resolveCanvasTooltip, TooltipController, type DomTooltipTarget } from './tooltips.js'
-import { activateProblem, ProblemsPanel } from './ProblemsPanel.js'
+import { activateProblem, ProblemsPanel, type ProblemFixActions } from './ProblemsPanel.js'
+import { numberProblemFixLabel } from './number-problem-fixes.js'
 import { useSelectionContext } from './selection-context.js'
 import { RegionIterationInspector } from './RegionIterationInspector.js'
 import { regionIterationInventory } from './region-iteration.js'
@@ -1743,15 +1744,58 @@ export function App(props: {
       </Show>
     </div>
   )
+  const numberFixesChanged = useSignal(app.numberProblemFixes.changed)
   // The indicator always counts the full list, regardless of the selection filter.
   const problemDiagnostics = (): readonly Diagnostic[] => {
+    boundaryStateTick()
+    backendsTick()
+    settingsTick()
+    numberFixesChanged()
+    const tab = activeTab()
     const execution = activeExecution()
     const others = [
       ...visibleProblems(problems(), new Set([activeTabId()])),
-      ...(activeTab()?.execution ? execution?.artifact?.diagnostics ?? [] : []),
+      ...(tab?.execution ? execution?.artifact?.diagnostics ?? [] : []),
       ...(execution?.errors ?? []),
     ]
-    return [...withoutPassedOnDefaults(solveDiagnostics(), others), ...others]
+    const diagnostics = [...withoutPassedOnDefaults(solveDiagnostics(), others), ...others]
+    return tab === undefined || tab.execution ? diagnostics : [
+      ...diagnostics.filter((diagnostic) => diagnostic.code !== 'automatic.numberOutsideLimits'),
+      ...app.numberProblemFixes.diagnostics(tab),
+    ]
+  }
+  const problemFixActions: ProblemFixActions = {
+    forProblem: (diagnostic) => {
+      numberFixesChanged()
+      settingsTick()
+      const tab = activeTab()
+      if (tab === undefined || app.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'ask') return undefined
+      const fix = app.numberProblemFixes.scan(tab).find((candidate) => candidate.key === diagnostic.data?.['numberFixKey'])
+      if (fix === undefined) return undefined
+      return {
+        label: numberProblemFixLabel(fix, message),
+        disabled: fix.state === 'storing',
+        run: () => {
+          if (fix.state === 'stale') app.numberProblemFixes.recheck(tab, fix.key)
+          else void app.numberProblemFixes.apply(tab, [fix])
+        },
+      }
+    },
+    all: () => {
+      const diagnostics = problemDiagnostics()
+      const tab = activeTab()
+      if (tab === undefined || diagnostics.length === 0 ||
+        app.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'ask' ||
+        diagnostics.some((diagnostic) => typeof diagnostic.data?.['numberFixKey'] !== 'string')) return undefined
+      const fixes = app.numberProblemFixes.scan(tab).slice().sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0)
+      if (fixes.length === 0 || fixes.some((fix) => fix.state === 'stale')) return undefined
+      const storing = fixes.some((fix) => fix.state === 'storing')
+      return {
+        label: message(storing ? 'problemFix.storing' : 'problemFix.fixAll'),
+        disabled: storing,
+        run: () => { void app.numberProblemFixes.apply(tab, fixes) },
+      }
+    },
   }
   const importedNodes = () => {
     boundaryStateTick()
@@ -1877,7 +1921,7 @@ export function App(props: {
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
-        importedNodes={importedNodes}
+        fixes={problemFixActions} importedNodes={importedNodes}
         compatSkips={() => activeBackend().compatSkips.get()}
         packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
         selection={selectionContext} />,

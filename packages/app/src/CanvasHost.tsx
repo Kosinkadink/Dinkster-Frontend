@@ -1386,6 +1386,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const backendsTick = useSignal(props.app.backendsTick)
   const tabTargets = useSignal(props.app.tabTargets)
   const settingsTick = useSignal(props.app.settings.changed)
+  const numberFixesChanged = useSignal(props.app.numberProblemFixes.changed)
   const detailMinScale = (): number => (settingsTick(), props.app.settings.get<number>('canvas.detailMinPercent') / 100)
   const extensionRevision = useSignal(props.app.extensionRevision)
   const selectionScopesChanged = useSignal(props.app.selectionScopesChanged)
@@ -2166,19 +2167,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     problemBoxHost?.highlightRow(undefined)
   }
 
-  const storingNumberFixes = new Map<string, NonNullable<ProblemBoxLine['numberFix']>>()
-  const refreshProblemBox = (recheck?: string): void => {
+  const refreshProblemBox = (): void => {
     const open = problemBox()
     if (open === undefined) return
     const lines = open.owner === problemBoxHost?.owner() ? problemBoxHost.lines(open.nodeId) : []
     if (lines.length === 0) { closeProblemBox(); return }
-    setProblemBox({ ...open, lines: lines.map((line) => {
-      const previous = open.lines.find((candidate) => candidate.key === line.key)
-      // Keep the offered snapshot until an explicit recheck, never silently
-      // retarget a button after another viewer changes its cause.
-      return line.numberFix !== undefined && previous?.numberFix !== undefined && line.key !== recheck
-        ? { ...line, numberFix: previous.numberFix } : line
-    }), ...(lines.some((line) => line.key === open.highlighted) ? {} : { highlighted: undefined }) })
+    setProblemBox({ ...open, lines, ...(lines.some((line) => line.key === open.highlighted) ? {} : { highlighted: undefined }) })
   }
 
   /** Opens the node's box, optionally with one line highlighted; false when the node has no line to show. */
@@ -4617,9 +4611,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         // A runtime cause belongs to the run's own Error tab, not this box.
         const problems = (nodeProblems[nodeId] ?? []).filter((line) =>
           !((runErrorsByNode().has(nodeId) || lastRunNodes.has(nodeId)) && line.diagnostic.origin === 'runtime'))
-        const numberFixes = props.app.scanTabNumberFixes(tab).filter((fix) =>
-          fix.part.graphId === currentGraphId(tab) && fix.part.nodeId === nodeId &&
-          JSON.stringify(fix.part.instancePath ?? []) === JSON.stringify(viewInstancePath(tab)))
+        const numberFixes = props.app.numberProblemFixes.scan(tab).filter(({ offered }) =>
+          offered.part.graphId === currentGraphId(tab) && offered.part.nodeId === nodeId &&
+          JSON.stringify(offered.part.instancePath ?? []) === JSON.stringify(viewInstancePath(tab)))
         return problemBoxLines(problems, problemBoxRows(node), (row) => {
           const port = row.startsWith(outputRowKey('')) ? row.slice(outputRowKey('').length) : row
           return node.layout.pins.find((pin) => pin.portId === port)?.label ?? port
@@ -4631,11 +4625,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }).map((line): ProblemBoxLine => {
           if (line.problem.diagnostic.code !== 'automatic.numberOutsideLimits' ||
             props.app.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'ask') return line
-          const offered = numberFixes.find((fix) => fix.valueKey === line.row)
-          if (offered === undefined) return line
-          const key = JSON.stringify([line.row, line.problem.diagnostic.code])
-          const numberFix = storingNumberFixes.get(JSON.stringify([problemBoxHost?.owner(), nodeId, key])) ?? { offered, state: 'offered' as const }
-          return { ...line, key, numberFix }
+          const numberFix = numberFixes.find((fix) => fix.key === line.problem.diagnostic.data?.['numberFixKey'])
+          return numberFix === undefined ? line : { ...line, key: numberFix.key, numberFix }
         })
       },
       title: (nodeId) => renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.title ?? nodeId,
@@ -5091,18 +5082,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const widgetValueDiagnostics = (): Diagnostic[] => {
       const out: Diagnostic[] = []
       const tab = activeTab()
-      const fixes = tab === undefined ? [] : props.app.scanTabNumberFixes(tab).filter((fix) =>
-        fix.part.graphId === scene.graphId && JSON.stringify(fix.part.instancePath ?? []) === JSON.stringify(viewInstancePath(tab)))
+      const numberProblems = tab === undefined ? [] : props.app.numberProblemFixes.diagnostics(tab).filter((problem) =>
+        problem.refs?.[0]?.graphId === scene.graphId &&
+        JSON.stringify(problem.anchor?.occurrence?.instancePath ?? []) === JSON.stringify(viewInstancePath(tab)))
       for (const node of scene.nodes) {
         for (const row of node.fieldRows ?? node.layout.rows) {
           if (row.kind !== 'widget' || row.selector !== undefined) continue
           if (companionInputs.get(node.id)?.has(row.valueKey)) continue
-          const fix = fixes.find((candidate) => candidate.part.nodeId === node.id && candidate.valueKey === row.valueKey)
-          if (fix !== undefined) {
-            out.push(diag('warning', 'schema', 'automatic.numberOutsideLimits',
-              `${node.id}.${row.valueKey}: ${message('problemFix.numberOutsideLimits', { value: String(fix.before) })}`, {
-                refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
-              }))
+          const problem = numberProblems.find((candidate) => candidate.refs?.[0]?.nodeId === node.id && candidate.refs[0].valueKey === row.valueKey)
+          if (problem !== undefined) {
+            out.push(problem)
           } else {
             out.push(...storedValueProblems(widgetRegistry(), scene.graphId,
               { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey]))
@@ -5138,6 +5127,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     createEffect(on(comparisonCompilesChanged, () => {
       const tab = activeTab()
       if (tab) untrack(() => refreshSceneDiagnostics(tab))
+    }, { defer: true }))
+
+    createEffect(on(numberFixesChanged, () => {
+      const tab = activeTab()
+      if (tab) untrack(() => { refreshSceneDiagnostics(tab); refreshSceneOverlays(tab) })
     }, { defer: true }))
 
     // Execution state + badges: frozen tabs pin their execution, live tabs
@@ -8125,27 +8119,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   onAction={(line, action) => {
                     const open = problemBox()
                     if (!open) return
-                    if (action === 'check-number-fix') {
-                      refreshProblemBox(line.key)
-                    } else if (action === 'apply-number-fix') {
-                      if (line.numberFix?.state !== 'offered') return
+                    if (action === 'check-number-fix' || action === 'apply-number-fix') {
                       const tab = activeTab()
-                      if (tab === undefined || open.owner !== problemBoxHost?.owner()) return
-                      const key = JSON.stringify([open.owner, open.nodeId, line.key])
-                      if (storingNumberFixes.has(key)) return
-                      const storing = { ...line.numberFix, state: 'storing' as const }
-                      storingNumberFixes.set(key, storing)
-                      setProblemBox({ ...open, lines: open.lines.map((entry) => entry.key === line.key ? { ...entry, numberFix: storing } : entry) })
-                      void props.app.applyNumberFixes(tab, [line.numberFix.offered]).then((outcome) => {
-                        storingNumberFixes.delete(key)
-                        const current = problemBox()
-                        if (current?.owner !== open.owner || current.nodeId !== open.nodeId) return
-                        setProblemBox({ ...current, lines: current.lines.map((entry): ProblemBoxLine => entry.key === line.key && entry.numberFix !== undefined
-                          ? { ...entry, numberFix: { ...entry.numberFix, state: outcome.kind === 'done' ? 'offered' : 'stale',
-                            ...(outcome.message === undefined ? {} : { message: outcome.message }) } }
-                          : entry) })
-                        refreshProblemBox(outcome.kind === 'done' ? line.key : undefined)
-                      })
+                      if (tab === undefined || open.owner !== problemBoxHost?.owner() || line.numberFix === undefined) return
+                      if (action === 'check-number-fix') props.app.numberProblemFixes.recheck(tab, line.numberFix.key)
+                      else void props.app.numberProblemFixes.apply(tab, [line.numberFix])
                     } else if (action === 'edit-field' && line.row !== undefined) {
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, line.row)
