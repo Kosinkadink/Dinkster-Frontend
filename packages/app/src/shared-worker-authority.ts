@@ -5,6 +5,8 @@ import {
   isValidActorId,
   jsonSameValue,
   loadDocument,
+  isIntegerWidgetValue,
+  validateCollabServerOp,
   type CollabClientOp,
   type CollabConnectionEvent,
   type CollabServerOp,
@@ -170,7 +172,8 @@ export class SharedWorkerDocumentAuthority {
       if (
         replay.actorId !== op.actorId ||
         replay.baseRevision !== op.baseRevision ||
-        !jsonSameValue(replay.patch as unknown as Json, op.patch as unknown as Json)
+        !jsonSameValue(replay.patch as unknown as Json, op.patch as unknown as Json) ||
+        !jsonSameValue((replay.numericCorrections ?? []) as unknown as Json, (op.numericCorrections ?? []) as unknown as Json)
       ) return { kind: 'error', message: 'op id was already used for different content' }
       return { kind: 'accepted', op: { ...replay, replayed: true } }
     }
@@ -193,7 +196,17 @@ export class SharedWorkerDocumentAuthority {
       baseRevision: session.revision,
       revision: session.revision + 1,
       patch: clone(op.patch),
+      ...(op.numericCorrections === undefined ? {} : { numericCorrections: clone(op.numericCorrections) }),
       timestamp: Date.now(),
+    }
+    const invalid = validateCollabServerOp(accepted)
+    if (invalid !== null) return { kind: 'error', message: invalid }
+    for (const correction of accepted.numericCorrections ?? []) {
+      const { graphId, nodeId, valueKey } = correction.owner
+      const before = session.document.graphs[graphId]?.nodes[nodeId]?.values[valueKey]
+      const after = document.graphs[graphId]?.nodes[nodeId]?.values[valueKey]
+      if (!isIntegerWidgetValue(before) || !isIntegerWidgetValue(after) || before === after)
+        return { kind: 'error', message: 'numeric correction must change a stored number' }
     }
     session.document = document
     session.revision = accepted.revision

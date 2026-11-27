@@ -60,6 +60,8 @@ import {
   type SharedDocumentSession,
   type CollabSessionDescriptor,
   type SessionConflict,
+  type SessionOp,
+  type NumericCorrection,
   emptyGates,
   environmentDrift,
   executionKey,
@@ -4715,6 +4717,20 @@ export class AppState {
     for (const [id, tab] of live) {
       if (this.persistWatchers.has(id)) continue
       const stopNoticeEdits = tab.store.onOp((op) => {
+        if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
+        if (op.actorId !== tab.store.actorId) {
+          // Returning a confirmed correction to its old value is an intentional
+          // edit, even when this peer learns the limit only afterwards.
+          const kept = this.keptNumberFixes.get(tab.store) ?? new Map()
+          for (const cause of this.adjustmentNotices.get().get(id)?.adjustments.flatMap((item) => item.numberCauses ?? []) ?? []) {
+            const { graphId, nodeId, valueKey } = cause.owner
+            if (op.patch.some((patch) => pathsOverlap(patch.path, ['graphs', graphId, 'nodes', nodeId, 'values', valueKey])) &&
+              tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[valueKey] === cause.before)
+              kept.set(JSON.stringify([graphId, nodeId, valueKey, cause.stamp]), cause)
+          }
+          this.keptNumberFixes.set(tab.store, kept)
+          this.reportSharedNumberCorrections(tab, op)
+        }
         if (op.actorId === tab.store.actorId && !op.origin.startsWith('session.') && op.origin !== 'history.replay' &&
           this.tabs.get().find((candidate) => candidate.id === id) === tab)
           this.removeEditedNumberAdjustments(id, op.patch.map((patch) => patch.path))
@@ -5826,9 +5842,20 @@ export class AppState {
     if (tab.execution || first === undefined || !this.tabs.get().includes(tab))
       return Promise.resolve({ kind: 'cancelled', skipped: [], notes: [] })
     const place = { tab, ...first.part, button: '' }
+    const numericCorrections = new Map<string, NumericCorrection>()
+    if (automatic && !options.lead?.length) for (const fix of fixes) {
+      if (fix.kind !== 'number') continue
+      const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey])
+      const previous = numericCorrections.get(key)
+      numericCorrections.set(key, { owner: fix.owner, causes: [...previous?.causes ?? [], {
+        graphId: fix.part.graphId, nodeId: fix.part.nodeId, instancePath: fix.part.instancePath ?? [],
+        valueKey: fix.valueKey, stamp: fix.stamp,
+      }] })
+    }
     return applyStoredProblemFixes(store, fixes, createActionHost(this, undefined, place), {
       noWait: automatic,
       ...options,
+      ...(numericCorrections.size === 0 ? {} : { numericCorrections: [...numericCorrections.values()] }),
       stillCurrent: () => this.tabs.get().includes(tab) && tab.store === store && options.stillCurrent?.() !== false,
       staleMessage: t('problemFix.workflowChanged'),
       onStored: (record, document) => {
@@ -5864,6 +5891,32 @@ export class AppState {
         }), document)
       },
     })
+  }
+
+  private reportSharedNumberCorrections(tab: Tab, op: SessionOp): void {
+    const forward: PatchOp[] = []
+    const adjustments: Adjustment[] = []
+    for (const correction of op.numericCorrections ?? []) {
+      const cause = correction.causes[0]!
+      const { graphId, nodeId, valueKey } = correction.owner
+      const graph = tab.store.doc.graphs[cause.graphId]
+      const node = graph?.nodes[cause.nodeId]
+      if (node === undefined) continue
+      const schema = this.registryForTab(tab)?.resolve(node.type)
+      const row = schema === undefined ? undefined : elabInputsOf(elaborateInterface(schema, node, buildGraphConnectivity(graph!)(node.id)))
+        .find((row) => row.address.port === cause.valueKey)
+      forward.push({ op: 'replace', path: ['graphs', graphId, 'nodes', nodeId, 'values', valueKey],
+        oldValue: correction.before, value: correction.after })
+      adjustments.push({
+        kind: 'numberOutsideLimits', graphId: cause.graphId, nodeId: cause.nodeId, rowValueKey: cause.valueKey,
+        numberCauses: correction.causes.map(({ stamp }) => ({ before: correction.before, stamp, owner: correction.owner })),
+        node: node.title ?? schema?.displayName ?? node.type,
+        details: [t('fixesNotice.change.numberOutsideLimits', { row: row?.spec.displayName ?? cause.valueKey,
+          before: String(correction.before), after: String(correction.after) })], count: 1,
+        anchor: { occurrence: { instancePath: cause.instancePath.map(asNodeId), node: asNodeId(cause.nodeId) } },
+      })
+    }
+    this.reportAdjustments(tab, { forward, inverse: invertOps(forward) }, adjustments)
   }
 
   /**

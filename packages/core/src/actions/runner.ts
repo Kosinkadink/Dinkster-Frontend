@@ -208,6 +208,7 @@ export interface PressOptions {
   readonly noWait?: boolean
   /** Commands staged first and stored with the run as its one undo step, such as the user's own edit that led to it. */
   readonly lead?: readonly CommandInvocation[]
+  readonly numericCorrections?: CommandInvocation['numericCorrections']
   /** The exact stored batch and its document, before any outside steps run; absent for no change or refusal. */
   readonly onStored?: (record: HistorySnapshotRecord, document: WorkflowDocument) => void
 }
@@ -1877,7 +1878,9 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
       changed += rebuilt.written
     }
     if (invocations.length > 0) {
-      const outcome = session.dispatch(batch(invocations))
+      const outcome = session.dispatch({ ...batch(invocations),
+        ...(options.numericCorrections === undefined ? {} : { numericCorrections: options.numericCorrections }),
+      })
       if (!outcome.ok) refuse(outcome.diagnostics.find((item) => item.severity === 'error')?.message ?? 'The change could not be made.')
       else if (outcome.forward.length > 0) stored = { record: { forward: outcome.forward, inverse: outcome.inverse }, document: outcome.doc }
     }

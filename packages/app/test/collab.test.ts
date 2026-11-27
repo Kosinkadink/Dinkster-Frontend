@@ -119,6 +119,7 @@ class FakeConn implements CollabConnection {
       baseRevision: op.baseRevision,
       revision: ++this.session.revision,
       patch: op.patch,
+      ...(op.numericCorrections === undefined ? {} : { numericCorrections: op.numericCorrections }),
       timestamp: 1000,
     }
     this.session.log.push(server)
@@ -649,6 +650,52 @@ describe('stableActorId', () => {
 })
 
 describe('the notice of the editor\'s own fixes in a shared workflow', () => {
+  it('reports a confirmed automatic numeric correction before peer limits arrive and keeps peer Undo', async () => {
+    const server = new FakeCollabServer()
+    const appA = makeApp(server)
+    const appB = makeApp(server)
+    const limits = (max: number) => ({ ...nodesPayload, nodes: { Numbers: {
+      nodeType: 'Numbers', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Numbers', category: 'test', body: [
+      { kind: 'input', id: 'amount', label: 'Amount', type: INT, default: 0,
+        widget: { type: 'NUMBER', min: 0, max, step: 4 } },
+    ] } } })
+    for (const app of [appA, appB]) for (const backend of app.backends.get())
+      backend.registry.set(buildDinksterRegistry(backend.id, limits(20)))
+    expect(await appA.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-provenance', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+        n1: { id: 'n1', type: 'Numbers', values: { amount: 16 } },
+      } } }, view: { graphs: { g0: { nodes: {} } } },
+    }, 'Shared numbers')).toEqual([])
+    expect(await appA.shareActiveTab()).toBeUndefined()
+    const tabA = activeTab(appA)
+    expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
+    const tabB = activeTab(appB)
+    for (const backend of appA.backends.get()) backend.registry.set(buildDinksterRegistry(backend.id, limits(13)))
+    expect(appA.backendForTab(tabA).registry.get()?.resolve('Numbers')).toBeDefined()
+    await until(() => tabB.store.doc.graphs.g0!.nodes.n1!.values.amount === 12, 'confirmed correction before peer limits')
+    await sharedSession(appA, tabA.id).settle()
+    expect(appA.adjustmentNotices.get().get(tabA.id)?.adjustments).toHaveLength(1)
+    expect(appB.adjustmentNotices.get().get(tabB.id)?.adjustments).toHaveLength(1)
+    expect(appB.adjustmentNotices.get().get(tabB.id)?.adjustments[0]?.details).toEqual([
+      'Amount: 16 to 12',
+    ])
+    expect(appB.undoAdjustments(tabB.id)).toBe(true)
+    await sharedSession(appB, tabB.id).settle()
+    await until(() => tabA.store.doc.graphs.g0!.nodes.n1!.values.amount === 16, 'peer Undo')
+    for (const backend of appB.backends.get()) backend.registry.set(buildDinksterRegistry(backend.id, limits(13)))
+    await sharedSession(appB, tabB.id).settle()
+    expect(appB.scanTabNumberFixes(tabB)).toEqual([])
+    expect(tabB.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(16)
+    appA.clearAdjustmentNotice(tabA.id)
+    appB.clearAdjustmentNotice(tabB.id)
+    expect(tabA.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 12 } }).ok).toBe(true)
+    await sharedSession(appA, tabA.id).settle()
+    await until(() => tabB.store.doc.graphs.g0!.nodes.n1!.values.amount === 12, 'ordinary equal-value edit')
+    expect(appB.adjustmentNotices.get().has(tabB.id)).toBe(false)
+  })
+
   it('refuses numeric notice Undo after a peer changes a correction joined to a personal edit', async () => {
     const server = new FakeCollabServer()
     const appA = makeApp(server)

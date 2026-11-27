@@ -19,12 +19,24 @@ export interface CollabSessionDescriptor {
   readonly snapshotRevision: number
 }
 
+export interface NumericCorrection {
+  readonly owner: { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }
+  readonly causes: readonly {
+    readonly graphId: string
+    readonly nodeId: string
+    readonly instancePath: readonly string[]
+    readonly valueKey: string
+    readonly stamp: string
+  }[]
+}
+
 export interface CollabClientOp {
   readonly protocolVersion: number
   readonly opId: string
   readonly actorId: string
   readonly baseRevision: number
   readonly patch: readonly WirePatchOp[]
+  readonly numericCorrections?: readonly NumericCorrection[]
 }
 
 export interface CollabServerOp {
@@ -33,6 +45,7 @@ export interface CollabServerOp {
   readonly baseRevision: number
   readonly revision: number
   readonly patch: readonly WirePatchOp[]
+  readonly numericCorrections?: readonly NumericCorrection[]
   readonly timestamp: number
   readonly replayed?: boolean
 }
@@ -132,6 +145,26 @@ export function validateCollabServerOp(raw: unknown): string | null {
   if (op.baseRevision !== op.revision - 1) return 'op envelope: revision must be baseRevision + 1'
   if (typeof op.timestamp !== 'number' || !Number.isFinite(op.timestamp)) {
     return 'op envelope: invalid timestamp'
+  }
+  if (op.numericCorrections !== undefined) {
+    if (!Array.isArray(op.numericCorrections)) return 'op envelope: invalid numericCorrections'
+    const owners = new Set<string>()
+    const address = (raw: unknown, keys: readonly string[]): raw is Record<string, unknown> => {
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return false
+      const value = raw as Record<string, unknown>
+      return Object.keys(value).length === keys.length && keys.every((key) => key === 'instancePath'
+        ? Array.isArray(value[key]) && value[key].every((part: unknown) => typeof part === 'string' && part.length > 0)
+        : typeof value[key] === 'string' && value[key].length > 0)
+    }
+    for (const entry of op.numericCorrections) {
+      if (entry === null || typeof entry !== 'object' || Object.keys(entry).length !== 2 ||
+        !address(entry.owner, ['graphId', 'nodeId', 'valueKey']) || !Array.isArray(entry.causes) || entry.causes.length === 0 ||
+        !entry.causes.every((cause: unknown) => address(cause, ['graphId', 'nodeId', 'valueKey', 'instancePath', 'stamp'])))
+        return 'op envelope: invalid numeric correction'
+      const key = JSON.stringify([entry.owner.graphId, entry.owner.nodeId, entry.owner.valueKey])
+      if (owners.has(key)) return 'op envelope: duplicate numeric correction owner'
+      owners.add(key)
+    }
   }
   const patch = validateCollabWirePatchShape(op.patch)
   return patch === null ? null : `op envelope: ${patch}`
