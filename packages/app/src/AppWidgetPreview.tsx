@@ -54,7 +54,7 @@ export function AppWidgetPreview(props: {
     createRegistryPainter(props.registry)({
       ctx,
       row,
-      value: props.row.item.derivedValue ?? props.row.node.values[props.row.valueKey],
+      value: props.row.value,
       x: 0,
       y: 0,
       width,

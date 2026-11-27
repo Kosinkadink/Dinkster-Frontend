@@ -6,9 +6,11 @@ import type { Json, WidgetRegistry, WidgetView } from '@dinkster/core'
 import { AppWidgetPreview } from '../src/AppWidgetPreview.js'
 import type { ParamRow } from '../src/app-view-rows.js'
 
+const painted: string[] = []
 const context = new Proxy({} as CanvasRenderingContext2D, {
   get: (_target, property) => property === 'measureText'
     ? (text: string) => ({ width: text.length * 6 })
+    : property === 'fillText' ? (text: string) => { painted.push(text) }
     : () => undefined,
   set: () => true,
 })
@@ -30,7 +32,7 @@ const row = (): Extract<ParamRow, { kind: 'live' }> => ({
   label: 'Amount',
   context: 'Custom',
   spec: { widgetType: 'CUSTOM', options: {}, default: 4 },
-  value: 4,
+  value: 62,
   linked: false,
   derived: false,
 } as Extract<ParamRow, { kind: 'live' }>)
@@ -53,6 +55,7 @@ const registry = (view: WidgetView | undefined): WidgetRegistry => ({
 })
 
 beforeEach(() => {
+  painted.length = 0
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context)
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
@@ -66,11 +69,10 @@ afterEach(() => {
 })
 
 describe('AppWidgetPreview', () => {
-  it('routes a custom WidgetView through the registry-backed canvas painter', async () => {
-    const drawCompact = vi.fn((builder, _value: unknown) => builder.text(0, 0, 'literal', {}))
+  it('paints the resolved occurrence value instead of an unset field default', async () => {
     const view = {
       id: 'custom.literal', kind: 'CUSTOM', isCompatible: () => true,
-      measure: () => ({ rows: 1 }), drawCompact,
+      measure: () => ({ rows: 1 }), drawCompact: (builder, value) => builder.text(0, 0, String(value), {}),
     } satisfies WidgetView
     const root = document.createElement('div')
     document.body.append(root)
@@ -78,8 +80,8 @@ describe('AppWidgetPreview', () => {
     await Promise.resolve()
 
     expect(root.querySelector('canvas')?.getAttribute('data-widget-view')).toBe('custom.literal')
-    expect(drawCompact).toHaveBeenCalled()
-    expect(drawCompact.mock.calls[0]![1]).toBe(9)
+    expect(painted).toContain('62')
+    expect(painted).not.toContain('9')
     dispose()
   })
 
