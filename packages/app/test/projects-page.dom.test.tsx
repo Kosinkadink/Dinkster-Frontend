@@ -311,7 +311,7 @@ it('explains a failed open with the project name and tries again on the installa
   expect(row.querySelector('[title="port 3639 is taken"]')).not.toBeNull()
   const again = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Try again')!
   again.click()
-  expect(navigation.openProject).toHaveBeenCalledWith('p-valley', nightly)
+  expect(navigation.openProject).toHaveBeenCalledWith('p-valley', nightly, 'Valley matte paintings')
 })
 
 it('keeps outputs hidden for one project only, across page loads', async () => {
@@ -420,7 +420,7 @@ it('keeps the chosen installation, starting contents and one project identity ac
   globalThis.dispatchEvent(new Event('focus'))
   await settle()
   document.querySelector<HTMLButtonElement>('[data-testid="projects-open"]')!.click()
-  expect(opened).toHaveBeenCalledWith(saved!.id, nightly)
+  expect(opened).toHaveBeenCalledWith(saved!.id, nightly, 'My revised film')
 })
 
 it('refuses an invalid workflow file and preserves a valid file as the starting document', async () => {

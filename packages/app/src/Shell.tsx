@@ -58,7 +58,7 @@ export interface ShellNavigation {
   /** The project the page shows selected: the open or opening one. */
   readonly selectedProjectId: Accessor<string | undefined>
   /** Without an installation, the project opens on the installation that is open. */
-  openProject(projectId: string, installation?: ShellInstallation): void
+  openProject(projectId: string, installation?: ShellInstallation, projectName?: string): void
   showProjects(options?: { readonly newProject?: boolean }): void
   cancelOpening(): void
 }
@@ -287,14 +287,14 @@ export function Shell(props: {
     }
   }
 
-  const openHere = async (projectId: string, installation: ShellInstallation | undefined, run: number): Promise<void> => {
+  const openHere = async (projectId: string, installation: ShellInstallation | undefined, run: number, projectName?: string): Promise<void> => {
     const replacing = editorProject() !== undefined && editorProject() !== projectId
     const starting = installation !== undefined && !sameInstallation(openInstallation, installation)
     const line = starting ? message('shell.opening.starting', { installation: nameOf(installation) }) : message('shell.opening.here')
     setOpening({ projectId, line })
-    let initialProjectName: string | undefined
+    let initialProjectName = projectName
     try {
-      if (starting) {
+      if (starting && initialProjectName === undefined) {
         // Home serves the library now; during engine startup it may refuse project reads.
         const connection = new DinksterConnection({ id: asConnectionId('project-opening'), baseUrl: '', clientId: 'project-opening' })
         initialProjectName = (await connection.getProject(projectId)).name
@@ -346,7 +346,7 @@ export function Shell(props: {
     }
   }
 
-  const open = async (projectId: string, installation?: ShellInstallation): Promise<void> => {
+  const open = async (projectId: string, installation?: ShellInstallation, projectName?: string): Promise<void> => {
     const run = ++attempt
     const path = openPath(await factsFor((installation ?? openInstallation)?.root))
     if (run !== attempt) return
@@ -358,14 +358,14 @@ export function Shell(props: {
       setOpening({ projectId, line: message('shell.opening.here'), failed: message('shell.opening.unavailable') })
       return
     }
-    return openHere(projectId, installation, run)
+    return openHere(projectId, installation, run, projectName)
   }
 
   const navigation: ShellNavigation = {
     view,
     opening,
     selectedProjectId: () => opening()?.projectId ?? editorProject() ?? (view().kind === 'editor' ? activeProjectId() : undefined),
-    openProject: (projectId, installation) => void open(projectId, installation),
+    openProject: (projectId, installation, projectName) => void open(projectId, installation, projectName),
     showProjects: (options) => {
       attempt += 1
       setOpening(undefined)

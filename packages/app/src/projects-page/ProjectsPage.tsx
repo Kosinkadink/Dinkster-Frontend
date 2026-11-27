@@ -114,7 +114,7 @@ export interface ProjectsPageShell {
     | { readonly projectId: string; readonly line: string; readonly reason?: string; readonly failed?: string; readonly showLog?: boolean }
     | undefined
   readonly selectedProjectId: () => string | undefined
-  openProject(projectId: string, installation?: PageInstallation): void
+  openProject(projectId: string, installation?: PageInstallation, projectName?: string): void
   showProjects(options?: { readonly newProject?: boolean }): void
   cancelOpening(): void
 }
@@ -557,7 +557,7 @@ export function ProjectsView(props: {
   const open = (project: LibraryProject) => {
     if (!runsOn(project.id)) return
     setBannerShown(true)
-    props.shell.openProject(project.id, runsOn(project.id))
+    props.shell.openProject(project.id, runsOn(project.id), project.name)
   }
 
   const outputsHidden = (project: string) => {
