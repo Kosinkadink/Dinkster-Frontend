@@ -5,6 +5,10 @@ import {
   boundaryItems,
   boundaryOf,
   compile,
+  coreCommandRegistry,
+  documentResolver,
+  DocumentStore,
+  loadDocument,
   type CommandInvocation,
   type CompileArtifact,
   type ExecutionRef,
@@ -419,22 +423,46 @@ describe('compiled occurrence controller ownership', () => {
   })
 
   it('advances the outer owner through a nested promoted chain', () => {
-    const doc = document({
-      g0: graph('g0', {
-        outer: { id: 'outer', type: '#wrapper', values: { seed: 20 } },
-      }),
-      wrapper: graph('wrapper', {
-        inner: { id: 'inner', type: '#sub', values: { seed: 10 }, controllers: { seed: 'decrement' } },
-      }, {}, promotedBoundary('inner')),
-      sub: graph('sub', {
-        leaf: { id: 'leaf', type: promotedSchema.type, values: { seed: 5 }, controllers: { seed: 'increment' } },
-      }, {}, promotedBoundary('leaf')),
-    }) as any
-    expect(controllerAdvancement(doc, compileControllers(doc), () => 0)).toEqual({
-      command: 'batch', params: { invocations: [
-        { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'outer', inputId: 'seed', value: 19 } },
-      ] },
-    })
+    for (const [outer, middle, leaf, used, next] of [
+      [20, 10, 5, 20, 19],
+      [undefined, 10, 5, 10, 9],
+      [undefined, undefined, 5, 5, 6],
+      [undefined, undefined, undefined, 1, 2],
+    ]) {
+      const doc = document({
+        g0: graph('g0', {
+          outer: { id: 'outer', type: '#wrapper', values: outer === undefined ? {} : { seed: outer } },
+          sibling: { id: 'sibling', type: '#wrapper', values: { seed: 80 }, controllers: { seed: 'increment' } },
+        }),
+        wrapper: graph('wrapper', {
+          inner: { id: 'inner', type: '#sub', values: middle === undefined ? {} : { seed: middle },
+            ...(middle === undefined ? {} : { controllers: { seed: 'decrement' } }) },
+        }, {}, promotedBoundary('inner')),
+        sub: graph('sub', {
+          leaf: { id: 'leaf', type: promotedSchema.type, values: leaf === undefined ? {} : { seed: leaf }, controllers: { seed: 'increment' } },
+        }, {}, promotedBoundary('leaf')),
+      }) as any
+      const store = new DocumentStore(doc, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, dynamicResolve) }))
+      const artifact = compileControllers(store.doc)
+      expect(artifact.prompt['outer.inner.leaf']!.inputs.seed).toBe(used)
+      expect(artifact.prompt['sibling.inner.leaf']!.inputs.seed).toBe(80)
+      expect(store.dispatch(controllerAdvancement(store.doc, artifact, () => 0)!).ok).toBe(true)
+      expect(store.doc.graphs.g0!.nodes.outer!.values.seed).toBe(next)
+      expect(store.doc.graphs.g0!.nodes.sibling!.values.seed).toBe(81)
+      expect(store.doc.graphs.wrapper).toEqual(doc.graphs.wrapper)
+      expect(store.doc.graphs.sub).toEqual(doc.graphs.sub)
+      expect(artifact.prompt['outer.inner.leaf']!.inputs.seed).toBe(used)
+      expect(artifact.prompt['sibling.inner.leaf']!.inputs.seed).toBe(80)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(doc)
+      expect(store.redo()).toBe(true)
+      const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      expect(compileControllers(reopened).prompt['outer.inner.leaf']!.inputs.seed).toBe(next)
+      expect(compileControllers(reopened).prompt['sibling.inner.leaf']!.inputs.seed).toBe(81)
+      expect(reopened.graphs.wrapper).toEqual(doc.graphs.wrapper)
+      expect(reopened.graphs.sub).toEqual(doc.graphs.sub)
+    }
   })
 
   it('advances one shared definition owner once across unpromoted instances', () => {
