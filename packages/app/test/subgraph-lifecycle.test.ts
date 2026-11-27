@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { asConnectionId, checkDocument, compile, diag, DocumentStore, elaborateInterface, elabInputsOf, loadDocument, occurrenceDynamicView, parseDinksterSchema, planClipboardPaste, serializeSelection, documentResolver, documentNodeResolver, runPress, coreCommandRegistry, createLocalSession, type ActionHost, type CommandOutcome, type Diagnostic, type Json, type NodeSchema, type WorkflowDocument, boundaryOf, boundaryItems } from '@dinkster/core'
 import { extractSubgraphInvocationThroughBridge, flattenSubgraphThroughBridge } from '../src/CanvasHost.js'
+import { buildParamRows } from '../src/app-view-rows.js'
 import { activateProblem } from '../src/ProblemsPanel.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection } from '../src/subgraph-lifecycle.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -813,6 +814,15 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
           for (let length = 1; length <= ancestors.length; length++) {
             const prefix = depth === 2 && length === 1 && ['first', 'second'].includes(ancestors[0]!) ? 'outer' : 'bundle'
             expect(notes(current, ancestors.slice(0, length).join('.'))).toEqual(expectedNotes(prefix, seed))
+            if (length === 1) {
+              const exposed = { ...current, ext: { 'dinkster.exposed': ['seed', 'answer', 'pending', 'empty'].map((part) => ({
+                graphId: 'root', nodeId: ancestors[0]!, inputId: `${prefix}.${part}`,
+              })) } }
+              const rows = buildParamRows(exposed, resolve)
+              expect(rows[0]).toMatchObject({ kind: 'live', value: seed, linked: false,
+                entry: { graphId: 'root', nodeId: ancestors[0], inputId: `${prefix}.seed` } })
+              expect(rows.slice(1).map((row) => row.kind)).toEqual(['stale', 'stale', 'stale'])
+            }
           }
         }
       }
