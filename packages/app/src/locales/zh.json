@@ -1942,6 +1942,7 @@
   "library.blueprint.remove.title": "移除“{name}”？",
   "library.blueprint.remove.consequence": "它将从此项目的蓝图和搜索中移除。已从它放置的子图在其工作流中保持不变。",
   "library.blueprint.remove.confirm": "移除蓝图",
+  "library.blueprint.remove.failed": "未移除“{name}”。请检查后端连接并重试。",
   "shell.opening.here": "正在打开",
   "shell.opening.ownEditor": "正在 {installation} 自己的编辑器中打开",
   "shell.opening.reason.older": "此安装使用较旧的编辑器。",

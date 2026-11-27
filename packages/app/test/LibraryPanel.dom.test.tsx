@@ -23,6 +23,61 @@ afterEach(() => {
 })
 
 describe('LibraryPanel', () => {
+  it('keeps a named blueprint removal open while pending or refused, then removes it on retry', async () => {
+    const entry: CollectionEntry = {
+      id: 'saved-color-tools', title: 'Color tools', subtitle: 'Saved today',
+      actions: [{ id: 'remove', label: 'Remove' }],
+    }
+    const [entries, setEntries] = createSignal<readonly CollectionEntry[]>([entry])
+    const [tick, setTick] = createSignal(0)
+    let settle!: (ok: boolean) => void
+    const blueprints: CollectionSource = {
+      id: 'blueprints', label: 'Blueprints',
+      page: async () => ({ items: entries(), total: entries().length }),
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <LibraryPanel backend={() => backend} sources={[blueprints]} refreshTick={tick}
+      onAction={async () => {
+        const ok = await new Promise<boolean>((resolve) => { settle = resolve })
+        if (ok) { setEntries([]); setTick((value) => value + 1) }
+        return ok
+      }} />, root)
+    try {
+      await vi.waitFor(() => expect(root.querySelector('[data-entry="saved-color-tools"]')).not.toBeNull())
+      root.querySelector<HTMLElement>('[data-entry="saved-color-tools"]')!.click()
+      root.querySelector<HTMLButtonElement>('[data-testid="library-detail-action"][data-action="remove"]')!.click()
+      const dialog = () => root.querySelector<HTMLDialogElement>('dialog')!
+      const button = (label: string) => [...dialog().querySelectorAll('button')].find((item) => item.textContent === label)!
+      await vi.waitFor(() => expect(document.activeElement).toBe(button('Cancel')))
+      expect(dialog().textContent).toContain('Color tools')
+      expect(dialog().querySelector('.dinkster-row svg')).not.toBeNull()
+      button('Cancel').click()
+      expect(dialog()).toBeNull()
+      expect(root.querySelector('[data-entry="saved-color-tools"]')).not.toBeNull()
+
+      root.querySelector<HTMLButtonElement>('[data-testid="library-detail-action"][data-action="remove"]')!.click()
+      button('Remove blueprint').click()
+      expect(button('Cancel').disabled).toBe(true)
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      dialog().dispatchEvent(escape)
+      expect(escape.defaultPrevented).toBe(true)
+      expect(dialog().open).toBe(true)
+      settle(false)
+      await vi.waitFor(() => expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('Color tools'))
+      expect(button('Cancel').disabled).toBe(false)
+      expect(root.querySelector('[data-entry="saved-color-tools"]')).not.toBeNull()
+      button('Remove blueprint').click()
+      settle(true)
+      await vi.waitFor(() => {
+        expect(dialog()).toBeNull()
+        expect(root.querySelector('[data-entry="saved-color-tools"]')).toBeNull()
+      })
+    } finally {
+      dispose()
+    }
+  })
+
   it('adds and withdraws a capability-controlled source without leaving its results reachable', async () => {
     const packs = source('packs', 'Packs', [{ id: 'pack', title: 'Installed pack' }])
     const templates = source('templates', 'Templates', [{ id: 'starter', title: 'Starter workflow' }])

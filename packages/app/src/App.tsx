@@ -658,11 +658,11 @@ export function App(props: {
       return
     }
   }
-  const libraryEntryAction = (sourceId: string, entry: CollectionEntry, actionId: string, value?: string): void => {
+  const libraryEntryAction = (sourceId: string, entry: CollectionEntry, actionId: string, value?: string): void | Promise<boolean> => {
     if (sourceId === 'blueprints') {
-      if (entry.owner === undefined) return
+      if (entry.owner === undefined) return Promise.resolve(false)
       if (actionId === 'rename' && value !== undefined) void app.renameSavedBlueprint(entry.id, entry.owner, value)
-      if (actionId === 'remove') void app.removeSavedBlueprint(entry.id, entry.owner, entry.title)
+      if (actionId === 'remove') return app.removeSavedBlueprint(entry.id, entry.owner, entry.title)
       return
     }
     // Remote entries carry the backend that served them (owner); every

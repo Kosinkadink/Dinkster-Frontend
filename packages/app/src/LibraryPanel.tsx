@@ -5,7 +5,7 @@ import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js
 import { initialsOf } from './collections.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
-import { BlueprintIcon, ProductButton, ProductConfirmation, ProductDialog, ProductIcon, ProductTextInput } from '@dinkster/ui'
+import { BlueprintIcon, ProductButton, ProductConfirmationDialog, ProductIcon, ProductList, ProductListRow, ProductTextInput } from '@dinkster/ui'
 import { ProductEmptyState } from './ProductSurfaces.js'
 
 const DIRECT_LIBRARY_SOURCES = new Set(['packs', 'templates', 'workflows', 'blueprints'])
@@ -24,7 +24,7 @@ export interface LibraryPanelProps {
   readonly refreshTick?: () => number
   readonly onActivate?: (sourceId: string, entry: CollectionEntry) => void
   /** Entry actions; a blueprint's rename carries the new name as `value`. */
-  readonly onAction?: (sourceId: string, entry: CollectionEntry, actionId: string, value?: string) => void
+  readonly onAction?: (sourceId: string, entry: CollectionEntry, actionId: string, value?: string) => void | boolean | Promise<boolean | void>
   readonly sourceActions?: readonly { sourceId: string; id: string; label: string }[]
   readonly onSourceAction?: (sourceId: string, actionId: string, owner?: string) => void
 }
@@ -278,9 +278,34 @@ export function LibraryPanel(props: LibraryPanelProps) {
   // confirmation; both reach the host as ordinary entry actions.
   const [renamingId, setRenamingId] = createSignal<string>()
   const [removing, setRemoving] = createSignal<CollectionEntry>()
+  const [removalPending, setRemovalPending] = createSignal(false)
+  const [removalError, setRemovalError] = createSignal<string>()
+  const cancelRemoval = (): void => {
+    if (!removalPending()) setRemoving(undefined)
+  }
+  const confirmRemoval = async (): Promise<void> => {
+    const entry = removing()
+    if (entry === undefined || removalPending()) return
+    setRemovalPending(true)
+    setRemovalError(undefined)
+    try {
+      const removed = await props.onAction?.('blueprints', entry, 'remove')
+      if (removed === false) setRemovalError(message('library.blueprint.remove.failed', { name: entry.title }))
+      else setRemoving(undefined)
+    } catch {
+      setRemovalError(message('library.blueprint.remove.failed', { name: entry.title }))
+    } finally {
+      setRemovalPending(false)
+    }
+  }
   const entryAction = (actionSourceId: string, entry: CollectionEntry, actionId: string): void => {
     if (actionSourceId === 'blueprints' && actionId === 'rename') return void setRenamingId(entry.id)
-    if (actionSourceId === 'blueprints' && actionId === 'remove') return void setRemoving(entry)
+    if (actionSourceId === 'blueprints' && actionId === 'remove') {
+      if (removalPending()) return
+      setRemovalError(undefined)
+      setRemoving(entry)
+      return
+    }
     props.onAction?.(actionSourceId, entry, actionId)
   }
   const titleEditor = (entry: CollectionEntry) => {
@@ -435,19 +460,20 @@ export function LibraryPanel(props: LibraryPanelProps) {
       />
       <Show when={removing()}>
         {(entry) => (
-          <ProductDialog title={message('library.blueprint.remove.title', { name: entry().title })} onDismiss={() => setRemoving(undefined)}>
-            <ProductConfirmation
-              consequence={message('library.blueprint.remove.consequence')}
-              actionLabel={message('library.blueprint.remove.confirm')}
-              intent="remove"
-              onCancel={() => setRemoving(undefined)}
-              onConfirm={() => {
-                const selected = entry()
-                setRemoving(undefined)
-                props.onAction?.('blueprints', selected, 'remove')
-              }}
-            />
-          </ProductDialog>
+          <ProductConfirmationDialog
+            title={message('library.blueprint.remove.title', { name: entry().title })}
+            consequence={message('library.blueprint.remove.consequence')}
+            actionLabel={message('library.blueprint.remove.confirm')}
+            intent="remove"
+            pending={removalPending()}
+            error={removalError()}
+            onCancel={cancelRemoval}
+            onConfirm={() => { void confirmRemoval() }}
+          >
+            <ProductList label={entry().title} variant="grouped">
+              <ProductListRow title={entry().title} description={entry().subtitle} leading={<ProductIcon icon={BlueprintIcon} />} />
+            </ProductList>
+          </ProductConfirmationDialog>
         )}
       </Show>
     </div>

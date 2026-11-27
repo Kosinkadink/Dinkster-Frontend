@@ -1942,6 +1942,7 @@
   "library.blueprint.remove.title": "Remove \"{name}\"?",
   "library.blueprint.remove.consequence": "It goes from this project's blueprints and from search. Subgraphs already placed from it stay as they are in their workflows.",
   "library.blueprint.remove.confirm": "Remove blueprint",
+  "library.blueprint.remove.failed": "\"{name}\" was not removed. Check the backend connection and try again.",
   "shell.opening.here": "Opening",
   "shell.opening.ownEditor": "Opening in {installation}'s own editor",
   "shell.opening.reason.older": "This installation uses an older editor.",

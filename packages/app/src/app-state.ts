@@ -8099,8 +8099,7 @@ export class AppState {
       this.savedBlueprintsChanged()
       this.showTransientStatus(`Removed blueprint ${name}`)
       return true
-    } catch (e) {
-      this.showTransientStatus(`Could not remove blueprint ${name}: ${e instanceof Error ? e.message : String(e)}`)
+    } catch {
       return false
     }
   }
