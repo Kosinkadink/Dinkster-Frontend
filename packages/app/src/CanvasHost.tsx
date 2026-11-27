@@ -165,7 +165,7 @@ import { RowFocusOverlay, type RowFocusState, type RowRepresentation } from './e
 import type { RowBox } from './editors/row-placement.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, retainProvenExecution, withRecordedAutomaticValues, type SelectedInputPreview } from './scene-overlays.js'
-import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
+import { composeCanvasProblemDiagnostics, deriveProblemProjection, executionProblemDiagnostics, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
 import { problemBoxLines, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
 import { NodeProblemBox } from './NodeProblemBox.js'
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
@@ -5194,7 +5194,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           diagnostic.owner === tab.id && (diagnostic.origin === 'compile' || diagnostic.origin === 'validation')),
         scene: instanceDiagnostics(),
         ...(tab.execution && exec?.artifact !== undefined ? { artifact: exec.artifact.diagnostics } : {}),
-        ...(exec === undefined ? {} : { execution: exec.errors }),
+        ...(exec === undefined ? {} : { execution: executionProblemDiagnostics(exec) }),
       })
       const projectedProblems = deriveProblemProjection({
         diagnostics: currentDiagnostics,

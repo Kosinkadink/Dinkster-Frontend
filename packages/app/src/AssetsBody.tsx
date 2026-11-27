@@ -14,6 +14,8 @@ import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { activeProjectId } from './projects.js'
+import { ASSET_DRAG_TYPE, draggableMediaAsset, type AssetDrag } from './asset-browser/drag.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
 type SourceSectionKey = 'assets.source.section.models' | 'assets.source.section.media' | 'assets.source.section.inputOutput' | 'assets.source.section.other'
@@ -189,6 +191,7 @@ function assetState(state: CollectionPanelState, message: AssetMessage) {
 
 export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly onOpenStorage?: () => void }) {
   const message = useAppMessage()
+  const project = activeProjectId()
   const [adapters, setAdapters] = createSignal<readonly AssetSourceAdapter[]>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
   const [discoveryError, setDiscoveryError] = createSignal<string>()
@@ -264,6 +267,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
   const sources = createMemo((): readonly CollectionSource[] => {
     const browsable = presentedAdapters()
     const connection = props.connection
+    const baseUrl = props.baseUrl ?? ''
     const assetUrl = (digest: string): string => connection.assetUrl(digest)
     const healthGeneration = discoveryGeneration
     const reportFailures = (failures: readonly AssetSourceFailure[]): void => {
@@ -276,7 +280,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
     return [
       local,
       ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl })),
-    ]
+    ].map((source) => ({ ...source, page: async (request) => ({ ...await source.page(request), owner: baseUrl }) }))
   })
 
   return (
@@ -289,6 +293,16 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
       <ProductButton type="button" onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton>
             <CollectionPanel
               sources={sources()}
+              drag={{
+                enabled: (entry, owner) => owner === (props.baseUrl ?? '') && activeProjectId() === project && draggableMediaAsset(entry) !== undefined,
+                start: (entry, event, owner) => {
+                  const asset = draggableMediaAsset(entry)
+                  if (!asset || !event.dataTransfer || owner !== (props.baseUrl ?? '') || activeProjectId() !== project) { event.preventDefault(); return }
+                  const data: AssetDrag = { project, baseUrl: owner, asset }
+                  event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(data))
+                  event.dataTransfer.effectAllowed = 'copy'
+                },
+              }}
               sourceRail={({ selectedId, select }) => <>
                 <AssetSourceControl sources={sources()} presentations={presentations()} failures={failures()} selectedId={selectedId} select={select} message={message} />
                 <Show when={discoveryError()}>
