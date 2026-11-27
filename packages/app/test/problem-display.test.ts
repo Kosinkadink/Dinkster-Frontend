@@ -290,13 +290,18 @@ describe('deriveNodeProblems', () => {
     const onInput = diag('error', 'compile', 'in.anchor', 'missing image', {
       anchor: { occurrence: { instancePath: [], node: asNodeId('n5-a1b2') }, port: { node: asNodeId('n5-a1b2'), port: asPortId('image') } },
     })
+    const selection = diag('warning', 'schema', 'record-field-removed', "Record field 'seed' was removed.", {
+      anchor: { port: { node: asNodeId('n5-a1b2'), port: asPortId('field') } }, data: { input: 'field' },
+    })
     const projection = deriveProblemProjection({
-      document: document(), graphId: 'g0', instancePath: [], diagnostics: [viaRef, viaAnchor, onInput],
-      portSideOf: (_node, port) => port === 'latent' ? 'output' : 'input',
+      document: document(), graphId: 'g0', instancePath: [], diagnostics: [viaRef, viaAnchor, onInput, selection],
+      portSideOf: (_node, port) => port === 'latent' || port === 'field' ? 'output' : 'input',
     })
     expect(projection.rows).toEqual({
-      'n5-a1b2': { [outputRowKey('image')]: 'warning', [outputRowKey('latent')]: 'warning', image: 'error' },
+      'n5-a1b2': { [outputRowKey('image')]: 'warning', [outputRowKey('latent')]: 'warning', image: 'error', field: 'warning' },
     })
+    expect(problemBoxLines(projection.nodes['n5-a1b2']!, [{ key: 'field', name: 'Field', field: true }], (row) => row))
+      .toContainEqual(expect.objectContaining({ row: 'field', actions: ['edit-field'], problem: { kind: 'warning', row: 'field', diagnostic: selection } }))
   })
 
   it('uses exact occurrence paths, filters other graphs and info, and deduplicates ref plus anchor', () => {

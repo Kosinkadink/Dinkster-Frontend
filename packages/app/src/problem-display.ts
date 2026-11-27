@@ -143,6 +143,9 @@ export type PortSideOf = (nodeId: string, port: string) => 'input' | 'output' | 
 function diagnosticRow(diagnostic: Diagnostic, nodeId: string, portSideOf: PortSideOf | undefined): string | undefined {
   const port = diagnostic.anchor?.port
   if (port !== undefined && port.node === nodeId) {
+    // A field can have a companion output but no input pin. Its declared
+    // input identity takes precedence over the visible pin's direction.
+    if (diagnostic.data?.['input'] === port.port) return port.port
     return portSideOf?.(nodeId, port.port) === 'output' ? outputRowKey(port.port) : port.port
   }
   for (const ref of diagnostic.refs ?? []) {
