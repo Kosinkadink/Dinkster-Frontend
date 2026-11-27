@@ -86,12 +86,18 @@ export function ProductBoardCard(props: {
         if (card.offsetWidth === 0) return
         const style = getComputedStyle(card)
         const children = [...card.children] as HTMLElement[]
-        const height = children.reduce(
-          (total, child) => total + (child === inputs ? fields.offsetHeight : child.offsetHeight),
-          0,
-        ) + parseFloat(style.rowGap) * (children.length - 1)
-          + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
-          + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
+        const height =
+          children.reduce(
+            (total, child) =>
+              total +
+              (child === inputs ? fields.offsetHeight : child.offsetHeight),
+            0,
+          ) +
+          parseFloat(style.rowGap) * (children.length - 1) +
+          parseFloat(style.paddingTop) +
+          parseFloat(style.paddingBottom) +
+          parseFloat(style.borderTopWidth) +
+          parseFloat(style.borderBottomWidth)
         props.onContentHeight?.(height)
       })
     }
@@ -99,7 +105,10 @@ export function ProductBoardCard(props: {
     observer.observe(fields)
     observer.observe(card.querySelector('header')!)
     observer.observe(card.querySelector('footer')!)
-    measure()
+    createEffect(() => {
+      void props.error
+      measure()
+    })
     onCleanup(() => {
       observer.disconnect()
       cancelAnimationFrame(frame)
@@ -849,7 +858,12 @@ export function ProductBoard(props: ProductBoardProps) {
         props.onDropMedia?.(event, point(event.clientX, event.clientY))
       }}
       onWheel={(event) => {
-        if ((event.target as Element).closest('textarea, input, .dinkster-board-card-inputs')) return
+        if (
+          (event.target as Element).closest(
+            'textarea, input, .dinkster-board-card-inputs',
+          )
+        )
+          return
         event.preventDefault()
         const bounds = surface.getBoundingClientRect()
         setCamera(
