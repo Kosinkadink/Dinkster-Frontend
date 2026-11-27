@@ -381,12 +381,6 @@ export function TemplatesGallery() {
                   ]}
                   actions={
                     <>
-                      <ProductButton
-                        fill="solid"
-                        onClick={() => open(template().id)}
-                      >
-                        Use template
-                      </ProductButton>
                       <Show when={template().progress}>
                         {(progress) => (
                           <ProductTemplateDownload
@@ -440,6 +434,12 @@ export function TemplatesGallery() {
                           </ProductButton>
                         )}
                       </Show>
+                      <ProductButton
+                        fill="solid"
+                        onClick={() => open(template().id)}
+                      >
+                        Use template
+                      </ProductButton>
                     </>
                   }
                 />

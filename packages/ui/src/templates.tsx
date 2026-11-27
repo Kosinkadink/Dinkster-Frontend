@@ -3,11 +3,12 @@ import {
   Index,
   Show,
   createEffect,
+  createSignal,
   createUniqueId,
   type JSX,
 } from 'solid-js'
-import { Check, Download, Search } from 'lucide-solid'
-import { ProductIcon, ProductTextInput } from './controls.js'
+import { Check, ChevronLeft, Download, Search } from 'lucide-solid'
+import { ProductIcon, ProductTextButton, ProductTextInput } from './controls.js'
 
 /** One template on the Templates page. */
 export interface ProductTemplateEntry {
@@ -56,11 +57,9 @@ function TemplatePicture(props: {
         </Show>
         <Show
           when={
-            props.entry.progress !== undefined ? (
-              `${Math.round(props.entry.progress * 100)}%`
-            ) : (
-              props.entry.missing
-            )
+            props.entry.progress !== undefined
+              ? `${Math.round(props.entry.progress * 100)}%`
+              : props.entry.missing
           }
         >
           {(amount) => (
@@ -195,6 +194,26 @@ export function ProductTemplatesPage(props: {
   children?: JSX.Element
 }) {
   const heading = createUniqueId()
+  const [detail, setDetail] = createSignal(false)
+  let page!: HTMLDivElement
+  let back: HTMLDivElement | undefined
+  const select = (id: string) => {
+    props.onSelect(id)
+    setDetail(true)
+    queueMicrotask(() => {
+      if (back?.getClientRects().length) back.querySelector('button')?.focus()
+    })
+  }
+  const showList = () => {
+    setDetail(false)
+    queueMicrotask(() =>
+      page
+        .querySelector<HTMLElement>(
+          '.dinkster-template-tile[aria-selected="true"]',
+        )
+        ?.focus(),
+    )
+  }
   const moveGroup = (event: KeyboardEvent) => {
     const rows = props.groups.flatMap((group) => group.rows)
     const index = rows.findIndex((row) => row.id === props.group)
@@ -214,102 +233,127 @@ export function ProductTemplatesPage(props: {
       ?.focus()
   }
   return (
-    <div class="dinkster-templates" data-empty={props.templates?.length === 0 ? 'true' : undefined} role="region" aria-labelledby={heading}>
-      <div class="dinkster-templates-groups">
-        <h1 id={heading} class="dinkster-title">
-          {props.title}
-        </h1>
-        <For each={props.groups}>
-          {(group) => {
-            const label = createUniqueId()
-            return (
-              <>
-                <span id={label} class="dinkster-templates-group-label">
-                  {group.label}
+    <div class="dinkster-templates-viewport" ref={page}>
+      <div
+        class="dinkster-templates"
+        data-narrow-panel={detail() ? 'detail' : 'list'}
+        data-empty={props.templates?.length === 0 ? 'true' : undefined}
+        role="region"
+        aria-labelledby={heading}
+      >
+        <div class="dinkster-templates-groups">
+          <h1 id={heading} class="dinkster-title">
+            {props.title}
+          </h1>
+          <For each={props.groups}>
+            {(group) => {
+              const label = createUniqueId()
+              return (
+                <>
+                  <span id={label} class="dinkster-templates-group-label">
+                    {group.label}
+                  </span>
+                  <ul
+                    class="dinkster-list-rows"
+                    role="listbox"
+                    aria-labelledby={label}
+                    onKeyDown={moveGroup}
+                  >
+                    <For each={group.rows}>
+                      {(row) => (
+                        <li
+                          class="dinkster-list-row dinkster-template-filter"
+                          role="option"
+                          data-group={row.id}
+                          aria-selected={row.id === props.group}
+                          tabindex={row.id === props.group ? 0 : -1}
+                          onClick={() => props.onGroup(row.id)}
+                        >
+                          <span class="dinkster-list-row-name">
+                            {row.label}
+                          </span>
+                          <span class="dinkster-template-filter-count">
+                            {row.count}
+                          </span>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </>
+              )
+            }}
+          </For>
+        </div>
+        <div class="dinkster-templates-main">
+          <div class="dinkster-templates-bar">
+            <span class="dinkster-templates-search">
+              <ProductIcon icon={Search} />
+              <ProductTextInput
+                type="search"
+                aria-label={props.searchLabel}
+                placeholder={props.searchLabel}
+                value={props.search}
+                onInput={(event) => props.onSearch(event.currentTarget.value)}
+              />
+            </span>
+            {props.leave}
+          </div>
+          <Show
+            when={props.templates}
+            fallback={
+              <div class="dinkster-template-tiles" role="status">
+                <span class="dinkster-visually-hidden">
+                  {props.loadingLabel}
                 </span>
-                <ul
-                  class="dinkster-list-rows"
-                  role="listbox"
-                  aria-labelledby={label}
-                  onKeyDown={moveGroup}
-                >
-                  <For each={group.rows}>
-                    {(row) => (
-                      <li
-                        class="dinkster-list-row dinkster-template-filter"
-                        role="option"
-                        data-group={row.id}
-                        aria-selected={row.id === props.group}
-                        tabindex={row.id === props.group ? 0 : -1}
-                        onClick={() => props.onGroup(row.id)}
-                      >
-                        <span class="dinkster-list-row-name">{row.label}</span>
-                        <span class="dinkster-template-filter-count">
-                          {row.count}
-                        </span>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </>
-            )
-          }}
-        </For>
-      </div>
-      <div class="dinkster-templates-main">
-        <div class="dinkster-templates-bar">
-          <span class="dinkster-templates-search">
-            <ProductIcon icon={Search} />
-            <ProductTextInput
-              type="search"
-              aria-label={props.searchLabel}
-              placeholder={props.searchLabel}
-              value={props.search}
-              onInput={(event) => props.onSearch(event.currentTarget.value)}
-            />
-          </span>
-          {props.leave}
+                <Index each={[0, 1, 2, 3, 4, 5]}>
+                  {() => (
+                    <div class="dinkster-template-tile" aria-hidden="true">
+                      <span class="dinkster-template-picture" />
+                      <span class="dinkster-template-caption">
+                        <span class="dinkster-skeleton" data-shape="line" />
+                      </span>
+                    </div>
+                  )}
+                </Index>
+              </div>
+            }
+          >
+            {(templates) => (
+              <Show
+                when={templates().length > 0}
+                fallback={<p class="dinkster-templates-empty">{props.empty}</p>}
+              >
+                <ProductTemplateTiles
+                  label={props.title}
+                  templates={templates()}
+                  selected={props.selected}
+                  onSelect={select}
+                  onOpen={props.onOpen}
+                  drawing={props.drawing}
+                />
+              </Show>
+            )}
+          </Show>
         </div>
         <Show
-          when={props.templates}
-          fallback={
-            <div class="dinkster-template-tiles" role="status">
-              <span class="dinkster-visually-hidden">{props.loadingLabel}</span>
-              <Index each={[0, 1, 2, 3, 4, 5]}>
-                {() => (
-                  <div class="dinkster-template-tile" aria-hidden="true">
-                    <span class="dinkster-template-picture" />
-                    <span class="dinkster-template-caption">
-                      <span class="dinkster-skeleton" data-shape="line" />
-                    </span>
-                  </div>
-                )}
-              </Index>
-            </div>
+          when={
+            props.templates !== undefined &&
+            props.templates.length > 0 &&
+            props.children
           }
         >
-          {(templates) => (
-            <Show
-              when={templates().length > 0}
-              fallback={<p class="dinkster-templates-empty">{props.empty}</p>}
-            >
-              <ProductTemplateTiles
+          <aside class="dinkster-template-detail">
+            <div class="dinkster-templates-back" ref={back}>
+              <ProductTextButton
                 label={props.title}
-                templates={templates()}
-                selected={props.selected}
-                onSelect={props.onSelect}
-                onOpen={props.onOpen}
-                drawing={props.drawing}
+                icon={ChevronLeft}
+                onClick={showList}
               />
-            </Show>
-          )}
+            </div>
+            {props.children}
+          </aside>
         </Show>
       </div>
-      <Show when={props.templates !== undefined && props.templates.length > 0 && props.children}>
-        <aside class="dinkster-template-detail">
-          {props.children}
-        </aside>
-      </Show>
     </div>
   )
 }
@@ -415,7 +459,10 @@ export function ProductTemplateDetail(props: {
               <For each={needs().models}>
                 {(model) => (
                   <li class="dinkster-template-model">
-                    <span class="dinkster-template-model-name" title={model.name}>
+                    <span
+                      class="dinkster-template-model-name"
+                      title={model.name}
+                    >
                       {model.name}
                     </span>
                     <span class="dinkster-template-model-size">
@@ -423,12 +470,22 @@ export function ProductTemplateDetail(props: {
                     </span>
                     <span
                       class="dinkster-template-model-state"
-                      data-state={model.downloading ? 'downloading' : model.here ? 'here' : 'missing'}
+                      data-state={
+                        model.downloading
+                          ? 'downloading'
+                          : model.here
+                            ? 'here'
+                            : 'missing'
+                      }
                     >
                       <Show when={model.here && !model.downloading}>
                         <ProductIcon icon={Check} />
                       </Show>
-                      {model.downloading ? needs().downloadingLabel : model.here ? needs().hereLabel : needs().missingLabel}
+                      {model.downloading
+                        ? needs().downloadingLabel
+                        : model.here
+                          ? needs().hereLabel
+                          : needs().missingLabel}
                     </span>
                   </li>
                 )}
