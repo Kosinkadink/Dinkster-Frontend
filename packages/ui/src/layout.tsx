@@ -8,34 +8,34 @@ import {
   onMount,
   type Accessor,
   type JSX,
-} from 'solid-js'
-import { ChevronRight, Menu, type LucideIcon } from 'lucide-solid'
-import components from '@dinkster/branding/components' with { type: 'json' }
-import symbolUrl from '../../../branding/svg/dinkster-symbol-color.svg?url'
-import wordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-dark.svg?url'
-import lightWordmarkUrl from '../../../branding/svg/dinkster-wordmark-color-light.svg?url'
-import { ProductIcon } from './controls.js'
-import { useProductStrings } from './strings.js'
+} from "solid-js";
+import { ChevronRight, Menu, type LucideIcon } from "lucide-solid";
+import components from "@dinkster/branding/components" with { type: "json" };
+import symbolUrl from "../../../branding/svg/dinkster-symbol-color.svg?url";
+import wordmarkUrl from "../../../branding/svg/dinkster-wordmark-color-dark.svg?url";
+import lightWordmarkUrl from "../../../branding/svg/dinkster-wordmark-color-light.svg?url";
+import { ProductIcon } from "./controls.js";
+import { useProductStrings } from "./strings.js";
 
 export function ProductBrandMark() {
-  return <img class="dinkster-brand-mark" src={symbolUrl} alt="" />
+  return <img class="dinkster-brand-mark" src={symbolUrl} alt="" />;
 }
 
-export function ProductWordmark(props: { theme?: 'dark' | 'light' }) {
+export function ProductWordmark(props: { theme?: "dark" | "light" }) {
   return (
     <img
       class="dinkster-wordmark"
-      src={props.theme === 'light' ? lightWordmarkUrl : wordmarkUrl}
+      src={props.theme === "light" ? lightWordmarkUrl : wordmarkUrl}
       alt="Dinkster"
     />
-  )
+  );
 }
 
 /** A standalone site flow has no shell navigation or top bar. */
 export function ProductAuthCard(props: {
-  title: string
-  children: JSX.Element
-  footer?: JSX.Element
+  title: string;
+  children: JSX.Element;
+  footer?: JSX.Element;
 }) {
   return (
     <main class="dinkster-auth">
@@ -48,50 +48,54 @@ export function ProductAuthCard(props: {
         {props.footer}
       </div>
     </main>
-  )
+  );
 }
 
-export function ProductPanel(props: { children: JSX.Element }) {
-  return <div class="dinkster-panel">{props.children}</div>
+export function ProductPanel(props: { fill?: "quiet"; children: JSX.Element }) {
+  return (
+    <div class="dinkster-panel" data-fill={props.fill}>
+      {props.children}
+    </div>
+  );
 }
 
 export function ProductWindowIdentity(props: {
-  qa?: boolean
-  development?: boolean
-  service?: 'qa' | 'custom' | undefined
+  qa?: boolean;
+  development?: boolean;
+  service?: "qa" | "custom" | undefined;
 }) {
-  const strings = useProductStrings()
-  const service = () => props.service ?? (props.qa ? 'qa' : undefined)
+  const strings = useProductStrings();
+  const service = () => props.service ?? (props.qa ? "qa" : undefined);
   const description = () =>
     [
-      service() === 'qa'
+      service() === "qa"
         ? strings.qaServices
-        : service() === 'custom'
+        : service() === "custom"
           ? strings.customServices
-          : '',
-      props.development ? strings.developmentProject : '',
+          : "",
+      props.development ? strings.developmentProject : "",
     ]
       .filter(Boolean)
-      .join(', ')
+      .join(", ");
   const marking = () =>
     [
-      service() === 'qa'
-        ? 'QA'
-        : service() === 'custom'
+      service() === "qa"
+        ? "QA"
+        : service() === "custom"
           ? strings.customServiceShort
-          : '',
-      props.development ? strings.developmentShort : '',
+          : "",
+      props.development ? strings.developmentShort : "",
     ]
       .filter(Boolean)
-      .join(' ')
+      .join(" ");
   return (
     <Show when={service() || props.development}>
       <span class="dinkster-window-identity">
         <span class="dinkster-window-identity-wide">
-          <Show when={service() === 'qa'}>
+          <Show when={service() === "qa"}>
             <span>[QA]</span>
           </Show>
-          <Show when={service() === 'custom'}>
+          <Show when={service() === "custom"}>
             <span
               class="dinkster-window-identity-custom"
               title={strings.customServices}
@@ -115,14 +119,14 @@ export function ProductWindowIdentity(props: {
         </span>
       </span>
     </Show>
-  )
+  );
 }
 
 export function ProductWindowChrome(props: {
-  title: string
-  platform: 'darwin' | 'win32' | 'linux'
-  qa?: boolean
-  development?: boolean
+  title: string;
+  platform: "darwin" | "win32" | "linux";
+  qa?: boolean;
+  development?: boolean;
 }) {
   return (
     <header
@@ -136,49 +140,49 @@ export function ProductWindowChrome(props: {
         development={props.development ?? false}
       />
     </header>
-  )
+  );
 }
 
 export function ProductWindowToolbar(props: {
-  title: string
-  platform: 'darwin' | 'win32' | 'linux'
-  brand: JSX.Element
-  search: JSX.Element
-  actions: JSX.Element | ((narrow: Accessor<boolean>) => JSX.Element)
-  service?: string | undefined
-  serviceKind?: 'qa' | 'custom' | undefined
-  account?: JSX.Element
-  qa?: boolean
-  development?: boolean
+  title: string;
+  platform: "darwin" | "win32" | "linux";
+  brand: JSX.Element;
+  search: JSX.Element;
+  actions: JSX.Element | ((narrow: Accessor<boolean>) => JSX.Element);
+  service?: string | undefined;
+  serviceKind?: "qa" | "custom" | undefined;
+  account?: JSX.Element;
+  qa?: boolean;
+  development?: boolean;
 }) {
-  let host!: HTMLElement
-  let search!: HTMLDivElement
-  const [narrow, setNarrow] = createSignal(false)
+  let host!: HTMLElement;
+  let search!: HTMLDivElement;
+  const [narrow, setNarrow] = createSignal(false);
   onMount(() => {
     const observer = new ResizeObserver(() => {
-      const frame = host.getBoundingClientRect()
-      const slot = search.getBoundingClientRect()
-      const action = search.firstElementChild as HTMLElement | null
-      const width = action?.getBoundingClientRect().width ?? 0
+      const frame = host.getBoundingClientRect();
+      const slot = search.getBoundingClientRect();
+      const action = search.firstElementChild as HTMLElement | null;
+      const width = action?.getBoundingClientRect().width ?? 0;
       const left = Math.max(
         0,
         Math.min(
           slot.width - width,
           frame.left + (frame.width - width) / 2 - slot.left,
         ),
-      )
-      if (action) action.style.left = `${left}px`
+      );
+      if (action) action.style.left = `${left}px`;
       setNarrow(
         frame.width -
           parseFloat(getComputedStyle(host).paddingLeft) -
           parseFloat(getComputedStyle(host).paddingRight) <
           components.layout.toolbarFullRowWidth,
-      )
-    })
-    observer.observe(host)
-    observer.observe(search)
-    onCleanup(() => observer.disconnect())
-  })
+      );
+    });
+    observer.observe(host);
+    observer.observe(search);
+    onCleanup(() => observer.disconnect());
+  });
   return (
     <header
       ref={host}
@@ -193,7 +197,7 @@ export function ProductWindowToolbar(props: {
           {props.search}
         </div>
         <div class="dinkster-window-toolbar-actions">
-          {typeof props.actions === 'function'
+          {typeof props.actions === "function"
             ? props.actions(narrow)
             : props.actions}
         </div>
@@ -210,49 +214,49 @@ export function ProductWindowToolbar(props: {
         </Show>
       </div>
     </header>
-  )
+  );
 }
 
 export interface ProductNavigationItem {
-  label: string
-  href: string
-  icon: LucideIcon
+  label: string;
+  href: string;
+  icon: LucideIcon;
   /** Pages under this item, listed in headings while the item is current. */
-  groups?: readonly ProductNavigationGroup[]
+  groups?: readonly ProductNavigationGroup[];
 }
 
 export interface ProductNavigationGroup {
-  label: string
-  items: readonly { label: string; href: string }[]
+  label: string;
+  items: readonly { label: string; href: string }[];
 }
 
 /** A heading that opens and closes its pages. Only the heading holding the
  * current page starts open, and moving to a page opens its heading. */
 function ProductNavigationGroups(props: {
-  groups: readonly ProductNavigationGroup[]
-  currentHref: string
-  onSelect: (event: MouseEvent, href: string) => void
+  groups: readonly ProductNavigationGroup[];
+  currentHref: string;
+  onSelect: (event: MouseEvent, href: string) => void;
 }) {
   const holding = () =>
     props.groups.find((group) =>
       group.items.some((item) => item.href === props.currentHref),
-    )?.label
-  const [open, setOpen] = createSignal<ReadonlySet<string>>(new Set())
+    )?.label;
+  const [open, setOpen] = createSignal<ReadonlySet<string>>(new Set());
   createEffect(() => {
-    const label = holding()
+    const label = holding();
     if (label !== undefined && !open().has(label))
-      setOpen((current) => new Set([...current, label]))
-  })
+      setOpen((current) => new Set([...current, label]));
+  });
   const toggle = (label: string) =>
     setOpen((current) => {
-      const next = new Set(current)
-      if (!next.delete(label)) next.add(label)
-      return next
-    })
+      const next = new Set(current);
+      if (!next.delete(label)) next.add(label);
+      return next;
+    });
   return (
     <For each={props.groups}>
       {(group) => {
-        const listId = createUniqueId()
+        const listId = createUniqueId();
         return (
           <>
             <button
@@ -276,7 +280,7 @@ function ProductNavigationGroups(props: {
                     class="dinkster-nav-page"
                     href={item.href}
                     aria-current={
-                      props.currentHref === item.href ? 'page' : undefined
+                      props.currentHref === item.href ? "page" : undefined
                     }
                     onClick={(event) => props.onSelect(event, item.href)}
                   >
@@ -286,29 +290,29 @@ function ProductNavigationGroups(props: {
               </For>
             </div>
           </>
-        )
+        );
       }}
     </For>
-  )
+  );
 }
 
 export function ProductShell(props: {
-  title: string
-  navigation: readonly ProductNavigationItem[]
-  currentHref: string
-  onNavigate: (href: string) => void
-  account?: JSX.Element
+  title: string;
+  navigation: readonly ProductNavigationItem[];
+  currentHref: string;
+  onNavigate: (href: string) => void;
+  account?: JSX.Element;
   /** The form the page content uses when it differs from the shell's, such
    * as site-form components shown inside an app-form frame. */
-  contentDensity?: 'app' | 'site' | undefined
-  children: JSX.Element
+  contentDensity?: "app" | "site" | undefined;
+  children: JSX.Element;
 }) {
-  const strings = useProductStrings()
-  const [open, setOpen] = createSignal(false)
-  const navigationId = createUniqueId()
-  let navigationToggle!: HTMLButtonElement
-  let sidebar!: HTMLElement
-  let main!: HTMLElement
+  const strings = useProductStrings();
+  const [open, setOpen] = createSignal(false);
+  const navigationId = createUniqueId();
+  let navigationToggle!: HTMLButtonElement;
+  let sidebar!: HTMLElement;
+  let main!: HTMLElement;
   const select = (event: MouseEvent, href: string) => {
     if (
       event.button !== 0 ||
@@ -317,30 +321,30 @@ export function ProductShell(props: {
       event.altKey ||
       event.shiftKey
     )
-      return
-    event.preventDefault()
-    const closing = open()
-    props.onNavigate(href)
-    setOpen(false)
-    if (closing) main.focus()
-  }
+      return;
+    event.preventDefault();
+    const closing = open();
+    props.onNavigate(href);
+    setOpen(false);
+    if (closing) main.focus();
+  };
   createEffect(() => {
-    if (!open()) return
+    if (!open()) return;
     const dismiss = (event: PointerEvent) => {
       if (
         !sidebar.contains(event.target as Node) &&
         !navigationToggle.contains(event.target as Node)
       )
-        setOpen(false)
-    }
-    const resize = () => setOpen(false)
-    document.addEventListener('pointerdown', dismiss)
-    window.addEventListener('resize', resize)
+        setOpen(false);
+    };
+    const resize = () => setOpen(false);
+    document.addEventListener("pointerdown", dismiss);
+    window.addEventListener("resize", resize);
     onCleanup(() => {
-      document.removeEventListener('pointerdown', dismiss)
-      window.removeEventListener('resize', resize)
-    })
-  })
+      document.removeEventListener("pointerdown", dismiss);
+      window.removeEventListener("resize", resize);
+    });
+  });
   return (
     <div
       class="dinkster-shell"
@@ -348,14 +352,14 @@ export function ProductShell(props: {
       onKeyDown={(event) => {
         // A dialog or menu that is handling Escape keeps it.
         if (
-          event.key === 'Escape' &&
+          event.key === "Escape" &&
           open() &&
           !event.defaultPrevented &&
-          !(event.target as Element).closest('dialog')
+          !(event.target as Element).closest("dialog")
         ) {
-          event.preventDefault()
-          setOpen(false)
-          navigationToggle.focus()
+          event.preventDefault();
+          setOpen(false);
+          navigationToggle.focus();
         }
       }}
     >
@@ -398,7 +402,7 @@ export function ProductShell(props: {
                       group.items.some(
                         (page) => page.href === props.currentHref,
                       ),
-                    ) ?? false
+                    ) ?? false;
                   return (
                     <>
                       <a
@@ -406,9 +410,9 @@ export function ProductShell(props: {
                         href={item.href}
                         aria-current={
                           props.currentHref === item.href
-                            ? 'page'
+                            ? "page"
                             : inside()
-                              ? 'true'
+                              ? "true"
                               : undefined
                         }
                         onClick={(event) => select(event, item.href)}
@@ -429,7 +433,7 @@ export function ProductShell(props: {
                         />
                       </Show>
                     </>
-                  )
+                  );
                 }}
               </For>
             </nav>
@@ -445,19 +449,19 @@ export function ProductShell(props: {
         </main>
       </div>
     </div>
-  )
+  );
 }
 
 export function ProductPage(props: {
-  title: string
-  description?: string
-  table?: boolean
-  children: JSX.Element
+  title: string;
+  description?: string;
+  table?: boolean;
+  children: JSX.Element;
 }) {
   return (
     <div
       class="dinkster-content dinkster-stack"
-      data-width={props.table ? 'table' : undefined}
+      data-width={props.table ? "table" : undefined}
     >
       <header class="dinkster-stack">
         <h1 class="dinkster-title">{props.title}</h1>
@@ -467,15 +471,15 @@ export function ProductPage(props: {
       </header>
       {props.children}
     </div>
-  )
+  );
 }
 
 export function ProductSection(props: {
-  title: string
-  description?: string
-  children: JSX.Element
+  title: string;
+  description?: string;
+  children: JSX.Element;
 }) {
-  const id = createUniqueId()
+  const id = createUniqueId();
   return (
     <section class="dinkster-stack" aria-labelledby={id}>
       <h2 id={id} class="dinkster-heading">
@@ -486,55 +490,75 @@ export function ProductSection(props: {
       </Show>
       {props.children}
     </section>
-  )
+  );
 }
 
 export function ProductList(props: {
-  label: string
-  variant?: 'plain' | 'grouped'
-  children: JSX.Element
+  label: string;
+  variant?: "plain" | "grouped";
+  children: JSX.Element;
 }) {
   return (
-    <ul class="dinkster-list" data-variant={props.variant} aria-label={props.label}>
+    <ul
+      class="dinkster-list"
+      data-variant={props.variant}
+      aria-label={props.label}
+    >
       {props.children}
     </ul>
-  )
+  );
 }
 
 export function ProductListRow(props: {
-  title: JSX.Element
-  description?: JSX.Element
-  leading?: JSX.Element
-  trailing?: JSX.Element
-  action?: JSX.Element
-  status?: JSX.Element
-  expanded?: boolean
-  onToggle?: (expanded: boolean) => void
-  onActivate?: () => void
-  ref?: (element: HTMLButtonElement) => void
-  tabIndex?: number
-  pressed?: boolean
-  children?: JSX.Element
-  testId?: string
-  dataAttributes?: Readonly<Record<`data-${string}`, string | undefined>>
+  title: JSX.Element;
+  description?: JSX.Element;
+  leading?: JSX.Element;
+  trailing?: JSX.Element;
+  action?: JSX.Element;
+  status?: JSX.Element;
+  expanded?: boolean;
+  onToggle?: (expanded: boolean) => void;
+  onActivate?: () => void;
+  ref?: (element: HTMLButtonElement) => void;
+  tabIndex?: number;
+  pressed?: boolean;
+  children?: JSX.Element;
+  testId?: string;
+  dataAttributes?: Readonly<Record<`data-${string}`, string | undefined>>;
 }) {
-  const detailsId = createUniqueId()
-  const expandable = () => props.expanded !== undefined
-  const copy = () => <>
-    <Show when={expandable()}><ProductIcon icon={ChevronRight} /></Show>
-    {props.leading}
-    <span class="dinkster-row-copy">
-      <span>{props.title}</span>
-      <Show when={props.description}>
-        {(description) => <span class="dinkster-metadata">{description()}</span>}
+  const detailsId = createUniqueId();
+  const expandable = () => props.expanded !== undefined;
+  const copy = () => (
+    <>
+      <Show when={expandable()}>
+        <ProductIcon icon={ChevronRight} />
       </Show>
-    </span>
-    <Show when={props.trailing}>{(trailing) => <span class="dinkster-row-trailing">{trailing()}</span>}</Show>
-  </>
+      {props.leading}
+      <span class="dinkster-row-copy">
+        <span>{props.title}</span>
+        <Show when={props.description}>
+          {(description) => (
+            <span class="dinkster-metadata">{description()}</span>
+          )}
+        </Show>
+      </span>
+      <Show when={props.trailing}>
+        {(trailing) => <span class="dinkster-row-trailing">{trailing()}</span>}
+      </Show>
+    </>
+  );
   return (
-    <li {...props.dataAttributes} class="dinkster-row" data-testid={props.testId} data-expanded={props.expanded}>
+    <li
+      {...props.dataAttributes}
+      class="dinkster-row"
+      data-testid={props.testId}
+      data-expanded={props.expanded}
+    >
       <div class="dinkster-row-heading">
-        <Show when={props.onToggle || props.onActivate} fallback={<div class="dinkster-row-main">{copy()}</div>}>
+        <Show
+          when={props.onToggle || props.onActivate}
+          fallback={<div class="dinkster-row-main">{copy()}</div>}
+        >
           <button
             type="button"
             class="dinkster-row-main"
@@ -543,27 +567,39 @@ export function ProductListRow(props: {
             aria-pressed={props.pressed}
             aria-expanded={props.expanded}
             aria-controls={expandable() ? detailsId : undefined}
-            onClick={() => props.onToggle ? props.onToggle(!props.expanded) : props.onActivate?.()}
+            onClick={() =>
+              props.onToggle
+                ? props.onToggle(!props.expanded)
+                : props.onActivate?.()
+            }
           >
             {copy()}
           </button>
         </Show>
-        <Show when={props.action}>{(action) => <div class="dinkster-row-action">{action()}</div>}</Show>
+        <Show when={props.action}>
+          {(action) => <div class="dinkster-row-action">{action()}</div>}
+        </Show>
       </div>
-      <Show when={props.status}>{(status) => <div class="dinkster-row-status">{status()}</div>}</Show>
+      <Show when={props.status}>
+        {(status) => <div class="dinkster-row-status">{status()}</div>}
+      </Show>
       <Show when={expandable()}>
-        <div id={detailsId} class="dinkster-row-details" hidden={!props.expanded}>
+        <div
+          id={detailsId}
+          class="dinkster-row-details"
+          hidden={!props.expanded}
+        >
           <Show when={props.expanded}>{props.children}</Show>
         </div>
       </Show>
     </li>
-  )
+  );
 }
 
 export function ProductTable<T>(props: {
-  label: string
-  columns: readonly { label: string; cell: (row: T) => JSX.Element }[]
-  rows: readonly T[]
+  label: string;
+  columns: readonly { label: string; cell: (row: T) => JSX.Element }[];
+  rows: readonly T[];
 }) {
   return (
     <div
@@ -594,19 +630,19 @@ export function ProductTable<T>(props: {
         </tbody>
       </table>
     </div>
-  )
+  );
 }
 
 export function ProductEmptyState(props: {
-  message: string
-  action?: JSX.Element
+  message: string;
+  action?: JSX.Element;
 }) {
   return (
     <div class="dinkster-empty">
       <p class="dinkster-description">{props.message}</p>
       {props.action}
     </div>
-  )
+  );
 }
 
 export function ProductLoading(props: { label: string }) {
@@ -615,5 +651,5 @@ export function ProductLoading(props: { label: string }) {
       <span class="dinkster-spinner" aria-hidden="true" />
       <span>{props.label}</span>
     </div>
-  )
+  );
 }

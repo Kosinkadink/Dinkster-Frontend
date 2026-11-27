@@ -71,6 +71,7 @@ import {
   ProductProgress,
   ProductProjectMenu,
   ProductPage,
+  ProductPanel,
   ProductRadio,
   ProductSection,
   ProductSegmented,
@@ -297,6 +298,27 @@ function Gallery() {
               </Section>
             </Match>
             <Match when={route() === '#setup-components'}>
+              <Section title="Filled setup blocks" components="ProductPanel, ProductFacts, ProductDisclosure">
+                <ProductPanel fill="quiet">
+                  <ProductFacts label="Installation location" items={[
+                    { label: 'Install to', value: '/home/alex/Dinkster/nightly' },
+                  ]} />
+                </ProductPanel>
+                <ProductPanel fill="quiet">
+                  <ProductFacts label="Selected build" items={[
+                    { label: 'Build', value: 'NVIDIA graphics' },
+                    { label: 'Download', value: 'About 7 GB - 212 GB free' },
+                  ]} />
+                  <ProductDisclosure title="Details">
+                    <ProductFacts label="Build versions" items={[
+                      { label: 'Python', value: '3.13.8' },
+                      { label: 'PyTorch', value: '2.14.1+cu132' },
+                      { label: 'CUDA', value: '13.2' },
+                      { label: 'Dinkster', value: '0.0.19' },
+                    ]} />
+                  </ProductDisclosure>
+                </ProductPanel>
+              </Section>
               <Section title="Progress" components="ProductProgress">
                 <For each={[
                   { label: 'Not started', value: 0 },
