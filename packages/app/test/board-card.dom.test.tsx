@@ -97,3 +97,39 @@ it('refreshes saved-source controls, drops hidden values made fixed, and ignores
     await vi.waitFor(() => expect(document.querySelector('[data-testid="seed-controller-decrement"]')?.getAttribute('aria-checked')).toBe('true'))
   } finally { dispose(); app.dispose() }
 })
+
+it('reads recorded card status without browser execution memory and leaves unreadable history blank', async () => {
+  const app = createWorkflowApp([])
+  const backend = app.backends.get()[0]!
+  const card: BoardCardItem = { id: 'card', kind: 'workflow', name: 'Saved card',
+    rect: { x: 0, y: 0, width: 340, height: 188 }, source: { kind: 'library', recordId: 'source' }, values: {} }
+  const entry = app.boards.open({ ...emptyBoard(), items: { card }, order: ['card'], runs: {
+    newer: { card: 'card', items: [] }, older: { card: 'card', items: [] },
+  } }, 'Saved Board', backend.baseUrl)
+  let release!: () => void
+  const waiting = new Promise<void>((resolve) => { release = resolve })
+  const history = vi.spyOn(backend.connection, 'getHistoryRun').mockImplementation(async (id) => {
+    await waiting
+    return { runId: id, jobRef: id, scope: 'local', clientId: 'another-browser', jobId: id,
+      state: id === 'newer' ? 'completed' : 'failed', priority: 0,
+      submittedAt: id === 'newer' ? 20 : 10, finishedAt: id === 'newer' ? 21 : 11,
+      executed: 1, cached: 0, skipped: 0 }
+  })
+  vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(undefined)
+  const root = document.createElement('div')
+  document.body.append(root)
+  const dispose = render(() => <BoardCard app={app} entry={entry} card={card} onRemove={() => undefined} />, root)
+  const status = () => root.querySelector('.dinkster-board-card-footer [role="status"]')?.textContent?.trim()
+  try {
+    expect(status()).toBe('')
+    expect(root.textContent).not.toContain('Not run')
+    release()
+    await vi.waitFor(() => expect(status()).toBe('Completed'))
+    history.mockResolvedValue(undefined)
+    app.backendsTick.update((value) => value + 1)
+    expect(status()).toBe('')
+    await Promise.resolve(); await Promise.resolve()
+    expect(status()).toBe('')
+    expect(root.textContent).not.toContain('Not run')
+  } finally { dispose(); app.dispose() }
+})
