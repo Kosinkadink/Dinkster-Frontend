@@ -492,7 +492,7 @@ const runEntry = (r: HistoryRunRecord, owner: string): CollectionEntry => ({
   ref: r,
   owner,
   title: r.workflowName ?? `${titleCase(r.state)} run`,
-  subtitle: `${timeText(r.finishedAt)} - ${r.jobId}`,
+  subtitle: `${formatCollectionRowDate(r.finishedAt * 1000)} - ${r.jobId}`,
   badges: [
     ...attributionBadges({ principalId: r.principalId, kind: r.principalKind }),
     'Durable record',
@@ -690,7 +690,7 @@ export function historySource(app: AppState): CollectionSource {
         return {
           id: exec.key,
           title: app.tabTitleFor(exec.ref),
-          subtitle: `${localTimeText(exec.queuedAt)} - ${exec.ref.prompt}`,
+          subtitle: `${formatCollectionRowDate(exec.queuedAt)} - ${exec.ref.prompt}`,
           badges: [
             ...attributionBadges({
               principalId: exec.submittedBy?.principalId,
