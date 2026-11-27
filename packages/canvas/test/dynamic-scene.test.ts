@@ -245,7 +245,7 @@ const sceneFrom = (store: DocumentStore, graphId = 'g0'): Scene => sceneOf(store
 it('hides manual Unpack count actions for known wired counts and restores them without losing outputs', () => {
   const wire = JSON.parse(readFileSync(new URL('../../core/test/fixtures/flow_schemas.json', import.meta.url), 'utf8'))
   const parsed = parseDinksterSchema('Unpack', wire['dinkster.utilities.unpack']).schema!
-  const unpack: NodeSchema = { ...parsed, body: parsed.body.map(item => item.kind === 'input' && item.id === 'count'
+  let unpack: NodeSchema = { ...parsed, body: parsed.body.map(item => item.kind === 'input' && item.id === 'count'
     ? { ...item, listCountOf: 'list' } : item) }
   const texts = schemaOf('Texts', [{ kind: 'input', id: 'texts', optional: false,
     type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } },
@@ -253,12 +253,21 @@ it('hides manual Unpack count actions for known wired counts and restores them w
   }, { kind: 'output', id: 'unknown', type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } } }])
   const resolve = (type: string) => type === 'Unpack' ? unpack : type === 'Texts' ? texts : undefined
   const host = { schemaResolverFor: () => resolve, schemaOf: (_doc: unknown, _graph: unknown, node: NodeData) => resolve(node.type), editorFor: () => undefined }
-  for (const shared of [false, true]) for (const count of [3, 0]) {
+  const body = unpack.body
+  for (const scoped of ['none', 'button', 'all']) for (const shared of [false, true]) for (const count of [3, 0]) {
+    if (scoped === 'all' && shared) continue
+    unpack = { ...unpack, body: scoped !== 'none' ? [...body.filter(item => scoped === 'all' ? item.kind === 'input' && item.id === 'list' : item.kind !== 'button'), {
+      kind: 'choice', id: 'format', required: true, shared: [], default: 'plain',
+      options: [{ key: 'plain', rows: scoped === 'all' ? body : body.filter(item => item.kind === 'button') }],
+    }] : body }
     const values = Array.from({ length: count }, (_, i) => String(i))
-    const node = { type: 'Unpack', values: { count: 5 } }
+    const inputPort = scoped === 'all' ? 'format.list' : 'list'
+    const node = { type: 'Unpack', values: { [scoped === 'all' ? 'format.count' : 'count']: count } }
     const doc = docOf({ g0: { nodes: { source: { type: 'Texts', values: { texts: values } },
       ...(shared ? { shell: { type: '#g1' } } : { unpack: node }),
-    }, links: [[{ node: 'source', tap: 'texts' }, [shared ? 'shell' : 'unpack', 'list']]] },
+    }, links: [[{ node: 'source', tap: 'texts' }, [shared ? 'shell' : 'unpack', shared ? 'list' : inputPort]],
+      ...(scoped === 'all' ? [[{ node: 'source', tap: 'texts' }, ['unpack', 'list']] as [End, End]] : []),
+    ] },
     ...(shared ? { g1: { nodes: { unpack: node }, boundary: { inputs: [{ id: 'list', binds: { kind: 'port', node: 'unpack', port: 'list' } }] } } } : {}),
     })
     const store = new DocumentStore(doc, coreCommandRegistry([], resolve), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
@@ -267,25 +276,28 @@ it('hides manual Unpack count actions for known wired counts and restores them w
     const shown = () => buildScene({ document: store.doc, graphId, resolve, tokens: defaultTokens, measure, widgetMeasure,
       ...(shared ? { occurrence: { owner: { instancePath: [], node: asNodeId('shell') }, plannerAvailable: true }, occurrenceView: occurrenceDynamicView(store.doc, resolve, ['shell']) } : {}),
     }).nodes.find(n => n.node.type === 'Unpack')!
-    const hasAction = () => shown().layout.rows.some(row => row.kind === 'button' && row.buttonId === 'set_count')
-    const target = { graphId, nodeId: 'unpack', instancePath: shared ? ['shell'] : [], button: 'set_count' }
-    expect(shown().layout.pins.filter(pin => pin.direction === 'out')).toHaveLength(count)
+    const button = scoped !== 'none' ? 'format.set_count' : 'set_count'
+    const hasAction = () => shown().layout.rows.some(row => row.kind === 'button' && row.buttonId === button)
+    const target = { graphId, nodeId: 'unpack', instancePath: shared ? ['shell'] : [], button }
+    const items = () => shown().layout.pins.filter(pin => pin.direction === 'out' && pin.portId.startsWith(scoped === 'all' ? 'format.items.' : 'items.'))
+    expect(items()).toHaveLength(count)
     expect(hasAction()).toBe(false)
     expect(buttonAvailability(store.doc, target, host).enabled).toBe(false)
+    if (!shared) expect(buttonAvailability(store.doc, target, { schemaOf: host.schemaOf, editorFor: host.editorFor }).enabled).toBe(false)
     expect(store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l0' } }).ok).toBe(true)
     expect(hasAction()).toBe(true)
     expect(buttonAvailability(store.doc, target, host).enabled).toBe(true)
-    expect(shown().layout.pins.filter(pin => pin.direction === 'out')).toHaveLength(count)
+    expect(items()).toHaveLength(count)
     expect(store.undo()).toBe(true)
     expect(hasAction()).toBe(false)
     expect(store.redo()).toBe(true)
     expect(hasAction()).toBe(true)
     expect(store.dispatch({ command: 'link.connect', params: { graphId: 'g0',
-      from: { node: 'source', port: 'unknown' }, to: { node: shared ? 'shell' : 'unpack', port: 'list' },
+      from: { node: 'source', port: 'unknown' }, to: { node: shared ? 'shell' : 'unpack', port: shared ? 'list' : inputPort },
     } }).ok).toBe(true)
     expect(hasAction()).toBe(true)
     expect(buttonAvailability(store.doc, target, host).enabled).toBe(true)
-    expect(shown().layout.pins.filter(pin => pin.direction === 'out')).toHaveLength(count)
+    expect(items()).toHaveLength(count)
   }
 })
 

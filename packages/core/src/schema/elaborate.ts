@@ -636,7 +636,7 @@ export const elabOutputsOf = (e: Pick<ElaboratedInterface, 'items'>): readonly E
   e.items.filter((i): i is ElaboratedOutput => i.kind === 'output')
 
 /** Hide manual count setters only when every edit they offer is owned by a known list fact. */
-export function hideKnownListCountButtons(e: ElaboratedInterface, listCountOf: (port: string) => number | undefined): ElaboratedInterface {
+export function hideKnownListCountButtons(e: ElaboratedInterface, contexts: ReadonlyMap<string, FormulaContext>, listCountOf: (port: string) => number | undefined): ElaboratedInterface {
   const inputs = elabInputsOf(e)
   const items = e.items.filter(item => {
     if (item.kind !== 'button') return true
@@ -644,8 +644,12 @@ export function hideKnownListCountButtons(e: ElaboratedInterface, listCountOf: (
     const edits = item.spec.steps.filter(step => step.step !== 'ask')
     return edits.length === 0 || !edits.every(step => {
       if (step.step !== 'set' || typeof step.field !== 'string') return false
-      const input = inputs.find(input => input.address.port === prefix + step.field)
-      return input?.spec.listCountOf !== undefined && listCountOf(prefix + input.spec.listCountOf) !== undefined
+      const target = contexts.get(prefix)?.paths.get(step.field)
+      const input = inputs.find(input => input.address.port === target)
+      if (input?.spec.listCountOf === undefined) return false
+      const inputPrefix = input.address.port.slice(0, input.address.port.lastIndexOf('.') + 1)
+      const source = contexts.get(inputPrefix)?.paths.get(input.spec.listCountOf)
+      return source !== undefined && listCountOf(source) !== undefined
     })
   })
   return items.length === e.items.length ? e : { ...e, items }

@@ -66,6 +66,7 @@ import {
   type Diagnostic,
   type DynamicPortState,
   type ElaboratedInterface,
+  type FormulaContext,
   type EffectiveLinkIdentity,
   type EffectiveOccurrenceTopology,
   type GraphDef,
@@ -820,7 +821,8 @@ export function buildScene(input: BuildSceneInput): Scene {
     runs: boolean,
   ): ElaboratedInterface => {
     const problemRows = new Set(solverProblems)
-    const lookups = input.lookupAnswers === undefined ? {} : { lookupAnswers: input.lookupAnswers }
+    const contexts = new Map<string, FormulaContext>()
+    const lookups = { formulaContexts: contexts, ...(input.lookupAnswers === undefined ? {} : { lookupAnswers: input.lookupAnswers }) }
     const elaborated = elaborateInterface(schema, node, connectivity, problemRows.size > 0 ? { problemRows, ...lookups } : lookups)
     const check = input.storedValueProblem
     for (const item of elabInputsOf(elaborated)) {
@@ -837,9 +839,10 @@ export function buildScene(input: BuildSceneInput): Scene {
       const spec = resolveWidgetRepresentation(widget, representations?.[valueKey]).spec
       if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, stored)) problemRows.add(item.address.port)
     }
-    return problemRows.size > (solverProblems?.size ?? 0)
+    const shown = problemRows.size > (solverProblems?.size ?? 0)
       ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
       : elaborated
+    return hideKnownListCountButtons(shown, contexts, port => solvedTypes.listCountOf(asNodeId(nodeId), 'input', port))
   }
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   const sourcePath = input.occurrence === undefined
@@ -1125,8 +1128,8 @@ export function buildScene(input: BuildSceneInput): Scene {
         }
     const schema = resolveNode(input.graphId, occurrenceNode, sourcePath)
     const elaborated = schema
-      ? hideKnownListCountButtons(elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views,
-          enclosingRuns && (node.mode ?? 'active') === 'active'), port => solvedTypes.listCountOf(node.id, 'input', port))
+      ? elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views,
+          enclosingRuns && (node.mode ?? 'active') === 'active')
       : undefined
     for (const diagnostic of elaborated?.diagnostics ?? []) {
       const port = diagnostic.data?.['input']

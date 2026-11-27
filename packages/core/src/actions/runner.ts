@@ -520,8 +520,10 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
   const contexts = new Map<string, FormulaContext>()
   const baseInterface = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue, incomingType })
   const counts = elabInputsOf(baseInterface).some(input => input.spec.listCountOf !== undefined)
-    ? solveOccurrenceTypes(doc, resolve, graph.id, path.map(asNodeId)) : undefined
-  const elaborated = hideKnownListCountButtons(baseInterface, port => counts?.listCountOf(node.id, 'input', port))
+    ? host.schemaResolverFor === undefined
+      ? solveGraphTypes(graph, () => undefined, { resolveNode: node => host.schemaOf(doc, graph.id, node) })
+      : solveOccurrenceTypes(doc, resolve, graph.id, path.map(asNodeId)) : undefined
+  const elaborated = hideKnownListCountButtons(baseInterface, contexts, port => counts?.listCountOf(node.id, 'input', port))
   return { doc, graph, node, schema, elaborated, contexts, connectivity, incomingValue, incomingType, valueOwners: occurrence?.valueOwners.get(node.id) ?? new Map() }
 }
 
