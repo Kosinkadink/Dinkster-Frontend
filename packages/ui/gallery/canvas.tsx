@@ -968,9 +968,11 @@ export function CanvasGallery() {
             <For each={details().overflow ?? [details().badge]}>
               {(badge) => <p class="dinkster-description">{badge.glyph}</p>}
             </For>
-            <ProductButton onClick={() => setBadgeDetails(undefined)}>
-              Close
-            </ProductButton>
+            <footer class="dinkster-dialog-actions">
+              <ProductButton onClick={() => setBadgeDetails(undefined)}>
+                Close
+              </ProductButton>
+            </footer>
           </ProductDialog>
         )}
       </Show>
