@@ -29,7 +29,7 @@ the shared collision-safe default (`New Subgraph`, then `New Subgraph 2`, and
 so on). The created occurrence remains renameable later through the normal
 node **Rename** action.
 
-The gesture snapshots selected nodes, reroutes, and groups. A selected group includes every supported item spatially inside
+The gesture snapshots selected nodes, reroutes, groups and affected instance list counts. Extraction remaps each occurrence's counts into the new definition without changing shared defaults. A selected group includes every supported item spatially inside
 the group at gesture time. Selecting the contents without selecting the
 group does not move the group.
 
@@ -66,7 +66,7 @@ subgraph node, find **Flatten selected subgraph** in universal search, or
 press **Ctrl+Shift+F**. Element-row menus such as widgets, pins, sections,
 nets, and links stay scoped to that element. Dinkster removes that occurrence
 and splices one copy of its body into the parent as one undoable operation.
-Nested occurrences remain nested. Selection waits for final acceptance;
+Nested occurrences remain nested. Stored list counts follow the remapped owners in every affected occurrence; a node moved to the root keeps its count in its own values. Changes to affected counts invalidate a pending lifecycle plan. Selection waits for final acceptance;
 after success, the newly spliced body nodes are selected only in the
 original current canvas, tab, session and navigation, using the same
 ownership checks as extraction. Refusal leaves the selection unchanged.

@@ -31,7 +31,7 @@ import {
   type WidgetTapRef,
 } from '../ids.js'
 import { canonicalJson, sha256Hex } from '../compile/hash.js'
-import { subgraphDefIdOf } from '../invariants.js'
+import { occurrenceGraphDepth, subgraphDefIdOf } from '../invariants.js'
 import { constructRowOf, deriveBoundarySchema, resolveBoundaryRoute, type SchemaResolver } from '../schema/derive-boundary.js'
 import type { NodeSchema } from '../schema/model.js'
 import { DEFAULT_ELAB_BUDGET, elaborateInterface, EMPTY_CONNECTIVITY, valueKeyOf } from '../schema/elaborate.js'
@@ -772,6 +772,7 @@ interface FingerprintProjection {
   readonly links: readonly unknown[]
   readonly nets: readonly unknown[]
   readonly boundary: readonly unknown[]
+  readonly listCounts: readonly unknown[]
   readonly collapsedNets: readonly string[]
   readonly guideNets: readonly string[]
   readonly groupMembership?: GroupMembership
@@ -841,6 +842,10 @@ export function lifecycleSelectionProjection(
     links,
     nets,
     boundary,
+    listCounts: Object.values(doc.occurrenceListCounts ?? {}).filter((state) => {
+      const depth = occurrenceGraphDepth(doc, state.owner, graphId)
+      return depth !== undefined && selected.nodes.has(state.owner.instancePath[depth] ?? state.owner.node)
+    }).sort((a, b) => compareStrings(canonicalJson(a.owner), canonicalJson(b.owner))),
     collapsedNets: sortedUnique(graphView?.collapsedNets),
     guideNets: sortedUnique(graphView?.guideNets),
     ...(graphView?.groupMembership !== undefined ? { groupMembership: graphView.groupMembership } : {}),
@@ -932,6 +937,10 @@ export function lifecycleFlattenProjection(
     ],
     boundaryRoutePlan,
     modePanelBindings,
+    listCounts: Object.values(doc.occurrenceListCounts ?? {}).filter((state) => {
+      const depth = occurrenceGraphDepth(doc, state.owner, graphId)
+      return depth !== undefined && (state.owner.instancePath[depth] ?? state.owner.node) === occurrenceNodeId
+    }).sort((a, b) => compareStrings(canonicalJson(a.owner), canonicalJson(b.owner))),
     collapsedNets: sortedUnique(graphView?.collapsedNets),
     guideNets: sortedUnique(graphView?.guideNets),
   }

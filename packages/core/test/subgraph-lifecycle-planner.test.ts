@@ -9,6 +9,7 @@ import { loadDocument } from '../src/format/migrate.js'
 import { deriveBoundarySchema } from '../src/schema/derive-boundary.js'
 import { EMPTY_SUBGRAPH_DEFINITION, EMPTY_SUBGRAPH_VIEW, expandLifecycleSelectionFromGroups, flattenSchemaPlanDigest, flattenShellRefusalDiagnostic, lifecycleCanonicalHash, lifecycleFlattenFingerprint, lifecycleSelectionFingerprint, planFreshSubgraphCreate, planBoundaryNames, planFlattenBoundaryRoutes, verifyLifecycleSelectionPlan, type LifecycleSelectionInput } from '../src/lifecycle/planner.js'
 import { effectiveOccurrenceTopology, planFlattenOccurrenceTopology } from '../src/compile/effective-topology.js'
+import { occurrenceDynamicView } from '../src/compile/occurrence-view.js'
 import { boundaryOf, boundaryItems, withBoundaryItems } from '../src/format/document.js'
 
 type MutableDocument = Omit<WorkflowDocument, 'graphs' | 'view' | 'surfaces' | 'occurrenceTopologies'> & {
@@ -1325,6 +1326,98 @@ const flattenResolver = (type: string) => {
 }
 const trustedFlattenSession = (doc: WorkflowDocument, resolver = flattenResolver) =>
   createRawLocalSession(doc, coreCommandRegistry(), { schemaResolverFor: () => resolver })
+
+it('preserves independent list counts through shared extraction and flattening into a definition or root', () => {
+  const initial = document(graph({ nodes: {
+    left: { id: 'left' as never, type: '#body', values: {} },
+    right: { id: 'right' as never, type: '#body', values: {} },
+  } })) as MutableDocument
+  initial.view.graphs.root = { nodes: {} }
+  initial.graphs.body = graph({ id: 'body' as never, nodes: {
+    a: { id: 'a' as never, type: 'Counted', values: { count: 4 } },
+    b: { id: 'b' as never, type: '#leaf', values: {} },
+  }, boundary: boundaryOf([], []) })
+  initial.graphs.leaf = graph({ id: 'leaf' as never, nodes: {
+    c: { id: 'c' as never, type: 'Counted', values: { count: 4 } },
+  }, boundary: boundaryOf([], []) })
+  initial.view.graphs.body = { nodes: {} }
+  initial.view.graphs.leaf = { nodes: {} }
+  const records = [['left', 3, 1], ['right', 0, 2]].flatMap(([hop, direct, nested]) => [
+    { owner: { instancePath: [hop], node: 'a' }, graphId: 'body', counts: { count: direct } },
+    { owner: { instancePath: [hop, 'b'], node: 'c' }, graphId: 'leaf', counts: { count: nested } },
+  ])
+  ;(initial as any).occurrenceListCounts = Object.fromEntries(records.map(state => [occurrenceKey(state.owner as never), state]))
+  const resolver = (type: string) => type === 'Counted' ? flattenSchema(type, [
+    { kind: 'input', id: 'list', type: { kind: 'list', element: { kind: 'concrete', name: 'X' } }, optional: true },
+    { kind: 'input', id: 'count', type: { kind: 'concrete', name: 'INT' }, hidden: true, socketless: true, listCountOf: 'list', optional: false },
+  ]) : type === '#leaf' ? flattenSchema(type, []) : undefined
+  const session = trustedFlattenSession(initial, resolver)
+  const extract = extractInvocation(initial, 'body', ['a', 'b'], ['left'])
+  const expectStale = (doc: WorkflowDocument, invocation: { command: string; params: unknown }) => {
+    const changed = structuredClone(doc)
+    const first = Object.values(changed.occurrenceListCounts!)[0]!
+    ;(first.counts as Record<string, number>).count = 2
+    const stale = trustedFlattenSession(changed, resolver)
+    const result = stale.dispatch(invocation as never)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.diagnostics.some(d => d.code === 'subgraph.lifecycle.stalePlan')).toBe(true)
+    expect(stale.doc).toEqual(changed)
+  }
+  expectStale(initial, extract)
+  const result = session.dispatch(extract)
+  expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+  const extracted = session.doc
+  const shell = Object.values(extracted.graphs.body!.nodes)[0]!
+  const innerId = shell.type.slice(1)
+  const inner = extracted.graphs[innerId]!
+  const a = Object.values(inner.nodes).find(node => node.type === 'Counted')!.id
+  const b = Object.values(inner.nodes).find(node => node.type === '#leaf')!.id
+  const countsAt = (doc: WorkflowDocument, path: readonly string[], node: string) => occurrenceDynamicView(doc, resolver, path).values.get(node)?.count
+  for (const [hop, direct, nested] of [['left', 3, 1], ['right', 0, 2]] as const) {
+    expect(countsAt(extracted, [hop, shell.id], a)).toBe(direct)
+    expect(countsAt(extracted, [hop, shell.id, b], 'c')).toBe(nested)
+  }
+  expect(inner.nodes[a]!.values.count).toBe(4)
+  expect(session.undo()).toBe(true)
+  expect(session.doc.occurrenceListCounts).toEqual(initial.occurrenceListCounts)
+  expect(session.redo()).toBe(true)
+  const flatten = (doc: WorkflowDocument, graphId: string, nodeId: string, instancePath: readonly string[]) => {
+    const parent = doc.graphs[graphId]!
+    const body = doc.graphs[parent.nodes[nodeId]!.type.slice(1)]!
+    const plan = planFlattenBoundaryRoutes(body, resolver, parent.nodes[nodeId]!, parent)
+    const evidence = { boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest }
+    return { command: 'subgraph.flatten', params: { graphId, nodeId, instancePath,
+      ...evidence, schemaSnapshot: plan.schemaSnapshot, selectionFingerprint: lifecycleFlattenFingerprint(doc, graphId, nodeId, evidence),
+      placementCenter: { x: 50, y: 40 }, resolvedGeometry: {
+        occurrence: { id: nodeId, kind: 'node', x: 0, y: 0, width: 100, height: 80 },
+        body: Object.keys(body.nodes).sort().map((id, index) => ({ id, kind: 'node', x: index * 160, y: 0, width: 100, height: 80 })),
+      },
+    } as unknown as Json }
+  }
+  const flattenShared = flatten(session.doc, 'body', shell.id, ['left'])
+  expectStale(session.doc, flattenShared)
+  const flattened = session.dispatch(flattenShared)
+  expect(flattened.ok, JSON.stringify(!flattened.ok && flattened.diagnostics)).toBe(true)
+  const shared = session.doc
+  const direct = Object.values(shared.graphs.body!.nodes).find(node => node.type === 'Counted')!.id
+  const nested = Object.values(shared.graphs.body!.nodes).find(node => node.type === '#leaf')!.id
+  for (const [hop, count, child] of [['left', 3, 1], ['right', 0, 2]] as const) {
+    expect(countsAt(shared, [hop], direct)).toBe(count)
+    expect(countsAt(shared, [hop, nested], 'c')).toBe(child)
+  }
+  expect(shared.graphs.body!.nodes[direct]!.values.count).toBe(4)
+  const rootResult = session.dispatch(flatten(shared, 'root', 'left', []))
+  expect(rootResult.ok, JSON.stringify(!rootResult.ok && rootResult.diagnostics)).toBe(true)
+  const rootDirect = Object.values(session.doc.graphs.root!.nodes).find(node => node.type === 'Counted')!.id
+  const rootNested = Object.values(session.doc.graphs.root!.nodes).find(node => node.type === '#leaf')!.id
+  expect(session.doc.graphs.root!.nodes[rootDirect]!.values.count).toBe(3)
+  expect(countsAt(session.doc, [rootNested], 'c')).toBe(1)
+  expect(countsAt(session.doc, ['right'], direct)).toBe(0)
+  expect(session.undo()).toBe(true)
+  expect(session.doc.occurrenceListCounts).toEqual(shared.occurrenceListCounts)
+  expect(session.redo()).toBe(true)
+  expect(checkDocument(session.doc)).toEqual([])
+})
 
 const flattenInvocation = (doc: WorkflowDocument, instancePath: readonly string[] = []) => {
   const schemaPlan = planFlattenBoundaryRoutes(doc.graphs.body!, flattenResolver, doc.graphs.root!.nodes.occurrence!, doc.graphs.root!)

@@ -23,7 +23,7 @@ import { actorCursorOf, asGraphDefId, asLinkId, asNetId, asNodeId, asPortId, asR
 import { EXPOSED_EXT_KEY, parseExposedEntry } from '../format/exposed.js'
 import { EXPOSED_PREVIEWS_EXT_KEY, parseExposedPreviewEntry } from '../format/exposed-previews.js'
 import { APP_LAYOUT_EXT_KEY, localizeAppLayoutJson, removeAppLayoutGraphRefs } from '../format/app-layout.js'
-import { checkDocument, subgraphDefIdOf } from '../invariants.js'
+import { checkDocument, occurrenceGraphDepth, subgraphDefIdOf } from '../invariants.js'
 import { isComboValue } from '../schema/combo-options.js'
 import {
   auditExtractionCuts,
@@ -940,6 +940,22 @@ const subgraphExtract: CommandDefinition = {
       groups: new Map(Object.keys(parentGroups).map((id) => [id, id])),
       boundary: new Map(['inputs', 'outputs'].map((side) => [side, side])),
     }) as unknown as Json)
+    const listCounts = { ...doc.occurrenceListCounts }
+    for (const [key, state] of Object.entries(doc.occurrenceListCounts ?? {})) {
+      const depth = occurrenceGraphDepth(doc, state.owner, graphId)
+      if (depth === undefined) continue
+      const direct = depth === state.owner.instancePath.length
+      const node = nodeIds.get(state.owner.instancePath[depth] ?? state.owner.node)
+      if (node === undefined) continue
+      const owner = {
+        node: direct ? asNodeId(node) : state.owner.node,
+        instancePath: [...state.owner.instancePath.slice(0, depth), occurrenceId,
+          ...(direct ? [] : [node, ...state.owner.instancePath.slice(depth + 1)])].map(asNodeId),
+      }
+      delete listCounts[key]
+      listCounts[occurrenceKey(owner)] = { ...state, owner, graphId: direct ? asGraphDefId(freshGraphId) : state.graphId }
+    }
+    if (doc.occurrenceListCounts !== undefined) tx.set(['occurrenceListCounts'], listCounts as unknown as Json)
     parentAllocator.commit()
     return [
       ...(geometryPlan.usedPlacementFallback
@@ -1909,11 +1925,30 @@ const subgraphFlatten: CommandDefinition = {
     const remainingTopologies = occurrencePlan === undefined
       ? doc.occurrenceTopologies
       : Object.fromEntries(Object.entries(doc.occurrenceTopologies ?? {}).filter(([key]) => key !== topologyKey))
+    const listCounts = { ...doc.occurrenceListCounts }
+    for (const [key, state] of Object.entries(doc.occurrenceListCounts ?? {})) {
+      const depth = occurrenceGraphDepth(doc, state.owner, graphId)
+      if (depth === undefined || state.owner.instancePath[depth] !== nodeId) continue
+      const direct = state.owner.instancePath.length === depth + 1
+      const node = nodeIds.get(state.owner.instancePath[depth + 1] ?? state.owner.node)!
+      const owner = {
+        node: direct ? asNodeId(node) : state.owner.node,
+        instancePath: [...state.owner.instancePath.slice(0, depth),
+          ...(direct ? [] : [node, ...state.owner.instancePath.slice(depth + 2)])].map(asNodeId),
+      }
+      delete listCounts[key]
+      if (owner.instancePath.length === 0) {
+        nodes[owner.node] = { ...nodes[owner.node]!, values: { ...nodes[owner.node]!.values, ...state.counts } }
+      } else {
+        listCounts[occurrenceKey(owner)] = { ...state, owner, graphId: direct ? asGraphDefId(graphId) : state.graphId }
+      }
+    }
     const { occurrenceTopologies: _oldTopologies, ...docWithoutTopologies } = doc
     const staged: WorkflowDocument = {
       ...(occurrencePlan === undefined ? doc : docWithoutTopologies),
       graphs: { ...doc.graphs, [graphId]: stagedParent },
       view: { ...doc.view, graphs: { ...doc.view.graphs, [graphId]: stagedView } },
+      ...(doc.occurrenceListCounts !== undefined ? { occurrenceListCounts: listCounts } : {}),
       ...(occurrencePlan !== undefined && Object.keys(remainingTopologies ?? {}).length > 0
         ? { occurrenceTopologies: remainingTopologies }
         : {}),
@@ -1934,6 +1969,7 @@ const subgraphFlatten: CommandDefinition = {
     tx.set(['graphs', graphId, 'reroutes'], reroutes as unknown as Json)
     if (boundary !== undefined) tx.set(['graphs', graphId, 'boundary'], boundary as unknown as Json)
     tx.set(['view', 'graphs', graphId], stagedView as unknown as Json)
+    if (doc.occurrenceListCounts !== undefined) tx.set(['occurrenceListCounts'], listCounts as unknown as Json)
     if (occurrencePlan !== undefined) {
       if (Object.keys(remainingTopologies ?? {}).length === 0) tx.remove(['occurrenceTopologies'])
       else tx.set(['occurrenceTopologies'], remainingTopologies as unknown as Json)

@@ -76,6 +76,19 @@ export function graphAtInstancePath(doc: WorkflowDocument, path: readonly string
   return graph
 }
 
+/** Where a concrete owner passes through a definition; path.length names its terminal node. */
+export function occurrenceGraphDepth(doc: WorkflowDocument, owner: OccurrenceRef, graphId: string): number | undefined {
+  let graph = doc.graphs[doc.root]
+  for (let depth = 0; graph !== undefined; depth++) {
+    if (graph.id === graphId) return depth
+    const hop = owner.instancePath[depth]
+    const node = hop !== undefined && Object.hasOwn(graph.nodes, hop) ? graph.nodes[hop] : undefined
+    const childId = node && subgraphDefIdOf(node.type)
+    graph = childId !== undefined && Object.hasOwn(doc.graphs, childId) ? doc.graphs[childId] : undefined
+  }
+  return undefined
+}
+
 export function checkDocument(doc: WorkflowDocument): readonly Diagnostic[] {
   const diags: Diagnostic[] = []
 
