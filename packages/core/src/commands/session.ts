@@ -23,6 +23,8 @@
  */
 
 import type { WorkflowDocument } from '../format/document.js'
+import type { NumericCorrection } from './collab-protocol.js'
+import type { IntegerWidgetValue } from '../schema/numeric-step.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import type { ReadonlySignal } from '../reactive/signal.js'
 import type {
@@ -61,6 +63,11 @@ export interface SessionOp {
    * 'session.redo' for history replays). Never on the wire.
    */
   readonly origin: string
+  /** Values are reconstructed locally from confirmed documents, never sent on the wire. */
+  readonly numericCorrections?: readonly (NumericCorrection & {
+    readonly before: IntegerWidgetValue
+    readonly after: IntegerWidgetValue
+  })[]
 }
 
 /**
