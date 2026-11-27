@@ -719,7 +719,7 @@ describe('mount listing decode', () => {
     await expect(connection.fetchMountSettings()).rejects.toThrow('GET /api/mounts failed: 503')
     finish(jsonResponse(200, { mounts: [], outputMount: 'removed' }))
     await expect(older).rejects.toThrow('GET /api/mounts failed: 503')
-    expect(connection.mountError.get()).toBe('GET /api/mounts failed: 503')
+    expect(connection.mountError.get()).toBe('The engine reported an error.')
   })
 
   it('times out a stalled mount read, ignores its late completion, and clears health on retry', async () => {
@@ -736,10 +736,10 @@ describe('mount listing decode', () => {
       await vi.advanceTimersByTimeAsync(30_000)
       expect(requestFailureReason(await first)).toBe('The engine did not answer.')
       expect(details).toEqual(['GET /api/mounts failed: no answer'])
-      expect(connection.mountError.get()).toContain('timed out')
+      expect(connection.mountError.get()).toBe('The engine did not answer.')
       finish(jsonResponse(200, { mounts: [], outputMount: 'stale' }))
       await Promise.resolve()
-      expect(connection.mountError.get()).toContain('timed out')
+      expect(connection.mountError.get()).toBe('The engine did not answer.')
       await expect(connection.fetchMountSettings()).resolves.toMatchObject({ outputMount: 'renders' })
       expect(connection.mountError.get()).toBeUndefined()
     } finally { unsubscribe(); vi.useRealTimers() }

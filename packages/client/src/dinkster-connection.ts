@@ -3756,7 +3756,7 @@ export class DinksterConnection {
         }
       } catch (error) {
         if (newest().generation === current.generation) {
-          this.mountErrors.set(error instanceof Error ? error.message : String(error))
+          this.mountErrors.set(requestFailureReason(error) ?? 'Folders could not be loaded.')
           throw error
         }
       }
