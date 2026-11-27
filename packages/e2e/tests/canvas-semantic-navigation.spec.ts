@@ -1,7 +1,9 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
-import { expect, setShellRegion, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import type { NodeSchema } from '@dinkster/core'
+import schemas from '../../core/test/fixtures/synthetic-schemas.json' with { type: 'json' }
+import { expect, mockProjectPacks, nativeTest as test, setShellRegion, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CANVAS_SEMANTIC_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -15,12 +17,20 @@ const capture = async (page: Page, testInfo: TestInfo, name: string): Promise<vo
 }
 
 test.beforeEach(async ({ page }) => {
+  await mockProjectPacks(page)
+  await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 2 }, nodes: {},
+  } }))
+  await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
-  await waitForWorkspaceReady(page)
+  await waitForWorkspaceReady(page, 0)
+  await page.evaluate((serialized) => {
+    window.__dinksterTest!.app.registerSchemas(JSON.parse(serialized) as NodeSchema[])
+  }, JSON.stringify(Object.values(schemas)))
 })
 
-test('semantic scene navigation stays virtual until focused and pans only on activation', async ({ page }, testInfo) => {
+test('semantic scene navigation stays virtual until focused and leaves visible targets in place', async ({ page }, testInfo) => {
   const diagnostics = await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument(
     window.__dinksterTest!.syntheticWorkflow({ chains: 4, chainLength: 10, reroutes: true }),
     'Semantic navigation proof',

@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import type { DinksterConnection, ModelSettingsState, MountDescriptor } from '@dinkster/client'
+import { formatByteSize } from '@dinkster/core'
 import { ProductButton, ProductConfirmation, ProductErrorBanner, ProductModelList, ProductProgress, type ProductModel } from '@dinkster/ui'
 import { ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
@@ -9,7 +10,7 @@ import { mountAssetSource } from './asset-browser/mountAssetSource.js'
 import { localMountScanAdapter } from './asset-browser/local-mount-logical-model.js'
 import { ingestLogicalModels } from './asset-browser/logical-model-merge.js'
 import { logicalModelVariantName } from './asset-browser/logical-model-collection-source.js'
-import { committableAssetRef, formatSize, type CanonicalAssetRef } from './asset-browser/helpers.js'
+import { committableAssetRef, type CanonicalAssetRef } from './asset-browser/helpers.js'
 import type { LogicalModel, LogicalModelVariant } from './asset-browser/logical-model.js'
 import type { AssetBrowserItem } from './asset-browser/types.js'
 
@@ -142,7 +143,7 @@ export function LibraryModels(props: {
     id: JSON.stringify([model.kind, model.logicalId]), name: model.displayName, kind: model.kind.split('/').at(-1)!,
     versions: model.variants.map((variant) => ({
       id: versionKey(variant), name: logicalModelVariantName(variant),
-      ...(variant.size !== undefined ? { size: formatSize(variant.size) } : {}),
+      ...(variant.size !== undefined ? { size: formatByteSize(variant.size) } : {}),
       ...(variant.precision ? { precision: variant.precision } : {}),
       state: 'installed',
       facts: [

@@ -71,6 +71,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.routeWebSocket('**/api/events?*', () => {})
   }
   await page.goto('/')
+  await waitForWorkspaceReady(page)
   if (mockRename) {
     await expect.poll(() => page.evaluate(() => window.__dinksterTest?.app.backends.get()[0]?.registry.get() !== undefined)).toBe(true)
   } else {
@@ -79,7 +80,6 @@ test.beforeEach(async ({ page }, testInfo) => {
       return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
     })).toBe(true)
   }
-  await waitForWorkspaceReady(page)
   await page.evaluate(async (remoteRoute) => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType === 'COMBO' ? 'COMBO' : widgetType }, optional: false,

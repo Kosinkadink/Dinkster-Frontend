@@ -17,7 +17,7 @@ import {
   listCollabSessions,
   type FetchLike,
 } from '@dinkster/client'
-import { isValidActorId, type CollabConnection, type CollabSessionDescriptor } from '@dinkster/core'
+import { isValidActorId, type CollabConnection, type CollabDocumentKind, type CollabSessionDescriptor } from '@dinkster/core'
 
 /**
  * Discovery scope for app-created shared sessions. Deliberately NOT the
@@ -75,7 +75,7 @@ export interface CollabTransport {
       readonly scope: string
       readonly documentId: string
       readonly snapshot: unknown
-      readonly documentKind?: 'workflow' | 'image'
+      readonly documentKind?: CollabDocumentKind
     },
   ): Promise<CollabSessionDescriptor>
   list(baseUrl: string, scope: string): Promise<readonly CollabSessionDescriptor[]>

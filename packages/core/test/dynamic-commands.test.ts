@@ -987,7 +987,7 @@ describe('materializeFramesOf', () => {
 })
 
 describe('a count that shrinks', () => {
-  it('removes the wires, nets and forwards on the outputs of the members past it, in the same undo step', () => {
+  it('keeps wired later outputs, nets and forwards in the same undo step', () => {
     const field = (id: string): InputSpec => ({
       ...socketInput(id, 'INT'), widget: { widgetType: 'INT', options: {}, default: 1 },
     })
@@ -1009,14 +1009,15 @@ describe('a count that shrinks', () => {
       boundary: boundaryOf([], [
         { id: 'first', binds: { kind: 'widgetTap', node: asNodeId('n1'), tap: asPortId('items.item0.amount') } },
         { id: 'third', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('items.item2.image') } },
+        { id: 'fourth', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('items.item3.image') } },
       ]),
     }) })
     const store = new DocumentStore(initial, coreCommandRegistry(), 200, undefined,
       () => ({ kind: 'initial', schemaResolverFor: () => (type) => type === 'Batch' ? schema : undefined }))
     expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'count', value: 1 } }).ok).toBe(true)
-    expect(Object.keys(store.doc.graphs['g0']!.links)).toEqual(['kept'])
-    expect(store.doc.graphs['g0']!.nets).toEqual({})
-    expect(boundaryItems(store.doc.graphs['g0']!.boundary, 'outputs').map((item) => item.id)).toEqual(['first'])
+    expect(store.doc.graphs['g0']!.links).toEqual(initial.graphs['g0']!.links)
+    expect(store.doc.graphs['g0']!.nets).toEqual(initial.graphs['g0']!.nets)
+    expect(store.doc.graphs['g0']!.boundary).toEqual(initial.graphs['g0']!.boundary)
     expect(store.undo()).toBe(true)
     expect(store.doc).toEqual(initial)
     // A count that grows removes nothing.

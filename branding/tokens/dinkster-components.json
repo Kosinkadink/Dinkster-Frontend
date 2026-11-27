@@ -56,6 +56,7 @@
     "sidebarBreakpoint": 768,
     "contentMaxWidth": 720,
     "tableMaxWidth": 960,
+    "dialogMaxWidth": 400,
     "dialogWideMaxWidth": 960,
     "confirmationMaxWidth": 460,
     "pagePadding": 32,
@@ -71,7 +72,9 @@
     "railIconSize": 20,
     "menuRowHeight": 28,
     "scrollbarSize": 8,
-    "problemBoxMaxHeight": 400
+    "problemBoxMaxHeight": 400,
+    "fixesReviewWidth": 360,
+    "fixesReviewMaxHeight": 320
   },
   "siteLayout": {
     "shellMaxWidth": 1040,

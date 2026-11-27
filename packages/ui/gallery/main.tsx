@@ -1,3 +1,4 @@
+import { formatByteSize } from '@dinkster/core'
 import {
   For,
   Match,
@@ -47,6 +48,7 @@ import {
   ProductQrCode,
   ProductResourceUsage,
   ProductButton,
+  ProductByteSizeInput,
   ProductCheckbox,
   ProductConfirmation,
   ProductConfirmationDialog,
@@ -101,9 +103,11 @@ import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 import { ProjectsGallery } from './projects.js'
 import { TemplatesGallery } from './templates.js'
+import { ModelDownloadsGallery } from './model-downloads.js'
 import { EngineStatesGallery } from './engine-states.js'
 import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
+import { BoardGallery } from './board.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
 
@@ -114,6 +118,7 @@ const navigation = [
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
+  { label: 'Board', href: '#board', icon: LayoutList },
   {
     label: 'Canvas',
     href: '#canvas',
@@ -172,6 +177,7 @@ function Gallery() {
   const [refuseName, setRefuseName] = createSignal(false)
   const [nameTaken, setNameTaken] = createSignal(false)
   const [activity, setActivity] = createSignal('No action yet')
+  const [sizeLimit, setSizeLimit] = createSignal(10000000000)
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
   const [serverOpen, setServerOpen] = createSignal(false)
@@ -210,7 +216,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -233,7 +239,7 @@ function Gallery() {
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#node-search'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#node-search'}
       >
         <Show
           when={!loading()}
@@ -336,7 +342,7 @@ function Gallery() {
                       ]}
                       now={120_000}
                       limit={22}
-                      format={(value) => `${value.toFixed(1)} GB`}
+                      format={(value) => formatByteSize(value * 1024 ** 3)}
                       historyLabel="Last 2 minutes"
                       limitLabel="Limit"
                       compact={compact}
@@ -369,7 +375,7 @@ function Gallery() {
                   segments={[{ label: 'Used', value: 5, tone: 'other' }]}
                   samples={[]}
                   now={120_000}
-                  format={(value) => `${value.toFixed(1)} GB`}
+                  format={(value) => formatByteSize(value * 1024 ** 3)}
                   historyLabel="Last 2 minutes"
                   limitLabel="Limit"
                 />
@@ -466,6 +472,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#search'}>
               <SearchGallery />
+            </Match>
+            <Match when={route() === '#board'}>
+              <BoardGallery />
             </Match>
             <Match when={route() === '#node-search'}>
               <NodeSearchGallery />
@@ -621,6 +630,12 @@ function Gallery() {
                       placeholder="Enter a name"
                     />
                   )}
+                </ProductField>
+                <ProductField label="Keep at most">
+                  {(attributes) => <ProductByteSizeInput {...attributes} value={sizeLimit()} minimum={1} onCommit={setSizeLimit} />}
+                </ProductField>
+                <ProductField label="Unavailable size limit">
+                  {(attributes) => <ProductByteSizeInput {...attributes} value={4097} disabled onCommit={() => {}} />}
                 </ProductField>
                 <ProductField
                   label="Email address"
@@ -1717,7 +1732,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs', '#models'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
@@ -1748,6 +1763,9 @@ function GalleryRoot() {
           </Match>
           <Match when={route() === '#templates'}>
             <TemplatesGallery />
+          </Match>
+          <Match when={route() === '#model-downloads'}>
+            <ModelDownloadsGallery />
           </Match>
           <Match when={route() === '#page-tabs'}>
             <PageTabsGallery />

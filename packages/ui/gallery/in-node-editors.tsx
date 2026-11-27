@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup, untrack, type JSX } from 'solid-js'
-import type { WidgetRegistry } from '@dinkster/core'
+import { formatByteSize, type WidgetRegistry } from '@dinkster/core'
 import {
   boundaryFieldNode,
   CanvasRenderer,
@@ -70,9 +70,6 @@ function noBackendHeight(width: number): number {
   return height
 }
 
-/** A rounded size, never raw bytes. */
-const roundedSize = (bytes: number): string =>
-  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 const clock = (seconds: number): string => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
 
 /** A fixed still standing for a picture: a captured frame, a turned model, or the run's images. */
@@ -147,7 +144,7 @@ function GalleryNumbers(props: { label: string; value: readonly number[] }) {
 function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declared: Readonly<Record<string, unknown>> }): JSX.Element {
   const state = (): EditorExampleState => props.example.states?.[props.row.valueKey] ?? {}
   const stored = () => props.example.values?.[props.row.valueKey] as { name?: string } | undefined
-  const picture = (content: JSX.Element, extra: { message?: string; loading?: boolean; actions?: JSX.Element } = {}) => (
+  const picture = (content: JSX.Element, extra: { message?: JSX.Element; loading?: boolean; actions?: JSX.Element } = {}) => (
     <CanvasEditorPicture
       ref={(element) => { element.style.height = `${props.row.picture?.height ?? 0}px` }}
       resizeLabel="Picture height"
@@ -183,7 +180,7 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
             roundLabel={recording() ? 'Stop' : 'Record'}
             roundDisabled={status() === 'waiting' || status() === 'saving'}
             status={words[status()] ?? status()}
-            {...(recording() ? { detail: `${clock(seconds())}, ${roundedSize(num(state(), 'bytes') ?? 0)}` }
+            {...(recording() ? { detail: `${clock(seconds())}, ${formatByteSize(num(state(), 'bytes') ?? 0)}` }
               : status() === 'ready' || status() === 'uploadFailed' ? { detail: '0:07' } : {})}
             waveform={wave()}
             actions={actions()}
@@ -204,7 +201,9 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
     }
     case 'core.webcam': {
       const camera = () => str(state(), 'camera') ?? 'off'
-      const message = () => camera() === 'error' ? str(state(), 'error')
+      const message = () => camera() === 'error' ? <CanvasEditorNote tone="problem" details={{ label: 'Details', title: 'The camera could not be started.', ...(str(state(), 'error') === undefined ? {} : { body: str(state(), 'error')! }) }}>
+        Camera unavailable.
+      </CanvasEditorNote>
         : camera() === 'wired' ? state()['known'] === false ? 'Not known yet' : undefined
           : camera() === 'off' && !stored() ? 'No frame stored yet' : undefined
       return (
@@ -241,7 +240,8 @@ function EditorBody(props: { row: SpaceRow; example: InNodeEditorExample; declar
           {picture(
             <Show when={view() === 'model'}><Still kind="model" /></Show>,
             {
-              ...(messages[view()] !== undefined ? { message: messages[view()]! } : {}),
+              ...(view() === 'unavailable' ? { message: <CanvasEditorNote tone="problem" details={{ label: 'Details', title: 'The model could not be shown.' }}>Model unavailable.</CanvasEditorNote> }
+                : messages[view()] !== undefined ? { message: messages[view()]! } : {}),
               ...(view() === 'loading' ? { loading: true } : {}),
               ...(!wired() && view() === 'model'
                 ? { actions: (

@@ -1,0 +1,293 @@
+{
+  "dinkster.utilities.or_else": {
+    "schemaVersion": 2,
+    "nodeType": "dinkster.utilities.or_else",
+    "version": 1,
+    "displayName": "Or else",
+    "category": "utilities/flow",
+    "description": "Gives the first input, top to bottom, that has a value.",
+    "idempotent": true,
+    "interface": [],
+    "body": [
+      {
+        "kind": "group",
+        "id": "values",
+        "value": {
+          "kind": "input",
+          "id": "value",
+          "type": {
+            "kind": "variable",
+            "templateId": "T"
+          },
+          "required": false,
+          "onAbsent": "accept",
+          "lazy": true
+        },
+        "keys": {
+          "numbered": {
+            "prefix": "",
+            "start": 1,
+            "pad": 0
+          }
+        },
+        "grows": "button",
+        "minMembers": 2,
+        "reorderable": true,
+        "addLabel": "Add input",
+        "memberLabel": {
+          "formula": "\"First\" if index() == 0 else \"Next\""
+        },
+        "openName": false
+      },
+      {
+        "kind": "output",
+        "id": "value",
+        "type": {
+          "kind": "variable",
+          "templateId": "T"
+        },
+        "optional": true,
+        "label": "Value"
+      }
+    ],
+    "searchTerms": [
+      "coalesce",
+      "fallback",
+      "first non-empty",
+      "default"
+    ],
+    "inputValues": true
+  },
+  "dinkster.utilities.has_value": {
+    "schemaVersion": 2,
+    "nodeType": "dinkster.utilities.has_value",
+    "version": 1,
+    "displayName": "Has value",
+    "category": "utilities/flow",
+    "description": "Yes when the input has a value, No when it is nothing.",
+    "idempotent": true,
+    "interface": [],
+    "body": [
+      {
+        "kind": "input",
+        "id": "value",
+        "type": {
+          "kind": "variable",
+          "templateId": "T"
+        },
+        "required": false,
+        "onAbsent": "accept",
+        "label": "Value"
+      },
+      {
+        "kind": "output",
+        "id": "has_value",
+        "type": {
+          "kind": "concrete",
+          "types": [
+            "BOOLEAN"
+          ]
+        },
+        "label": "Has value"
+      }
+    ],
+    "searchTerms": [
+      "is empty",
+      "is nothing",
+      "exists",
+      "is set"
+    ],
+    "inputValues": true
+  },
+  "dinkster.utilities.only_if": {
+    "schemaVersion": 2,
+    "nodeType": "dinkster.utilities.only_if",
+    "version": 1,
+    "displayName": "Only if",
+    "category": "utilities/flow",
+    "description": "Passes Value on when Condition is Yes, and gives nothing when it is No.",
+    "idempotent": true,
+    "interface": [],
+    "body": [
+      {
+        "kind": "input",
+        "id": "value",
+        "type": {
+          "kind": "variable",
+          "templateId": "T"
+        },
+        "required": false,
+        "onAbsent": "accept",
+        "label": "Value",
+        "lazy": true
+      },
+      {
+        "kind": "input",
+        "id": "condition",
+        "type": {
+          "kind": "concrete",
+          "types": [
+            "BOOLEAN"
+          ]
+        },
+        "required": true,
+        "default": true,
+        "widget": {
+          "type": "BOOLEAN",
+          "labelOn": "Yes",
+          "labelOff": "No"
+        },
+        "label": "Condition"
+      },
+      {
+        "kind": "output",
+        "id": "value",
+        "type": {
+          "kind": "variable",
+          "templateId": "T"
+        },
+        "optional": true,
+        "label": "Value"
+      }
+    ],
+    "searchTerms": [
+      "gate",
+      "when",
+      "if",
+      "condition"
+    ],
+    "inputValues": true
+  },
+  "dinkster.utilities.unpack": {
+    "schemaVersion": 2,
+    "nodeType": "dinkster.utilities.unpack",
+    "version": 1,
+    "displayName": "Unpack",
+    "category": "utilities/flow",
+    "description": "Gives one item of a list on each output, using the count you set.",
+    "idempotent": true,
+    "interface": [],
+    "body": [
+      {
+        "kind": "input",
+        "id": "list",
+        "type": {
+          "kind": "list",
+          "element": {
+            "kind": "variable",
+            "templateId": "T"
+          }
+        },
+        "required": false,
+        "onAbsent": "skip",
+        "label": "List"
+      },
+      {
+        "kind": "input",
+        "id": "count",
+        "type": {
+          "kind": "concrete",
+          "types": [
+            "INT"
+          ]
+        },
+        "required": true,
+        "default": 0,
+        "widget": {
+          "type": "NUMBER",
+          "min": 0,
+          "max": 512,
+          "step": 1
+        },
+        "pin": false,
+        "hidden": true
+      },
+      {
+        "kind": "note",
+        "id": "empty",
+        "text": "Connect a list or record",
+        "visible": {
+          "formula": "not linked(list) or count == 0"
+        }
+      },
+      {
+        "kind": "group",
+        "id": "items",
+        "label": "Items",
+        "value": {
+          "kind": "output",
+          "id": "item",
+          "type": {
+            "kind": "variable",
+            "templateId": "T"
+          },
+          "optional": true
+        },
+        "keys": {
+          "numbered": {
+            "prefix": "",
+            "start": 0,
+            "pad": 0
+          }
+        },
+        "grows": {
+          "count": "count"
+        },
+        "memberLabel": {
+          "formula": "\"Item \" + str(index())"
+        }
+      },
+      {
+        "kind": "button",
+        "id": "set_count",
+        "label": "Set count",
+        "steps": [
+          {
+            "step": "ask",
+            "title": "Set count",
+            "rows": [
+              {
+                "id": "new_count",
+                "type": {
+                  "kind": "concrete",
+                  "types": [
+                    "INT"
+                  ]
+                },
+                "required": true,
+                "default": 0,
+                "widget": {
+                  "type": "NUMBER",
+                  "min": 0,
+                  "max": 512,
+                  "step": 1
+                },
+                "label": "Count"
+              }
+            ]
+          },
+          {
+            "step": "set",
+            "field": "count",
+            "value": {
+              "formula": "new_count"
+            }
+          }
+        ]
+      }
+    ],
+    "validate": [
+      {
+        "check": {
+          "formula": "0 <= count <= 512"
+        },
+        "message": "Count must be from 0 to 512."
+      }
+    ],
+    "searchTerms": [
+      "split list",
+      "items"
+    ],
+    "inputValues": true
+  }
+}

@@ -376,13 +376,6 @@ test('stored run outputs load only after selection and retain their original ide
   await page.screenshot({ path: testInfo.outputPath('stored-runs-empty.png'), animations: 'disabled' })
   await page.getByTestId('runs-panel').getByTestId('collection-search').fill('absent run')
   await expect(empty).toHaveText('No matches.')
-  await page.getByTestId('runs-panel').getByTestId('collection-source-action').click()
-  const confirmation = page.getByTestId('runs-panel').locator('.dinkster-confirmation')
-  await expect(confirmation).toContainText('Removes every finished run on this backend, for all workflows. Saved files stay.')
-  await page.screenshot({ path: testInfo.outputPath('clear-finished-confirmation-1440.png'), animations: 'disabled' })
-  await page.setViewportSize({ width: 900, height: 900 })
-  await expect(confirmation).toBeVisible()
-  await page.screenshot({ path: testInfo.outputPath('clear-finished-confirmation-900.png'), animations: 'disabled' })
 })
 
 test('App view validation and remote failures keep editable controls', async ({ page }) => {
@@ -1010,11 +1003,12 @@ test('Settings and subgraph cleanup empty states remain usable', async ({ page }
 
 test('Collaboration discovery distinguishes unavailable loading empty and failed reads', async ({ page }) => {
   let mode: 'loading' | 'empty' | 'error' | 'ready' = 'loading'
-  let release: (() => void) | undefined
+  let release!: () => void
+  const loaded = new Promise<void>((resolve) => { release = resolve })
   await page.route('**/collab-visual/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/api/sessions')) {
-      if (mode === 'loading') await new Promise<void>((resolve) => { release = resolve })
+      if (mode === 'loading') await loaded
       return mode === 'error'
         ? route.fulfill({ status: 503, body: 'Session fixture unavailable' })
         : route.fulfill({ json: { sessions: mode === 'ready' ? [{
@@ -1075,8 +1069,7 @@ test('Collaboration discovery distinguishes unavailable loading empty and failed
   })
   await capture('loading')
   mode = 'empty'
-  await expect.poll(() => release !== undefined).toBe(true)
-  release?.()
+  release()
   await expect(page.getByTestId('collab-empty')).toContainText('No shared sessions')
   await capture('empty')
   mode = 'error'
@@ -1267,9 +1260,6 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
   })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(2)
   for (const [name, badge, text] of [
-    ['error', 'core.error', 'No error details recorded.'],
-    ['info', 'core.log.info', 'No log records for this run.'],
-    ['warning', 'core.log.warning', 'No log records for this run.'],
     ['problem', 'core.problem.error', 'No problem details recorded.'],
     ['subgraph', 'core.subgraph', 'Definition missing.'],
     ['replacement', 'core.deprecated', 'Node missing.'],
@@ -1285,11 +1275,9 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       document.querySelector('.canvas-pane')!.append(host)
       const dispose = render(() => BadgePopover({
         anchor: { x: 32, y: 96, nodeId: 'source', badge: { id: badge, glyph: '!', color: '#f00' } },
-        errors: () => [], nodeLogs: () => [], problems: () => [],
+        problems: () => [],
         subgraphInfo: () => undefined, deprecationInfo: () => undefined,
         onOpenSubgraph: () => {}, onClose: () => {},
-        onDismissError: () => { host.dataset['action'] = 'dismiss' },
-        onOpenExecutionLog: () => { host.dataset['action'] = 'log' },
       }), host)
       target.disposeBadgeVisual = () => { dispose(); host.remove() }
     }, badge)
@@ -1300,14 +1288,6 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       await page.setViewportSize({ width, height })
       await page.mouse.move(0, 0)
       await screenshot(page, `badge-${name}-empty-${width}`)
-    }
-    if (badge === 'core.error') {
-      await popover.getByRole('button', { name: 'Dismiss', exact: true }).click()
-      await expect(popover.locator('..')).toHaveAttribute('data-action', 'dismiss')
-    }
-    if (badge === 'core.log.info' || badge === 'core.log.warning') {
-      await popover.getByRole('button', { name: 'Open in Execution log', exact: true }).click()
-      await expect(popover.locator('..')).toHaveAttribute('data-action', 'log')
     }
   }
   await page.evaluate(() => (window as unknown as { disposeBadgeVisual(): void }).disposeBadgeVisual())
@@ -1528,7 +1508,7 @@ test('Saved connection rows retain actions, credential editing and connection fa
     document.querySelector('.canvas-pane')!.append(host)
     desktopWindow.dinksterDesktop = {
       locale: async () => 'en',
-      status: async () => ({ phase: 'running', detail: 'Ready' }),
+      info: async () => ({}),
       connectionCredentials: async () => ({ custody: true, profiles: [profile.id] }),
       setConnectionCredential: async () => { host.dataset['savedToken'] = 'true' },
     }
