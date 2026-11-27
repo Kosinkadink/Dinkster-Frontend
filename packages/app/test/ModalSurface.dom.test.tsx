@@ -1042,7 +1042,11 @@ describe('ASSET widget modal integration', () => {
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: null,
     }
-    const backend = { protocol: 'dinkster', baseUrl: '', connection: { ...assetLocationMethods, uploadNamedAsset }, registry: { listCollections: () => [] } }
+    const backend = { protocol: 'dinkster', baseUrl: '', connection: {
+      ...assetLocationMethods,
+      fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false, importMount: 'capture' }),
+      uploadNamedAsset,
+    }, registry: { listCollections: () => [] } }
     const app = {
       backendForTab: () => backend,
       retainPickerAssets: vi.fn().mockResolvedValue(undefined),
@@ -1082,9 +1086,9 @@ describe('ASSET widget modal integration', () => {
 
     expect(input.value).toBe('')
     expect(trigger.disabled).toBe(true)
-    expect(uploadNamedAsset).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(uploadNamedAsset).toHaveBeenCalledOnce())
     expect(uploadNamedAsset.mock.calls[0]?.[0]).toBe(file)
-    expect(uploadNamedAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', name: 'byte-proof.bin' })
+    expect(uploadNamedAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', name: 'byte-proof.bin', mount: 'capture' })
     expect(new Uint8Array(await (uploadNamedAsset.mock.calls[0]?.[0] as File).arrayBuffer())).toEqual(bytes)
     expect(dispatchTo).not.toHaveBeenCalled()
     expect(close).not.toHaveBeenCalled()

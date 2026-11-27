@@ -7482,8 +7482,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             ? { received: state.received, total: state.total } : undefined
           return {
             phase: 'copying' as const,
-            label: amount === undefined ? message('assets.import.copying')
-              : message('assets.import.copyingAmount', { received: formatByteSize(amount.received), total: formatByteSize(amount.total) }),
+            label: amount === undefined
+              ? state.mount === undefined ? message('assets.import.copying') : message('assets.import.copyingTo', { mount: state.mount })
+              : message(state.mount === undefined ? 'assets.import.copyingAmount' : 'assets.import.copyingToAmount', {
+                mount: state.mount ?? '', received: formatByteSize(amount.received), total: formatByteSize(amount.total),
+              }),
             value: amount === undefined ? undefined : Math.min(1, amount.received / amount.total),
             ...stop,
           }

@@ -690,7 +690,7 @@ describe('mount listing decode', () => {
 
   it.each([200, 503])('answers an older mount read with the newer snapshot after a late HTTP %s response', async (status) => {
     let finish!: (response: Response) => void
-    const current = { mounts: [{ id: 'current', mode: 'readwrite', state: 'ready' }], mountChangesAllowed: true, outputMount: 'current' }
+    const current = { mounts: [{ id: 'current', mode: 'readwrite', state: 'ready' }], mountChangesAllowed: true, outputMount: 'current', importMount: 'incoming' }
     const fetchFn = vi.fn<FetchLike>()
       .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
       .mockResolvedValue(jsonResponse(200, current))

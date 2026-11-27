@@ -4,9 +4,10 @@ import { model3dMimeFor } from '../model3d-mime.js'
 import { assetUploadPolicy, assetUploadSizeProblem, mediaAcceptsFile } from './helpers.js'
 
 /** Native totals mark staging; only native progress reports the publication boundary. */
-export type AssetFileImportProgress =
+export type AssetFileImportProgress = (
   | (DesktopFileImportProgress & { readonly transport: 'native' })
   | { readonly transport: 'browser'; readonly phase: 'copying'; readonly received: number; readonly total: number | null }
+) & { readonly mount?: string }
 
 function importName(name: string): string {
   const basename = (name.split(/[\\/]/).filter(Boolean).at(-1) ?? name).trim().replace(/[\u0000-\u001f\u007f]/g, '')
@@ -24,6 +25,7 @@ export async function importAssetFile(file: File, options: {
   readonly destination: AssetUploadDestination
   readonly current: () => boolean
   readonly signal: AbortSignal
+  readonly onDestination?: (mount: string) => void
   readonly onProgress?: (progress: AssetFileImportProgress) => void
 }): Promise<{ readonly asset: MediaAssetRef; readonly existing: boolean } | undefined> {
   const { accept, kind, policy, current, signal, connection } = options
@@ -41,8 +43,12 @@ export async function importAssetFile(file: File, options: {
     throw new Error(`Unsupported file type: ${effectiveType || 'unknown'}`)
   }
   const choice = options.destination
+  const mount = latent || existing ? undefined : choice.mount || (await connection.fetchMountSettings()).importMount
+  signal.throwIfAborted()
+  if (!current()) return undefined
+  if (mount) options.onDestination?.(mount)
   const destination = {
-    ...(choice.mount ? { mount: choice.mount } : {}),
+    ...(mount ? { mount } : {}),
     ...(choice.folder ? { folder: choice.folder } : {}),
   }
   const name = importName(file.name)
@@ -52,7 +58,7 @@ export async function importAssetFile(file: File, options: {
     ...(media !== undefined ? { kind: media } : {}),
     ...(latent ? { kind: 'data/latent' } : destination),
   }, current, { signal, ...(options.onProgress ? { onProgress: (progress: DesktopFileImportProgress) => {
-    options.onProgress?.({ ...progress, transport: 'native' })
+    options.onProgress?.({ ...progress, transport: 'native', ...(mount ? { mount } : {}) })
   } } : {}) })
   signal.throwIfAborted()
   if (!current()) return undefined
@@ -63,7 +69,7 @@ export async function importAssetFile(file: File, options: {
   const transfer = {
     signal,
     ...(options.onProgress ? { onProgress: ({ sent, total }: AssetUploadProgress) => {
-      if (!signal.aborted && current()) options.onProgress?.({ transport: 'browser', phase: 'copying', received: sent, total })
+      if (!signal.aborted && current()) options.onProgress?.({ transport: 'browser', phase: 'copying', received: sent, total, ...(mount ? { mount } : {}) })
     } } : {}),
   }
   const asset = existing ?? imported ?? (media !== undefined

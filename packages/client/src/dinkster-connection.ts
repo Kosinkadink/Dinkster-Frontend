@@ -996,6 +996,7 @@ export interface MountLocations {
 
 export interface MountSettings {
   readonly mounts: readonly MountDescriptor[]
+  readonly importMount?: string
   readonly outputMount?: string
   readonly activeOutputMount?: string
   readonly restartRequired?: boolean
@@ -3760,7 +3761,7 @@ export class DinksterConnection {
     const query = this.project && this.project !== 'default' ? `?${new URLSearchParams({ project: this.project })}` : ''
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts${query}`, { signal })
     if (!res.ok) throw new Error(`GET /api/mounts failed: ${res.status}`)
-    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown; activeOutputMount?: unknown; mountChangesAllowed?: unknown; restartRequired?: unknown; pendingRemovals?: unknown }
+    const payload = await res.json() as { mounts?: unknown; importMount?: unknown; outputMount?: unknown; activeOutputMount?: unknown; mountChangesAllowed?: unknown; restartRequired?: unknown; pendingRemovals?: unknown }
     // Compatibility: a response without the field (older backend) decodes
     // as false - read-only; a present non-boolean is a protocol error.
     if (payload.mountChangesAllowed !== undefined && typeof payload.mountChangesAllowed !== 'boolean') {
@@ -3788,6 +3789,7 @@ export class DinksterConnection {
         (row['source'] === undefined || typeof row['source'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
+    if (payload.importMount !== undefined && (typeof payload.importMount !== 'string' || payload.importMount === '')) throw new Error('GET /api/mounts: malformed import mount')
     if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
     if (payload.activeOutputMount != null && typeof payload.activeOutputMount !== 'string') throw new Error('GET /api/mounts: malformed active output mount')
     if (payload.restartRequired !== undefined && typeof payload.restartRequired !== 'boolean') throw new Error('GET /api/mounts: malformed restartRequired')
@@ -3795,6 +3797,7 @@ export class DinksterConnection {
     return {
       mounts,
       mountChangesAllowed: payload.mountChangesAllowed === undefined ? false : payload.mountChangesAllowed,
+      ...(typeof payload.importMount === 'string' ? { importMount: payload.importMount } : {}),
       ...(typeof payload.outputMount === 'string' ? { outputMount: payload.outputMount } : {}),
       ...(typeof payload.activeOutputMount === 'string' ? { activeOutputMount: payload.activeOutputMount } : {}),
       ...(typeof payload.restartRequired === 'boolean' ? { restartRequired: payload.restartRequired } : {}),

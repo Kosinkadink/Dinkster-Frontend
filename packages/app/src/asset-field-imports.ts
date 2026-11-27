@@ -14,6 +14,7 @@ import type { WidgetEditorState } from './WidgetEditor.js'
 export type AssetFieldImportState = {
   readonly editor: WidgetEditorState
   readonly filename: string
+  readonly mount?: string
 } & (
   | { readonly phase: 'copying'; readonly received: number; readonly total: number | null }
   | { readonly phase: 'waiting' | 'checking' }
@@ -108,7 +109,12 @@ export function createAssetFieldImports(app: AppState, targetCurrent: (editor: W
         app.tabs.subscribe(validate),
         store.document.subscribe(validate),
       )
-      const base = { editor, filename: file.name }
+      const acceptValue = editor.spec?.options['accept']
+      const accept = Array.isArray(acceptValue) ? acceptValue.filter((item): item is string => typeof item === 'string') : []
+      const kind = editor.sourceFilename?.kind ?? editor.spec?.kind ?? mediaKindForAccept(accept)
+      const base = { editor, filename: file.name,
+        ...(kind !== 'data/latent' && destination.mount ? { mount: destination.mount } : {}),
+      }
       update(key, { ...base, phase: 'copying', received: 0, total: file.size })
       const progress = (value: AssetFileImportProgress): void => {
         if (!current()) { cancel(); return }
@@ -125,17 +131,18 @@ export function createAssetFieldImports(app: AppState, targetCurrent: (editor: W
           }, LOADING_DELAY_MS)
         } else {
           clearWaiting()
-          update(key, { ...base, phase: 'copying', received: value.received, total: value.total })
+          update(key, { ...base, ...(value.mount ? { mount: value.mount } : {}), phase: 'copying', received: value.received, total: value.total })
         }
       }
       try {
-        const acceptValue = editor.spec?.options['accept']
-        const accept = Array.isArray(acceptValue) ? acceptValue.filter((item): item is string => typeof item === 'string') : []
-        const kind = editor.sourceFilename?.kind ?? editor.spec?.kind ?? mediaKindForAccept(accept)
         const result = await importAssetFile(file, {
           baseUrl: backend.baseUrl, connection: backend.connection, accept, kind,
           policy: assetUploadPolicy(kind, registry?.uploadLimits), destination,
           current, signal: abort.signal, onProgress: progress,
+          onDestination: (mount) => {
+            const state = states().get(key)
+            if (current() && state?.phase === 'copying') update(key, { ...state, mount })
+          },
         })
         if (result === undefined || !current()) { cancel(); return }
         // Only canonical acceptance changes the document; Stop needs no rollback.
