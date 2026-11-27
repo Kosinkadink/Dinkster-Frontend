@@ -27,6 +27,7 @@ import type { LookupCall, LookupEntry } from '@dinkster/client'
 import { buildScene, defaultTokens, linkBounds, type Scene } from '@dinkster/canvas'
 import type { AppState, Tab } from './app-state.js'
 import { canvasMeasures } from './canvas-measures.js'
+import { lookupAnswersOf } from './lookup-demand.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { desktopSaveBridge } from './desktop-bridge.js'
 
@@ -117,7 +118,7 @@ export function createActionHost(app: AppState, surfaces: ButtonSurfaces | undef
   const lookupsOf = (tab: Tab) => app.backendForTab(tab).lookups
 
   /** What `buttonAvailability` reads; cheap enough for every repaint and hover. */
-  const lookOf = (place: ButtonPlace): Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor'> => {
+  const lookOf = (place: ButtonPlace): Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor' | 'lookupAnswers'> => {
     const { tab } = place
     const resolve = resolverOf(tab)
     const editorFor = (field: ElaboratedInput) => {
@@ -130,6 +131,7 @@ export function createActionHost(app: AppState, surfaces: ButtonSurfaces | undef
     return {
       schemaOf: (doc, graphId, node) => documentNodeResolver(doc, resolve)(graphId, node, place.instancePath as readonly NodeId[] | undefined),
       schemaResolverFor: (doc) => documentResolver(doc, resolve),
+      lookupAnswers: lookupAnswersOf(lookupsOf(tab)),
       editorFor,
     }
   }

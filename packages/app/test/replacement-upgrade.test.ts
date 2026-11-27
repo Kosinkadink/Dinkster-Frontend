@@ -324,6 +324,47 @@ describe('native open-time replacement', () => {
     expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
   })
 
+  it('corrects a late lookup limit once, independently of the personal Ask me choice and an earlier edit', async () => {
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...payload, nodes: { Current: {
+      displayName: 'Numbers', category: 'test', body: [
+        { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: { lookup: 'test.limit', args: [] }, step: 4 } },
+        { kind: 'input', id: 'unrelated', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: 100, step: 4 } },
+      ],
+    } } }))
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    const source = document()
+    await app.openDocument({ ...source, graphs: { g0: { ...source.graphs.g0, links: {}, nodes: {
+      first: { id: 'first', type: 'Current', values: { amount: 29, unrelated: 29 } },
+    } } } }, 'Late limit')
+    const tab = app.activeTab()!
+    const amount = () => tab.store.doc.graphs.g0!.nodes.first!.values.amount
+    expect(app.scanTabNumberFixes(tab).map((fix) => fix.valueKey)).toEqual(['unrelated'])
+    expect(amount()).toBe(29)
+    tab.store.dispatch({ command: 'node.move', params: { graphId: 'g0', positions: { first: { x: 280, y: 190 } } } })
+    let limit = 20
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ answer: limit }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })))
+    const call = { nodeType: 'Current', node: 'first', function: 'test.limit', args: [] }
+    await backend.lookups.request(call)
+    await vi.waitFor(() => expect(amount()).toBe(20))
+    expect(app.adjustmentNotices.get().get(tab.id)!.adjustments.map((change) => change.details)).toEqual([['amount: 29 to 20']])
+    expect(app.undoAdjustments(tab.id)).toBe(true)
+    expect(amount()).toBe(29)
+    expect(tab.store.doc.view.graphs.g0!.nodes.first!.position).toEqual({ x: 280, y: 190 })
+    await backend.lookups.request(call)
+    expect(amount()).toBe(29)
+    expect(app.scanTabNumberFixes(tab).map((fix) => fix.valueKey)).toEqual(['unrelated'])
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values.unrelated).toBe(29)
+    limit = 16
+    await backend.lookups.request(call, { refresh: true })
+    await vi.waitFor(() => expect(amount()).toBe(16))
+    expect(app.adjustmentNotices.get().get(tab.id)!.adjustments.map((change) => change.details)).toEqual([['amount: 29 to 16']])
+  })
+
   it('stores numeric fixes atomically, keeps later field edits on notice Undo, and does not repeat undone causes', async () => {
     const backend = app.backends.get()[0]!
     const numericPayload = { ...payload, nodes: { Current: { displayName: 'Numbers', category: 'test', body: [

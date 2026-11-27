@@ -54,6 +54,7 @@ import {
   type Connectivity,
   type ElaboratedInput,
   type ElaboratedInterface,
+  type ElaborateOptions,
   type FormulaContext,
   type MaterializeFrame,
 } from '../schema/elaborate.js'
@@ -132,6 +133,8 @@ export interface AskRequest {
 export interface ActionHost {
   readonly commands: ReadonlyMap<string, CommandDefinition>
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
+  /** Held field answers, read without starting a lookup. */
+  readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
   /** The schema of a node of `graphId` as the canvas resolves it; also asked for a node AddNode creates. */
   schemaOf(doc: WorkflowDocument, graphId: string, node: NodeData): NodeSchema | undefined
   /** A renderer host places additions using its measured node and wire geometry. */
@@ -518,7 +521,9 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
     return field.automatic?.value ?? (readWhenUnset(field.spec) as Json | undefined)
   }
   const contexts = new Map<string, FormulaContext>()
-  const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue, incomingType })
+  const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue, incomingType,
+    ...(host.lookupAnswers === undefined ? {} : { lookupAnswers: host.lookupAnswers }),
+  })
   return { doc, graph, node, schema, elaborated, contexts, connectivity, incomingValue, incomingType, valueOwners: occurrence?.valueOwners.get(node.id) ?? new Map() }
 }
 

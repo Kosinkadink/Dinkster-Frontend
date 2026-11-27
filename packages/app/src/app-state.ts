@@ -39,6 +39,7 @@ import {
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
   elaborateInterface,
+  type ElaborateOptions,
   elabInputsOf,
   elabOutputsOf,
   buildGraphConnectivity,
@@ -4943,15 +4944,30 @@ export class AppState {
     const lookupGeneration = createSignal(0)
     // Answers often settle together: one rebuild for each turn of the event loop.
     let lookupBump = false
+    let previousAnswers = new Map<string, ReturnType<NonNullable<ElaborateOptions['lookupAnswers']>>>()
     lookups.subscribe(() => {
       if (lookupBump) return
       lookupBump = true
       queueMicrotask(() => {
         lookupBump = false
         lookupGeneration.update((value) => value + 1)
-        for (const tab of this.tabs.get()) {
-          if (this.backendForTab(tab).id === id) this.refreshWorkflowAssets(tab)
+        const answers = new Map<string, ReturnType<NonNullable<ElaborateOptions['lookupAnswers']>>>()
+        const currentAnswers: NonNullable<ElaborateOptions['lookupAnswers']> = (lookup, args) => {
+          const answer = lookupAnswersOf(lookups)(lookup, args)
+          answers.set(JSON.stringify([lookup, args]), answer)
+          return answer
         }
+        for (const tab of this.tabs.get()) {
+          if (this.backendForTab(tab).id !== id) continue
+          this.refreshWorkflowAssets(tab)
+          if (tab.execution) continue
+          const before = this.scanTabProblemFixes(tab, tab.store.doc, (lookup, args) => previousAnswers.get(JSON.stringify([lookup, args])))
+          const fixes = this.scanTabProblemFixes(tab, tab.store.doc, currentAnswers).filter((fix) => fix.kind === 'number' &&
+            !before.some((old) => problemFixKey(old) === problemFixKey(fix) && old.stamp === fix.stamp))
+          // Only a new external cause follows Apply; existing personal Ask me problems stay offered.
+          void this.applyProblemFixes(tab, fixes, true)
+        }
+        previousAnswers = answers
       })
     })
     const schemaProblemsOwner = Symbol(`schema-problems:${id}`)
@@ -5733,14 +5749,14 @@ export class AppState {
   }
 
   /** Every occurrence is checked: siblings can store different promoted values. */
-  scanTabProblemFixes(tab: Tab, document = tab.store.doc): readonly StoredProblemFix[] {
+  scanTabProblemFixes(tab: Tab, document = tab.store.doc, lookupAnswers?: ElaborateOptions['lookupAnswers']): readonly StoredProblemFix[] {
     if (tab.execution || this.registryForTab(tab) === undefined) return []
     const fixes = new Map<string, StoredProblemFix>()
     const visit = (graphId: string, instancePath: readonly string[], ancestors: ReadonlySet<string>): void => {
       if (ancestors.has(graphId)) return
       for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
         const place = { tab, graphId, nodeId: node.id, button: '', instancePath }
-        const host = createActionHost(this, undefined, place)
+        const host = { ...createActionHost(this, undefined, place), ...(lookupAnswers === undefined ? {} : { lookupAnswers }) }
         for (const fix of [...storedNumberFixes(document, place, host), ...storedRuleFixes(document, place, host)]) {
           const key = problemFixKey(fix)
           if (!fixes.has(key)) fixes.set(key, fix)
@@ -5818,7 +5834,8 @@ export class AppState {
     if (adjustments.length === 0 || !this.tabs.get().includes(tab)) return
     const before = replayHistoryOps(document, record.inverse).doc
     this.adjustmentNotices.update((current) => {
-      const notice = current.get(tab.id)
+      const previous = current.get(tab.id)
+      const notice = previous?.undone === undefined ? previous : undefined
       return new Map(current).set(tab.id, {
         owner: tab.id,
         adjustments: [...notice?.adjustments ?? [], ...adjustments],
