@@ -345,6 +345,23 @@ it('retires only excess estimated outputs without editing the stored count or gr
     expect(shown(count).diagnostics).not.toContainEqual(expect.objectContaining({ code: 'list.count.retiredOutputs' }))
   }
   expect(JSON.stringify(doc)).toBe(before)
+  const items = unpack.body.find(item => item.kind === 'group')!
+  if (items.kind !== 'group') throw new Error('Unpack needs its output group')
+  const multiple: NodeSchema = { ...unpack, body: [...unpack.body, { ...items, id: 'inverse', grows: { count: '5 - count' } }] }
+  const independent = buildScene({ document: doc, graphId: 'g0', resolve: type => type === 'Unpack' ? multiple : resolve(type),
+    tokens: defaultTokens, measure, widgetMeasure,
+    listCountEstimateOf: (_path, node, port) => node === 'source' && port === 'out' ? { kind: 'estimate', count: 1, sources: ['last-run'] } : undefined,
+  })
+  expect(outputs(independent).filter(pin => pin.portId.startsWith('inverse.')).map(pin => pin.portId)).toEqual(['inverse.0', 'inverse.1'])
+  const unrelatedWire = docOf({ g0: { nodes: {
+    source: { type: 'Source' }, unpack: { type: 'Unpack', values: { count: 3 } }, sink: { type: 'Sink' },
+  }, links: [[['source', 'out'], ['unpack', 'list']], [['unpack', 'inverse.4'], ['sink', 'in']]] } })
+  const unrelated = buildScene({ document: unrelatedWire, graphId: 'g0', resolve: type => type === 'Unpack' ? multiple : resolve(type),
+    tokens: defaultTokens, measure, widgetMeasure,
+    listCountEstimateOf: (_path, node, port) => node === 'source' && port === 'out' ? { kind: 'estimate', count: 1, sources: ['last-run'] } : undefined,
+  })
+  expect(outputs(unrelated).find(pin => pin.portId === 'inverse.4')?.inactive).toBe(true)
+  expect(unrelated.diagnostics).not.toContainEqual(expect.objectContaining({ code: 'list.count.retiredOutputs' }))
 })
 
 it('carries independent counts through nested occurrence wires without using an inner default', () => {

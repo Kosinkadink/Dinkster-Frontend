@@ -740,6 +740,8 @@ export interface ElaborateOptions {
   readonly problemRows?: ReadonlySet<string>
   /** Count-driven groups whose incoming list has no known count. */
   readonly unknownCountGroups?: ReadonlySet<string>
+  /** Presentation-only caps on existing count-grown output groups; never add members. */
+  readonly outputCountLimits?: ReadonlyMap<string, number>
   /**
    * When given, receives the formula context of every scope the walk enters,
    * keyed by the scope's flattened prefix ('' for the body, 'loras.lora_1.'
@@ -2080,6 +2082,11 @@ function elaboratePass(
     // Count-grown outputs also need a recorded member list: the worker
     // projects the same output interface the host validated.
     const countedOutputs = typeof grows === 'object' && 'count' in grows && holdsOutput
+    const outputLimit = options.outputCountLimits?.get(path)
+    if (countedOutputs && outputLimit !== undefined) {
+      keys = keys.slice(0, outputLimit)
+      storedCount = keys.length
+    }
     if (!scope.ghost && !scope.dormant && (countedOutputs || typeof grows === 'string' && storedCount > 0)) {
       outputMembers[path] = [...keys]
     }

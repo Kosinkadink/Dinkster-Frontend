@@ -853,7 +853,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
       : elaborated
     // Estimates can retire outputs, but only a user edit can add them.
-    const estimatedValues: Record<string, Json> = {}
+    const estimatedCounts = new Map<string, number>()
     for (const field of elabInputsOf(shown)) {
       if (field.spec.listCountOf === undefined) continue
       const prefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
@@ -864,11 +864,27 @@ export function buildScene(input: BuildSceneInput): Scene {
       const max = field.spec.widget?.options['max']
       if (fact?.kind !== 'estimate' || typeof stored !== 'number' || fact.count >= stored ||
           typeof min === 'number' && fact.count < min || typeof max === 'number' && fact.count > max) continue
-      estimatedValues[valueKeyOf(field)] = fact.count
+      estimatedCounts.set(field.address.port, fact.count)
     }
-    const displayNode = Object.keys(estimatedValues).length === 0 ? node : { ...node, values: { ...node.values, ...estimatedValues } }
-    if (displayNode !== node) shown = elaborateInterface(schema, displayNode, connectivity, { problemRows, ...lookups })
-    if (displayNode !== node && elabOutputsOf(shown).some(output => output.kept !== undefined)) {
+    const fields = elabInputsOf(shown)
+    const unknown = new Set<string>()
+    const outputCountLimits = new Map<string, number>()
+    for (const [path, group] of constructsOf(schema, node.dynamic)) {
+      if (group.kind !== 'group' || typeof group.grows !== 'object' || !('count' in group.grows)) continue
+      const prefix = path.slice(0, path.lastIndexOf('.') + 1)
+      const target = contexts.get(prefix)?.paths.get(group.grows.count)
+      const field = fields.find(field => field.address.port === target)
+      if (field?.spec.listCountOf === undefined) continue
+      const estimate = estimatedCounts.get(field.address.port)
+      if (estimate !== undefined) outputCountLimits.set(path, estimate)
+      const fieldPrefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
+      const source = contexts.get(fieldPrefix)?.paths.get(field.spec.listCountOf)
+      if (source !== undefined && solvedTypes.listCountFactOf(asNodeId(nodeId), 'input', source) === undefined) unknown.add(path)
+    }
+    const counted = unknown.size === 0 && outputCountLimits.size === 0 ? shown
+      : elaborateInterface(schema, node, connectivity, { problemRows, ...lookups, unknownCountGroups: unknown, outputCountLimits })
+    const previousLive = new Set(elabOutputsOf(shown).filter(output => output.kept === undefined).map(output => output.address.port))
+    if (outputCountLimits.size > 0 && elabOutputsOf(counted).some(output => output.kept !== undefined && previousLive.has(output.address.port))) {
       countDiagnostics.push({
         severity: 'warning', origin: 'compile', code: 'list.count.retiredOutputs',
         message: 'Some outputs are outside the estimated list count. Their wires give nothing.',
@@ -876,20 +892,6 @@ export function buildScene(input: BuildSceneInput): Scene {
         ...(sourcePath === undefined ? {} : { anchor: { occurrence: { instancePath: sourcePath, node: asNodeId(nodeId) } } }),
       })
     }
-    const fields = elabInputsOf(shown)
-    const unknown = new Set<string>()
-    for (const [path, group] of constructsOf(schema, node.dynamic)) {
-      if (group.kind !== 'group' || typeof group.grows !== 'object' || !('count' in group.grows)) continue
-      const prefix = path.slice(0, path.lastIndexOf('.') + 1)
-      const target = contexts.get(prefix)?.paths.get(group.grows.count)
-      const field = fields.find(field => field.address.port === target)
-      if (field?.spec.listCountOf === undefined) continue
-      const fieldPrefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
-      const source = contexts.get(fieldPrefix)?.paths.get(field.spec.listCountOf)
-      if (source !== undefined && solvedTypes.listCountFactOf(asNodeId(nodeId), 'input', source) === undefined) unknown.add(path)
-    }
-    const counted = unknown.size === 0 ? shown
-      : elaborateInterface(schema, displayNode, connectivity, { problemRows, ...lookups, unknownCountGroups: unknown })
     return hideKnownListCountButtons(counted, contexts, port => solvedTypes.listCountOf(asNodeId(nodeId), 'input', port))
   }
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
