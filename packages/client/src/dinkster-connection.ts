@@ -1487,6 +1487,8 @@ export interface AccountStatus {
   readonly canStartSignIn: boolean
   readonly signInUnavailableReason: 'account-unavailable' | 'account-sign-in-requires-engine-machine' | null
   readonly signedIn: boolean
+  /** Non-secret revision of the engine-verified browser binding, absent on older engines. */
+  readonly principalRevision?: string
   readonly profile: { readonly displayName: string | null; readonly email: string | null } | null
   readonly signIn: 'idle' | 'pending' | 'failed'
 }
@@ -1504,6 +1506,8 @@ function decodeAccountStatus(value: unknown): AccountStatus {
   }
   if (typeof row['available'] !== 'boolean' || typeof row['canStartSignIn'] !== 'boolean' ||
     typeof row['signedIn'] !== 'boolean' ||
+    !(row['principalRevision'] === undefined ||
+      typeof row['principalRevision'] === 'string' && row['principalRevision'].length > 0) ||
     !(reason === null || reason === 'account-unavailable' || reason === 'account-sign-in-requires-engine-machine') ||
     !(profile === null || typeof profile === 'object' && !Array.isArray(profile)) ||
     typeof signIn !== 'object' || signIn === null ||
@@ -1514,6 +1518,7 @@ function decodeAccountStatus(value: unknown): AccountStatus {
     canStartSignIn: row['canStartSignIn'],
     signInUnavailableReason: reason,
     signedIn: row['signedIn'],
+    ...(row['principalRevision'] === undefined ? {} : { principalRevision: row['principalRevision'] as string }),
     profile: person === null ? null : { displayName: text(person['displayName']), email: text(person['email']) },
     signIn: signIn['state'],
   }
@@ -2046,6 +2051,11 @@ export class DinksterConnection {
   private readonly packLocaleCatalogs = new Map<string, Promise<unknown | undefined>>()
 
   readonly status: ReadonlySignal<ConnectionStatus>
+  private readonly principalChanges = createSignal(0)
+  readonly principalGeneration: ReadonlySignal<number> = this.principalChanges
+  private principalRevision: string | undefined
+  private principalRequests = new AbortController()
+  private accountRequestGeneration = 0
   private readonly mountErrors = createSignal<string | undefined>(undefined)
   readonly mountError: ReadonlySignal<string | undefined> = this.mountErrors
   private mountRequestGeneration = 0
@@ -2060,9 +2070,17 @@ export class DinksterConnection {
     const fetchFn = requestFetch(config.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init)))
     this.registryFetchFn = fetchFn
     this.registryStaticUrl = config.registryStaticUrl ?? (() => '')
-    this.fetchFn = config.token !== undefined || config.actorKind !== undefined
+    const authenticatedFetch = config.token !== undefined || config.actorKind !== undefined
       ? credentialFetch(config, fetchFn)
       : fetchFn
+    this.fetchFn = async (url, init) => {
+      const principal = this.principalRequests.signal
+      const signal = init?.signal === undefined || init.signal === null
+        ? principal : AbortSignal.any([principal, init.signal])
+      const response = await authenticatedFetch(url, this.principalRevision === undefined ? init : { ...init, signal })
+      principal.throwIfAborted()
+      return response
+    }
     this.jobIdFactory = config.jobIdFactory ?? uuidv4
     // Malformed KNOWN events (recognized type, missing required fields) are
     // protocol errors, never silent drops; unknown kinds and uncorrelated
@@ -2873,17 +2891,18 @@ export class DinksterConnection {
     const inFlight = this.runLogBackfills.get(runId)
     if (inFlight !== undefined) return inFlight
     const pass = this.backfillRunLogPass(runId, scope).finally(() => {
-      this.runLogBackfills.delete(runId)
+      if (this.runLogBackfills.get(runId) === pass) this.runLogBackfills.delete(runId)
     })
     this.runLogBackfills.set(runId, pass)
     return pass
   }
 
   private async backfillRunLogPass(runId: string, scope: string): Promise<void> {
+    const principal = this.principalGeneration.get()
     let after = this.runLogCursors.get(runId) ?? 0
     for (let pages = 0; pages < RUN_JOURNAL_MAX_PAGES; pages++) {
       const page = await this.fetchRunJournal(runId, scope, after)
-      if (page === undefined) return
+      if (principal !== this.principalGeneration.get() || page === undefined) return
       for (const record of page.records) {
         if (record.name !== 'log') continue
         const wire = record.payload
@@ -3739,6 +3758,7 @@ export class DinksterConnection {
   }
 
   async fetchMountSettings(): Promise<MountSettings> {
+    const principal = this.principalRequests.signal
     const generation = ++this.mountRequestGeneration
     const promise = requestWithDeadline((signal) => this.readMountSettings(signal))
     this.newestMountFetch = { generation, promise }
@@ -3750,11 +3770,13 @@ export class DinksterConnection {
         this.newestMountFetch ?? current
       try {
         const settings = await current.promise
+        principal.throwIfAborted()
         if (newest().generation === current.generation) {
           this.mountErrors.set(undefined)
           return settings
         }
       } catch (error) {
+        principal.throwIfAborted()
         if (newest().generation === current.generation) {
           this.mountErrors.set(requestFailureReason(error) ?? 'Folders could not be loaded.')
           throw error
@@ -4118,6 +4140,7 @@ export class DinksterConnection {
     const key = `${packId}\u0000${digest}`
     const cached = this.docsPages.get(key)
     if (cached !== undefined) return cached
+    const principal = this.principalRequests.signal
     const pending = this.fetchFn(
       `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/docs/pages/${encodeURIComponent(digest)}`,
     ).then(async (res) => {
@@ -4125,9 +4148,11 @@ export class DinksterConnection {
       if (!res.ok) throw await requestFailure(res)
       const contentType = res.headers.get('Content-Type')?.split(';', 1)[0]?.trim().toLowerCase()
       if (contentType !== 'text/markdown') throw new Error('GET docs page: expected text/markdown')
-      return res.text()
+      const text = await res.text()
+      principal.throwIfAborted()
+      return text
     }).catch((error: unknown) => {
-      this.docsPages.delete(key)
+      if (this.docsPages.get(key) === pending) this.docsPages.delete(key)
       throw error
     })
     this.docsPages.set(key, pending)
@@ -4144,6 +4169,7 @@ export class DinksterConnection {
     const key = `${packId}\u0000${digest}`
     const cached = this.packLocaleCatalogs.get(key)
     if (cached !== undefined) return cached
+    const principal = this.principalRequests.signal
     const pending = this.fetchFn(
       `${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/locales/${encodeURIComponent(digest)}`,
     ).then(async (res) => {
@@ -4155,12 +4181,13 @@ export class DinksterConnection {
       }
       try {
         const text = new TextDecoder('utf-8', { fatal: true }).decode(await res.arrayBuffer())
+        principal.throwIfAborted()
         return JSON.parse(text) as unknown
       } catch (error) {
         throw new Error('GET pack locale catalog: malformed response', { cause: error })
       }
     }).catch((error: unknown) => {
-      this.packLocaleCatalogs.delete(key)
+      if (this.packLocaleCatalogs.get(key) === pending) this.packLocaleCatalogs.delete(key)
       throw error
     })
     this.packLocaleCatalogs.set(key, pending)
@@ -4274,24 +4301,54 @@ export class DinksterConnection {
     }
   }
 
+  private acceptAccountStatus(payload: unknown, generation: number): AccountStatus {
+    if (generation !== this.accountRequestGeneration) throw new DOMException('Account request superseded', 'AbortError')
+    const status = decodeAccountStatus(payload)
+    if (status.principalRevision !== undefined && status.principalRevision !== this.principalRevision) {
+      const reconnect = this.status.get() !== 'disconnected'
+      this.principalRevision = status.principalRevision
+      const previousRequests = this.principalRequests
+      this.principalRequests = new AbortController()
+      previousRequests.abort(new DOMException('Account changed', 'AbortError'))
+      this.valuesClient = undefined
+      this.mountErrors.set(undefined)
+      this.invalidateExtensionSnapshotPair()
+      this.registry = undefined
+      this.docsPages.clear()
+      this.packLocaleCatalogs.clear()
+      this.seenLiveJobs.clear()
+      this.runLogBackfills.clear()
+      this.runLogCursors.clear()
+      this.normalizer.reset()
+      this.principalChanges.update((value) => value + 1)
+      this.socket.disconnect()
+      if (reconnect) this.socket.connect()
+    }
+    return status
+  }
+
   async accountStatus(signal?: AbortSignal): Promise<AccountStatus> {
-    return decodeAccountStatus(await this.accountRequest('GET', '/api/account', signal))
+    const generation = ++this.accountRequestGeneration
+    return this.acceptAccountStatus(await this.accountRequest('GET', '/api/account', signal), generation)
   }
 
   /** Starts native sign-in; the browser on the engine's machine opens `authorizationUrl`. */
   async startAccountSignIn(signal?: AbortSignal): Promise<AccountStatus & { readonly authorizationUrl: string }> {
+    const generation = ++this.accountRequestGeneration
     const payload = await this.accountRequest('POST', '/api/account/sign-in', signal) as Record<string, unknown> | null
     const url = payload?.['authorizationUrl']
     if (typeof url !== 'string' || !/^https?:\/\//.test(url)) throw new Error('Malformed account sign-in')
-    return { ...decodeAccountStatus(payload), authorizationUrl: url }
+    return { ...this.acceptAccountStatus(payload, generation), authorizationUrl: url }
   }
 
   async cancelAccountSignIn(signal?: AbortSignal): Promise<AccountStatus> {
-    return decodeAccountStatus(await this.accountRequest('DELETE', '/api/account/sign-in', signal))
+    const generation = ++this.accountRequestGeneration
+    return this.acceptAccountStatus(await this.accountRequest('DELETE', '/api/account/sign-in', signal), generation)
   }
 
   async signOutAccount(signal?: AbortSignal): Promise<AccountStatus> {
-    return decodeAccountStatus(await this.accountRequest('POST', '/api/account/sign-out', signal))
+    const generation = ++this.accountRequestGeneration
+    return this.acceptAccountStatus(await this.accountRequest('POST', '/api/account/sign-out', signal), generation)
   }
 
   async accountProjects(signal?: AbortSignal): Promise<AccountProjectChoices> {
@@ -4554,13 +4611,15 @@ export class DinksterConnection {
       baseUrl: this.baseUrl,
       clientId: this.clientId,
       fetchFn: this.fetchFn,
+      lifetime: this.principalRequests.signal,
     })
     return this.valuesClient
   }
 
   /** Values keep the selected history record's original client identity. */
   historyValues(run: HistoryRunRecord): DinksterValuesClient {
-    return new DinksterValuesClient({ baseUrl: this.baseUrl, clientId: run.clientId, fetchFn: this.fetchFn })
+    return new DinksterValuesClient({ baseUrl: this.baseUrl, clientId: run.clientId, fetchFn: this.fetchFn,
+      lifetime: this.principalRequests.signal })
   }
 
   // -- WebSocket -----------------------------------------------------------------

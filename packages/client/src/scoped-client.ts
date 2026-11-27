@@ -352,10 +352,12 @@ export function createScopedClient(config: ScopedClientConfig): RefreshableScope
         if (pending) return pending.promise
       }
       const token = Symbol(url)
+      const principal = remoteChoicePartition.principalGeneration
       const promise = (async () => {
         const res = await fetchFn(url)
         if (!res.ok) throw await requestFailure(res)
         const value: unknown = await res.json()
+        if (principal !== remoteChoicePartition.principalGeneration) throw abortError()
         if (inFlight.get(url)?.token === token) cache.set(url, { value, at: clock() })
         return value
       })()
@@ -416,6 +418,10 @@ export function createScopedClient(config: ScopedClientConfig): RefreshableScope
         partition.principalGeneration === remoteChoicePartition.principalGeneration &&
         partition.schemaEpoch === remoteChoicePartition.schemaEpoch
       ) return
+      if (partition.principalGeneration !== remoteChoicePartition.principalGeneration) {
+        cache.clear()
+        inFlight.clear()
+      }
       remoteChoicePartition = partition
       remoteChoiceAuthority += 1
       remoteChoiceCache.clear()
