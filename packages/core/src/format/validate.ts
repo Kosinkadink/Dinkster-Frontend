@@ -503,6 +503,21 @@ export function validateOccurrenceTopologyShape(json: unknown): readonly Diagnos
   return c.diags
 }
 
+function checkOccurrenceListCounts(c: ShapeChecker, state: unknown, path: string): void {
+  if (!c.obj(state, path)) return
+  checkOccurrenceRef(c, state['owner'], `${path}.owner`)
+  c.str(state['graphId'], `${path}.graphId`, { nonEmpty: true })
+  if (c.obj(state['counts'], `${path}.counts`)) {
+    for (const [field, count] of Object.entries(state['counts'])) c.int(count, `${path}.counts.${field}`, 0)
+  }
+}
+
+export function validateOccurrenceListCountsShape(json: unknown): readonly Diagnostic[] {
+  const c = new ShapeChecker()
+  checkOccurrenceListCounts(c, json, '$.occurrenceListCounts')
+  return c.diags
+}
+
 function checkReroute(c: ShapeChecker, v: unknown, path: string): void {
   if (!c.obj(v, path)) return
   c.str(v['id'], `${path}.id`, { nonEmpty: true })
@@ -805,13 +820,7 @@ export function validateDocumentShape(
   }
   if (json['occurrenceListCounts'] !== undefined && c.obj(json['occurrenceListCounts'], '$.occurrenceListCounts')) {
     for (const [key, state] of Object.entries(json['occurrenceListCounts'])) {
-      const path = `$.occurrenceListCounts.${key}`
-      if (!c.obj(state, path)) continue
-      checkOccurrenceRef(c, state['owner'], `${path}.owner`)
-      c.str(state['graphId'], `${path}.graphId`, { nonEmpty: true })
-      if (c.obj(state['counts'], `${path}.counts`)) {
-        for (const [field, count] of Object.entries(state['counts'])) c.int(count, `${path}.counts.${field}`, 0)
-      }
+      checkOccurrenceListCounts(c, state, `$.occurrenceListCounts.${key}`)
     }
   }
   if (json['surfaces'] !== undefined && c.obj(json['surfaces'], '$.surfaces')) {

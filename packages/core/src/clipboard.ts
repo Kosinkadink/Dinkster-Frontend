@@ -1,7 +1,7 @@
-import { resolveDynamicAddress, type BoundaryRouteLeg, type GraphDef, type GraphViewState, type Json, type LinkData, type NodeData, type OccurrenceTopology, type ParentDeliveryIdentity, type WorkflowDocument } from './format/document.js'
-import { validateClipboardRecords, validateDocumentShape, validateGraphDefShape, validateGraphViewShape, validateOccurrenceTopologyShape } from './format/validate.js'
+import { resolveDynamicAddress, type BoundaryRouteLeg, type GraphDef, type GraphViewState, type Json, type LinkData, type NodeData, type OccurrenceListCounts, type OccurrenceTopology, type ParentDeliveryIdentity, type WorkflowDocument } from './format/document.js'
+import { validateClipboardRecords, validateDocumentShape, validateGraphDefShape, validateGraphViewShape, validateOccurrenceListCountsShape, validateOccurrenceTopologyShape } from './format/validate.js'
 import { groupAllocationFloor } from './group-alloc.js'
-import { actorCursorOf, formatAllocatedId, isPortEndpoint, isRerouteRef, isValidActorId, isWidgetTapRef, occurrenceKey, sameOccurrenceRef, samePortRef, type LinkEndpoint, type OccurrenceRef, type PortRef } from './ids.js'
+import { actorCursorOf, asNodeId, formatAllocatedId, isPortEndpoint, isRerouteRef, isValidActorId, isWidgetTapRef, occurrenceKey, sameOccurrenceRef, samePortRef, type LinkEndpoint, type OccurrenceRef, type PortRef } from './ids.js'
 import { graphAllocator } from './commands/alloc.js'
 import type { CommandDefinition, CommandInvocation, TransactionBuilder } from './commands/contract.js'
 import { diag, type Diagnostic } from './diagnostics.js'
@@ -10,10 +10,11 @@ import { routeMatchesOwnerChain, subgraphDefIdOf } from './invariants.js'
 import { canonicalJson } from './compile/hash.js'
 import { remapGroupMembership } from './group-membership.js'
 import type { GroupMembership } from './format/document.js'
+import { ownJson } from './format/json.js'
 
 export interface DinksterClipboardEnvelope {
   readonly format: 'dinkster-clipboard'
-  readonly version: 1 | 2 | 3 | 4 | 5
+  readonly version: 1 | 2 | 3 | 4 | 5 | 6
   readonly nodes: readonly { readonly data: Json; readonly view: Json }[]
   readonly links: readonly Json[]
   readonly reroutes: readonly { readonly data: Json; readonly view: Json }[]
@@ -26,7 +27,9 @@ export interface DinksterClipboardEnvelope {
   readonly occurrenceTopologies?: readonly Json[]
   /** Versions 4+. Named-net membership of the copied nodes. */
   readonly nets?: readonly Json[]
-  /** Version 5 only. Complete transitive subgraph-definition closure. */
+  /** Versions 6+. Counts retained by the copied concrete descendants. */
+  readonly occurrenceListCounts?: readonly Json[]
+  /** Versions 5+. Complete transitive subgraph-definition closure. */
   readonly definitions?: {
     readonly graphs: Readonly<Record<string, Json>>
     readonly view: Readonly<Record<string, Json>>
@@ -323,6 +326,23 @@ function definitionOccurrenceReferencesClosed(
   })
 }
 
+function listCountOwnerClosed(
+  graphs: Readonly<Record<string, GraphDef>>,
+  nodes: readonly { readonly data: Json }[],
+  state: OccurrenceListCounts,
+): boolean {
+  let currentNodes = Object.fromEntries(nodes.map(({ data }) => [(data as unknown as NodeData).id, data as unknown as NodeData]))
+  let graph: GraphDef | undefined
+  for (const hop of state.owner.instancePath) {
+    const node = Object.hasOwn(currentNodes, hop) ? currentNodes[hop] : undefined
+    const id = node && subgraphDefIdOf(node.type)
+    graph = id !== undefined && Object.hasOwn(graphs, id) ? graphs[id] : undefined
+    if (graph === undefined) return false
+    currentNodes = graph.nodes
+  }
+  return graph?.id === state.graphId && Object.hasOwn(currentNodes, state.owner.node)
+}
+
 function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefined {
   if (!isDinksterClipboardEnvelope(value)) return undefined
   const nodes: { data: Json; view: Json }[] = []
@@ -372,7 +392,7 @@ function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefine
     externalIncoming.push(...value.externalIncoming)
   }
   const hasOccurrences = value.version === 3 ||
-    ((value.version === 4 || value.version === 5) && value.occurrenceTopologies !== undefined)
+    (value.version >= 4 && value.occurrenceTopologies !== undefined)
   if (hasOccurrences) {
     if (!Array.isArray(value.occurrenceTopologies) ||
         !value.occurrenceTopologies.every((topology) => validateOccurrenceTopologyShape(topology).length === 0)) return undefined
@@ -381,7 +401,7 @@ function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefine
     occurrenceTopologies.push(...value.occurrenceTopologies)
   }
   const nets: Json[] = []
-  if (value.version === 4 || value.version === 5) {
+  if (value.version >= 4) {
     if (!Array.isArray(value.nets) || !value.nets.every(validNetRecord)) return undefined
     // Net names are the user-facing address (unique per graph definition),
     // so a duplicated name would make paste's collision resolution
@@ -394,10 +414,20 @@ function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefine
     }
     nets.push(...(value.nets as unknown as Json[]))
   }
-  const definitions = value.version === 5
+  const definitions = value.version >= 5
     ? normalizeDefinitionClosure(value.definitions, nodes)
     : undefined
-  if (value.version === 5 && definitions === undefined) return undefined
+  if (value.version >= 5 && definitions === undefined) return undefined
+  const occurrenceListCounts = value.version === 6 ? value.occurrenceListCounts : undefined
+  if (occurrenceListCounts !== undefined) {
+    if (!Array.isArray(occurrenceListCounts) || !occurrenceListCounts.every((raw) =>
+      ownJson(raw, { undefinedProps: 'reject' }).ok &&
+      validateOccurrenceListCountsShape(raw).length === 0 &&
+      listCountOwnerClosed(definitions!.graphs as unknown as Readonly<Record<string, GraphDef>>, nodes, raw as unknown as OccurrenceListCounts),
+    )) return undefined
+    const owners = occurrenceListCounts.map((raw) => occurrenceKey((raw as unknown as OccurrenceListCounts).owner))
+    if (new Set(owners).size !== owners.length) return undefined
+  }
   // Deep per-entity validation with the SAME shape checkers the document
   // loader uses (node mode/controllers/dynamic state, link endpoint
   // discriminators, view fields, group shapes). Without this, a paste
@@ -405,7 +435,7 @@ function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefine
   // that saves but never loads again.
   if (validateClipboardRecords({ nodes, links, reroutes, groups }).length > 0) return undefined
   if (value.groupMembership !== undefined && validateGraphViewShape({ nodes: {}, groupMembership: value.groupMembership }).length > 0) return undefined
-  if (value.version === 5 && !definitionOccurrenceReferencesClosed(
+  if (value.version >= 5 && !definitionOccurrenceReferencesClosed(
     definitions!,
     occurrenceTopologies,
     value.scope!.graph,
@@ -418,21 +448,23 @@ function normalizeEnvelope(value: unknown): DinksterClipboardEnvelope | undefine
     ...(value.groupMembership !== undefined ? { groupMembership: value.groupMembership as unknown as GroupMembership } : {}),
     ...(value.version >= 2 ? { externalIncoming, scope: { ...value.scope! } } : {}),
     ...(hasOccurrences ? { occurrenceTopologies } : {}),
-    ...(value.version === 4 || value.version === 5 ? { nets } : {}),
+    ...(value.version >= 4 ? { nets } : {}),
+    ...(occurrenceListCounts !== undefined ? { occurrenceListCounts } : {}),
     ...(definitions !== undefined ? { definitions } : {}),
   }
 }
 
 export function isDinksterClipboardEnvelope(value: unknown): value is DinksterClipboardEnvelope {
   return object(value) && value.format === 'dinkster-clipboard' &&
-    (value.version === 1 || value.version === 2 || value.version === 3 || value.version === 4 || value.version === 5) &&
+    (value.version === 1 || value.version === 2 || value.version === 3 || value.version === 4 || value.version === 5 || value.version === 6) &&
     Array.isArray(value.nodes) && Array.isArray(value.links) &&
     Array.isArray(value.reroutes) && Array.isArray(value.groups) &&
     (value.version === 1 || (Array.isArray(value.externalIncoming) && object(value.scope))) &&
     (value.version !== 3 || Array.isArray(value.occurrenceTopologies)) &&
-    ((value.version !== 4 && value.version !== 5) || (Array.isArray(value.nets) &&
+    ((value.version !== 4 && value.version !== 5 && value.version !== 6) || (Array.isArray(value.nets) &&
       (value.occurrenceTopologies === undefined || Array.isArray(value.occurrenceTopologies)))) &&
-    (value.version !== 5 || object(value.definitions))
+    ((value.version !== 5 && value.version !== 6) || object(value.definitions)) &&
+    (value.version !== 6 || Array.isArray(value.occurrenceListCounts))
 }
 
 const endpointIncluded = (endpoint: LinkEndpoint, nodes: ReadonlySet<string>, reroutes: ReadonlySet<string>): boolean =>
@@ -491,6 +523,9 @@ export function serializeSelection(
       ? nodes.has(topology.owner.node)
       : nodes.has(topology.owner.instancePath[0]!),
   ) : []
+  const occurrenceListCounts = graphId === doc.root ? Object.values(doc.occurrenceListCounts ?? {}).filter((state) =>
+    nodes.has(state.owner.instancePath[0]!),
+  ) : []
   // Net membership rides along with the copied NODES: a record is included
   // when the copied selection contains the net's source node or at least
   // one sink node, with sinks restricted to copied nodes. Paste resolves
@@ -532,7 +567,7 @@ export function serializeSelection(
   })
   return {
     format: 'dinkster-clipboard',
-    version: hasDefinitions ? 5 : nets.length > 0 ? 4 : occurrenceTopologies.length > 0 ? 3 : 2,
+    version: occurrenceListCounts.length > 0 ? 6 : hasDefinitions ? 5 : nets.length > 0 ? 4 : occurrenceTopologies.length > 0 ? 3 : 2,
     nodes: [...nodes].map((id) => ({ data: graph.nodes[id]! as unknown as Json, view: view.nodes[id]! as unknown as Json })),
     links: Object.values(graph.links)
       .filter((link) => endpointIncluded(link.from, nodes, reroutes) && endpointIncluded(link.to, nodes, reroutes))
@@ -565,6 +600,7 @@ export function serializeSelection(
       }]
     }),
     ...(occurrenceTopologies.length > 0 ? { occurrenceTopologies: occurrenceTopologies as unknown as readonly Json[] } : {}),
+    ...(occurrenceListCounts.length > 0 ? { occurrenceListCounts: occurrenceListCounts as unknown as readonly Json[] } : {}),
     ...(nets.length > 0 || hasDefinitions ? { nets } : {}),
     ...(hasDefinitions ? { definitions } : {}),
   }
@@ -573,6 +609,7 @@ export function serializeSelection(
 interface DefinitionPastePlan {
   readonly ids: ReadonlyMap<string, string>
   readonly retainedOccurrenceOwners?: ReadonlySet<string>
+  readonly retainedListCountOwners?: ReadonlySet<string>
   readonly imports: readonly {
     readonly id: string
     readonly graph: GraphDef
@@ -628,6 +665,10 @@ function planDefinitionPaste(
     return {
       ids: new Map(Object.keys(graphs).map((id) => [id, id])),
       retainedOccurrenceOwners,
+      retainedListCountOwners: new Set((envelope.occurrenceListCounts ?? []).flatMap((raw) => {
+        const state = raw as unknown as OccurrenceListCounts
+        return listCountOwnerClosed(doc.graphs, envelope.nodes, state) ? [occurrenceKey(state.owner)] : []
+      })),
       imports: [],
     }
   }
@@ -688,6 +729,11 @@ const occurrenceTopologiesForPaste = (
   definitions.retainedOccurrenceOwners === undefined ||
   definitions.retainedOccurrenceOwners.has(occurrenceKey((raw as unknown as OccurrenceTopology).owner)),
 )
+
+const listCountsForPaste = (envelope: DinksterClipboardEnvelope, definitions: DefinitionPastePlan): readonly OccurrenceListCounts[] =>
+  (envelope.occurrenceListCounts ?? []).map((raw) => raw as unknown as OccurrenceListCounts).filter((state) =>
+    definitions.retainedListCountOwners === undefined || definitions.retainedListCountOwners.has(occurrenceKey(state.owner)),
+  )
 
 type NetPasteAction =
   | { readonly kind: 'create'; readonly record: ClipboardNetRecord; readonly name: string; readonly sourceCopied: boolean }
@@ -867,6 +913,7 @@ export function planClipboardPaste(
     return survives(link.from) && survives(link.to)
   })
   const occurrenceTopologies = occurrenceTopologiesForPaste(normalized, definitionPlan)
+  if (listCountsForPaste(normalized, definitionPlan).length > 0 && graphId !== doc.root) return undefined
   if (occurrenceTopologies.length > 0) {
     if (graphId !== doc.root) return undefined
     const retainedLinkIds = new Set(retainedLinks.map((raw) => (raw as unknown as LinkData).id))
@@ -882,7 +929,7 @@ export function planClipboardPaste(
       }
       for (const suppression of topology.suppressedDeliveries ?? []) {
         if (suppression.kind !== 'projectedLeg') continue
-        if (normalized.version === 5 && suppression.delivery.graph !== normalized.scope?.graph) continue
+        if (normalized.version >= 5 && suppression.delivery.graph !== normalized.scope?.graph) continue
         if (suppression.delivery.kind !== 'link' || suppression.delivery.graph !== normalized.scope?.graph ||
             !retainedLinkIds.has(suppression.delivery.linkId)) return undefined
       }
@@ -1134,6 +1181,17 @@ function materialize(
       boundary: { ...current?.boundary },
     })
   }
+  const copiedCounts: Record<string, OccurrenceListCounts> = { ...tx.current.occurrenceListCounts }
+  const listCounts = listCountsForPaste(envelope, definitions)
+  if (listCounts.length > 0 && graphId !== tx.current.root) {
+    return [diag('error', 'command', 'clipboard.listCounts.contextUnsupported', 'clipboard.paste: instance list counts require the root graph')]
+  }
+  for (const state of listCounts) {
+    const first = nodeMap.get(state.owner.instancePath[0]!)!
+    const owner = { ...state.owner, instancePath: [asNodeId(first), ...state.owner.instancePath.slice(1)] }
+    copiedCounts[occurrenceKey(owner)] = { ...state, owner, graphId: (definitions.ids.get(state.graphId) ?? state.graphId) as never }
+  }
+  if (listCounts.length > 0) tx.set(['occurrenceListCounts'], copiedCounts as unknown as Json)
   const occurrenceTopologies = occurrenceTopologiesForPaste(envelope, definitions)
   if (occurrenceTopologies.length > 0) {
     if (graphId !== tx.current.root) {

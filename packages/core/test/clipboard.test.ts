@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { planClipboardPaste, serializeSelection, type DinksterClipboardEnvelope } from '../src/clipboard.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
-import { boundaryItems, boundaryOf, loadDocument, mapBoundaryItems, type WorkflowDocument } from '../src/index.js'
+import { boundaryItems, boundaryOf, loadDocument, mapBoundaryItems, occurrenceDynamicView, occurrenceKey, type WorkflowDocument } from '../src/index.js'
 
 const document = (): WorkflowDocument => ({
   format: 'dinkster-workflow', formatVersion: 1, lineage: 'lineage' as never, root: 'g0' as never,
@@ -135,6 +135,78 @@ describe('Dinkster clipboard', () => {
     expect(store.doc.graphs.g0!.nodes[plan.nodeIds[0]!]).toBeUndefined()
     expect(store.redo()).toBe(true)
     expect(store.doc.graphs.g0!.nodes[plan.nodeIds[0]!]!.type).toBe('#outer')
+  })
+
+  it('preserves unequal instance list counts through clipboard transport, definition collisions and undo', () => {
+    const source = nestedSubgraphDocument()
+    ;(source.graphs.g0!.nodes as Record<string, any>).second = { id: 'second', type: '#outer', values: {} }
+    ;(source.graphs.g0!.nodes as Record<string, any>).outside = { id: 'outside', type: '#outer', values: {} }
+    ;(source.view.graphs.g0!.nodes as Record<string, any>).second = { position: { x: 500, y: 100 } }
+    ;(source.view.graphs.g0!.nodes as Record<string, any>).outside = { position: { x: 800, y: 100 } }
+    ;(source.graphs.inner!.nodes.pass as any).values = { count: 4 }
+    const owners = ['instance', 'second', 'outside'].map((id) => ({ instancePath: [id, 'nested'] as never, node: 'pass' as never }))
+    ;(source as any).occurrenceListCounts = Object.fromEntries(owners.map((owner, i) => [
+      occurrenceKey(owner), { owner, graphId: 'inner', counts: { count: [3, 0, 2][i] } },
+    ]))
+    const envelope = JSON.parse(JSON.stringify(serializeSelection(source, 'g0', {
+      nodes: ['instance', 'second'], reroutes: [],
+    })!)) as DinksterClipboardEnvelope
+    const target = document()
+    ;(target.graphs as any).inner = { ...source.graphs.inner, name: 'Different Inner' }
+    ;(target.graphs as any).outer = { ...source.graphs.outer, name: 'Different Outer' }
+    ;(target.view.graphs as any).inner = source.view.graphs.inner
+    ;(target.view.graphs as any).outer = source.view.graphs.outer
+    for (const destination of [source, target]) {
+      const plan = planClipboardPaste(destination, 'g0', envelope)!
+      const store = new DocumentStore(destination, coreCommandRegistry())
+      expect(store.dispatch(plan.invocation).ok).toBe(true)
+      for (const [i, id] of plan.nodeIds.entries()) {
+        expect(occurrenceDynamicView(store.doc, () => undefined, [id, 'nested']).values.get('pass')?.count).toBe([3, 0][i])
+      }
+      expect(Object.keys(store.doc.occurrenceListCounts ?? {})).toHaveLength(destination === source ? 5 : 2)
+      expect(store.doc.graphs.inner!.nodes.pass!.values.count).toBe(4)
+      const saved = loadDocument(JSON.parse(JSON.stringify(store.doc)))
+      expect(saved.document?.occurrenceListCounts).toEqual(store.doc.occurrenceListCounts)
+      const pasted = store.doc
+      expect(store.undo()).toBe(true)
+      expect(store.doc.graphs.g0!.nodes).toEqual(destination.graphs.g0!.nodes)
+      expect(Object.keys(store.doc.graphs)).toEqual(Object.keys(destination.graphs))
+      expect(store.doc.occurrenceListCounts).toEqual(destination.occurrenceListCounts)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(pasted)
+    }
+    const first = envelope.occurrenceListCounts![0] as any
+    for (const raw of [
+      { ...first, owner: { ...first.owner, instancePath: ['outside', 'nested'] } },
+      { ...first, owner: { ...first.owner, instancePath: [] } },
+      { ...first, graphId: 'outer' },
+      { ...first, counts: { count: -1 } },
+      { ...first, counts: { count: 0.5 } },
+      { ...first, counts: JSON.parse('{"__proto__":0}') },
+      ...['constructor', 'toString', '__proto__'].flatMap((hop) => [
+        { ...first, owner: { ...first.owner, instancePath: [hop, 'nested'] } },
+        { ...first, owner: { ...first.owner, instancePath: ['instance', hop] } },
+      ]),
+    ]) {
+      const bad = { ...envelope, occurrenceListCounts: [raw] }
+      expect(planClipboardPaste(target, 'g0', bad)).toBeUndefined()
+      const store = new DocumentStore(target, coreCommandRegistry())
+      expect(store.dispatch({ command: 'clipboard.paste', params: { graphId: 'g0', envelope: bad as any, offset: { x: 0, y: 0 } } }).ok).toBe(false)
+      expect(store.doc).toEqual(target)
+    }
+    expect(planClipboardPaste(target, 'g0', { ...envelope, occurrenceListCounts: [first, first] })).toBeUndefined()
+    expect(planClipboardPaste(source, 'outer', envelope)).toBeUndefined()
+    const unsupported = new DocumentStore(source, coreCommandRegistry())
+    expect(unsupported.dispatch({ command: 'clipboard.paste', params: { graphId: 'outer', envelope: envelope as any, offset: { x: 0, y: 0 } } }).ok).toBe(false)
+    expect(unsupported.doc).toEqual(source)
+    const stale = JSON.parse(JSON.stringify(source)) as WorkflowDocument
+    delete (stale.graphs.inner!.nodes as any).pass
+    ;(stale.graphs.inner as any).boundary = boundaryOf([], [])
+    delete (stale as any).occurrenceListCounts
+    const plan = planClipboardPaste(stale, 'g0', envelope)!
+    const store = new DocumentStore(stale, coreCommandRegistry())
+    expect(store.dispatch(plan.invocation).ok).toBe(true)
+    expect(store.doc.occurrenceListCounts).toEqual(stale.occurrenceListCounts)
   })
 
   it('preserves an exact widget-output binding when copying a subgraph occurrence', () => {
