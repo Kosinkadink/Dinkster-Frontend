@@ -5,7 +5,7 @@ import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, 
 import { Portal } from 'solid-js/web'
 import { Dice5, Lock, Minus, Plus } from 'lucide-solid'
 import type { AppState, Backend } from './app-state.js'
-import { ExposedParameterInput, ExposedParameterRow } from './AppView.js'
+import { ExposedParameterInput, ExposedParameterRow, isBooleanParameter } from './AppView.js'
 import { ControllerModeMenu } from './ControllerModeMenu.js'
 import { executionStatusLabel } from './ExecutionActivityCard.js'
 import { Icon } from './Icon.js'
@@ -117,7 +117,7 @@ function BoardCardInput(props: {
       ]} onFocus={loadOptions} onPointerDown={loadOptions}
       onSelectAsync={(option, current) => commit(option.value, current)} />} />
   return <ExposedParameterRow head={<>
-      <Show when={props.row.spec?.widgetType === 'BOOLEAN'}>{input()}</Show>
+      <Show when={isBooleanParameter(props.row)}>{input()}</Show>
       <span id={labelId} class="app-view-label">{props.row.label}</span>
       <Show when={props.row.spec?.controller === 'after_generate'}>
         <span class="dinkster-board-controller"><ProductButton ref={(element) => { modeButton = element }} fill="quiet"
@@ -135,7 +135,7 @@ function BoardCardInput(props: {
         </div></Portal></Show>
       </Show>
     </>}>
-    <Show when={props.row.spec?.widgetType !== 'BOOLEAN'}>{input()}</Show>
+    <Show when={!isBooleanParameter(props.row)}>{input()}</Show>
     <Show when={error()}>{(message) => <ProductNotice tone="error">{message()}</ProductNotice>}</Show>
   </ExposedParameterRow>
 }

@@ -315,6 +315,18 @@ function isComboParameter(row: Extract<ParamRow, { kind: 'live' }>): boolean {
   return row.spec?.widgetType === 'COMBO'
 }
 
+export function isBooleanParameter(row: Extract<ParamRow, { kind: 'live' }>): boolean {
+  return row.spec?.widgetType === 'BOOLEAN'
+}
+
+function isListParameter(row: Extract<ParamRow, { kind: 'live' }>): boolean {
+  return row.spec?.widgetType === 'LIST'
+}
+
+function isVideoParameter(row: Extract<ParamRow, { kind: 'live' }>): boolean {
+  return row.spec?.widgetType === 'VIDEO_EDIT'
+}
+
 export function ExposedParameterRow(props: {
   readonly head: JSX.Element
   readonly children: JSX.Element
@@ -355,7 +367,7 @@ export function ExposedParameterInput(props: {
   const numberValue = () => typeof props.row.value === 'number' || isCanonicalUnsafeInteger(props.row.value) ? props.row.value : ''
   return <Switch fallback={<AppViewStringInput value={stringValue()} multiline={spec().options['multiline'] === true}
     ariaLabelledBy={props.labelId} onCommit={props.onCommit} onRevert={() => props.onError(undefined)} onDraftActive={props.onDraftActive} />}>
-    <Match when={spec().widgetType === 'LIST'}>
+    <Match when={isListParameter(props.row)}>
       <AppViewStringInput value={Array.isArray(props.row.value) ? (props.row.value as Json[]).map((item) => String(item)).join('\n') : ''} multiline ariaLabelledBy={props.labelId}
         onCommit={async (raw, current) => {
           const parsed = parsePrimitiveListCommit(raw, spec(), 'lines')
@@ -376,7 +388,7 @@ export function ExposedParameterInput(props: {
           return false
         }} onDraftActive={props.onDraftActive} onRevert={() => props.onError(undefined)} />
     </Match>
-    <Match when={spec().widgetType === 'BOOLEAN'}>
+    <Match when={isBooleanParameter(props.row)}>
       <ProductCheckbox class="app-view-control" testId="app-view-boolean"
         ariaLabel={message('appView.control.toggle', { label: props.row.label })} checked={props.row.value === true}
         disabled={booleanPending()} onChange={(checked) => void commitBoolean(checked)} />
@@ -385,7 +397,7 @@ export function ExposedParameterInput(props: {
       <AppViewColorPicker value={stringValue()} draftScopeId={props.draftScopeId} label={props.row.label} onCommit={props.onCommit} />
     </Match>
     <Match when={isComboParameter(props.row)}>{props.combo}</Match>
-    <Match when={spec().widgetType === 'VIDEO_EDIT'}>{props.video}</Match>
+    <Match when={isVideoParameter(props.row)}>{props.video}</Match>
   </Switch>
 }
 
@@ -1800,10 +1812,10 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
   }) => {
     const row = () => controlProps.flow.row
     const liveRow = (): Extract<ParamRow, { kind: 'live' }> => row() as Extract<ParamRow, { kind: 'live' }>
-    const comboControl = (): boolean => liveRow().spec?.widgetType === 'COMBO'
-    const videoControl = (): boolean => liveRow().spec?.widgetType === 'VIDEO_EDIT'
-    const booleanControl = (): boolean => liveRow().spec?.widgetType === 'BOOLEAN'
-    const listControl = (): boolean => liveRow().spec?.widgetType === 'LIST'
+    const comboControl = (): boolean => isComboParameter(liveRow())
+    const videoControl = (): boolean => isVideoParameter(liveRow())
+    const booleanControl = (): boolean => isBooleanParameter(liveRow())
+    const listControl = (): boolean => isListParameter(liveRow())
     const productControl = (): boolean => editableKinds.has(liveRow().spec?.widgetType ?? '') && !videoControl()
     const readOnlyValue = (): string => Array.isArray(liveRow().value) && listControl()
       ? (liveRow().value as Json[]).map((item) => String(item)).join(', ')
