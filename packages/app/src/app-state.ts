@@ -8209,9 +8209,8 @@ export class AppState {
   }
 
   /**
-   * Clear the ENTIRE durable history scope. Destructive by design -
-   * callers gate this behind an explicit confirmation affordance; asset
-   * bytes and library records survive by contract.
+   * Clear finished records across the durable history scope immediately;
+   * pending runs, asset bytes and library records survive by contract.
    */
   async clearRunHistory(owner: string): Promise<number> {
     const backend = this.ownedLibraryBackend(owner)

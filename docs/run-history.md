@@ -142,8 +142,8 @@ latest occurrence and an explicit run count.
 each member retains its own details and actions.
 
 Delete record immediately removes only the selected history record, leaving
-saved files and workflows untouched. Clear finished still requires a visible
-confirmation before clearing the displayed backend-owned page scope. Open
+saved files and workflows untouched. Clear finished immediately clears the
+displayed backend-owned page scope, preserving pending runs and saved files. Open
 workflow remains a separate explicit action.
 
 `sourceDocument` is the strongest stable document identity retained in durable
