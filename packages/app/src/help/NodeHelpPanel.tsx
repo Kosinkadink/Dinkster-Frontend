@@ -7,6 +7,7 @@ import { Markdown, type MarkdownAssets } from './Markdown.js'
 import { loadDocsAssets } from './docs-assets.js'
 import { parseMarkdown, type MarkdownBlock } from './markdownParser.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
+import { failureMessage } from '../request-failure.js'
 
 interface LoadedHelp {
   readonly descriptor: DocsDescriptor
@@ -100,7 +101,7 @@ export function NodeHelpPanel(props: { readonly app: AppState; readonly locale: 
       })
       .catch((error: unknown) => {
         abort.abort()
-        if (generation === current) setState({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
+        if (generation === current) setState({ kind: 'error', message: failureMessage(error, message('learn.state.error')) })
       })
   })
 

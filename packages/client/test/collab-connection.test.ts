@@ -146,7 +146,7 @@ describe('delegation transport', () => {
     const fetchFn = vi.fn(async () => jsonResponse(refused ? status : 403, { error: refused ? 'capability-required' : 'user-session-required' }))
     const { connection, events } = harness({ fetchFn, scheduleFn: (run) => { timers.push(run); return run } })
     const waiting = connection.fetchSnapshot()
-    const rejected = expect(waiting).rejects.toMatchObject({ diagnostic: { status, code: 'capability-required' } })
+    const rejected = expect(waiting).rejects.toMatchObject({ diagnostic: { status, code: 'capability-required', message: 'You do not have access.' } })
     await vi.waitFor(() => expect(timers).toHaveLength(1))
     refused = true
     timers[0]!()
@@ -306,7 +306,7 @@ describe('session management helpers', () => {
       createCollabSession('http://test:8765', { scope: '', documentId: 'd', snapshot: {} }, async () =>
         jsonResponse(400, { error: "'scope' is required (single-user: 'local')" }),
       ),
-    ).rejects.toThrow(/'scope' is required/)
+    ).rejects.toMatchObject({ status: 400, serverMessage: "'scope' is required (single-user: 'local')" })
   })
 
   it('reports revoked delegation identity without retrying a management request', async () => {
@@ -315,7 +315,7 @@ describe('session management helpers', () => {
     }))
     const onDiagnostic = vi.fn()
     await expect(listCollabSessions('http://test:8765', 'local', fetchFn, { onDiagnostic }))
-      .rejects.toThrow(/delegation-revoked/)
+      .rejects.toMatchObject({ status: 403, serverMessage: 'delegation-revoked' })
     expect(fetchFn).toHaveBeenCalledTimes(1)
     expect(onDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
       code: 'delegation-revoked', delegationId: 'delegation-789',
@@ -409,7 +409,13 @@ describe('postOp status mapping', () => {
     })
     expect(
       await connection.postOp({ protocolVersion: 1, opId: '', actorId: 'a', baseRevision: 3, patch: [] }),
-    ).toEqual({ kind: 'error', message: "HTTP 400: 'opId' must be a non-empty string" })
+    ).toEqual({ kind: 'error', message: "'opId' must be a non-empty string" })
+    for (const [status, message] of [[503, 'The engine reported an error.'], [404, 'The change could not be saved.']] as const) {
+      const failed = harness({ fetchFn: async () => jsonResponse(status, {}) })
+      expect(await failed.connection.postOp({ protocolVersion: 1, opId: 'o', actorId: 'a', baseRevision: 3, patch: [] }))
+        .toEqual({ kind: 'error', message })
+      failed.connection.close()
+    }
     const network = harness({
       fetchFn: async () => {
         throw new Error('connection refused')
@@ -423,7 +429,7 @@ describe('postOp status mapping', () => {
         baseRevision: 3,
         patch: [],
       }),
-    ).toEqual({ kind: 'error', message: 'connection refused' })
+    ).toEqual({ kind: 'error', message: 'The engine did not answer.' })
   })
 })
 

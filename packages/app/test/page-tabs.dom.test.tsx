@@ -488,7 +488,7 @@ describe('app page tabs', () => {
       dispose = render(() => <PageTabPanel host={app.pages} tab={tab} />, root)
       await vi.waitFor(() => expect(root.querySelectorAll('.dinkster-board-card input')).toHaveLength(4))
       const card = () => root.querySelector(`[data-board-item="${first}"]`)!
-      expect([...card().querySelectorAll('.dinkster-board-card-input > span:first-child')].map((label) => label.textContent)).toEqual(['Right', 'Left', 'Linked'])
+      expect([...card().querySelectorAll('.app-view-label')].map((label) => label.textContent)).toEqual(['Right', 'Left', 'Linked'])
       expect(card().querySelectorAll('input')).toHaveLength(2)
       const input = card().querySelector<HTMLInputElement>('input')!
       expect(input.value).toBe('4')

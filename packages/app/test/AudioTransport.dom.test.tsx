@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'solid-js/web'
 import { createSignal as createSolidSignal } from 'solid-js'
-import { createSignal, registerCatalog, setLocale } from '@dinkster/core'
+import { setLocale } from '@dinkster/core'
 import type { NodePreview } from '@dinkster/canvas'
-import type { AppState } from '../src/app-state.js'
 import { AudioTransport } from '../src/AudioTransport.js'
 import { NodeMediaOverlay } from '../src/CanvasHost.js'
 import { AppPreviewSurface } from '../src/AppPreviewSurface.js'
@@ -24,7 +23,7 @@ describe('shared audio transport lifecycle', () => {
   })
   afterEach(() => { dispose(); root.remove(); setLocale('en'); vi.restoreAllMocks() })
   it.each([false, true].flatMap((appView) => [false, true].map((bounded) => ({ appView, bounded }))))(
-    'forwards only source decode failures (App: $appView, bounded: $bounded)', async ({ appView, bounded }) => {
+    'keeps decode failures inside the preview (App: $appView, bounded: $bounded)', async ({ appView, bounded }) => {
       dispose()
       const failure = vi.fn()
       const media = { kind: 'audio' as const, src: 'blob:legacy', ...(bounded ? { audio: { identity: 'audio', meta: {}, load } } : {}) }
@@ -35,11 +34,9 @@ describe('shared audio transport lifecycle', () => {
           canvas={document.createElement('canvas')} onMediaError={failure} />, root)
       await next()
       root.querySelector('audio')!.dispatchEvent(new Event('error'))
-      if (bounded) {
-        expect(failure).not.toHaveBeenCalled()
-        expect(root.textContent).toContain('Audio window cannot be played by this browser')
-      } else if (appView) expect(failure).toHaveBeenCalledExactlyOnceWith(source)
-      else expect(failure).toHaveBeenCalledOnce()
+      expect(failure).not.toHaveBeenCalled()
+      expect(root.querySelector('.audio-waveform')?.textContent).toContain('This browser cannot play this sound')
+      expect(root.querySelector<HTMLButtonElement>('[aria-label="Play audio"]')!.disabled).toBe(true)
     },
   )
   it('scrubs effective time, cancels superseded work, pages batches and releases URLs', async () => {
@@ -52,7 +49,7 @@ describe('shared audio transport lifecycle', () => {
     expect(load.mock.calls.at(-1)![0]).toBe(0.1)
     root.querySelector<HTMLButtonElement>('[aria-label="Next audio batch"]')!.click(); await next()
     expect(load.mock.calls.at(-1)!.slice(0, 2)).toEqual([0, 1])
-    expect(root.textContent).toContain('Batch 2/2')
+    expect(root.textContent).toContain('2 of 2')
     const signal = load.mock.calls.at(-1)![2]
     dispose()
     expect(signal.aborted).toBe(true)
@@ -73,12 +70,12 @@ describe('shared audio transport lifecycle', () => {
     audio.dispatchEvent(new Event('timeupdate'))
     expect(slider.getAttribute('aria-valuenow')).toBe('0.35')
   })
-  it('uses the waveform as the only position control and seeks with pointer and keyboard', async () => {
+  it('seeks with the position bar by pointer and keyboard', async () => {
     await next()
     const positions = root.querySelectorAll('[role="slider"][aria-label="Audio position"]')
     expect(positions).toHaveLength(1)
-    const position = positions[0] as SVGSVGElement
-    expect(position.querySelector('image')?.getAttribute('href')).toBe('blob:window')
+    const position = positions[0] as HTMLElement
+    expect(root.querySelector('.audio-waveform image')?.getAttribute('href')).toBe('blob:window')
     vi.spyOn(position, 'getBoundingClientRect').mockReturnValue({ left: 50, width: 100 } as DOMRect)
     position.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: 87, bubbles: true }))
     await next()
@@ -129,8 +126,7 @@ describe('shared audio transport lifecycle', () => {
     expect(load.mock.calls.at(-1)!.slice(0, 2)).toEqual([3, 0])
     root.querySelector<HTMLElement>('[aria-label="Audio position"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
     await next()
-    const loop = root.querySelector<HTMLInputElement>('input[type="checkbox"]')!
-    loop.checked = true; loop.dispatchEvent(new Event('change', { bubbles: true }))
+    root.querySelector<HTMLButtonElement>('[aria-label="Loop"]')!.click()
     audio.dispatchEvent(new Event('ended')); await next()
     expect(load.mock.calls.at(-1)!.slice(0, 2)).toEqual([0, 0])
   })
@@ -142,29 +138,12 @@ describe('shared audio transport lifecycle', () => {
     Object.defineProperty(audio, 'duration', { value: 3 })
     audio.dispatchEvent(new Event('loadedmetadata'))
     expect(root.querySelector('[aria-label="Audio position"]')?.getAttribute('aria-disabled')).toBe('true')
-    expect(root.textContent).toContain('0:00 / --:--')
-    expect(root.textContent).toContain('Duration (s): Not reported')
+    expect(root.querySelector('.dinkster-audio-time')?.textContent).toBe('0:00')
+    expect(root.textContent).not.toContain('Not reported')
     expect(root.textContent).not.toMatch(/NaN|Infinity/)
     const requests = load.mock.calls.length
     audio.dispatchEvent(new Event('ended')); await next()
     expect(load).toHaveBeenCalledTimes(requests)
-  })
-  it('uses stable metadata identities while shared labels follow the active locale', async () => {
-    await next()
-    registerCatalog('de-DE', {
-      'mediaInspector.metadata.channels': '[Kanale]',
-      'mediaInspector.metadata.durationSeconds': '[Dauer (s)]',
-      'mediaInspector.metadata.layout': '[Anordnung]',
-      'mediaInspector.metadata.sampleRateHz': '[Abtastrate (Hz)]',
-    })
-    const facts = root.querySelector('.audio-facts')!
-    setLocale('de-DE')
-    expect(root.querySelector('.audio-facts')).toBe(facts)
-    expect(facts.textContent).toContain('[Abtastrate (Hz)]: 48000')
-    expect(facts.textContent).toContain('[Kanale]: 6')
-    expect(facts.textContent).toContain('[Anordnung]: 5.1')
-    expect(facts.textContent).toContain('[Dauer (s)]: 10')
-    expect(load).toHaveBeenCalledTimes(1)
   })
   it('uses the advertised batch default while keeping absent controls disabled', async () => {
     dispose()
@@ -173,6 +152,7 @@ describe('shared audio transport lifecycle', () => {
     expect(load.mock.calls.at(-1)!.slice(0, 2)).toEqual([0, 1])
     expect(root.querySelector<HTMLButtonElement>('[aria-label="Next audio batch"]')!.disabled).toBe(true)
     expect(root.querySelector('[aria-label="Audio position"]')?.getAttribute('aria-disabled')).toBe('true')
-    expect(root.textContent).toContain('Batch selection not advertised by backend')
+    expect(root.textContent).toContain('2 of 4')
+    expect(root.textContent).not.toContain('backend')
   })
 })

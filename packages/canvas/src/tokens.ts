@@ -144,6 +144,8 @@ export const canvasPaintTokens = {
     textOutputMaxRows: 6,
     /** Rows an open text result shows at least. */
     textOutputMinRows: 2,
+    /** Waveform, two transport rows and padding, without the caption. */
+    audioPreview: { minWidth: 240, minHeight: 126 },
     /**
      * The bar of a node whose preview is open: the text box's bar
      * (`widget.textBoxEdge`), its top `barRise` above the node's bottom edge
@@ -1015,6 +1017,18 @@ export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFal
     AUDIO: '#1565C0',
   },
   typeFallbackLightness: 62,
+}
+
+/** Engine model kinds reuse the named pin colors in every theme. */
+export const modelKindColorMap: Readonly<Record<string, string>> = {
+  'model/checkpoint': 'MODEL',
+  'model/diffusion': 'MODEL',
+  'model/text-encoder': 'CLIP',
+  'model/vae': 'VAE',
+  'model/controlnet': 'CONTROL_NET',
+  'model/lora': 'LATENT',
+  'model/upscale': 'IMAGE',
+  'model/upscaler': 'IMAGE',
 }
 
 /** A field's box inset from the node's edge in the default look; a pin's name lines up with the field's label inside it. */

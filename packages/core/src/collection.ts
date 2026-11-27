@@ -43,7 +43,7 @@ export interface CollectionEntry {
    */
   readonly thumbRender?: (signal?: AbortSignal) => Promise<string>
   /** Label/text pairs for the details rail; order is display order. */
-  readonly details?: readonly { readonly label: string; readonly text: string }[]
+  readonly details?: readonly { readonly label: string; readonly text: string; readonly title?: string }[]
   /**
    * Presentation-only children hidden behind an expandable parent row.
    * Children remain ordinary entries, so their details and actions retain

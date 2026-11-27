@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'solid-js/web'
 import { PreviewDownload } from '../src/PreviewDownload.js'
+import { RequestFailure } from '@dinkster/client'
 
 describe('explicit recorded download', () => {
   let root: HTMLDivElement
@@ -61,9 +62,9 @@ describe('explicit recorded download', () => {
     expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled()
   })
   it('shows failures without navigating and permits an explicit retry', async () => {
-    load.mockRejectedValueOnce(new Error('HTTP 404'))
+    load.mockRejectedValueOnce(new RequestFailure('GET', '/api/assets/recorded', 404))
     click(); await flush()
-    expect(root.querySelector('[role="alert"]')?.textContent).toContain('HTTP 404')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('The download could not be completed.')
     expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled()
     click(); await flush()
     expect(load).toHaveBeenCalledTimes(2)

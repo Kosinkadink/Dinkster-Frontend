@@ -13,6 +13,7 @@ export function ProductAudioWaveform(props: {
   readonly ariaLabel: string
   readonly path?: string
   readonly image?: string | undefined
+  readonly showTime?: boolean
   readonly disabled?: boolean
   readonly interactive?: boolean
   readonly onSeek: (seconds: number) => void
@@ -63,6 +64,7 @@ export function ProductAudioWaveform(props: {
       <svg
         ref={track}
         class="dinkster-audio-waveform"
+        data-empty={!props.image && !props.path ? '' : undefined}
         viewBox="0 0 288 72"
         preserveAspectRatio="none"
         role={props.interactive === false ? 'img' : 'slider'}
@@ -158,11 +160,14 @@ export function ProductAudioWaveform(props: {
             />
           </mask>
         </defs>
-        <Show when={props.image} fallback={<path d={props.path} />}>
+        <Show when={props.image}>
+          <path class="dinkster-audio-waveform-centerline" d="M0 36H288" />
+        </Show>
+        <Show when={props.image} fallback={<path d={props.path ?? 'M0 36H288'} />}>
           <path d={bars} mask={`url(#${mask})`} />
         </Show>
         <g class="dinkster-audio-waveform-played" clip-path={`url(#${clip})`}>
-          <Show when={props.image} fallback={<path d={props.path} />}>
+          <Show when={props.image} fallback={<path d={props.path ?? 'M0 36H288'} />}>
             <path d={bars} mask={`url(#${mask})`} />
           </Show>
         </g>
@@ -174,10 +179,10 @@ export function ProductAudioWaveform(props: {
           y2={72}
         />
       </svg>
-      <span class="dinkster-audio-time">
+      <Show when={props.showTime !== false}><span class="dinkster-audio-time">
         {time(position())} /{' '}
         {props.duration > 0 ? time(Math.round(props.duration)) : '--:--'}
-      </span>
+      </span></Show>
     </div>
   )
 }

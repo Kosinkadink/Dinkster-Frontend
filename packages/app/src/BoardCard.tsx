@@ -5,7 +5,7 @@ import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, 
 import { Portal } from 'solid-js/web'
 import { Dice5, Lock, Minus, Plus } from 'lucide-solid'
 import type { AppState, Backend } from './app-state.js'
-import { ExposedParameterInput } from './AppView.js'
+import { ExposedParameterInput, ExposedParameterRow } from './AppView.js'
 import { ControllerModeMenu } from './ControllerModeMenu.js'
 import { executionStatusLabel } from './ExecutionActivityCard.js'
 import { Icon } from './Icon.js'
@@ -108,9 +108,17 @@ function BoardCardInput(props: {
   }
   const options = () => remote() ?? comboOptions(props.row.spec!)
   const selected = () => options().findIndex((option) => jsonSameValue(option.value, props.row.value))
-  return <>
-    <div class="dinkster-board-card-input">
-      <span id={labelId}>{props.row.label}</span>
+  const input = () => <ExposedParameterInput row={props.row} labelId={labelId} draftScopeId={labelId} onCommit={commit}
+    onError={setError} onDraftActive={() => undefined}
+    combo={<ProductSelect class="app-view-control" ariaLabelledBy={labelId} selectedId={selected() < 0 ? 'stored' : String(selected())}
+      options={[
+        ...(selected() < 0 ? [{ id: 'stored', label: String(props.row.value ?? ''), value: props.row.value ?? null, disabled: true }] : []),
+        ...options().map((option, index) => ({ id: String(index), ...option })),
+      ]} onFocus={loadOptions} onPointerDown={loadOptions}
+      onSelectAsync={(option, current) => commit(option.value, current)} />} />
+  return <ExposedParameterRow head={<>
+      <Show when={props.row.spec?.widgetType === 'BOOLEAN'}>{input()}</Show>
+      <span id={labelId} class="app-view-label">{props.row.label}</span>
       <Show when={props.row.spec?.controller === 'after_generate'}>
         <span class="dinkster-board-controller"><ProductButton ref={(element) => { modeButton = element }} fill="quiet"
           aria-label={`After run for ${props.row.label}`} aria-haspopup="menu" aria-expanded={modeOpen()}
@@ -126,17 +134,10 @@ function BoardCardInput(props: {
             onMode={(next) => { if (props.onMode(props.row, next)) closeMode(true) }} />
         </div></Portal></Show>
       </Show>
-      <ExposedParameterInput row={props.row} labelId={labelId} draftScopeId={labelId} onCommit={commit}
-        onError={setError} onDraftActive={() => undefined}
-        combo={<ProductSelect ariaLabelledBy={labelId} selectedId={selected() < 0 ? 'stored' : String(selected())}
-            options={[
-              ...(selected() < 0 ? [{ id: 'stored', label: String(props.row.value ?? ''), value: props.row.value ?? null, disabled: true }] : []),
-              ...options().map((option, index) => ({ id: String(index), ...option })),
-            ]} onFocus={loadOptions} onPointerDown={loadOptions}
-            onSelectAsync={(option, current) => commit(option.value, current)} />} />
-    </div>
+    </>}>
+    <Show when={props.row.spec?.widgetType !== 'BOOLEAN'}>{input()}</Show>
     <Show when={error()}>{(message) => <ProductNotice tone="error">{message()}</ProductNotice>}</Show>
-  </>
+  </ExposedParameterRow>
 }
 
 export function BoardCard(props: {
@@ -227,11 +228,11 @@ export function BoardCard(props: {
     <For each={[...rows().keys()]}>{(key) => {
       const row = () => rows().get(key)!
       return <Show when={row().kind === 'live'} fallback={<p class="dinkster-board-card-error" role="status">{(row() as Extract<ParamRow, { kind: 'stale' }>).reason}</p>}>
-        <Show when={editable(row() as LiveRow)} fallback={<div class="dinkster-board-card-input">
-          <span>{(row() as LiveRow).label}</span><span title={t((row() as LiveRow).linked ? 'appView.readOnly.linked' : (row() as LiveRow).derived ? 'appView.readOnly.derived' : 'appView.readOnly.unsupported')}>
+        <Show when={editable(row() as LiveRow)} fallback={<ExposedParameterRow head={<span class="app-view-label">{(row() as LiveRow).label}</span>}>
+          <p class="app-view-readonly" title={t((row() as LiveRow).linked ? 'appView.readOnly.linked' : (row() as LiveRow).derived ? 'appView.readOnly.derived' : 'appView.readOnly.unsupported')}>
             {typeof (row() as LiveRow).value === 'string' ? (row() as LiveRow).value as string : JSON.stringify((row() as LiveRow).value) ?? t('appView.value.unset')}
-          </span>
-        </div>}>
+          </p>
+        </ExposedParameterRow>}>
           <BoardCardInput app={props.app} backend={backend()!} row={row() as LiveRow} commit={commit} onMode={chooseMode} />
         </Show>
       </Show>

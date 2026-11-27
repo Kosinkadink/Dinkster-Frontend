@@ -8,7 +8,7 @@ import {
   onMount,
   type JSX,
 } from 'solid-js'
-import { Check, ChevronDown, ChevronRight } from 'lucide-solid'
+import { Check, ChevronDown, ChevronRight, Folder } from 'lucide-solid'
 import { ProductFacts } from './account.js'
 import {
   ProductButton,
@@ -18,6 +18,7 @@ import {
   ProductTextButton,
 } from './controls.js'
 import { ProductProgress } from './messages.js'
+import { ProductMenu } from './menu.js'
 
 interface RowAction {
   readonly label: string
@@ -29,6 +30,7 @@ export type ProductModelDownloadRow = {
   readonly id: string
   readonly name: string
   readonly metadata: string
+  readonly folder?: string
 } & (
   | {
       readonly state: 'available'
@@ -36,6 +38,7 @@ export type ProductModelDownloadRow = {
       readonly onSelect: (selected: boolean) => void
       readonly detailsLabel: string
       readonly facts: readonly { label: string; value: JSX.Element }[]
+      readonly factsAction?: RowAction
       readonly initiallyExpanded?: boolean
     }
   | {
@@ -144,6 +147,14 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
             {props.row.metadata}
           </span>
         </div>
+        <Show when={props.row.folder}>
+          {(folder) => (
+            <span class="dinkster-model-download-folder">
+              <ProductIcon icon={Folder} />
+              {folder()}
+            </span>
+          )}
+        </Show>
         <Show when={available()}>
           {(entry) => (
             <ProductIconButton
@@ -181,7 +192,18 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
       </div>
       <Show when={expanded() && available()}>
         {(entry) => (
-          <ProductFacts label={props.row.name} items={entry().facts} />
+          <div class="dinkster-model-download-facts">
+            <ProductFacts label={props.row.name} items={entry().facts} />
+            <Show when={entry().factsAction}>
+              {(action) => (
+                <ProductTextButton
+                  label={action().label}
+                  disabled={action().disabled === true}
+                  onClick={action().onClick}
+                />
+              )}
+            </Show>
+          </div>
         )}
       </Show>
       <Show when={needs()}>{(entry) => entry().details}</Show>
@@ -225,6 +247,64 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
   )
 }
 
+function DestinationLabel(props: {
+  readonly label: string
+  readonly name: string
+  readonly path: string | undefined
+  readonly freeSpace: string | undefined
+}) {
+  let label!: HTMLSpanElement
+  let name!: HTMLElement
+  let path!: HTMLSpanElement
+  let disposed = false
+  const [truncated, setTruncated] = createSignal(false)
+  const placeSpace = () => {
+    if (disposed || !label || !name) return
+    label.dataset.spaceBelow = 'false'
+    label.dataset.pathBelow = 'false'
+    label.dataset.spaceBelow = String(name.scrollWidth > name.clientWidth)
+    label.dataset.pathBelow = String(
+      path.getBoundingClientRect().height > name.getBoundingClientRect().height,
+    )
+    setTruncated(name.scrollWidth > name.clientWidth)
+  }
+  createEffect(() => {
+    void props.label
+    void props.name
+    void props.path
+    void props.freeSpace
+    queueMicrotask(placeSpace)
+  })
+  onMount(() => {
+    let width = -1
+    const observer = new ResizeObserver(() => {
+      const next = label.getBoundingClientRect().width
+      if (next === width) return
+      width = next
+      placeSpace()
+    })
+    observer.observe(label)
+    void document.fonts?.ready.then(placeSpace)
+    onCleanup(() => observer.disconnect())
+  })
+  onCleanup(() => {
+    disposed = true
+  })
+  return (
+    <span ref={label} class="dinkster-model-download-destination-label">
+      <span>{props.label}</span>
+      <ProductIcon icon={Folder} />
+      <strong ref={name} data-tooltip-label={truncated() ? props.name : undefined}>
+        {props.name}
+      </strong>
+      <span ref={path} class="dinkster-model-download-destination-path">{props.path}</span>
+      <Show when={props.freeSpace}>
+        <span class="dinkster-model-download-space">{props.freeSpace}</span>
+      </Show>
+    </span>
+  )
+}
+
 /** The dialog's caller owns planning, selection and live jobs, including while it is closed. */
 export function ProductModelDownloads(props: {
   readonly summary: string
@@ -237,6 +317,20 @@ export function ProductModelDownloads(props: {
   readonly primary?: RowAction
   readonly selection?: RowAction
   readonly focusedRow?: string
+  readonly notice?: JSX.Element
+  readonly destination?: {
+    readonly label: string
+    readonly selectedId: string
+    readonly emptyLabel: string
+    readonly freeSpace: string
+    readonly locations: readonly {
+      readonly id: string
+      readonly name: string
+      readonly path: string
+      readonly freeSpace: string
+    }[]
+    readonly onSelect: (id: string) => void
+  }
 }) {
   let list!: HTMLUListElement
   createEffect(() => {
@@ -251,17 +345,68 @@ export function ProductModelDownloads(props: {
   })
   return (
     <section class="dinkster-model-downloads" data-testid="model-downloads">
-      <div class="dinkster-model-download-summary">
-        <p class="dinkster-description">{props.summary}</p>
-        <Show when={props.selection}>
-          {(selection) => (
-            <ProductTextButton
-              label={selection().label}
-              onClick={selection().onClick}
-            />
-          )}
+      <header class="dinkster-model-download-header">
+        <Show when={props.destination}>
+          {(destination) => {
+            const selected = () =>
+              destination().locations.find(
+                (location) => location.id === destination().selectedId,
+              )
+            const label = () => (
+              <DestinationLabel
+                label={destination().label}
+                name={selected()?.name ?? destination().emptyLabel}
+                path={selected()?.path}
+                freeSpace={selected() ? destination().freeSpace : undefined}
+              />
+            )
+            return (
+              <div class="dinkster-model-download-destination">
+                <Show
+                  when={
+                    !props.rows.some(
+                      (row) =>
+                        row.state === 'downloading' || row.state === 'checking',
+                    )
+                  }
+                  fallback={label()}
+                >
+                  <ProductMenu
+                    label={destination().label}
+                    triggerName={destination().label}
+                    fill="quiet"
+                    labelContent={label()}
+                    items={destination().locations.map((location) => ({
+                      label: location.name,
+                      labelContent: (
+                        <span class="dinkster-model-download-location">
+                          <span>{location.name}</span>
+                          <span>{location.freeSpace}</span>
+                        </span>
+                      ),
+                      description: location.path,
+                      checked: location.id === destination().selectedId,
+                      onSelect: () => destination().onSelect(location.id),
+                    }))}
+                  />
+                </Show>
+              </div>
+            )
+          }}
         </Show>
-      </div>
+        {props.notice}
+        <div class="dinkster-model-download-summary">
+          <p class="dinkster-description">{props.summary}</p>
+          <Show when={props.selection}>
+            {(selection) => (
+              <ProductTextButton
+                label={selection().label}
+                onClick={selection().onClick}
+              />
+            )}
+          </Show>
+        </div>
+      </header>
       <ul
         ref={list}
         class="dinkster-model-download-list"

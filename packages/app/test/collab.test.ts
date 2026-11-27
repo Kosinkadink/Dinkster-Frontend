@@ -581,7 +581,7 @@ describe('Board workspace collaboration', () => {
       expect(app.boards.entries.get()).toEqual([])
       disconnected = connection === undefined || connection.closed
     } finally { release() }
-    if (action === 'open-another-document') expect(await joining).toContain('Board changed')
+    if (action === 'open-another-document') expect(await joining).toBe('The board session could not be joined.')
     else { await rejected; expect(disconnected).toBe(true) }
     if (action === 'dispose-binding') expect(connection).toBeUndefined()
     expect(app.boards.entries.get()).toEqual([])
@@ -710,7 +710,7 @@ describe('stableActorId', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2)
     expect(JSON.parse(fetchFn.mock.calls[1]![1]!.body as string)).toEqual({ actorId: id })
     const refused = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ error: 'actor-principal-mismatch' }), { status: 409 }))
-    await expect(bindBrowserActor('http://fixture', 'session', 'squatted', refused)).rejects.toThrow('actor-principal-mismatch')
+    await expect(bindBrowserActor('http://fixture', 'session', 'squatted', refused)).rejects.toMatchObject({ status: 409 })
     expect(refused).toHaveBeenCalledTimes(2)
   })
 
@@ -1457,7 +1457,7 @@ describe('lifecycle races', () => {
     expect((await addNode(app, tab)).diagnostics).toEqual([]) // edit while create is in flight
     createGate.open()
 
-    expect(await pending).toMatch(/changed while sharing/)
+    expect(await pending).toBe('The workflow could not be shared.')
     expect(activeTab(app).store).toBe(localStore) // the local tab is untouched
     expect(app.collabFor(tab.id)).toBeUndefined()
     await until(() => server.endedSessions.length === 1, 'orphan session cleanup')
@@ -1483,7 +1483,7 @@ describe('lifecycle races', () => {
     app.closeTab(tab.id)
     createGate.open()
 
-    expect(await pending).toMatch(/closed while sharing/)
+    expect(await pending).toBe('The workflow could not be shared.')
     expect(app.tabs.get().some((t) => t.id === tab.id)).toBe(false) // not resurrected
     expect(app.collabFor(tab.id)).toBeUndefined()
     await until(() => server.endedSessions.length === 1, 'orphan session cleanup')

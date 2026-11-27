@@ -97,11 +97,11 @@ describe('discoverBackend', () => {
     expect((await discoverBackend('http://host', { fetchFn })).kind).toBe('unrecognized')
   })
 
-  it('reports unreachable when nothing answers, carrying the error detail', async () => {
+  it('reports unreachable when nothing answers, with a plain reason', async () => {
     const fetchFn = fakeFetch({})
     const result = await discoverBackend('http://down:1', { fetchFn })
     expect(result.kind).toBe('unreachable')
-    if (result.kind === 'unreachable') expect(result.detail).toContain('ECONNREFUSED')
+    if (result.kind === 'unreachable') expect(result.detail).toBe('The engine did not answer.')
   })
 
   it('is unrecognized (not unreachable) when only some probes fail transport', async () => {

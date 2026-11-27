@@ -7,6 +7,7 @@ import { selectDocsLocale } from './NodeHelpPanel.js'
 import { parseMarkdown, type MarkdownBlock } from './markdownParser.js'
 import { ProductButton, ProductTextInput } from '../ProductControls.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
+import { failureMessage } from '../request-failure.js'
 
 type LearnConnection = Pick<DinksterConnection, 'listDocs' | 'fetchDocsPage' | 'fetchDocsAsset'>
 
@@ -43,7 +44,7 @@ export function LearnPanel(props: {
   readonly onOpenTemplate: (pack: string, template: string, title: string, owner: string) => void
 }) {
   const [query, setQuery] = createSignal('')
-  const [submittedQuery, setSubmittedQuery] = createSignal('')
+  const [submittedQuery, setSubmittedQuery] = createSignal('', { equals: false })
   const [listState, setListState] = createSignal<ListState>({ kind: 'loading' })
   const [selected, setSelected] = createSignal<DocsDescriptor>()
   const [guideState, setGuideState] = createSignal<GuideState>({ kind: 'loading' })
@@ -75,7 +76,7 @@ export function LearnPanel(props: {
         loadingMore: false,
       })
     }).catch((error: unknown) => {
-      if (generation === listGeneration) setListState({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
+      if (generation === listGeneration) setListState({ kind: 'error', message: failureMessage(error, message('learn.state.error')) })
     })
   })
 
@@ -110,7 +111,7 @@ export function LearnPanel(props: {
       })
     }).catch((error: unknown) => {
       abort.abort()
-      if (generation === guideGeneration) setGuideState({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
+      if (generation === guideGeneration) setGuideState({ kind: 'error', message: failureMessage(error, message('learn.state.error')) })
     })
   })
 
@@ -131,7 +132,7 @@ export function LearnPanel(props: {
         loadingMore: false,
       })
     }).catch((error: unknown) => {
-      if (generation === listGeneration) setListState({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
+      if (generation === listGeneration) setListState({ kind: 'error', message: failureMessage(error, message('learn.state.error')) })
     })
   }
 
@@ -151,7 +152,7 @@ export function LearnPanel(props: {
           <ProductButton type="button" variant="ghost" size="compact" class="learn-back" onClick={() => setSelected(undefined)}>{message('learn.action.back')}</ProductButton>
           <Show when={guideState().kind === 'loading'}><ProductEmptyState tone="loading" title={message('learn.state.loadingGuide')} /></Show>
           <Show when={guideState().kind === 'missing'}><ProductEmptyState tone="error" title={message('learn.state.missing')} /></Show>
-          <Show when={guideState().kind === 'error'}><ProductEmptyState tone="error" title={message('learn.state.error', { error: (guideState() as Extract<GuideState, { kind: 'error' }>).message })} /></Show>
+          <Show when={guideState().kind === 'error'}><ProductEmptyState tone="error" title={(guideState() as Extract<GuideState, { kind: 'error' }>).message} /></Show>
           <Show when={loadedGuide()}>{(loaded) => (
             <article lang={loaded().locale}>
               <header class="node-help-header">
@@ -192,7 +193,9 @@ export function LearnPanel(props: {
         </form>
         <Show when={listState().kind === 'loading'}><ProductEmptyState tone="loading" title={message('learn.state.loading')} /></Show>
         <Show when={listState().kind === 'unavailable'}><ProductEmptyState tone="error" title={message('learn.state.unavailable')} /></Show>
-        <Show when={listState().kind === 'error'}><ProductEmptyState tone="error" title={message('learn.state.error', { error: (listState() as Extract<ListState, { kind: 'error' }>).message })} /></Show>
+        <Show when={listState().kind === 'error'}><ProductEmptyState tone="error" title={(listState() as Extract<ListState, { kind: 'error' }>).message} action={
+          <ProductButton onClick={() => setSubmittedQuery(query().trim())}>{message('learn.action.retry')}</ProductButton>
+        } /></Show>
         <Show when={loadedList()}>{(state) => (
           <Show when={state().guides.length > 0} fallback={<ProductEmptyState title={message('learn.state.empty')} />}>
             <div class="learn-guide-list dinkster-list-rows">
