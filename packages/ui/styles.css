@@ -805,13 +805,14 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); text-align: left; font: inherit; cursor: pointer; user-select: none; }
 .dinkster-editable-select { position: relative; }
 .dinkster-editable-select > .dinkster-input { width: 100%; padding-right: var(--dinkster-space-32); }
-.dinkster-editable-select > .dinkster-icon { position: absolute; right: var(--dinkster-space-8); top: 50%; transform: translateY(-50%); color: var(--dinkster-text-secondary); pointer-events: none; }
+.dinkster-editable-select > .dinkster-icon { position: absolute; right: calc(var(--dinkster-space-8) + var(--dinkster-border-width)); top: 50%; transform: translateY(-50%); color: var(--dinkster-text-secondary); pointer-events: none; }
 .dinkster-select-trigger > .dinkster-canvas-list-label { min-width: 0; }
 .dinkster-select-trigger > .dinkster-icon { flex: none; color: var(--dinkster-text-secondary); }
 .dinkster-select-trigger:disabled { color: var(--dinkster-text-disabled); cursor: default; }
 .floating-surface.dinkster-select-list { position: fixed; z-index: 1002; overflow-y: auto; padding: var(--dinkster-space-4) 0; background: var(--dinkster-surface-panel); border-radius: var(--dinkster-radius-small); }
 .dinkster-select-list > .dinkster-canvas-list-option { padding-inline: var(--dinkster-space-8); }
 [data-density='site'] .dinkster-select-trigger, .dinkster-select-list[data-density='site'] > .dinkster-canvas-list-option { padding-inline: var(--dinkster-space-12); }
+[data-density='site'] .dinkster-editable-select > .dinkster-icon { right: calc(var(--dinkster-space-12) + var(--dinkster-border-width)); }
 [data-density='site'] .dinkster-disclosure > summary { display: flex; align-items: center; gap: var(--dinkster-space-8); list-style: none; }
 [data-density='site'] .dinkster-disclosure > summary::-webkit-details-marker { display: none; }
 [data-density='site'] .dinkster-disclosure > summary > .dinkster-icon { display: block; }
