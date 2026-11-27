@@ -492,13 +492,19 @@ function buildEffectiveOccurrenceTopology(
     const projectedInputs = new Map<NodeId, Set<string>>()
     const projectedInputPorts = new Map<NodeId, Set<string>>()
     const projectedOutputs = new Map<NodeId, Set<string>>()
+    const projectedOutputPorts = new Map<NodeId, Set<string>>()
     const recordProjected = (map: Map<NodeId, Set<string>>, ref: PortRef): void => {
       let addresses = map.get(ref.node)
       if (!addresses) map.set(ref.node, (addresses = new Set()))
       addresses.add(portAddressKey(ref.port))
     }
     for (const link of projectedParentLinks) {
-      if (link.from.graphId === at.bodyGraph.id && isPortEndpoint(link.from.endpoint)) recordProjected(projectedOutputs, link.from.endpoint)
+      if (link.from.graphId === at.bodyGraph.id && isPortEndpoint(link.from.endpoint)) {
+        recordProjected(projectedOutputs, link.from.endpoint)
+        let ports = projectedOutputPorts.get(link.from.endpoint.node)
+        if (!ports) projectedOutputPorts.set(link.from.endpoint.node, (ports = new Set()))
+        ports.add(link.from.endpoint.port)
+      }
       if (link.to.graphId === at.bodyGraph.id && isPortEndpoint(link.to.endpoint)) {
         recordProjected(projectedInputs, link.to.endpoint)
         let ports = projectedInputPorts.get(link.to.endpoint.node)
@@ -515,6 +521,7 @@ function buildEffectiveOccurrenceTopology(
         isInputConnected: (port) => inputs?.has(portAddressKey(port)) || base.isInputConnected(port),
         isOutputConnected: (port) => outputs?.has(portAddressKey(port)) || base.isOutputConnected(port),
         inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPorts.get(nodeId) ?? [])])],
+        outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(projectedOutputPorts.get(nodeId) ?? [])])],
       }
     }
     const resolveNode = documentNodeResolver(document, resolver)

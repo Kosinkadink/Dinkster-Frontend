@@ -21,7 +21,10 @@ import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
 import type { NodeSchema } from '../src/schema/model.js'
 
-const wire = JSON.parse(readFileSync(new URL('./fixtures/button_schemas.json', import.meta.url), 'utf8')) as Record<string, unknown>
+const wire: Record<string, unknown> = {
+  ...JSON.parse(readFileSync(new URL('./fixtures/button_schemas.json', import.meta.url), 'utf8')),
+  ...JSON.parse(readFileSync(new URL('./fixtures/flow_schemas.json', import.meta.url), 'utf8')),
+}
 const SCHEMAS = new Map<string, NodeSchema>()
 for (const [type, raw] of Object.entries(wire)) {
   const parsed = parseDinksterSchema(type, raw as DinksterWireSchema)
@@ -112,6 +115,30 @@ function later<T>(): { promise: Promise<T>; settle: (value: T) => void } {
 }
 
 describe('one press is one undo step, or nothing', () => {
+  it('sets Unpack count independently in one undo step and refuses an over-limit count whole', async () => {
+    const document = documentOf({
+      n1: { type: 'dinkster.utilities.unpack', values: { count: 3 } },
+      sibling: { type: 'dinkster.utilities.unpack', values: { count: 1 } },
+    }, { later: { id: asLinkId('later'), from: { node: asNodeId('n1'), port: asPortId('items.2') },
+      to: { node: asNodeId('sibling'), port: asPortId('value') } } })
+    const session = sessionOf(document)
+    const set = (new_count: number) => runPress(session, at('set_count'), hostOf({ ask: async () => ({ new_count }) }))
+    for (const count of [0, 2, 512]) {
+      expect(await set(count)).toMatchObject({ kind: 'done' })
+      expect(valuesOf(session)).toEqual({ count })
+      expect(valuesOf(session, 'sibling')).toEqual({ count: 1 })
+      expect(session.doc.graphs.g0!.links).toEqual(document.graphs.g0!.links)
+      expect(session.undo()).toBe(true)
+      expect(session.doc.graphs).toEqual(document.graphs)
+      expect(session.canUndo).toBe(false)
+    }
+    for (const count of [-1, 513, 2.5]) {
+      expect(await set(count)).toMatchObject({ kind: 'failed' })
+      expect(session.doc.graphs).toEqual(document.graphs)
+      expect(session.canUndo).toBe(false)
+    }
+  })
+
   it('keeps multiple-choice Ask answers as list locals for later steps', async () => {
     addSchema('test.ask-list', [
       { kind: 'input', id: 'count', type: { kind: 'concrete', types: ['INT'] }, default: 0 },
@@ -1596,6 +1623,40 @@ describe('steps outside the workflow', () => {
 })
 
 describe('steps inside a subgraph occurrence', () => {
+  it('sets a promoted Unpack count without changing another occurrence or its definition', async () => {
+    const root = documentOf({
+      left: { type: '#g1', values: { count: 3 } },
+      right: { type: '#g1', values: { count: 1 } },
+    })
+    const inner = documentOf({ inner: { type: 'dinkster.utilities.unpack', values: { count: 4 } } }).graphs.g0!
+    const doc: WorkflowDocument = { ...root, graphs: { ...root.graphs, g1: {
+      ...inner, id: asGraphDefId('g1'), boundary: { body: [{
+        kind: 'input', id: asPortId('count'), promoted: true,
+        binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('count') },
+      }] },
+    } } }
+    const host = hostOf({
+      schemaResolverFor: (current) => documentResolver(current, resolve),
+      ask: async () => ({ new_count: 2 }),
+    })
+    const session = createLocalSession(doc, host.commands, { schemaResolverFor: host.schemaResolverFor! })
+    expect(await runPress(session, { graphId: 'g1', nodeId: 'inner', instancePath: ['left'], button: 'set_count' }, host))
+      .toMatchObject({ kind: 'done' })
+    expect(valuesOf(session, 'left')).toEqual({ count: 2 })
+    expect(valuesOf(session, 'right')).toEqual({ count: 1 })
+    expect(session.doc.graphs.g1).toEqual(doc.graphs.g1)
+    const result = compile({ document: session.doc, revision: 1, resolve,
+      scope: { kind: 'partial', targets: ['left', 'right'].map((id) => ({ instancePath: [asNodeId(id)], node: asNodeId('inner') })) },
+      connection: asConnectionId('test'), schemaHash: 'test', graphFeatures: ['regions'] })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+    expect(result.artifact.dinksterGraph?.nodes['left.inner']).toMatchObject({ outputMembers: { items: ['0', '1'] } })
+    expect(result.artifact.dinksterGraph?.nodes['right.inner']).toMatchObject({ outputMembers: { items: ['0'] } })
+    expect(session.undo()).toBe(true)
+    expect(session.doc).toEqual(doc)
+    expect(session.canUndo).toBe(false)
+  })
+
   it('reports only shared values left changed at commit, after restored writes and skipped targets', async () => {
     addSchema('test.shared_source', [{ kind: 'output', id: 'value', type: { kind: 'concrete', types: ['INT'] } }])
     addSchema('test.shared_restored', [

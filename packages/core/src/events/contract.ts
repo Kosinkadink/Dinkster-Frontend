@@ -316,6 +316,7 @@ export type NormalizedEvent =
       readonly runtimeNodeId?: string
       readonly level: 'info' | 'warning'
       readonly message: string
+      readonly code?: string
       /** Backend emit time, epoch milliseconds (wire ts is float seconds). */
       readonly emittedAt?: number
       /** How the record was captured; absent for explicit report_log calls. */

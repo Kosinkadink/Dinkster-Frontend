@@ -157,5 +157,137 @@
       "condition"
     ],
     "inputValues": true
+  },
+  "dinkster.utilities.unpack": {
+    "schemaVersion": 2,
+    "nodeType": "dinkster.utilities.unpack",
+    "version": 1,
+    "displayName": "Unpack",
+    "category": "utilities/flow",
+    "description": "Gives one item of a list on each output, using the count you set.",
+    "idempotent": true,
+    "interface": [],
+    "body": [
+      {
+        "kind": "input",
+        "id": "list",
+        "type": {
+          "kind": "list",
+          "element": {
+            "kind": "variable",
+            "templateId": "T"
+          }
+        },
+        "required": false,
+        "onAbsent": "skip",
+        "label": "List"
+      },
+      {
+        "kind": "input",
+        "id": "count",
+        "type": {
+          "kind": "concrete",
+          "types": [
+            "INT"
+          ]
+        },
+        "required": true,
+        "default": 0,
+        "widget": {
+          "type": "NUMBER",
+          "min": 0,
+          "max": 512,
+          "step": 1
+        },
+        "pin": false,
+        "hidden": true
+      },
+      {
+        "kind": "note",
+        "id": "empty",
+        "text": "Connect a list or record",
+        "visible": {
+          "formula": "not linked(list) or count == 0"
+        }
+      },
+      {
+        "kind": "group",
+        "id": "items",
+        "label": "Items",
+        "value": {
+          "kind": "output",
+          "id": "item",
+          "type": {
+            "kind": "variable",
+            "templateId": "T"
+          },
+          "optional": true
+        },
+        "keys": {
+          "numbered": {
+            "prefix": "",
+            "start": 0,
+            "pad": 0
+          }
+        },
+        "grows": {
+          "count": "count"
+        },
+        "memberLabel": {
+          "formula": "\"Item \" + str(index())"
+        }
+      },
+      {
+        "kind": "button",
+        "id": "set_count",
+        "label": "Set count",
+        "steps": [
+          {
+            "step": "ask",
+            "title": "Set count",
+            "rows": [
+              {
+                "id": "new_count",
+                "type": {
+                  "kind": "concrete",
+                  "types": [
+                    "INT"
+                  ]
+                },
+                "required": true,
+                "default": 0,
+                "widget": {
+                  "type": "NUMBER",
+                  "min": 0,
+                  "max": 512,
+                  "step": 1
+                },
+                "label": "Count"
+              }
+            ]
+          },
+          {
+            "step": "set",
+            "field": "count",
+            "value": {
+              "formula": "new_count"
+            }
+          }
+        ]
+      }
+    ],
+    "validate": [
+      {
+        "check": {
+          "formula": "0 <= count <= 512"
+        },
+        "message": "Count must be from 0 to 512."
+      }
+    ],
+    "searchTerms": [
+      "split list",
+      "items"
+    ],
+    "inputValues": true
   }
 }
