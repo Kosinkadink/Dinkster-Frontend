@@ -449,6 +449,157 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
   }
 
   for (const depth of [1, 2]) {
+    it(`boundary/construct-lifecycle/native-depth-${depth}`, async () => {
+      const connection = new DinksterConnection({ id: asConnectionId('construct-lifecycle-live'),
+        baseUrl: LIVE_URL!, clientId: `construct-lifecycle-${process.pid}` })
+      const registry = await connection.fetchSchemas()
+      const document = JSON.parse(readFileSync(new URL('./fixtures/boundary-sample.json', import.meta.url), 'utf8')) as WorkflowDocument
+      if (depth === 1) {
+        delete (document.graphs as Record<string, unknown>).portrait
+        for (const id of ['first', 'second']) Object.assign(document.graphs.root!.nodes[id]!, { type: '#detail' })
+      }
+      for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+        if (types[node.type]) Object.assign(node, { type: types[node.type] })
+      }
+      Object.assign(document.graphs.root!.nodes.first!, {
+        values: { strength: 0.2, count: 3, 'layers.layer0.strength': 0.29, 'layers.layer1.strength': 0.83,
+          'mode.mix': 0.61, 'mode.text': 'lifecycle private caption' },
+        dynamic: { layers: { members: ['layer1', 'layer0'] }, mode: { selected: 'text' } },
+      })
+      Object.assign(document.graphs.root!.nodes.second!, {
+        values: { strength: 0.8, count: 2, 'layers.layer0.strength': 0.91, 'mode.mix': 0.43 },
+        dynamic: { layers: { members: ['layer0'] }, mode: { selected: 'image' } },
+      })
+      Object.assign(document.graphs.root!.links, {
+        memberInput: { id: 'memberInput', from: { node: 'imageA', port: 'image' },
+          to: { node: 'first', port: 'layers.layer0.image' } },
+        memberOutput: { id: 'memberOutput', from: { node: 'first', port: 'layers.layer0.result' },
+          to: { node: 'sink', port: 'number' } },
+      })
+      const storeFor = (doc: WorkflowDocument) => new DocumentStore(doc, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, registry.resolve) }))
+      const expected = (sibling: boolean, mix = 0.61) => ({
+        description: {}, image: null, mask: null, source: null, strength: sibling ? 0.8 : 0.2,
+        layers: [{ key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null },
+          ...(sibling ? [{ key: 'layer2', strength: 0.91, image: null }] : [
+            { key: 'layer3', strength: 0.83, image: null },
+            { key: 'layer2', strength: 0.29, image: [0.125, 0.25, 0.5] },
+          ])],
+        mode: { key: sibling ? 'image' : 'text', mix: sibling ? 0.43 : mix,
+          picture: null, text: sibling ? null : 'lifecycle private caption' },
+        nested: [{ key: 'n0', weights: [{ key: 'w0', value: 0.3 }] },
+          { key: 'n1', weights: [{ key: 'w0', value: 0.3 }, { key: 'w1', value: 0.3 }] }],
+      })
+      const second = depth === 1 ? 'second.sample' : 'second.detail.sample'
+      const run = async (phase: string, doc: WorkflowDocument, first: string, muted = false, mix = 0.61) => {
+        const loaded = loadDocument(JSON.parse(JSON.stringify(doc))).document!
+        expect(loaded).toEqual(doc)
+        expect(loaded.graphs.detail).toEqual(document.graphs.detail)
+        expect(loaded.graphs.portrait).toEqual(document.graphs.portrait)
+        expect(loaded.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
+        const compiled = compile({ document: loaded, revision: 1, resolve: registry.resolve, scope: { kind: 'full' },
+          connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Construct lifecycle did not compile')
+        if (muted) expect(compiled.artifact.prompt.sink!.inputs.number).toEqual({
+          $absent: { reason: expect.stringContaining('muted') },
+        })
+        else expect(compiled.artifact.prompt.sink!.inputs.number).toEqual([first, 3])
+        const submitted = await connection.submit(compiled.artifact)
+        expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
+        if (!submitted.ok) throw new Error('Construct lifecycle was refused')
+        console.info('Boundary construct lifecycle submission', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt }))
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline) {
+          const job = await connection.fetchJob(submitted.execution.prompt)
+          if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
+          if (job?.state === 'completed') {
+            const outputs = job.outputs as unknown as Record<string, Record<string, { value: unknown }>>
+            const actual: Record<string, unknown> = {}
+            if (muted) expect(outputs[first]).toBeUndefined()
+            for (const nodeId of muted ? [second] : [first, second]) {
+              const query = { jobId: submitted.execution.prompt, nodeId, outputId: 'receipt' }
+              const peek = await connection.values().peek(query)
+              expect(peek.available, JSON.stringify(peek)).toBe(true)
+              if (!peek.available) throw new Error('Construct lifecycle receipt unavailable')
+              const text = await connection.values().rendition(query, 'text', { descriptor: peek.descriptor })
+              expect(text.available, JSON.stringify(text)).toBe(true)
+              if (!text.available) throw new Error('Construct lifecycle text unavailable')
+              actual[nodeId] = JSON.parse(new TextDecoder().decode(text.bytes))
+              console.info('Boundary construct lifecycle node receipt', JSON.stringify({ depth, phase,
+                jobId: submitted.execution.prompt, nodeId, expected: expected(nodeId === second, mix), actual: actual[nodeId] }))
+              expect(actual[nodeId], nodeId).toEqual(expected(nodeId === second, mix))
+              expect(outputs[nodeId]?.output91?.value).toBe(91)
+            }
+            expect(outputs.sink?.received?.value).toBe(muted ? 'null' : '0.29')
+            console.info('Boundary construct lifecycle receipt', JSON.stringify({ depth, phase,
+              jobId: submitted.execution.prompt, actual, sink: outputs.sink?.received?.value }))
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        throw new Error('Construct lifecycle did not complete')
+      }
+      const first = depth === 1 ? 'first.sample' : 'first.detail.sample'
+      await run('baseline', document, first)
+      const detached = storeFor(document)
+      for (const invocation of [
+        { command: 'occurrence.localize', params: { graphId: 'root', nodeId: 'first' } },
+        { command: 'node.setValues', params: { graphId: 'root', nodeId: 'first', values: {}, unset: ['mode.mix'] } },
+      ]) expect(detached.dispatch(invocation as CommandInvocation).ok).toBe(true)
+      const privateGraph = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+      expect(detached.dispatch({ command: 'node.setValue', params: { graphId: privateGraph,
+        nodeId: depth === 1 ? 'sample' : 'detail', inputId: 'mode.mix', value: 0.79 } }).ok).toBe(true)
+      const privateEdit = detached.doc
+      for (let step = 0; step < 3; step++) expect(detached.undo()).toBe(true)
+      expect(detached.doc).toEqual(document)
+      for (let step = 0; step < 3; step++) expect(detached.redo()).toBe(true)
+      expect(detached.doc).toEqual(privateEdit)
+      await run('detached-private-edit', detached.doc, first, false, 0.79)
+      for (const mode of ['active', 'muted', 'bypassed'] as const) {
+        const session = storeFor(document)
+        if (mode !== 'active') expect(session.dispatch({ command: 'node.setMode',
+          params: { graphId: 'root', nodeIds: ['first'], mode } }).ok).toBe(true)
+        const before = session.doc, root = before.graphs.root!, node = root.nodes.first!, body = before.graphs[node.type.slice(1)]!
+        const resolve = documentResolver(before, registry.resolve)
+        const plan = planFlattenBoundaryRoutes(body, resolve, node, root)
+        const topology = planFlattenOccurrenceTopology(before, resolve, { instancePath: [], node: node.id })
+        const topologyParams = topology.plan === undefined ? {} : { occurrenceTopologyPlan: topology.plan,
+          occurrenceTopologyPlanDigest: lifecycleCanonicalHash(topology.plan) }
+        const fingerprint = lifecycleFlattenFingerprint(before, 'root', 'first', { boundaryPlan: plan.boundaryPlan,
+          statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest, ...topologyParams })
+        const result = session.dispatch({ command: 'subgraph.flatten', params: {
+          graphId: 'root', instancePath: [], nodeId: 'first', placementCenter: { x: 100, y: 100 },
+          resolvedGeometry: { occurrence: { id: 'first', kind: 'node', x: 0, y: 0, width: 200, height: 200 },
+            body: Object.keys(body.nodes).map((id) => ({ id, kind: 'node', x: 0, y: 0, width: 200, height: 200 })) },
+          boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaSnapshot: plan.schemaSnapshot,
+          schemaPlanDigest: plan.schemaPlanDigest, selectionFingerprint: fingerprint, ...topologyParams,
+        } } as unknown as CommandInvocation)
+        if (mode === 'bypassed') {
+          expect(result.ok).toBe(false)
+          expect(result.diagnostics.map((item) => item.code)).toContain('subgraph.flatten.modeUnsupported')
+          expect(session.doc).toBe(before)
+          continue
+        }
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+        const flattened = session.doc
+        const replacement = Object.values(flattened.graphs.root!.nodes).find((entry) => root.nodes[entry.id] === undefined)!
+        expect(replacement).toBeDefined()
+        expect(session.undo()).toBe(true)
+        expect(session.doc.graphs).toEqual({ ...before.graphs, root: { ...root, nextOrdinal: flattened.graphs.root!.nextOrdinal } })
+        expect(session.redo()).toBe(true)
+        expect(session.doc).toEqual(flattened)
+        await run(`${mode}-flatten`, flattened, depth === 1 ? replacement.id : `${replacement.id}.sample`, mode === 'muted')
+        if (mode === 'muted') {
+          expect(session.dispatch({ command: 'node.setMode', params: { graphId: 'root',
+            nodeIds: [replacement.id], mode: 'active' } }).ok).toBe(true)
+          await run('muted-reactivated', session.doc, depth === 1 ? replacement.id : `${replacement.id}.sample`)
+        }
+      }
+    }, 120_000)
+  }
+
+  for (const depth of [1, 2]) {
     it(`boundary/buttons/native-depth-${depth}`, async () => {
       const connection = new DinksterConnection({ id: asConnectionId('button-live'), baseUrl: LIVE_URL!, clientId: `buttons-${process.pid}` })
       const registry = await connection.fetchSchemas()
