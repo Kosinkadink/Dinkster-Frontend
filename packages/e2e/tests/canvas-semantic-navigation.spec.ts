@@ -1,7 +1,9 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
-import { expect, setShellRegion, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import type { NodeSchema } from '@dinkster/core'
+import schemas from '../../core/test/fixtures/synthetic-schemas.json' with { type: 'json' }
+import { expect, mockProjectPacks, nativeTest as test, setShellRegion, waitForWorkspaceReady, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_CANVAS_SEMANTIC_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -15,12 +17,20 @@ const capture = async (page: Page, testInfo: TestInfo, name: string): Promise<vo
 }
 
 test.beforeEach(async ({ page }) => {
+  await mockProjectPacks(page)
+  await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'e2e', schemaWire: 2 }, nodes: {},
+  } }))
+  await page.routeWebSocket('**/api/events?*', () => {})
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
-  await waitForWorkspaceReady(page)
+  await waitForWorkspaceReady(page, 0)
+  await page.evaluate((serialized) => {
+    window.__dinksterTest!.app.registerSchemas(JSON.parse(serialized) as NodeSchema[])
+  }, JSON.stringify(Object.values(schemas)))
 })
 
-test('semantic scene navigation stays virtual until focused and pans only on activation', async ({ page }, testInfo) => {
+test('semantic scene navigation stays virtual until focused and leaves visible targets in place', async ({ page }, testInfo) => {
   const diagnostics = await page.evaluate(async () => (await window.__dinksterTest!.app.openDocument(
     window.__dinksterTest!.syntheticWorkflow({ chains: 4, chainLength: 10, reroutes: true }),
     'Semantic navigation proof',
@@ -99,9 +109,9 @@ test('semantic scene navigation stays virtual until focused and pans only on act
     await page.keyboard.press('ArrowDown')
   }
   await expect(active).toHaveAttribute('data-kind', 'widget')
-  await expect(active).toHaveText(/^Row: width of .+, 64$/)
+  await expect(active).toHaveAccessibleName(/^Row: width of .+, 64$/)
   await page.keyboard.press('Enter')
-  await expect(active).toHaveAttribute('aria-selected', 'true')
+  await expect(active).toHaveAttribute('aria-selected', 'false')
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()!.store.doc))).toBe(before.document)
 
@@ -138,11 +148,46 @@ test('semantic scene navigation stays virtual until focused and pans only on act
   await page.keyboard.press('Escape')
   await expect(page.locator('.widget-in-row-field')).toHaveCount(0)
 
+  await page.setViewportSize({ width: 900, height: 620 })
+  await setShellRegion(page, 'bottom', true)
+  await navigator.focus()
+  await page.keyboard.press('Home')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(active).toHaveAttribute('data-kind', 'port')
+  await expect(active).toHaveAccessibleName(/^Output: width /)
+  await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes[0]!
+    const pin = node.layout.pins.find((candidate) => candidate.direction === 'out' && candidate.widgetTap === true)!
+    const canvas = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
+    const toolbar = document.querySelector('.canvas-stage-toolbar')!.getBoundingClientRect()
+    renderer.setViewport({
+      x: 280 - node.x - node.layout.width,
+      y: toolbar.bottom + 120 - canvas.top - node.y - pin.y,
+      scale: 1,
+    })
+  })
+  await expect.poll(() => navigator.evaluate((listbox) => {
+    const panel = listbox.parentElement!.getBoundingClientRect()
+    const toolbar = listbox.closest('.canvas-stage')!.querySelector('.canvas-stage-toolbar')!.getBoundingClientRect()
+    return panel.top >= toolbar.bottom
+  })).toBe(true)
+
   await page.setViewportSize({ width: 390, height: 844 })
   await setShellRegion(page, 'right', false)
   await navigator.focus()
+  await page.keyboard.press('Home')
   await expect(navigator).toBeFocused()
   await expect(navigator.getByRole('option')).toHaveCount(5)
+  await expect.poll(() => navigator.evaluate((listbox) => {
+    const panel = listbox.parentElement!.getBoundingClientRect()
+    const stage = listbox.closest('.canvas-stage')!.getBoundingClientRect()
+    const bar = listbox.closest('.canvas-stage')!.querySelector('.canvas-corner-bar')!.getBoundingClientRect()
+    const toolbar = listbox.closest('.canvas-stage')!.querySelector('.canvas-stage-toolbar')!.getBoundingClientRect()
+    return panel.top >= toolbar.bottom && panel.bottom <= bar.top && panel.left >= stage.left && panel.right <= stage.right
+  })).toBe(true)
   await capture(page, testInfo, 'narrow-selected-node')
 
   await page.keyboard.press('Escape')

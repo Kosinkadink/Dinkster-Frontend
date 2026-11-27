@@ -14,7 +14,7 @@ import {
   type CollectionEntry,
   type CollectionSource,
 } from '@dinkster/core'
-import { HISTORY_STATES, type ExecutionState, type HistoryRunRecord, type LibraryRecord, type TemplateDescriptor } from '@dinkster/client'
+import { HISTORY_STATES, type ExecutionState, type HistoryPage, type HistoryRunRecord, type LibraryRecord, type TemplateDescriptor } from '@dinkster/client'
 import { LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState, type Backend } from './app-state.js'
 import { runAttributionLabel, type RunAttribution } from './run-attribution.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
@@ -415,7 +415,7 @@ const runEntry = (r: HistoryRunRecord, owner: string): CollectionEntry => ({
   id: r.runId,
   ref: r,
   owner,
-  title: `${titleCase(r.state)} run`,
+  title: r.workflowName ?? `${titleCase(r.state)} run`,
   subtitle: `${timeText(r.finishedAt)} - ${r.jobId}`,
   badges: [
     ...attributionBadges({ principalId: r.principalId, kind: r.principalKind }),
@@ -562,20 +562,25 @@ export function runsSource(app: AppState): CollectionSource {
     label: 'Runs',
     page: async (req) => {
       const backend = app.libraryBackend()
-      if (!backend) return { items: [], total: 0 }
+      if (!backend) return { items: [], total: 0, disabledActions: ['clear'] }
       const cursor = decodeOwnedCursor(backend.id, req.cursor)
       const filter = runsFilterOf(req.query)
-      if (filter === undefined) return { owner: backend.id, items: [], total: 0 }
-      const page = await backend.connection.listHistory({
+      const listing: Promise<HistoryPage> = filter === undefined ? Promise.resolve({ records: [] }) : backend.connection.listHistory({
         scope: LIBRARY_SCOPE,
         ...filter,
         limit: req.limit,
         ...(cursor !== undefined ? { cursor } : {}),
       })
+      // A query or continuation can hide every row without emptying the backend.
+      const corpus = req.query.trim() === '' && cursor === undefined ? listing
+        : backend.connection.listHistory({ scope: LIBRARY_SCOPE, limit: 1 })
+      const [page, unfiltered] = await Promise.all([listing, corpus])
       const nextCursor = encodeOwnedCursor(backend.id, page.cursor)
       return {
         owner: backend.id,
+        disabledActions: unfiltered.records.length === 0 ? ['clear'] : [],
         items: groupNoOpHistoryRuns(page.records).map((row) => runRowEntry(row, backend.id)),
+        ...(filter === undefined ? { total: 0 } : {}),
         ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
       }
     },

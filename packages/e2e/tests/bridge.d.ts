@@ -35,6 +35,7 @@ interface DinksterBridgeSceneNode {
       address?: { port: string; members?: readonly string[] }
       /** Field rows shown on the subgraph node without a wire. */
       subgraphMark?: { item: string; label: string }
+      familyOwner?: { graphId: string; nodeId: string; valueKey?: string }
       input?: { portId: string }
       output?: { portId: string }
       sectionId?: string
@@ -140,6 +141,7 @@ interface DinksterBridgeTab {
     /** Undo one revision; false when there is nothing to undo. */
     undo(): boolean
     redo(): boolean
+    historySnapshot(): { undo: readonly unknown[]; redo: readonly unknown[] }
     /** Dispatch a command invocation (perf specs drive the full loop). */
     dispatch(invocation: { command: string; params: unknown }): {
       ok: boolean
@@ -334,6 +336,7 @@ interface DinksterTestBridge {
     graphViewport(tabId: string, graphId: string): { x: number; y: number; scale: number } | undefined
     setGraphViewport(tabId: string, graphId: string, viewport: { x: number; y: number; scale: number }): void
     confirmStartupOwnership(): Promise<void>
+    enableWorkspaceAuthority(): Promise<void>
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
     renameTab(id: string, title: string): void
@@ -341,7 +344,7 @@ interface DinksterTestBridge {
     createRegion(tab: DinksterBridgeTab, graphId: string, position: { x: number; y: number }, kind: 'map' | 'fold' | 'while'):
       Promise<{ ok: boolean; diagnostics: readonly unknown[] }>
     closeTab(id: string): void
-    migrationNotices: { get(): ReadonlyMap<string, unknown> }
+    adjustmentNotices: { get(): ReadonlyMap<string, unknown> }
     dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }):
       | { ok: boolean; diagnostics?: readonly unknown[] }
       | Promise<{ ok: boolean; diagnostics?: readonly unknown[] }>
@@ -670,10 +673,12 @@ interface DinksterTestBridge {
         side: 'inputs' | 'outputs'
         x: number
         y: number
+        fields?: { node: { values: Readonly<Record<string, unknown>> } }
         layout: {
           width: number
           height: number
           headerHeight: number
+          rows: DinksterBridgeSceneNode['layout']['rows']
           pins: ReadonlyArray<{ portId: string; direction: 'in' | 'out'; y: number }>
         }
       }>

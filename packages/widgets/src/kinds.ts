@@ -110,6 +110,14 @@ export const intKind: WidgetKind<IntegerWidgetValue> = {
     : isIntegerWidgetValue(spec.options['min']) ? spec.options['min'] : 0,
   validate: (value, spec) => integerRangeDiags(value, spec),
   defaultView: (spec) => spec.options['display'] === 'color' ? 'core.integerColor' : 'core.number',
+  representations: (spec) => spec.options['display'] === 'color' ? {
+    default: 'color',
+    userSwitchable: true,
+    representations: [
+      { id: 'color', displayName: 'Color', widget: { ...spec } },
+      { id: 'number', displayName: 'Number', widget: { ...spec, options: { ...spec.options, display: 'number' } } },
+    ],
+  } : undefined,
 }
 
 /**
@@ -327,8 +335,13 @@ export interface CurvePoint {
 }
 
 export interface CurveValue {
-  readonly interpolation?: 'linear' | 'monotone_cubic'
+  readonly interpolation?: 'linear' | 'monotone_cubic' | 'step'
   readonly points: readonly CurvePoint[]
+}
+
+export function curveEditorInterpolations(options: Readonly<Record<string, unknown>>): readonly NonNullable<CurveValue['interpolation']>[] {
+  return options['interpolations'] as readonly NonNullable<CurveValue['interpolation']>[] | undefined
+    ?? ['linear', 'monotone_cubic', 'step']
 }
 
 const hasExactKeys = (value: object, keys: readonly string[]): boolean => {
@@ -339,7 +352,7 @@ const hasExactKeys = (value: object, keys: readonly string[]): boolean => {
 export function isCurveValue(value: unknown): value is CurveValue {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const curve = value as Partial<CurveValue>
-  if (curve.interpolation !== undefined && curve.interpolation !== 'linear' && curve.interpolation !== 'monotone_cubic') return false
+  if (curve.interpolation !== undefined && curve.interpolation !== 'linear' && curve.interpolation !== 'monotone_cubic' && curve.interpolation !== 'step') return false
   if (!hasExactKeys(value, curve.interpolation === undefined ? ['points'] : ['interpolation', 'points'])) return false
   if (!Array.isArray(curve.points) || curve.points.length < 1 || curve.points.length > 4096) return false
   let previous = -Infinity
@@ -500,6 +513,7 @@ export function curveInterpolator(curve: CurveValue): (position: number) => numb
     }
     const left = points[low]!
     const right = points[high]!
+    if (curve.interpolation === 'step') return left.value
     const span = right.position - left.position
     const amount = Number.isFinite(span)
       ? (position - left.position) / span
@@ -931,11 +945,19 @@ export const curveView: WidgetView<Json> = {
   kind: 'CURVE',
   isCompatible: () => true,
   measure: () => ({ rows: 2 }),
+  readout(value, spec) {
+    if (!isCurveValue(value)) return []
+    const kinds = curveEditorInterpolations(spec.options)
+    const interpolation = kinds.length === 1 ? kinds[0] : value.interpolation ?? 'linear'
+    return [`${value.points.length} ${value.points.length === 1 ? 'point' : 'points'}, ${t(interpolation === 'step' ? 'inNodeCurve.step' : interpolation === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic')}`]
+  },
   drawCompact(ctx, value, spec, state) {
     ctx.rect(0, 0, 1, 2, { role: 'widgetBackground', focused: state.focused, connected: state.connected })
     // A wire decides a connected curve: what it brought is drawn, and nothing before a run.
-    const curve = isCurveValue(value) ? value
+    const stored = isCurveValue(value) ? value
       : state.connected ? undefined : curveKind.defaultValue(spec) as unknown as CurveValue
+    const kinds = curveEditorInterpolations(spec.options)
+    const curve = stored === undefined ? undefined : kinds.length === 1 ? { ...stored, interpolation: kinds[0]! } : stored
     const points = curve?.points ?? []
     const interpolate = curve === undefined ? undefined : curveInterpolator(curve)
     const samples = interpolate === undefined ? []
@@ -945,13 +967,14 @@ export const curveView: WidgetView<Json> = {
     // The folded square of the raised look: the plot in small, with its points.
     ctx.rect(0, 0, 1, 2, {
       role: 'curveSketch',
+      interpolation: curve?.interpolation ?? 'linear',
       samples,
       points: points.map((point) => [point.position, point.value]),
       held: points.length === 0 ? [] : [points[0]!.position, points[points.length - 1]!.position],
     })
     ctx.text(1, 0, `${points.length} ${points.length === 1 ? 'point' : 'points'}`, { role: 'widgetValue', align: 'right', width: 1 })
     if (curve !== undefined) {
-      ctx.text(0, 1, t((curve.interpolation ?? 'linear') === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic'), { role: 'curveJoin' })
+      ctx.text(0, 1, t(curve.interpolation === 'step' ? 'inNodeCurve.step' : (curve.interpolation ?? 'linear') === 'linear' ? 'inNodeCurve.linear' : 'inNodeCurve.monotoneCubic'), { role: 'curveJoin' })
     }
     if (!state.readonly) ctx.hitRegion(0, 0, 1, 2, 'widget.edit')
   },
@@ -1127,11 +1150,15 @@ export const saveTargetView: WidgetView<SaveTarget | ProjectDefaultTarget | null
     const projectMount = facts?.projectMount ?? t(facts === undefined ? 'saveTargetWidget.projectDefault' : 'saveTargetWidget.noOutputMount')
     const declared = isSaveTarget(spec.default) || isProjectDefaultTarget(spec.default) ? spec.default : undefined
     const shown: SaveTarget | ProjectDefaultTarget | null = value === null && declared !== undefined ? { prefix: declared.prefix } : value
+    const named = isSaveTarget(shown) ? shown : undefined
+    if (facts !== undefined && (named === undefined || !facts.ready.includes(named.mount))) {
+      const severity = facts.projectMount === undefined ? 'error' : named === undefined ? undefined : 'warning'
+      if (severity !== undefined) ctx.rect(0, 0, 1, 1, { role: 'widgetProblem', severity })
+    }
     if (shown === null) {
       compactRow(ctx, label, t('saveTargetWidget.default'), state, 'widget.edit', true)
       return
     }
-    const named = isSaveTarget(shown) ? shown : undefined
     if (named !== undefined && (facts === undefined || facts.ready.includes(named.mount))) {
       compactRow(ctx, label, `${named.mount}/${named.prefix}`, state, 'widget.edit', false,
         { shorter: named.prefix.includes('/') ? [`${named.mount}/.../${named.prefix.split('/').at(-1)}`] : [] })
@@ -1140,7 +1167,7 @@ export const saveTargetView: WidgetView<SaveTarget | ProjectDefaultTarget | null
     compactRow(ctx, label, named !== undefined ? `${named.mount}/${named.prefix}` : `${projectMount}/${shown.prefix}`, state, 'widget.edit', false, {
       parts: [
         ...(named !== undefined ? [{ text: named.mount, look: 'gone' }] : []),
-        ...(named !== undefined && facts?.projectMount === undefined ? [] : [{ text: projectMount, look: 'resolved' }]),
+        { text: projectMount, look: 'resolved' },
         { text: `/${shown.prefix}` },
       ],
     })

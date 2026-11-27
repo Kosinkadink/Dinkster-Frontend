@@ -62,6 +62,7 @@ import { buildGraphConnectivity } from '../schema/elaborate.js'
 import { graphAllocator } from './alloc.js'
 import type { CommandDefinition, CommandExecutionContext, TransactionBuilder } from './contract.js'
 import { groupAllocationFloor } from '../group-alloc.js'
+import { belongsToGroup, initialGroupMembership, remapGroupMembership } from '../group-membership.js'
 import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.js'
 import { planSubgraphDefinitionCleanup } from '../lifecycle/definition-cleanup.js'
 import { NET_VIEWS_EXT_KEY, netViewToJson, parseNetViewPosition, type NetViewGeometry } from '../format/net-views.js'
@@ -404,11 +405,6 @@ function hasSelectedModePanelBinding(
   return false
 }
 
-function pointInsideGroup(position: { readonly x: number; readonly y: number }, group: GroupViewState): boolean {
-  return position.x >= group.bounds.x && position.x <= group.bounds.x + group.bounds.width &&
-    position.y >= group.bounds.y && position.y <= group.bounds.y + group.bounds.height
-}
-
 function emptiedParentGroups(
   view: GraphViewState,
   selection: LifecycleSelection,
@@ -416,7 +412,11 @@ function emptiedParentGroups(
 ): readonly string[] {
   const movedInside = (group: GroupViewState): boolean => resolvedGeometry.some((item) => {
     if (item.kind === 'group') return false
-    return pointInsideGroup({ x: item.x + item.width / 2, y: item.y + item.height / 2 }, group)
+    if (view.groupMembership !== undefined)
+      return belongsToGroup(view.groupMembership, item.kind === 'node' ? 'nodes' : 'reroutes', item.id, group.id)
+    return item.x >= group.bounds.x && item.y >= group.bounds.y &&
+      item.x + item.width <= group.bounds.x + group.bounds.width &&
+      item.y + item.height <= group.bounds.y + group.bounds.height
   })
   const hasRetainedPositionable =
     Object.keys(view.nodes).some((id) => !selection.nodeIds.includes(id)) ||
@@ -814,6 +814,10 @@ const subgraphExtract: CommandDefinition = {
       ...(innerCursor.actorCursors !== undefined ? { actorCursors: innerCursor.actorCursors } : {}),
     }
     const parentViewState = doc.view.graphs[graphId] ?? { nodes: {} }
+    const parentMembership = parentViewState.groupMembership ?? initialGroupMembership([
+      ...Object.values(parentViewState.groups ?? {}).map((group) => ({ kind: 'groups' as const, id: group.id, ...group.bounds })),
+      ...resolvedGeometry.filter((item) => item.kind !== 'group').map((item) => ({ ...item, kind: item.kind === 'node' ? 'nodes' as const : 'reroutes' as const })),
+    ])
     const emptiedGroups = emptiedParentGroups(parentViewState, selection, resolvedGeometry)
     const parentViewNodes = { ...parentViewState.nodes }
     for (const id of selection.nodeIds) delete parentViewNodes[id]
@@ -839,9 +843,11 @@ const subgraphExtract: CommandDefinition = {
     }
     const parentGroups = { ...(parentViewState.groups ?? {}) }
     const innerGroups: Record<string, GroupViewState> = {}
+    const groupIds = new Map<string, string>()
     for (const [index, oldId] of selection.groupIds.entries()) {
       const group = parentViewState.groups![oldId]!
       const id = `grp${index}`
+      groupIds.set(oldId, id)
       delete parentGroups[oldId]
       const position = translatedPosition(translatedGeometry, 'group', oldId)
       innerGroups[id] = { ...group, id, bounds: { ...group.bounds, ...position } }
@@ -858,6 +864,9 @@ const subgraphExtract: CommandDefinition = {
       .map(([, newId]) => newId)
     const freshView: GraphViewState = {
       nodes: innerViewNodes,
+      ...(selection.groupIds.length > 0 || parentViewState.groupMembership !== undefined ? { groupMembership: remapGroupMembership(parentMembership, {
+        nodes: nodeIds, reroutes: rerouteIds, groups: groupIds, boundary: new Map(),
+      }) } : {}),
       ...(selection.rerouteIds.length > 0 ? { reroutes: innerViewReroutes } : {}),
       ...(selection.groupIds.length > 0 ? { groups: innerGroups, groupSeq: selection.groupIds.length } : {}),
       ...(innerCollapsedNets.length > 0 ? { collapsedNets: innerCollapsedNets } : {}),
@@ -925,6 +934,12 @@ const subgraphExtract: CommandDefinition = {
         tx.set(['view', 'graphs', graphId, 'guideNets'], parentGuideNets as unknown as Json)
       }
     }
+    if (parentViewState.groupMembership !== undefined) tx.set(['view', 'graphs', graphId, 'groupMembership'], remapGroupMembership(parentMembership, {
+      nodes: new Map(Object.keys(parentViewNodes).map((id) => [id, id])),
+      reroutes: new Map(Object.keys(parentViewReroutes).map((id) => [id, id])),
+      groups: new Map(Object.keys(parentGroups).map((id) => [id, id])),
+      boundary: new Map(['inputs', 'outputs'].map((side) => [side, side])),
+    }) as unknown as Json)
     parentAllocator.commit()
     return [
       ...(geometryPlan.usedPlacementFallback
@@ -1838,9 +1853,11 @@ const subgraphFlatten: CommandDefinition = {
       }
     }
     const groups = { ...(parentView.groups ?? {}) }
+    const groupIds = new Map<string, string>()
     for (const [index, oldId] of bodySelection.groupIds.entries()) {
       const old = bodyView!.groups![oldId]!
       const id = `grp${groupFloor + index}`
+      groupIds.set(oldId, id)
       const position = translatedPosition(translated, 'group', oldId)
       groups[id] = { ...old, id, bounds: { ...old.bounds, ...position } }
     }
@@ -1852,9 +1869,25 @@ const subgraphFlatten: CommandDefinition = {
       ...(parentView.guideNets ?? []).filter((id) => !removedParentNetIds.has(id)),
       ...(bodyView?.guideNets ?? []).map((id) => clonedNetIds.get(id)).filter((id): id is string => id !== undefined),
     ]
+    const bodyMembership = bodyView?.groupMembership ?? initialGroupMembership(bodyItems!.map((item) => ({
+      ...item, kind: item.kind === 'group' ? 'groups' as const : item.kind === 'node' ? 'nodes' as const : 'reroutes' as const,
+    })))
+    const clonedMembership = remapGroupMembership(bodyMembership, { nodes: nodeIds, reroutes: rerouteIds, groups: groupIds, boundary: new Map() })
+    const parentMembership = parentView.groupMembership === undefined ? undefined : remapGroupMembership(parentView.groupMembership, {
+      nodes: new Map(Object.keys(viewNodes).map((id) => [id, id])),
+      reroutes: new Map(Object.keys(viewReroutes).map((id) => [id, id])),
+      groups: new Map(Object.keys(groups).map((id) => [id, id])),
+      boundary: new Map(['inputs', 'outputs'].map((side) => [side, side])),
+    })
     const stagedView: GraphViewState = {
       ...parentView,
       nodes: viewNodes,
+      ...(groupCount > 0 || parentView.groupMembership !== undefined ? { groupMembership: {
+        nodes: { ...parentMembership?.nodes, ...clonedMembership.nodes },
+        reroutes: { ...parentMembership?.reroutes, ...clonedMembership.reroutes },
+        groups: { ...parentMembership?.groups, ...clonedMembership.groups },
+        boundary: { ...parentMembership?.boundary },
+      } } : {}),
       ...(Object.keys(viewReroutes).length > 0 || parentView.reroutes !== undefined ? { reroutes: viewReroutes } : {}),
       ...(Object.keys(groups).length > 0 || parentView.groups !== undefined ? { groups } : {}),
       ...(groupCount > 0 ? { groupSeq: groupFloor + groupCount } : {}),

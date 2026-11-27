@@ -222,12 +222,12 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
   const [boxHeight, setBoxHeight] = createSignal(0)
   const placement = createMemo(() => {
     const row = rowPlacement(
-      { rect: ed.rect, look: inRow.look, nodeTop: inRow.nodeTop, nodeBottom: inRow.nodeBottom },
+      { ...inRow, rect: ed.rect },
       host.viewport(),
       bounds(),
       sideSize(),
     )
-    return { ...row, ...canvasTargetLayout(row.screen, bounds(), boxHeight(), sideSize(), row.scale) }
+    return { ...row, ...canvasTargetLayout(row.screen, bounds(), boxHeight(), sideSize(), row.scale, row.sideEdges) }
   })
   let frame!: HTMLDivElement
   createEffect(() => placeRow(frame, placement()))

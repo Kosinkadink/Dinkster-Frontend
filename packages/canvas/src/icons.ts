@@ -101,7 +101,7 @@ import Repeat from 'lucide/dist/esm/icons/repeat.mjs'
 import type { ToolboxButton } from './toolbox.js'
 import { canvasPaintTokens } from './tokens.js'
 
-type IconNode = readonly (readonly [string, Readonly<Record<string, string>>])[]
+export type IconNode = readonly (readonly [string, Readonly<Record<string, string>>])[]
 
 /**
  * The subgraph icon in Lucide's 24-unit element form, so DOM menus draw the
@@ -221,7 +221,7 @@ export function paintToolboxIcon(
     ctx.restore()
     return
   }
-  paintIcon(ctx, ICONS[icon], x, y, size, color)
+  paintIconNodes(ctx, ICONS[icon], x, y, size, color)
 }
 
 /** Paint the icon-only status for an after-generate controller chip. */
@@ -233,7 +233,7 @@ export function paintSeedControllerIcon(
   size: number,
   color: string,
 ): void {
-  paintIcon(ctx, CONTROLLER_ICONS[mode], x, y, size, color)
+  paintIconNodes(ctx, CONTROLLER_ICONS[mode], x, y, size, color)
 }
 
 /** Paint a seed's after-run mode as drawn before the value of an in-row number. */
@@ -245,10 +245,11 @@ export function paintSeedModeIcon(
   size: number,
   color: string,
 ): void {
-  paintIcon(ctx, SEED_MODE_ICONS[mode], x, y, size, color)
+  paintIconNodes(ctx, SEED_MODE_ICONS[mode], x, y, size, color)
 }
 
-function paintIcon(ctx: CanvasRenderingContext2D, nodes: IconNode, x: number, y: number, size: number, color: string): void {
+/** Paint Lucide's 24px SVG node data, `size` pixels square at (x, y). */
+export function paintIconNodes(ctx: CanvasRenderingContext2D, nodes: IconNode, x: number, y: number, size: number, color: string): void {
   const scale = size / canvasPaintTokens.icon.viewBoxSize
   ctx.save()
   ctx.translate(x, y)

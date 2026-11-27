@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { render } from 'solid-js/web'
+import { createSignal } from 'solid-js'
 import { defaultTokens, type WidgetMeasure } from '@dinkster/canvas'
 import { createInNodeEditorScene } from '../../canvas/gallery/in-node-editors.js'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
@@ -87,10 +88,94 @@ it('describes unknown wired values once without implying recording or known angl
   recorder.dispose()
 })
 
+it('stops a camera stream whose permission arrives after its editor closes', async () => {
+  let grant!: (stream: MediaStream) => void
+  const stop = vi.fn()
+  const getUserMedia = vi.fn(() => new Promise<MediaStream>((resolve) => { grant = resolve }))
+  vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } })
+  dispose = render(() => <WebcamSpace value={undefined} carried={undefined} wired={false} covered={false}
+    ports={{ upload: vi.fn(), fetchBytes: undefined, size: () => ({ width: 32, height: 32 }), commit: vi.fn() }} />, document.body)
+  const start = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Start camera'))!
+  start.click()
+  expect(getUserMedia).toHaveBeenCalledTimes(1)
+  dispose()
+  dispose = undefined
+  grant({ getTracks: () => [{ stop }] } as unknown as MediaStream)
+  await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1))
+})
+
 it.each([false, true])('distinguishes an empty model from an unknown wired model (wired=%s)', async (wired) => {
   dispose = render(() => <Load3dSpace value={undefined} wired={wired} sourceKey="empty" captures={false} live={false}
     onWake={() => {}} openSections={[]} cameraWired={wired} placementWired={wired}
     ports={{ open: async () => { throw new Load3dSourceError('noModel') }, upload: undefined, commit: () => {}, setSection: () => {} }} />, document.body)
   await vi.waitFor(() => expect(document.body.textContent).toContain(wired ? 'Not known yet' : 'No model chosen'))
   expect(document.body.textContent).not.toContain(wired ? 'No model chosen' : 'Not known yet')
+})
+
+it.each(['recorder', 'webcam', 'load3d'] as const)('opens the full %s failure from its short editor note', async (editor) => {
+  vi.stubGlobal('navigator', { mediaDevices: {
+    getUserMedia: async () => { throw new DOMException('Permission was refused by the browser.', 'NotAllowedError') },
+    enumerateDevices: async () => [],
+  } })
+  vi.stubGlobal('MediaRecorder', class {})
+  let recorder: AudioRecordController | undefined
+  if (editor === 'recorder') {
+    recorder = new AudioRecordController({ upload: vi.fn(), fetchBytes: undefined, commit: vi.fn() })
+    dispose = render(() => <AudioRecordSpace controller={recorder!} value={undefined} />, document.body)
+    document.querySelector<HTMLButtonElement>('button[aria-label="Record"]')!.click()
+  } else if (editor === 'webcam') {
+    dispose = render(() => <WebcamSpace value={undefined} carried={undefined} wired={false} covered={false}
+      ports={{ upload: vi.fn(), fetchBytes: undefined, size: () => ({}), commit: vi.fn() }} />, document.body)
+    ;[...document.querySelectorAll('button')].find(button => button.textContent?.includes('Start camera'))!.click()
+  } else {
+    dispose = render(() => <Load3dSpace value={undefined} sourceKey="missing" captures={false} live={false}
+      onWake={() => {}} openSections={[]} cameraWired={false} placementWired={false}
+      ports={{ open: async () => { throw new Load3dSourceError('unavailable') }, upload: undefined, commit: vi.fn(), setSection: vi.fn() }} />, document.body)
+  }
+  try {
+    const summary = editor === 'recorder' ? 'Permission denied.' : editor === 'webcam' ? 'Camera unavailable.' : 'Model unavailable.'
+    await vi.waitFor(() => expect(document.querySelector('.dinkster-canvas-editor-note-summary')?.textContent).toBe(summary))
+    if (editor !== 'recorder') {
+      expect(document.querySelector('.dinkster-canvas-editor-picture .dinkster-canvas-editor-note-summary')?.textContent).toBe(summary)
+      expect(document.querySelector('.dinkster-canvas-editor-controls .dinkster-canvas-editor-note-summary')).toBeNull()
+    }
+    const details = [...document.querySelectorAll('button')].find(button => button.textContent === 'Details')!
+    expect(details).toBeDefined()
+    details.click()
+    const dialog = document.querySelector('[role="dialog"]')!
+    expect(dialog).not.toBeNull()
+    expect(dialog.textContent).toContain(editor === 'load3d' ? 'The model could not be shown.' : 'Permission was refused by the browser.')
+    expect(dialog.querySelector('strong')?.textContent).toBe(
+      editor === 'recorder' ? 'The browser was not allowed to use the microphone.' : editor === 'webcam' ? 'The camera could not be started.' : 'The model could not be shown.',
+    )
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(details)
+    if (recorder !== undefined) {
+      await recorder.findMicrophones()
+      expect(document.querySelector('.dinkster-canvas-editor-note-summary')?.textContent).toBe('No microphone found.')
+      details.click()
+      expect(document.querySelector('[role="dialog"] strong')?.textContent).toBe('No microphone was found on this computer.')
+      expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Permission was refused by the browser.')
+    }
+  } finally {
+    recorder?.dispose()
+  }
+})
+
+it('keeps a visible webcam frame unobscured and moves its problem back to the picture when the frame goes', async () => {
+  vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => { throw new Error('Camera disconnected.') } } })
+  const frame = { digest: `blake3:${'b'.repeat(64)}`, name: 'Frame.png', size: 12, mediaType: 'image/png', virtualPath: 'frame.png' }
+  const [value, setValue] = createSignal<typeof frame | undefined>(frame)
+  dispose = render(() => <WebcamSpace value={value()} carried={undefined} wired={false} covered={false}
+    ports={{ upload: vi.fn(), fetchBytes: async () => new ArrayBuffer(12), size: () => ({}), commit: vi.fn() }} />, document.body)
+  await vi.waitFor(() => expect(document.querySelector('.dinkster-canvas-editor-picture img')).not.toBeNull())
+  ;[...document.querySelectorAll('button')].find(button => button.textContent?.includes('Start camera'))!.click()
+  await vi.waitFor(() => expect(document.querySelector('.dinkster-canvas-editor-controls .dinkster-canvas-editor-note-summary')?.textContent).toBe('Camera unavailable.'))
+  expect(document.querySelector('.dinkster-canvas-editor-picture img')).not.toBeNull()
+  expect(document.querySelector('.dinkster-canvas-editor-picture-message')).toBeNull()
+  setValue(undefined)
+  await vi.waitFor(() => expect(document.querySelector('.dinkster-canvas-editor-picture .dinkster-canvas-editor-note-summary')?.textContent).toBe('Camera unavailable.'))
+  expect(document.querySelector('.dinkster-canvas-editor-controls .dinkster-canvas-editor-note-summary')).toBeNull()
+  expect(document.querySelector('.dinkster-canvas-editor-picture img')).toBeNull()
 })

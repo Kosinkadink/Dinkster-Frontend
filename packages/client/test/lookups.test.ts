@@ -40,6 +40,56 @@ const call = (node: string, category: string): LookupCall => ({
 })
 
 describe('lookup client', () => {
+  it('separates typed integer and decimal arguments on the wire and in the shared cache', async () => {
+    const bodies: string[] = []
+    const client = createLookupClient({ baseUrl: '', fetchFn: async (_url, init) => {
+      bodies.push(String(init?.body))
+      return new Response(JSON.stringify({ answer: bodies.length, typedAnswer: bodies.length }))
+    } })
+    const base = { ...call('a', 'unused'), typedArgs: true as const }
+    const signal = new AbortController().signal
+    expect(await client.resolve({ ...base, args: [2n] }, 'value', { signal })).toEqual({ state: 'ready', value: 1n })
+    expect(await client.resolve({ ...base, args: [2] }, 'value', { signal })).toEqual({ state: 'ready', value: 2n })
+    expect(bodies).toHaveLength(2)
+    expect(bodies[0]).toContain('"args":[2]')
+    expect(bodies[1]).toContain('"args":[2.0]')
+    expect(await client.resolve({ ...base, args: [2n] }, 'value', { signal })).toEqual({ state: 'ready', value: 1n })
+    expect(await client.resolve({ ...base, args: [2] }, 'value', { signal })).toEqual({ state: 'ready', value: 2n })
+    // Ordinary JSON integer callers share the integer entry, not the decimal one.
+    expect(await client.request({ ...call('b', 'unused'), args: [2] })).toEqual({ state: 'ready', answer: 1 })
+    expect(bodies).toHaveLength(2)
+    await client.resolve({ ...base, args: [[3n, 3, -0], 1e21] }, 'value', { signal })
+    expect(bodies[2]).toContain('"args":[[3,3.0,-0.0],1e+21]')
+    const text = '\u0000bigint0\u0000'
+    await client.resolve({ ...base, args: [text, { [text]: text }, 2] }, 'value', { signal })
+    expect(JSON.parse(bodies[3]!).args).toEqual([text, { [text]: text }, 2])
+    client.dispose()
+  })
+
+  it.each([
+    { typedAnswer: 2, expected: 2n },
+    { typedAnswer: { $float: 2 }, expected: 2 },
+    { typedAnswer: { $int: '9007199254740993' }, expected: 9007199254740993n },
+  ])('keeps typed press values separate from display answers: $typedAnswer', async ({ typedAnswer, expected }) => {
+    const host = fakeHost()
+    const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })
+    const shown = client.request(call('a', 'sd'))
+    await host.answer(200, { answer: 2, typedAnswer })
+    expect(await shown).toEqual({ state: 'ready', answer: 2 })
+    expect(await client.resolve(call('a', 'sd'), 'value', { signal: new AbortController().signal }))
+      .toEqual({ state: 'ready', value: expected })
+    expect(client.entry(call('a', 'sd'))).toEqual({ state: 'ready', answer: 2 })
+    expect(host.seen).toHaveLength(1)
+  })
+
+  it('refuses an untyped value rather than guessing its numeric kind', async () => {
+    const host = fakeHost()
+    const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })
+    const pressed = client.resolve(call('a', 'sd'), 'value', { signal: new AbortController().signal })
+    await host.answer(200, { answer: 2 })
+    expect(await pressed).toEqual({ state: 'failed', reason: 'wrong-shape' })
+  })
+
   it('serves every node asking with equal arguments from one call and keeps the answer', async () => {
     const host = fakeHost()
     const client = createLookupClient({ baseUrl: '', fetchFn: host.fetchFn })

@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
-import { t, type Json, type WidgetRegistry } from '@dinkster/core'
+import { t, type WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
@@ -17,7 +17,6 @@ import {
   createWidgetRegistry,
   registerCoreWidgets,
   saveTargetDraft,
-  saveTargetText,
   widgetRegistrationDoors,
 } from '@dinkster/widgets'
 import {
@@ -31,23 +30,20 @@ import {
   type SaveTargetExample,
 } from '../../canvas/gallery/save-target-box.js'
 import {
-  CanvasRowField,
+  CanvasEditorSpace,
+  CanvasEditorNote,
   CanvasTargetBox,
-  CanvasTargetSide,
   ProductSection,
-  canvasTargetLayout,
   type CanvasTargetMount,
   type CanvasTargetMounts,
 } from '../src/index.js'
-import { MARGIN, NODE_WIDTH, SIDE_ROOM } from './row-editing.js'
+import { MARGIN } from './row-editing.js'
+import { InNodeEditorExampleCard } from './in-node-editors.js'
 
 type WidgetRow = Extract<LayoutRow, { kind: 'widget' }>
 
 /** The words a backend without mounts gives, as the product shows them. */
 const NO_BACKEND = 'mountWidget.error'
-
-const targetText = (value: Json, projectMount: string): string =>
-  saveTargetText(value, projectMount) ?? t('saveTargetWidget.default')
 
 /** One labeled save target state: the production renderer's node with the open row's own controls over it. */
 function SaveTargetExampleCard(props: {
@@ -56,11 +52,8 @@ function SaveTargetExampleCard(props: {
   registry: WidgetRegistry
 }) {
   let canvas!: HTMLCanvasElement
-  let stage!: HTMLDivElement
-  let field: HTMLDivElement | undefined
   const [scene, setScene] = createSignal<Scene>()
   const [fieldInsetY, setFieldInsetY] = createSignal(0)
-  const [sideSize, setSideSize] = createSignal({ width: SIDE_ROOM - MARGIN, height: 0 })
   const [boxHeight, setBoxHeight] = createSignal(0)
   const example = () => props.example
   const schema = () => (example().optional === true ? optionalSaveTargetSchema : saveTargetSchema)
@@ -69,6 +62,8 @@ function SaveTargetExampleCard(props: {
   createEffect(() => {
     const theme = props.theme
     const current = example()
+    const currentOpen = open()
+    const controlsHeight = boxHeight()
     let disposed = false
     let renderer: CanvasRenderer | undefined
     void document.fonts
@@ -78,6 +73,7 @@ function SaveTargetExampleCard(props: {
         const tokens: DesignTokens = {
           ...defaultTokens,
           widgetEditing: 'in-row',
+          widgetRowLook: 'raised-editors',
           ...canvasTypePaintForTheme(theme),
           colors: canvasColorsForTheme(theme),
         }
@@ -93,23 +89,37 @@ function SaveTargetExampleCard(props: {
           const view = props.registry
             .viewsFor(spec.widgetType)
             .find((view) => view.id === kind?.defaultView(spec))
-          return view ? { viewId: view.id, rows: view.measure(spec).rows } : undefined
+          return view ? { viewId: view.id, rows: view.measure(spec).rows,
+            ...(current.foldout && current.open && controlsHeight > 0 ? { editorControls: controlsHeight } : {}) } : undefined
         }
-        const built = createSaveTargetScene(tokens, measure, widgetMeasure, nodeAt, current.stored, {
+        const shown = current.foldout && currentOpen && !draft().prefixInvalid
+          ? { prefix: currentOpen.prefix, ...(currentOpen.mount === null ? {} : { mount: currentOpen.mount }) }
+          : current.stored
+        const built = createSaveTargetScene(tokens, measure, widgetMeasure, nodeAt, current.mapped ? current.stored : shown, {
           ...(current.optional === true ? { optional: true } : {}),
           ...(current.arriving === undefined ? {} : { wired: true }),
+          ...(current.mapped ? { mapped: true, wiredParts: current.wiredParts ?? [] } : {}),
+          ...(current.foldout ? { unfolded: current.open !== undefined } : {}),
         })
         const node = built.nodes.find((item) => item.id === schema().type)!
-        canvas.style.width = `${MARGIN + NODE_WIDTH + SIDE_ROOM}px`
+        canvas.style.width = `${node.layout.width + MARGIN * 2}px`
         canvas.style.height = `${node.y + node.layout.height + MARGIN}px`
         renderer = new CanvasRenderer(canvas, tokens, createRegistryPainter(props.registry))
         renderer.setReducedMotion(true)
         renderer.setGridVisible(false)
         renderer.setScene(built)
         if (current.arriving !== undefined) renderer.setCompanions(wiredTargetCompanions(node.id, current.arriving))
+        if (current.mapped) renderer.setCompanions({ [node.id]: Object.fromEntries((current.wiredParts ?? []).map((part) => [
+          part === 'mount' ? 'mount' : 'filename_prefix',
+          { value: part === 'mount' ? currentOpen?.mount ?? 'archive' : currentOpen?.prefix ?? 'from/upstream', state: 'expected' },
+        ])) })
+        if (current.mapped) renderer.setEditorSummaries({ [node.id]: { target: { value: {
+          ...(typeof shown === 'object' && shown !== null ? shown : {}),
+          ...(current.wiredParts?.includes('mount') ? { mount: 'archive' } : {}),
+          ...(current.wiredParts?.includes('name') ? { prefix: 'from/upstream' } : {}),
+        } } } })
         if ((current.mounts ?? 'ready') === 'ready')
           renderer.setWidgetFacts({ SAVE_TARGET: { ready: [...galleryMounts], ...(current.noDefault === true ? {} : { projectMount: galleryMounts[0] }) } })
-        renderer.setOpenRow(current.open === undefined ? undefined : { nodeId: node.id, valueKey: 'target' })
         renderer.setViewport({ x: 0, y: 0, scale: 1 })
         renderer.renderNow()
         setScene(built)
@@ -134,8 +144,8 @@ function SaveTargetExampleCard(props: {
 
   const mounts = (): CanvasTargetMounts => example().mounts ?? 'ready'
   const ready = (): readonly string[] => (mounts() === 'ready' ? galleryMounts : [])
-  const open = () => example().open
-  // The project's default output mount, known once the mounts are read.
+  const [edited, setEdited] = createSignal<{ mount: string | null; prefix: string }>()
+  const open = () => edited() ?? example().open
   // The project's default output mount, known once the mounts are read; a project may have none.
   const noDefault = (): boolean => mounts() === 'ready' && example().noDefault === true
   const projectMount = (): string | undefined => (mounts() === 'ready' && !noDefault() ? galleryMounts[0] : undefined)
@@ -163,91 +173,43 @@ function SaveTargetExampleCard(props: {
       ready: mounts() === 'ready' ? ready() : undefined,
       projectMount: projectText(),
     })
-  const tooltip = () => {
-    const input = schema().body.find((item) => item.kind === 'input' && item.id === 'target')
-    return input?.kind === 'input' ? input.tooltip : undefined
-  }
-
-  const placement = () => {
-    const found = target()
-    if (!found) return undefined
-    const { node, row } = found
-    const grow = 1
-    const rowWidth = (row.width ?? node.layout.width - row.inset * 2) + grow * 2
-    const screen = {
-      x: node.x + row.inset - grow,
-      y: node.y + row.y + fieldInsetY() - grow,
-      width: rowWidth,
-      height: row.height - fieldInsetY() * 2 + grow * 2,
-    }
-    const bounds = { x: 0, y: 0, width: canvas.clientWidth, height: Infinity }
-    return { rowWidth, screen, ...canvasTargetLayout(screen, bounds, boxHeight(), sideSize(), 1) }
-  }
-
-  createEffect(() => {
-    const current = placement()
-    if (!current || !field) return
-    field.style.left = `${current.screen.x}px`
-    field.style.top = `${current.screen.y}px`
-    // The mount list reaches past the box; the stage grows to show it whole.
-    const list = field.querySelector<HTMLElement>('.dinkster-canvas-target-list')
-    const listBottom = list ? list.getBoundingClientRect().bottom - field.getBoundingClientRect().top : 0
-    const bottom = Math.max(
-      current.screen.height + boxHeight(),
-      current.sideTop + sideSize().height,
-      listBottom,
-    )
-    stage.style.height = `${Math.max(canvas.clientHeight, current.screen.y + bottom + MARGIN)}px`
-  })
-
   const runStops = (): string | undefined => {
     if (!noDefault()) return undefined
     if (draft().mountGone) return t('saveTargetWidget.notHereNoDefault', { id: open()?.mount ?? '' })
     return open()?.mount === null ? t('saveTargetWidget.noDefaultMount') : undefined
   }
   const mountTone = (): 'warning' | 'error' | undefined =>
-    runStops() !== undefined ? 'error' : draft().mountGone ? 'warning' : undefined
+    runStops() !== undefined || (example().foldout && mounts() === 'failed') ? 'error'
+      : draft().mountGone || (example().foldout && mounts() === 'none') ? 'warning' : undefined
 
-  const side = createMemo(() => {
-    const result = draft()
-    const gone = result.mountGone ? open()?.mount ?? undefined : undefined
-    const stops = runStops()
-    const problem = stops !== undefined ? undefined : mounts() === 'none'
-      ? t('saveTargetWidget.noMounts')
-      : gone !== undefined ? t('saveTargetWidget.notHereSaving', { id: gone, mount: projectText() }) : undefined
-    return (
-      <CanvasTargetSide
-        {...(problem === undefined ? {} : { problem })}
-        enter={result.store === undefined
-          ? { verb: t('saveTargetWidget.enterKeeps'), target: targetText(example().stored, projectText()) }
-          : { verb: t('saveTargetWidget.enterStores'), target: targetText(result.store, projectText()) }}
-        {...(gone === undefined || noDefault() ? {} : { action: { label: t('saveTargetWidget.useProjectDefault'), onClick: () => undefined } })}
-        defaultLabel="default"
-        defaultText={targetText(galleryDefault, projectText())}
-        onDefault={() => undefined}
-        {...(mounts() === 'failed' ? { error: t(NO_BACKEND) } : stops !== undefined ? { error: stops } : {})}
-        {...(tooltip() === undefined ? {} : { tooltip: tooltip()! })}
-        naming={t('saveTargetWidget.naming', { suffix: '.png' })}
-      />
-    )
-  })
+  const mountProblem = () => mounts() === 'failed' ? t(NO_BACKEND)
+    : runStops() ?? (mounts() === 'none' ? t('saveTargetWidget.noMounts')
+      : draft().mountGone ? t('saveTargetWidget.notHereSaving', { id: open()?.mount ?? '', mount: projectText() }) : undefined)
 
+  const [listOpen, setListOpen] = createSignal(example().listOn !== undefined)
   const listOn = () => {
-    const on = example().listOn
-    return on === undefined ? undefined : options().findIndex((entry) => entry.id === on)
+    if (!listOpen()) return undefined
+    const on = example().listOn ?? open()?.mount ?? ''
+    return options().findIndex((entry) => entry.id === on)
   }
   const box = (
     <div
       ref={(element) => {
-        const observer = new ResizeObserver(() => setBoxHeight(element.offsetHeight))
+        const observer = new ResizeObserver(() => {
+          setBoxHeight(element.scrollHeight)
+        })
         observer.observe(element)
         onCleanup(() => observer.disconnect())
       }}
     >
       <CanvasTargetBox
+        inNode={example().foldout === true}
+        frozen={example().arriving !== undefined}
+        mountWired={example().wiredParts?.includes('mount') === true}
+        prefixWired={example().wiredParts?.includes('name') === true}
         words={{
-          mount: t('saveTargetWidget.mount'),
-          prefix: t('saveTargetWidget.prefix'),
+          mount: example().foldout ? 'Mount' : t('saveTargetWidget.mount'),
+          prefix: example().foldout ? 'Name' : t('saveTargetWidget.prefix'),
           loading: t('saveTargetWidget.loading'),
           none: t('saveTargetWidget.none'),
           failed: t('saveTargetWidget.couldNotLoad'),
@@ -257,47 +219,65 @@ function SaveTargetExampleCard(props: {
         mount={open()?.mount ?? ''}
         {...(mountTone() === undefined ? {} : { tone: mountTone()! })}
         listOpen={listOn() !== undefined}
+        onToggleList={() => setListOpen(!listOpen())}
+        onPick={(index) => {
+          if (example().wiredParts?.includes('mount')) return
+          setEdited({ mount: options()[index]!.id || null, prefix: open()?.prefix ?? '' })
+          setListOpen(false)
+        }}
         {...(listOn() === undefined ? {} : { highlight: listOn()! })}
         prefix={open()?.prefix ?? ''}
+        {...(example().foldout ? { onPrefix: (prefix: string) => setEdited({ mount: open()?.mount ?? null, prefix }) } : {})}
+        {...(example().foldout && mountProblem() !== undefined ? { mountProblem:
+          <CanvasEditorNote tone={mountTone() === 'warning' ? 'warning' : 'problem'} details={{
+            label: t('runs.details'),
+            title: t(noDefault() ? draft().mountGone ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.noDefaultTitle'
+              : draft().mountGone ? 'saveTargetWidget.missingTitle' : 'saveTargetWidget.noMounts', { id: open()?.mount ?? '' }),
+            body: t(noDefault() || !draft().mountGone ? 'saveTargetWidget.noDefaultBody' : 'saveTargetWidget.missingBody',
+              { id: open()?.mount ?? '', mount: projectText() }),
+            action: draft().mountGone && !noDefault()
+              ? { label: t('saveTargetWidget.useProjectDefault'), onClick: () => setEdited({ mount: null, prefix: open()?.prefix ?? '' }) }
+              : { label: t('problems.action.modelStorage'), onClick: () => undefined },
+          }}>{t(noDefault() ? 'saveTargetWidget.noDefaultShort' : draft().mountGone ? 'saveTargetWidget.missingShort'
+            : 'saveTargetWidget.noMountsShort', { id: open()?.mount ?? '' })}</CanvasEditorNote>,
+        } : {})}
+        {...(example().foldout && example().arriving === undefined &&
+          ((!example().wiredParts?.includes('mount') && open()?.mount !== null) ||
+            (!example().wiredParts?.includes('name') && open()?.prefix !== galleryDefault.prefix)) ? {
+            reset: { label: t('saveTargetWidget.reset'), onClick: () => setEdited({
+              mount: example().wiredParts?.includes('mount') ? open()?.mount ?? null : null,
+              prefix: example().wiredParts?.includes('name') ? open()?.prefix ?? '' : galleryDefault.prefix,
+            }) },
+          } : {})}
         {...(draft().prefixInvalid ? { prefixProblem: t('saveTargetWidget.invalid') } : {})}
-        focused={listOn() !== undefined ? 'mount' : 'prefix'}
+        {...(example().resting ? {} : { focused: listOn() !== undefined ? 'mount' as const : 'prefix' as const })}
       />
     </div>
   )
 
   return (
     <figure class="dinkster-canvas-example">
-      <div ref={stage} class="dinkster-canvas-example-stage">
+      <div class="dinkster-canvas-example-stage">
         <canvas
           ref={canvas}
           role="img"
           aria-label={`${example().id} in ${props.theme} theme`}
           data-testid={`save-target-box-${example().id}`}
         />
-        <Show when={open() !== undefined && placement()}>
-          {(current) => (
-            <CanvasRowField
-              ref={(element) => (field = element)}
-              look="flat-title"
-              rowWidth={current().rowWidth}
-              label={target()!.row.label}
-              value={draft().rowText}
-              placeholder={t('saveTargetWidget.default')}
-              onInput={() => undefined}
-              inputRef={(element) => {
-                element.readOnly = true
-                element.tabIndex = -1
-              }}
-              inputLabel={target()!.row.label}
-              place={current().place}
-              sideTop={current().sideTop}
-              {...(current().sideMaxHeight !== undefined ? { sideMaxHeight: current().sideMaxHeight! } : {})}
-              onSideSize={setSideSize}
-              side={side()}
-              panel={box}
-              panelPlace={current().panelPlace}
-            />
-          )}
+        <Show when={example().foldout && target()}>
+          {(found) => {
+            const space = () => found().node.layout.rows.find((row): row is Extract<LayoutRow, { kind: 'editorSpace' }> => row.kind === 'editorSpace' && row.valueKey === 'target')
+            return <Show when={space()}>{(row) =>
+              <CanvasEditorSpace {...(example().arriving === undefined ? {} : { state: 'dimmed' })} ref={(element) => {
+                createEffect(() => {
+                  element.style.left = `${found().node.x + row().inset}px`
+                  element.style.top = `${found().node.y + row().y}px`
+                  element.style.width = `${row().width ?? found().node.layout.width - row().inset * 2}px`
+                  element.style.height = `${row().height - fieldInsetY()}px`
+                })
+              }}>{box}</CanvasEditorSpace>
+            }</Show>
+          }}
         </Show>
       </div>
       <figcaption class="dinkster-metadata">{example().caption}</figcaption>
@@ -315,7 +295,20 @@ export function SaveTargetBoxGallery(props: { theme: 'dark' | 'light' }) {
         <ProductSection title={group.title}>
           <div class="dinkster-canvas-examples">
             <For each={group.examples}>
-              {(example) => <SaveTargetExampleCard example={example} theme={props.theme} registry={registry} />}
+              {(example) => <>
+                <SaveTargetExampleCard example={example} theme={props.theme} registry={registry} />
+                <Show when={example.foldout}>
+                  <InNodeEditorExampleCard theme={props.theme} registry={registry} example={{
+                    id: `curve-beside-${example.id}`, type: 'Curve editor', card: 34,
+                    caption: 'Curve uses the same frame, header, opener and editor space.',
+                    values: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } },
+                    view: { editors: { curve: { unfolded: example.open !== undefined } } },
+                    ...(example.arriving === undefined && !example.wiredParts?.length ? {} : {
+                      wired: { curve: 'CURVE' }, carried: { curve: { interpolation: 'linear', points: [{ position: 0, value: 0 }, { position: 1, value: 1 }] } },
+                    }),
+                  }} />
+                </Show>
+              </>}
             </For>
           </div>
         </ProductSection>
