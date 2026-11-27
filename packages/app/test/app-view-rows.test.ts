@@ -624,6 +624,23 @@ describe('buildParamRows', () => {
         expect(wired.doc).toEqual(disconnected)
         check(loadDocument(JSON.parse(JSON.stringify(disconnected))).document!, 31)
 
+        const unstoredResult = new DocumentStore(before, coreCommandRegistry(), 200, undefined, () => ({
+          kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveAutomatic),
+        }))
+        expect(unstoredResult.dispatch({ command: 'link.connect', params: { graphId: 'root',
+          from: port('outside', literal ? 'value' : 'number'), to: port('first', steps),
+        } }).ok).toBe(true)
+        const unstoredRun = compile({ document: unstoredResult.doc, revision: 1, resolve: resolveAutomatic, scope: { kind: 'full' },
+          connection: 'unstored-result-wire' as never, schemaHash: 'unstored-result-wire', lookupAnswers })
+        expect(unstoredRun.ok, JSON.stringify(!unstoredRun.ok && unstoredRun.diagnostics)).toBe(true)
+        if (!unstoredRun.ok) throw new Error('wired unstored automatic result did not compile')
+        const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
+        expect(unstoredRun.artifact.prompt[`first${suffix}`]!.inputs).toEqual({ seed: 31, steps: literal ? 47 : ['outside', 0] })
+        expect(unstoredRun.artifact.automaticCalls ?? []).toEqual(calculation === 'formula' ? [] : [
+          { runtimeNodeId: `second${suffix}`, inputId: 'steps', lookup: 'steps_for', args: [13] },
+        ])
+        expect(unstoredResult.doc.graphs.root!.nodes.first!.values).toEqual({ [seed]: 31 })
+
         const fixedWithSource: WorkflowDocument = { ...fixed, graphs: { ...fixed.graphs, root: { ...fixed.graphs.root!,
           nodes: { ...fixed.graphs.root!.nodes, outside: before.graphs.root!.nodes.outside! },
         } } }

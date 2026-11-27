@@ -2469,6 +2469,7 @@ function elaboratePass(
         origin: { kind: 'selector', construct: path, ...(key !== undefined ? { selected: key } : {}) },
         ...(key !== undefined ? { derivedValue: key } : {}),
         ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
+        ...(readingLookups?.size ? { lookupDependencies: [...readingLookups] } : {}),
         ...(scope.ancestry.length > 0 ? { ancestry: scope.ancestry } : {}),
         ...(scope.frames !== undefined ? { materialize: scope.frames } : {}),
         ...boxed(scope),

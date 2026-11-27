@@ -500,7 +500,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     if (lookups === undefined || tab === undefined) return
     let demand = lookupDemands.get(lookups)
     if (demand === undefined) lookupDemands.set(lookups, (demand = new LookupDemand(lookups)))
-    demand.show(resolvedRows().flatMap((row) => row.kind !== 'live' ? [] : [{
+    demand.show(resolvedRows().flatMap((row) => row.kind !== 'live' || row.item.kept !== undefined ? [] : [{
       nodeType: row.node.type,
       node: JSON.stringify([tab.id, row.entry.graphId, row.entry.nodeId, row.entry.inputId]),
       items: row.item.spec.hidden === true ? [] : [row.item],

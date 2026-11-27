@@ -7,6 +7,58 @@ import { AppView } from '../src/AppView.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 describe('App View occurrence fields', () => {
+  it('requests a choice selector visibility dependency without requesting inactive retained fields', async () => {
+    const requests: string[] = []
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (!url.endsWith('/api/lookups')) return new Response('{}', { status: 503 })
+      const call = JSON.parse(String(init?.body)) as { function: string; args: number[] }
+      requests.push(call.function)
+      return new Response(JSON.stringify({ answer: call.args[0]! * 2 }), { headers: { 'content-type': 'application/json' } })
+    })
+    const field = (id: string) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'INT' },
+      optional: false, widget: { widgetType: 'INT', options: {}, default: 5 } })
+    const app = createWorkflowApp([{
+      type: 'Choices', displayName: 'Choices', category: 'test', source: 'v3', isOutputNode: true,
+      body: [field('seed'), { ...field('gate'), hidden: true, automatic: { lookup: 'gate_for', args: ['seed'] } },
+        { kind: 'choice', id: 'pick', required: false, shared: [], visible: { formula: 'gate > 10' },
+          displayName: { formula: '"Pick " + str(gate)' }, options: [{ key: 'a', rows: [] }, { key: 'b', rows: [] }] },
+        { kind: 'choice', id: 'mode', required: true, shared: [], options: [{ key: 'a', rows: [] }, { key: 'b', rows: [
+          { ...field('dormant'), widget: { widgetType: 'INT', options: {}, default: 5,
+            looked: { min: { lookup: 'inactive_for', args: ['1'] } } } },
+        ] }] }],
+    }, { type: 'IntSink', displayName: 'Sink', category: 'test', source: 'v3', isOutputNode: true, body: [field('value')] }])
+    app.settings.set('features.appView.enabled', true)
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'cold-choice', root: 'root', graphs: {
+      root: { id: 'root', name: 'root', nodes: {
+        choice: { id: 'choice', type: 'Choices', values: { seed: 21 }, dynamic: { mode: { selected: 'a' } } },
+        sink: { id: 'sink', type: 'IntSink', values: {} },
+      }, links: { tap: { id: 'tap', from: { node: 'choice', port: 'mode.dormant' }, to: { node: 'sink', port: 'value' } } },
+      nets: {}, reroutes: {}, nextOrdinal: 20 },
+    }, view: { graphs: {} }, ext: { 'dinkster.exposed': ['pick', 'mode.dormant'].map((inputId) => ({ graphId: 'root', nodeId: 'choice', inputId })) } }, 'Cold selector')
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <AppView app={app} />, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('Pick 42'))
+      expect(requests).toEqual(['gate_for'])
+      expect(app.activeTab()!.store.dispatch({ command: 'node.setValue', params: {
+        graphId: 'root', nodeId: 'choice', inputId: 'seed', value: 3,
+      } }).ok).toBe(true)
+      await vi.waitFor(() => expect(requests).toEqual(['gate_for', 'gate_for']))
+      await vi.waitFor(() => expect(root.textContent).not.toContain('Pick '))
+      expect(app.activeTab()!.store.dispatch({ command: 'node.setValue', params: {
+        graphId: 'root', nodeId: 'choice', inputId: 'seed', value: 31,
+      } }).ok).toBe(true)
+      await vi.waitFor(() => expect(root.textContent).toContain('Pick 62'))
+      expect(requests).toEqual(['gate_for', 'gate_for', 'gate_for'])
+    } finally {
+      dispose()
+      root.remove()
+      app.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it.each([0, 1, 2])('requests cold automatic values and hidden presentation dependencies at depth %s', async (depth) => {
     const requests: { function: string; args: number[]; nodeType: string }[] = []
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
