@@ -126,7 +126,7 @@ export function StorageFolders(props: {
     setBusy(false)
     setEditing(undefined)
     setLeaving(undefined)
-    onCleanup(connection.onMountsChanged(() => { if (!busy()) void load() }))
+    onCleanup(connection.onMountsChanged(() => { void load() }))
     onCleanup(() => { generation++; read++ })
     untrack(() => { void load() })
   })

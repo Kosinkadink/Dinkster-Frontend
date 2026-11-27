@@ -329,17 +329,15 @@ it('changes mount saving access, requires a usable replacement and preserves a r
   let outputMount = 'renders'
   let revision = 'first'
   let refused = false
+  let mountsChanged = () => {}
+  let holdRefresh: (() => Promise<void>) | undefined
   const connection = {
     fetchMountSettings: async () => ({ mounts, outputMount, revision, mountChangesAllowed: true }),
     fetchMountLocations: async () => ({ mounts }),
-    fetchModelSettings: async () => ({ locations: [], settings: { locations: [] }, changesAllowed: true }),
-    onMountsChanged: () => () => {},
+    fetchModelSettings: async () => { await holdRefresh?.(); return { locations: [], settings: { locations: [] }, changesAllowed: true } },
+    onMountsChanged: (callback: () => void) => { mountsChanged = callback; return () => {} },
     selectOutputMount: async (id: string) => { outputMount = id; revision = 'replacement' },
-    retryMount: async (id: string) => { mounts = mounts.map((row) => {
-      if (row.id !== id) return row
-      const { saveError: _saveError, ...recovered } = row
-      return recovered
-    }) },
+    retryMount: async () => {},
     updateMountAccess: async (id: string, mode: 'read' | 'readwrite', expected: string) => {
       if (expected !== revision || refused) throw new RequestFailure('PUT', '/api/mounts/access', 409, 'Configuration changed')
       if (id === outputMount && mode === 'read') throw new Error('Choose a replacement first')
@@ -384,7 +382,18 @@ it('changes mount saving access, requires a usable replacement and preserves a r
   expect(root.textContent).not.toContain('Folder settings saved.')
   expect(row('renders').textContent).toContain('Read only')
   expect(row('exports').textContent).toContain('New saves go here')
+  let finishRefresh: (() => void) | undefined
+  holdRefresh = () => new Promise<void>((resolve) => { finishRefresh = resolve })
   ;[...row('offline').querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Try again')!.click()
+  await vi.waitFor(() => expect(finishRefresh).toBeDefined())
+  mounts = mounts.map((row) => {
+    if (row.id !== 'offline') return row
+    const { saveError: _saveError, ...recovered } = row
+    return recovered
+  })
+  mountsChanged()
+  holdRefresh = undefined
+  finishRefresh!()
   await vi.waitFor(() => expect(row('offline').textContent).not.toContain('Cannot save here.'))
   menu('offline')
   expect(action('Save new files here')).toBeDefined()
