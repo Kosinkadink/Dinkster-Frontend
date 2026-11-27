@@ -1356,6 +1356,8 @@
   "problemFix.keptUntilChanged": "Kept until you change it.",
   "problemFix.checkAgain": "Check again",
   "problemFix.fixAll": "Fix all",
+  "problemFix.useProjectDefaultForAll": "Use project default for all",
+  "problemFix.saveTargetsMissing": "Save targets use mounts that are unavailable on this machine.",
   "fixesNotice.change.replaced": "Replaced an older node.",
   "fixesNotice.change.wireFromRemoved": "Its wire from {row} was removed.",
   "fixesNotice.change.wireIntoRemoved": "Its wire into {row} was removed.",

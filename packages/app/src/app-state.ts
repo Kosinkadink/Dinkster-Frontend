@@ -96,6 +96,8 @@ import {
   scanReplacements,
   stepNumericValue,
   storedNumberFixes,
+  storedSaveTargetFixes,
+  type StoredSaveTargetFix,
   storedRuleFixes,
   applyStoredProblemFixes,
   type StoredNumberFix,
@@ -256,7 +258,7 @@ import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
 import { registerAutomaticFixSettings } from './automatic-fixes.js'
-import { createActionHost } from './button-presses.js'
+import { createActionHost, type ButtonPlace } from './button-presses.js'
 import { ProblemFixes, problemFixKey } from './problem-fixes.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
@@ -5327,6 +5329,7 @@ export class AppState {
         startRefresh('reconnect')
       }
       const handleStatusChange = (status: ConnectionStatus): void => {
+        this.problemFixes.invalidateMounts(nativeBackend)
         this.assetConnectionGenerations.set(connection, (this.assetConnectionGenerations.get(connection) ?? 0) + 1)
         if (status === 'connected') {
           refreshOnConnect()
@@ -5349,6 +5352,7 @@ export class AppState {
       const disposeLookupChanges = connection.onLookupsChanged((functions) => lookups.invalidate(functions))
       // A mount's scan commits as a mount ping; a local file a lookup waited on may be checked now.
       const disposeLookupFiles = connection.onMountsChanged(() => {
+        this.problemFixes.invalidateMounts(nativeBackend)
         lookups.filesChanged()
         for (const tab of this.tabs.get()) {
           if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
@@ -5758,6 +5762,19 @@ export class AppState {
     return this.scanTabProblemFixes(tab, document).filter((fix): fix is StoredNumberFix => fix.kind === 'number')
   }
 
+  private *tabNodePlaces(tab: Tab, document: WorkflowDocument): Generator<ButtonPlace> {
+    function *visit(graphId: string, instancePath: readonly string[], ancestors: ReadonlySet<string>): Generator<ButtonPlace> {
+      if (ancestors.has(graphId)) return
+      for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
+        yield { tab, graphId, nodeId: node.id, button: '', instancePath }
+        const child = subgraphDefIdOf(node.type)
+        if (child !== undefined) yield *visit(child, [...instancePath, node.id], new Set([...ancestors, graphId]))
+      }
+    }
+    yield *visit(document.root, [], new Set())
+    for (const graphId of Object.keys(document.graphs)) if (graphId !== document.root) yield *visit(graphId, [], new Set())
+  }
+
   /** Every occurrence is checked: siblings can store different promoted values. */
   scanTabProblemFixes(tab: Tab, document = tab.store.doc, options: {
     readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
@@ -5767,21 +5784,13 @@ export class AppState {
     if (tab.execution || this.registryForTab(tab) === undefined || options.keptOnly && !this.keptNumberFixes.get(tab.store)?.size) return []
     const { lookupAnswers, resolve } = options
     const fixes = new Map<string, StoredProblemFix>()
-    const visit = (graphId: string, instancePath: readonly string[], ancestors: ReadonlySet<string>): void => {
-      if (ancestors.has(graphId)) return
-      for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
-        const place = { tab, graphId, nodeId: node.id, button: '', instancePath }
-        const host = { ...createActionHost(this, undefined, place, resolve), ...(lookupAnswers === undefined ? {} : { lookupAnswers }) }
-        for (const fix of [...storedNumberFixes(document, place, host), ...storedRuleFixes(document, place, host)]) {
-          const key = problemFixKey(fix)
-          if (!fixes.has(key)) fixes.set(key, fix)
-        }
-        const child = subgraphDefIdOf(node.type)
-        if (child !== undefined) visit(child, [...instancePath, node.id], new Set([...ancestors, graphId]))
+    for (const place of this.tabNodePlaces(tab, document)) {
+      const host = { ...createActionHost(this, undefined, place, resolve), ...(lookupAnswers === undefined ? {} : { lookupAnswers }) }
+      for (const fix of [...storedNumberFixes(document, place, host), ...storedRuleFixes(document, place, host)]) {
+        const key = problemFixKey(fix)
+        if (!fixes.has(key)) fixes.set(key, fix)
       }
     }
-    visit(document.root, [], new Set())
-    for (const graphId of Object.keys(document.graphs)) if (graphId !== document.root) visit(graphId, [], new Set())
     const kept = this.keptNumberFixes.get(tab.store)
     return [...fixes.values()].filter((fix) => {
       if (fix.kind === 'rule') return !options.keptOnly
@@ -5791,6 +5800,18 @@ export class AppState {
       if (!isKept && document === tab.store.doc) kept?.delete(key)
       return options.keptOnly ? isKept : !isKept
     })
+  }
+
+  scanTabSaveTargetFixes(tab: Tab, readyMounts: ReadonlySet<string>, document = tab.store.doc): readonly StoredSaveTargetFix[] {
+    if (tab.execution || this.registryForTab(tab) === undefined) return []
+    const fixes = new Map<string, StoredSaveTargetFix>()
+    for (const place of this.tabNodePlaces(tab, document)) {
+      for (const fix of storedSaveTargetFixes(document, place, createActionHost(this, undefined, place), readyMounts)) {
+        const key = JSON.stringify([place.graphId, place.instancePath, place.nodeId, fix.valueKey])
+        if (!fixes.has(key)) fixes.set(key, fix)
+      }
+    }
+    return [...fixes.values()]
   }
 
   /** Offered corrections are rechecked and stored as one operation. */

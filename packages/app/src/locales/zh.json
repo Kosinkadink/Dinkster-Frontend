@@ -1365,6 +1365,8 @@
   "problemFix.keptUntilChanged": "保留此值，直到你更改它。",
   "problemFix.checkAgain": "重新检查",
   "problemFix.fixAll": "修复全部",
+  "problemFix.useProjectDefaultForAll": "全部使用项目默认位置",
+  "problemFix.saveTargetsMissing": "保存目标使用了此机器上不可用的挂载位置。",
   "fixesNotice.change.replaced": "已替换旧节点。",
   "fixesNotice.change.wireFromRemoved": "从 {row} 引出的连线已移除。",
   "fixesNotice.change.wireIntoRemoved": "连入 {row} 的连线已移除。",

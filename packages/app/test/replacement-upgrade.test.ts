@@ -1,6 +1,6 @@
 import { prepareWorkflowApp } from './fixtures/workflow-app.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildDinksterRegistry } from '@dinkster/client'
+import { buildDinksterRegistry, type MountSettings } from '@dinkster/client'
 import { storedSaveTargetFixes, serializeSelection, type CommandOutcome, type DinksterNodesPayload, type JsonObject } from '@dinkster/core'
 import { pasteClipboardIntoTab } from '../src/clipboard-paste.js'
 import { AppState } from '../src/app-state.js'
@@ -266,7 +266,7 @@ describe('native open-time replacement', () => {
     const tab = app.activeTab()!
     const values = () => Object.values(tab.store.doc.graphs.g0!.nodes).map((node) => node.values)
     const offered = app.problemFixes.scan(tab)
-    expect(offered.map((fix) => fix.offered.kind === 'number' ? fix.offered.after : fix.offered.label)).toEqual([12, 20])
+    expect(offered.map((fix) => fix.offered.kind === 'number' ? fix.offered.after : fix.offered.kind === 'rule' ? fix.offered.label : undefined)).toEqual([12, 20])
     expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: 'cap', value: 9 } }).ok).toBe(true)
     // Reading the second surface must not silently replace the first surface's offer.
     await app.problemFixes.apply(tab, app.problemFixes.scan(tab))
@@ -305,7 +305,8 @@ describe('native open-time replacement', () => {
     const numeric = diagnostics.find((diagnostic) => diagnostic.code === 'automatic.numberOutsideLimits')!
     expect(rule.message).toBe('Resize: Width exceeds cap.')
     app.settings.set('automaticFixes.numberOutsideLimits', 'apply')
-    expect(app.problemFixes.forProblem(tab, rule)?.offered.label).toBe('Use less than the cap')
+    const ruleFix = app.problemFixes.forProblem(tab, rule)?.offered
+    expect(ruleFix?.kind === 'rule' ? ruleFix.label : undefined).toBe('Use less than the cap')
     expect(app.problemFixes.forProblem(tab, numeric)).toBeUndefined()
     expect(values()).toEqual({ width: 17, cap: 9, amount: 14 })
     app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
@@ -444,6 +445,60 @@ describe('native open-time replacement', () => {
     expect(tab.store.doc.graphs.g0!.nodes.first!.values.amount).toBe(undone ? 14 : 12)
     tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'second', inputId: 'amount', value: 4 } })
     await vi.waitFor(() => expect(app.adjustmentNotices.get().has(tab.id)).toBe(false))
+  })
+
+  it('groups missing save targets and refuses a changed aggregate before storing mixed fixes once', async () => {
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...payload, nodes: { Current: { body: [
+      { kind: 'input', id: 'target', type: { kind: 'concrete', types: ['dinkster.save_target'] },
+        required: false, widget: { type: 'SAVE_TARGET', suffix: '.png' } },
+      { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } },
+    ] } } }))
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    let mounts: MountSettings = { mounts: [{ id: 'ready', mode: 'readwrite', state: 'ready' }],
+      activeOutputMount: 'ready', mountChangesAllowed: false }
+    const fetchMounts = vi.spyOn(backend.connection, 'fetchMountSettings').mockImplementation(async () => mounts)
+    const source = document()
+    await app.openDocument({ ...source, graphs: { g0: { ...source.graphs.g0, links: {}, nodes: {
+      first: { id: 'first', type: 'Current', values: { target: { mount: 'absent', prefix: 'renders/portrait' }, amount: 14 } },
+      second: { id: 'second', type: 'Current', values: { target: { mount: 'ready', prefix: 'movie' }, amount: 8 } },
+    } } } }, 'Save targets')
+    const tab = app.activeTab()!
+    const diagnostics = () => app.problemFixes.diagnostics(tab)
+    await vi.waitFor(() => expect(diagnostics().filter((problem) => problem.code === 'saveTarget.mountsMissing')).toHaveLength(1))
+    const offered = app.problemFixes.scan(tab)
+    expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'second', inputId: 'target',
+      value: { mount: 'other', prefix: 'personal/movie' } } }).ok).toBe(true)
+    const changed = tab.store.doc
+    await app.problemFixes.apply(tab, offered)
+    expect(tab.store.doc).toEqual(changed)
+    expect(app.problemFixes.scan(tab).every((fix) => fix.state === 'stale')).toBe(true)
+    for (const fix of offered) app.problemFixes.recheck(tab, fix.key)
+    await vi.waitFor(() => expect(app.problemFixes.scan(tab)).toHaveLength(2))
+    const fresh = app.problemFixes.scan(tab)
+    let release!: (settings: MountSettings) => void
+    fetchMounts.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    const storing = app.problemFixes.apply(tab, fresh, { noWait: true })
+    expect(app.problemFixes.scan(tab).map((fix) => fix.state)).toEqual(['storing', 'storing'])
+    await app.problemFixes.apply(tab, fresh, { noWait: true })
+    expect(tab.store.doc).toEqual(changed)
+    release(mounts)
+    await storing
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values).toEqual({ target: { prefix: 'renders/portrait' }, amount: 12 })
+    expect(tab.store.doc.graphs.g0!.nodes.second!.values).toEqual({ target: { prefix: 'personal/movie' }, amount: 8 })
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc).toEqual(changed)
+    mounts = { ...mounts, mounts: [...mounts.mounts,
+      { id: 'absent', mode: 'readwrite', state: 'ready' },
+      { id: 'other', mode: 'readwrite', state: 'ready' }] }
+    await app.problemFixes.apply(tab, app.problemFixes.scan(tab), { noWait: true })
+    expect(tab.store.doc).toEqual(changed)
+    expect(diagnostics().some((problem) => problem.code === 'saveTarget.mountsMissing')).toBe(false)
+    mounts = { ...mounts, mounts: mounts.mounts.filter((mount) => mount.id === 'ready') }
+    backend.connection.ingest({ type: 'mounts_changed' })
+    await vi.waitFor(() => expect(diagnostics().filter((problem) => problem.code === 'saveTarget.mountsMissing')).toHaveLength(1))
   })
 
   it('stores a save-target-only fix and undoes it without an automatic-adjustment notice', async () => {
