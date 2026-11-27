@@ -1539,6 +1539,7 @@
   "settings.features.board": "Enable Board (experimental)",
   "command.board.new": "New Board",
   "board.title": "Board",
+  "board.chooseWorkflow": "Choose workflow",
   "board.import.title": "Import media",
   "board.import.confirm": "Import media",
   "board.import.busy": "Importing media",

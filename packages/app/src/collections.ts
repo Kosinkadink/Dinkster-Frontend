@@ -334,12 +334,14 @@ const workflowEntry = (r: LibraryRecord, backend: Backend): CollectionEntry => (
  * loaded page. A V1 backend has no library surface; the source renders
  * its text-first empty state.
  */
-export function workflowsSource(app: AppState): CollectionSource {
+export function workflowsSource(app: AppState,
+  backendForPage = () => app.libraryBackend(),
+): CollectionSource {
   return {
     id: 'workflows',
     label: 'Workflows',
     page: async (req) => {
-      const backend = app.libraryBackend()
+      const backend = backendForPage()
       if (!backend) return { items: [], total: 0 }
       const cursor = decodeOwnedCursor(backend.id, req.cursor)
       const page = await backend.connection.listLibrary({

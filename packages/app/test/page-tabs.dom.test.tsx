@@ -356,6 +356,73 @@ describe('app page tabs', () => {
     }
   })
 
+  it('chooses workflows from the Board backend, cancels late placement, and selects undoable independent cards', async () => {
+    const app = createWorkflowApp()
+    const tabs = app.tabs.get()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (this: HTMLDialogElement) { this.setAttribute('open', '') })
+    vi.spyOn(HTMLDialogElement.prototype, 'close').mockImplementation(function (this: HTMLDialogElement) { this.removeAttribute('open') })
+    const record = { id: 'saved-card', scope: 'local', name: 'Saved card', digest: `blake3:${'c'.repeat(64)}`,
+      mediaType: 'application/x-dinkster-workflow+json', labels: ['workflow'], created: 1, modified: 2, revision: 1 }
+    const source = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'card-source', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Source', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
+      view: { graphs: {} } }
+    const bytes = JSON.stringify(source)
+    const backend = app.addBackend('http://board-cards:8000', 'Card sources', false, 'dinkster')!
+    vi.spyOn(app.connection, 'listLibrary').mockRejectedValue(new Error('Wrong backend'))
+    vi.spyOn(backend.connection, 'listLibrary').mockResolvedValue({ records: [record] })
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record)
+    let release!: (text: string) => void
+    const fetch = vi.spyOn(backend.connection, 'fetchAssetText').mockImplementation(() => new Promise((resolve) => { release = resolve }))
+    try {
+      const entry = app.boards.open(emptyBoard(), 'Cards', backend.baseUrl)
+      app.pages.open(`board:${entry.id}`)
+      const tab = app.pages.tabs().find((tab) => tab.id === `page:board:${entry.id}`) as PageTab
+      dispose = render(() => <PageTabPanel host={app.pages} tab={tab} />, root)
+      const choose = async () => {
+        [...root.querySelectorAll<HTMLButtonElement>('.dinkster-board button')].find((button) => button.textContent === 'Add')!.click()
+        const workflow = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === 'Workflow')!
+        workflow.click()
+        await vi.waitFor(() => expect(root.querySelector('[data-entry="saved-card"]')).not.toBeNull())
+      }
+      await choose()
+      root.querySelector<HTMLButtonElement>('[data-testid="board-card-picker"] [data-testid="modal-close"]')!.click()
+      expect(entry.session.doc.order).toEqual([])
+      await choose()
+      root.querySelector<HTMLElement>('[data-entry="saved-card"]')!.click()
+      await vi.waitFor(() => expect(release).toBeDefined())
+      root.querySelector<HTMLButtonElement>('[data-testid="board-card-picker"] [data-testid="modal-close"]')!.click()
+      release(bytes)
+      await Promise.resolve()
+      expect(entry.session.doc.order).toEqual([])
+      expect(entry.session.canUndo).toBe(false)
+      fetch.mockResolvedValue(bytes)
+      for (let i = 0; i < 2; i++) {
+        await choose()
+        root.querySelector<HTMLElement>('[data-entry="saved-card"]')!.click()
+        await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(i + 1))
+        const id = entry.session.doc.order[i]!
+        await vi.waitFor(() => expect(root.querySelector(`[data-board-item="${id}"]`)?.getAttribute('data-selected')).toBe('true'))
+      }
+      const [first, second] = entry.session.doc.order.map((id) => entry.session.doc.items[id]!)
+      expect(first).toMatchObject({ kind: 'workflow', name: 'Saved card', source: { kind: 'library', recordId: 'saved-card' }, values: {} })
+      expect(second!.rect.x - first!.rect.x).toBe(24)
+      expect(second!.rect.y - first!.rect.y).toBe(24)
+      expect(entry.session.undo()).toBe(true)
+      expect(entry.session.doc.order).toHaveLength(1)
+      expect(root.querySelector('.dinkster-board-card')?.textContent).toContain('Saved card')
+      expect(app.tabs.get()).toEqual(tabs)
+    } finally {
+      dispose()
+      app.dispose()
+      root.remove()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('requires file confirmation, cancels late uploads without edits, and imports a confirmed batch with undo', async () => {
     const app = createWorkflowApp()
     const root = document.createElement('div')
