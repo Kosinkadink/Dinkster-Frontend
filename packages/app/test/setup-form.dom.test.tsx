@@ -24,6 +24,45 @@ const button = (label: string) => [...document.querySelectorAll('button')].find(
 let dispose: (() => void) | undefined
 afterEach(() => { dispose?.(); document.body.replaceChildren(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
+it.each(['projects', 'editor'] as const)('shows only the reviewed build versions in Details on %s', async (surface) => {
+  vi.useFakeTimers()
+  let missing = false
+  vi.stubGlobal('fetch', async (url: string) => {
+    const cpu = new URL(url, location.href).searchParams.get('variant') === 'linux-cpu'
+    return answer({ plan: { ...plan, variant: cpu ? 'linux-cpu' : plan.variant,
+      buildLabel: cpu ? 'CPU only' : plan.buildLabel, graphicsVendor: cpu ? null : 'nvidia',
+      buildDetails: missing ? null : cpu
+        ? { python: '3.14.1', pytorch: '2.14.0+cpu', cuda: null, dinkster: '0.0.19.dev125' }
+        : { python: '3.13.8', pytorch: '2.14.1+cu132', cuda: '13.2', dinkster: '0.0.19.dev125' },
+    }, activeJob: null })
+  })
+  dispose = render(() => <SetupForm surface={surface} />, document.body)
+  await vi.advanceTimersByTimeAsync(0)
+  const details = document.querySelector('details')!
+  expect(details.open).toBe(false)
+  expect(details.querySelector('summary')?.textContent).toBe('Details')
+  details.querySelector('summary')!.click()
+  expect(details.open).toBe(true)
+  const versions = () => [...document.querySelectorAll('[aria-label="Build versions"] .dinkster-fact')]
+    .map((row) => [row.querySelector('dt')!.textContent, row.querySelector('dd')!.textContent])
+  expect(versions()).toEqual([
+    ['Python', '3.13.8'], ['PyTorch', '2.14.1+cu132'], ['CUDA', '13.2'], ['Dinkster', '0.0.19.dev125'],
+  ])
+  button('Change build').click()
+  document.querySelector<HTMLElement>('[role="menuitemcheckbox"][aria-label="CPU only"]')!.click()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(versions()).toEqual([
+    ['Python', '3.14.1'], ['PyTorch', '2.14.0+cpu'], ['CUDA', 'Not used'], ['Dinkster', '0.0.19.dev125'],
+  ])
+  missing = true
+  button('Change build').click()
+  document.querySelector<HTMLElement>('[role="menuitemcheckbox"][aria-label="NVIDIA graphics"]')!.click()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(document.querySelector('details')).toBeNull()
+  expect(document.body.textContent).not.toContain('3.14.1')
+  expect(button('Set up').disabled).toBe(false)
+})
+
 it.each(['projects', 'editor'] as const)('requires an explicit CPU choice for repairable graphics and redetects repaired cards on %s', async (surface) => {
   vi.useFakeTimers()
   const unusable: SetupPlan['unusableCards'] = [

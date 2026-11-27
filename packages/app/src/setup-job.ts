@@ -25,6 +25,12 @@ export interface SetupPlan {
   readonly buildReason: string | null
   readonly engineRelease: string | null
   readonly baseId: string | null
+  readonly buildDetails?: {
+    readonly python: string
+    readonly pytorch: string
+    readonly cuda: string | null
+    readonly dinkster: string
+  } | null
   readonly detectedCards: readonly {
     readonly id: string
     readonly name: string
