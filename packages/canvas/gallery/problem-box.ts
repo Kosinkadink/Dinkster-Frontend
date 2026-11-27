@@ -34,9 +34,8 @@ export interface ProblemBoxGalleryLine {
   readonly row?: string
   readonly rowName?: string
   readonly message: string
-  /** Action labels, each a button under the message. */
+  /** Action labels at the right end of the line, wrapping when needed. */
   readonly actions: readonly { readonly label: string; readonly disabled?: boolean }[]
-  readonly actionsBelow?: boolean
 }
 
 export interface ProblemBoxGalleryBox {
@@ -295,7 +294,7 @@ export function problemBoxGallery(
   ])
   const fixCards = [
     { id: 'ask-me-fix', value: 7, message: 'Only 4 items are known.', action: 'Use the last item',
-      caption: 'Ask me keeps item 7. The fix sits on its own line below the warning. Pressing it stores item 4 in one undo step.' },
+      caption: 'Ask me keeps item 7. The fix sits at the right end of the warning, wrapping below only when needed. Pressing it stores item 4 in one undo step.' },
     { id: 'storing-fix', value: 7, message: 'Only 4 items are known.', action: 'Storing...', disabled: true,
       caption: 'While the fix is storing, its action is disabled so a second press cannot start another write. Everything or nothing is stored.' },
     { id: 'stale-fix', value: 6, message: 'Could not apply this fix. The workflow changed.', action: 'Check again',
@@ -307,7 +306,7 @@ export function problemBoxGallery(
       scene: scene([{ id: 'pick', schema: getItem, x: LEFT, values: { item: card.value } }]),
       badges: { pick: [warnings(1)] }, rowMarks: { pick: { item: 'warning' } },
       boxes: [{ nodeId: 'pick', nodeTitle: 'Get item', lines: [{
-        ...line('warning', 'item', card.message), actionsBelow: true,
+        ...line('warning', 'item', card.message),
         actions: [{ label: card.action, disabled: 'disabled' in card && card.disabled }],
       }] }],
       width: BOXED,

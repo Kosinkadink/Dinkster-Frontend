@@ -42,7 +42,6 @@ export function NodeProblemBox(props: {
     ...(line.row === undefined ? {} : { row: line.row }),
     ...(line.rowName === undefined ? {} : { rowName: line.rowName }),
     message: line.numberFix?.message ?? lineText(line),
-    ...(line.numberFix === undefined ? {} : { actionsBelow: true }),
     actions: line.numberFix === undefined
       ? line.actions.map((action) => ({ id: action, label: actionLabel(action) }))
       : [{

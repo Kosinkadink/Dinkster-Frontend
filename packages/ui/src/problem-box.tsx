@@ -27,8 +27,6 @@ export interface ProblemBoxViewLine {
   readonly rowName?: string
   readonly message: string
   readonly actions: readonly ProblemBoxViewAction[]
-  /** Stored-value fixes sit below their message; navigation actions stay beside it. */
-  readonly actionsBelow?: boolean
 }
 
 export function ProblemBox(props: {
@@ -80,7 +78,6 @@ export function ProblemBox(props: {
             data-testid="problem-box-line"
             data-kind={line.kind}
             data-stacked-actions={line.actions.length > 1 ? 'true' : undefined}
-            data-actions-below={line.actionsBelow ? 'true' : undefined}
             data-row={line.row}
             data-highlighted={props.highlighted === line.key ? 'true' : undefined}
             onPointerEnter={() => props.onPointLine?.(line)}
