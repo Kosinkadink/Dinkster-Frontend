@@ -141,6 +141,7 @@ interface DinksterBridgeTab {
     /** Undo one revision; false when there is nothing to undo. */
     undo(): boolean
     redo(): boolean
+    historySnapshot(): { undo: readonly unknown[]; redo: readonly unknown[] }
     /** Dispatch a command invocation (perf specs drive the full loop). */
     dispatch(invocation: { command: string; params: unknown }): {
       ok: boolean
@@ -273,6 +274,9 @@ interface DinksterTestBridge {
       | { ok: false; diagnostics: readonly unknown[] }
   } | undefined): void
   app: {
+    shell: {
+      activityBarVisible: { set(visible: boolean): void }
+    }
     store: {
       executions: {
         get(): Map<
@@ -282,6 +286,7 @@ interface DinksterTestBridge {
             ref: DinksterBridgeExecutionRef
             status: string
             errors: readonly unknown[]
+            warnings?: readonly { readonly message: string }[]
             artifactsHydrated: boolean
             artifact?: {
               prompt: Record<string, unknown>
@@ -343,7 +348,7 @@ interface DinksterTestBridge {
     createRegion(tab: DinksterBridgeTab, graphId: string, position: { x: number; y: number }, kind: 'map' | 'fold' | 'while'):
       Promise<{ ok: boolean; diagnostics: readonly unknown[] }>
     closeTab(id: string): void
-    migrationNotices: { get(): ReadonlyMap<string, unknown> }
+    adjustmentNotices: { get(): ReadonlyMap<string, unknown> }
     dispatchTo(tab: DinksterBridgeTab, invocation: { command: string; params: unknown }):
       | { ok: boolean; diagnostics?: readonly unknown[] }
       | Promise<{ ok: boolean; diagnostics?: readonly unknown[] }>

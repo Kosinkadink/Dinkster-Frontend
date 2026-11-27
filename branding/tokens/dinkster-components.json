@@ -30,6 +30,7 @@
     "low": "0 4px 12px rgba(0, 0, 0, 0.28)",
     "high": "0 12px 32px rgba(0, 0, 0, 0.42)"
   },
+  "modalBackdrop": "color-mix(in srgb, var(--dinkster-surface-canvas) 72%, transparent)",
   "layout": {
     "borderWidth": 1,
     "topBarHeight": 44,
@@ -55,7 +56,9 @@
     "sidebarBreakpoint": 768,
     "contentMaxWidth": 720,
     "tableMaxWidth": 960,
+    "dialogMaxWidth": 400,
     "dialogWideMaxWidth": 960,
+    "confirmationMaxWidth": 460,
     "pagePadding": 32,
     "menuWidth": 240,
     "emptyStateMaxWidth": 480,
@@ -69,7 +72,9 @@
     "railIconSize": 20,
     "menuRowHeight": 28,
     "scrollbarSize": 8,
-    "problemBoxMaxHeight": 400
+    "problemBoxMaxHeight": 400,
+    "fixesReviewWidth": 360,
+    "fixesReviewMaxHeight": 320
   },
   "siteLayout": {
     "shellMaxWidth": 1040,

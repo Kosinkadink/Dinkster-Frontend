@@ -8,6 +8,7 @@ import type {
   GraphDef,
   GraphViewState,
   GroupViewState,
+  GroupMembership,
   Json,
   JsonObject,
   NodeData,
@@ -39,6 +40,7 @@ import { decodeModePanelConfig, MODE_PANEL_TYPE } from '../surfaces/mode-panel.j
 import { innerConstructAddress, matchBoundaryItem, projectConstructs } from '../compile/crossing.js'
 import { rerouteInputTargets } from '../reroute.js'
 import { boundaryItems } from '../format/document.js'
+import { belongsToGroup, initialGroupMembership } from '../group-membership.js'
 
 export const LIFECYCLE_PLAN_VERSION = 'subgraph-lifecycle-plan-v2'
 
@@ -772,6 +774,7 @@ interface FingerprintProjection {
   readonly boundary: readonly unknown[]
   readonly collapsedNets: readonly string[]
   readonly guideNets: readonly string[]
+  readonly groupMembership?: GroupMembership
 }
 
 const selectedSets = (selection: LifecycleSelection) => ({
@@ -840,6 +843,7 @@ export function lifecycleSelectionProjection(
     boundary,
     collapsedNets: sortedUnique(graphView?.collapsedNets),
     guideNets: sortedUnique(graphView?.guideNets),
+    ...(graphView?.groupMembership !== undefined ? { groupMembership: graphView.groupMembership } : {}),
   }
 }
 
@@ -1597,6 +1601,7 @@ export interface ExpandedLifecycleSelection {
 export function expandLifecycleSelectionFromGroups(
   selectionInput: LifecycleSelectionInput,
   geometry: readonly ResolvedGeometryItem[],
+  storedMembership?: GroupMembership,
 ): ExpandedLifecycleSelection | undefined {
   const selection = canonicalizeLifecycleSelection(selectionInput)
   const byGroup = new Map<string, ResolvedGeometryItem>()
@@ -1607,12 +1612,19 @@ export function expandLifecycleSelectionFromGroups(
       byGroup.set(item.id, item)
     }
   }
+  const membership = storedMembership ?? initialGroupMembership(geometry.map((item) => ({
+    ...item, kind: item.kind === 'group' ? 'groups' : item.kind === 'node' ? 'nodes' : 'reroutes',
+  })))
+  const groupIds = new Set(selection.groupIds)
+  for (const groupId of selection.groupIds) {
+    for (const id of byGroup.keys()) if (belongsToGroup(membership, 'groups', id, groupId)) groupIds.add(id)
+  }
   const memberships: GroupSelectionMembership[] = []
   const expanded: Record<'nodeIds' | 'rerouteIds', Set<string>> = {
     nodeIds: new Set(selection.nodeIds),
     rerouteIds: new Set(selection.rerouteIds),
   }
-  for (const groupId of selection.groupIds) {
+  for (const groupId of groupIds) {
     const group = byGroup.get(groupId)
     if (group === undefined) return undefined
     const members: Record<keyof typeof expanded, string[]> = {
@@ -1620,7 +1632,7 @@ export function expandLifecycleSelectionFromGroups(
     }
     for (const item of geometry) {
       const kind = selectionKindOfGeometry(item.kind)
-      if (kind === undefined || !insideGroup(item, group)) continue
+      if (kind === undefined || !belongsToGroup(membership, item.kind === 'node' ? 'nodes' : 'reroutes', item.id, groupId)) continue
       members[kind].push(item.id)
       expanded[kind].add(item.id)
     }
@@ -1631,7 +1643,7 @@ export function expandLifecycleSelectionFromGroups(
     selection: canonicalizeLifecycleSelection({
       nodeIds: [...expanded.nodeIds],
       rerouteIds: [...expanded.rerouteIds],
-      groupIds: selection.groupIds,
+      groupIds: [...groupIds],
     }),
     groups: memberships,
   }
@@ -1643,13 +1655,6 @@ function selectionKindOfGeometry(
   if (kind === 'node') return 'nodeIds'
   if (kind === 'reroute') return 'rerouteIds'
   return undefined
-}
-
-function insideGroup(item: ResolvedGeometryItem, group: ResolvedGeometryItem): boolean {
-  const centerX = item.x + item.width / 2
-  const centerY = item.y + item.height / 2
-  return centerX >= group.x && centerX <= group.x + group.width &&
-    centerY >= group.y && centerY <= group.y + group.height
 }
 
 export function validateLifecycleGeometry(

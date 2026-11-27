@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseOption } from '../../e2e/choices.js'
 
 test('settings changes survive navigation, search changes the same value, and row reset restores its default', async ({ page }) => {
   await page.goto('/#settings')
@@ -64,12 +65,12 @@ test('settings changes survive navigation, search changes the same value, and ro
   await expect(resultSwitch).toHaveAttribute('aria-checked', 'true')
   await search.fill('canvas.scrollBehavior')
   const scroll = settings.getByRole('combobox', { name: 'Canvas scroll behavior', exact: true })
-  await scroll.selectOption('Pan')
+  await chooseOption(scroll, 'Pan')
   await expect(search).toHaveValue('canvas.scrollBehavior')
-  await expect(scroll).toHaveValue('Pan')
+  await expect(scroll).toContainText('Pan')
   await settings.getByRole('button', { name: 'Actions for Canvas scroll behavior' }).click()
   await page.getByRole('menuitem', { name: 'Reset to default', exact: true }).click()
-  await expect(scroll).toHaveValue('Zoom')
+  await expect(scroll).toContainText('Zoom')
   await expect(settings.getByRole('button', { name: 'Actions for Canvas scroll behavior' })).toBeFocused()
   await search.fill('search.registryUrl')
   const address = settings.getByRole('textbox', { name: 'Node registry address' })

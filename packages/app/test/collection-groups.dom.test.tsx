@@ -11,6 +11,45 @@ const flush = async (): Promise<void> => { await Promise.resolve(); await Promis
 afterEach(() => document.body.replaceChildren())
 
 describe('CollectionPanel grouped rows', () => {
+  it('drags only eligible committed rows without activating them or dragging their actions', async () => {
+    const activate = vi.fn()
+    const transfer = new Map<string, string>()
+    const source: CollectionSource = {
+      id: 'media', label: 'Media', page: async () => ({ owner: 'engine-a', items: [
+        { id: 'picture', title: 'Picture', actions: [{ id: 'inspect', label: 'Inspect' }] },
+        { id: 'folder', title: 'Folder', folder: { path: 'folder' } },
+      ] }),
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <CollectionPanel sources={[source]} onActivate={activate} drag={{
+      enabled: (entry, owner) => owner === 'engine-a' && entry.id === 'picture',
+      start: (entry, event, owner) => event.dataTransfer!.setData('text/plain', `${owner}:${entry.id}`),
+    }} />, root)
+    try {
+      await flush()
+      const picture = root.querySelector<HTMLElement>('[data-entry="picture"]')!
+      const folder = root.querySelector<HTMLElement>('[data-entry="folder"]')!
+      expect(picture.getAttribute('draggable')).toBe('true')
+      expect(folder.getAttribute('draggable')).toBe('false')
+      const drag = (element: Element) => {
+        const event = new Event('dragstart', { bubbles: true, cancelable: true })
+        Object.defineProperty(event, 'dataTransfer', { value: { setData: (type: string, value: string) => transfer.set(type, value) } })
+        element.dispatchEvent(event)
+        return event.defaultPrevented
+      }
+      expect(drag(picture)).toBe(false)
+      expect(transfer.get('text/plain')).toBe('engine-a:picture')
+      expect(activate).not.toHaveBeenCalled()
+      transfer.clear()
+      expect(drag(folder)).toBe(true)
+      picture.click()
+      expect(drag(picture.querySelector('button')!)).toBe(true)
+      expect(transfer.size).toBe(0)
+      expect(activate).toHaveBeenCalled()
+    } finally { dispose() }
+  })
+
   it('keeps row disclosures across refreshes but not across backend owners', async () => {
     const [tick, setTick] = createSignal(0)
     let owner = 'backend-a'
@@ -98,7 +137,7 @@ describe('CollectionPanel grouped rows', () => {
     expect(activate).toHaveBeenCalledWith('new')
   })
 
-  it('requires an explicit second activation before deleting a run record', async () => {
+  it('hands a run removal request to its host without deleting on row activation', async () => {
     const action = vi.fn()
     const source: CollectionSource = {
       id: 'runs',
@@ -116,39 +155,8 @@ describe('CollectionPanel grouped rows', () => {
 
     root.querySelector<HTMLElement>('[data-entry="run-1"]')!.click()
     const remove = root.querySelector<HTMLButtonElement>('[data-action="delete"]')!
-    remove.click()
-    expect(remove.textContent).toBe('Confirm delete')
-    expect(remove.getAttribute('aria-pressed')).toBe('true')
     expect(action).not.toHaveBeenCalled()
     remove.click()
     expect(action).toHaveBeenCalledWith('run-1', 'delete')
-  })
-
-  it('cancels inline delete confirmation whenever selection changes', async () => {
-    const action = vi.fn()
-    const source: CollectionSource = {
-      id: 'runs',
-      label: 'Runs',
-      page: async () => ({ items: [
-        { id: 'run-1', title: 'First run', actions: [{ id: 'delete', label: 'Delete record' }] },
-        { id: 'run-2', title: 'Second run', actions: [{ id: 'delete', label: 'Delete record' }] },
-      ] }),
-    }
-    const root = document.createElement('div')
-    document.body.append(root)
-    render(() => <CollectionPanel sources={[source]} onAction={(_source, entry, id) => action(entry.id, id)} />, root)
-    await flush()
-
-    root.querySelector<HTMLElement>('[data-entry="run-1"]')!.click()
-    root.querySelector<HTMLButtonElement>('[data-action="delete"]')!.click()
-    expect(root.querySelector<HTMLButtonElement>('[data-action="delete"]')!.textContent).toBe('Confirm delete')
-
-    root.querySelector<HTMLElement>('[data-entry="run-2"]')!.click()
-    root.querySelector<HTMLElement>('[data-entry="run-1"]')!.click()
-    const remove = root.querySelector<HTMLButtonElement>('[data-action="delete"]')!
-    expect(remove.textContent).toBe('Delete record')
-    remove.click()
-    expect(remove.textContent).toBe('Confirm delete')
-    expect(action).not.toHaveBeenCalled()
   })
 })

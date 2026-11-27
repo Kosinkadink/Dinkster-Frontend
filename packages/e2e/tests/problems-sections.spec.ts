@@ -3,7 +3,7 @@ import { evidencePath } from './evidence-output.js'
 
 test.use({ seedWorkflows: false })
 
-test('removed pack parts open with anchored upgrade rows and preserve their stored values', async ({ page }) => {
+test('removed pack parts open with a notice for the replaced option, anchored rows for the rest, and their stored values kept', async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
@@ -31,12 +31,44 @@ test('removed pack parts open with anchored upgrade rows and preserve their stor
       } } } },
     }, 'After a pack update')
   })
+  // The removed option is replaced and reported in the notice; the parts it cannot replace stay problems.
+  const notice = page.getByTestId('fixes-notice')
+  await expect(notice.locator('.dinkster-fixes-title')).toHaveText('1 thing was adjusted')
+  await notice.getByRole('button', { name: 'Review', exact: true }).click()
+  await expect(notice).toContainText('Mode: removed was removed; current is used')
+  await expect(notice.getByRole('button', { name: 'Open the Review upgrades setting', exact: true })).toHaveCount(0)
+  await notice.locator('.dinkster-fixes-review-row').filter({ hasText: 'Removed option' }).click()
+  await expect(page.getByTestId('row-focus')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => 'status' in window.__dinksterTest!.app.activeTab()!.store)).toBe(true)
+  await expect(notice.locator('.dinkster-fixes-review-row[aria-current="true"]')).toContainText('Removed option')
+  await expect(page.getByTestId('row-focus').locator('.dinkster-canvas-field-side')).toHaveCount(0)
+  await expect(page.locator('.widget-editor')).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((item) => item.id === 'option')!
+    const viewport = renderer.getViewport()
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!
+    return Math.abs(viewport.x + (node.x + node.layout.width / 2) * viewport.scale - canvas.clientWidth / 2)
+  })).toBeLessThan(1)
+  await expect.poll(() => page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const node = renderer.getScene().nodes.find((item) => item.id === 'option')!
+    const row = node.layout.rows.find((item) => item.kind === 'widget' && item.address?.port === 'mode')!
+    const viewport = renderer.getViewport()
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    const focus = document.querySelector('.widget-row-focus .dinkster-canvas-field-row')!.getBoundingClientRect()
+    return Math.abs(focus.top + focus.height / 2 - (canvas.top + viewport.y + (node.y + row.y + row.height / 2) * viewport.scale))
+  })).toBeLessThan(2)
+  await page.screenshot({ path: evidencePath('removed-pack-parts', 'review-field.png'), animations: 'disabled' })
+  await page.keyboard.press('Shift')
+  await expect(page.getByTestId('row-focus')).toHaveCount(0)
+  await expect(page.locator('.widget-editor')).toHaveCount(0)
+  await expect(notice.locator('.dinkster-fixes-review-row[aria-current="true"]')).toContainText('Removed option')
   await openRailPanel(page, 'Problems')
   const panel = page.getByTestId('problems-panel')
-  await expect(panel.locator('.problems-group-title')).toContainText(['Upgraded on open'])
-  const upgrades = panel.locator('[data-section="upgrade"]')
-  await expect(upgrades.locator('details.problem')).toHaveCount(3)
-  await expect(upgrades).toContainText("option 'removed' of 'Mode' is no longer in the pack. It is now 'current'.")
+  await expect(panel.locator('.problems-group-title')).not.toContainText(['Upgraded on open'])
+  const upgrades = panel.locator('[data-section="workflow"] details.problem').filter({ hasText: 'is no longer part of this node' })
+  await expect(upgrades).toHaveCount(2)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.option!.dynamic!.mode!.selected)).toBe('current')
   await expect(page.getByTestId('status-bar')).not.toContainText('Workflow dynamic identities are invalid')
   await page.screenshot({ path: evidencePath('removed-pack-parts', 'opened.png'), animations: 'disabled' })
@@ -45,10 +77,11 @@ test('removed pack parts open with anchored upgrade rows and preserve their stor
   expect(await page.evaluate(() => {
     const nodes = window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes
     return { values: nodes.option!.values, group: nodes.group!.dynamic, choice: nodes.choice!.dynamic }
-  })).toEqual({ values: { 'mode.oldAmount': 31 }, group: { old: { members: ['m3'], seq: 4 }, mode: { selected: 'current' } }, choice: { old: { selected: 'previous' }, mode: { selected: 'current' } } })
+  })).toEqual({ values: { 'mode.oldAmount': 31 }, group: { mode: { selected: 'current' }, old: { members: ['m3'], seq: 4 } },
+    choice: { mode: { selected: 'current' }, old: { selected: 'previous' } } })
 })
 
-test('Problems presents five ordered sections with one-line rows and debug-only codes', async ({ page }) => {
+test('Problems presents four ordered sections with one-line rows and debug-only codes', async ({ page }) => {
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/api/workflows/plan', (route) => route.fulfill({ json: { packs: [], assets: [], errors: [] } }))
   await page.goto('/')
@@ -81,11 +114,11 @@ test('Problems presents five ordered sections with one-line rows and debug-only 
   await openRailPanel(page, 'Problems')
   const panel = page.getByTestId('problems-panel')
   await expect(panel.locator('.problems-group-title')).toHaveText([
-    'Execution', 'This workflow', 'Upgraded on open', 'Packs and backend', 'Collaboration',
+    'Execution', 'This workflow', 'Packs and backend', 'Collaboration',
   ])
   const rows = panel.locator('details.problem summary')
   await expect(rows).toHaveCount(5)
-  await panel.screenshot({ path: evidencePath('problems-sections', 'five-sections.png'), animations: 'disabled' })
+  await panel.screenshot({ path: evidencePath('problems-sections', 'four-sections.png'), animations: 'disabled' })
   for (const row of await rows.all()) {
     await expect(row).not.toContainText(/\[(error|warning|info)\]|(?:runtime|schema|compile|import|collab)\./)
     const line = row.locator('.problem-message')
@@ -102,8 +135,4 @@ test('Problems presents five ordered sections with one-line rows and debug-only 
   await expect(panel.getByText('Sampler: model memory is exhausted', { exact: true })).toHaveCount(1)
   await panel.screenshot({ path: evidencePath('problems-sections', 'expanded-detail.png'), animations: 'disabled' })
   await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-selection', '1')
-  await panel.getByRole('button', { name: 'Dismiss', exact: true }).click()
-  await expect(panel.locator('.problems-group-title')).toHaveText([
-    'Execution', 'This workflow', 'Packs and backend', 'Collaboration',
-  ])
 })

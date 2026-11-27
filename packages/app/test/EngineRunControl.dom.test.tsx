@@ -2,6 +2,8 @@ import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SupervisorStatus } from '@dinkster/client'
+import { asLineageId } from '@dinkster/core'
+import { WorkflowQueueControl } from '../src/WorkflowQueueControl.js'
 import { EngineRunControl } from '../src/EngineRunControl.js'
 
 let unmount: (() => void) | undefined
@@ -95,7 +97,66 @@ describe('EngineRunControl', () => {
     await vi.waitFor(() => expect(document.body.textContent).toContain(expected))
     expect(document.body.textContent).not.toContain('Not the engine log')
     expect(document.body.textContent?.match(/Engine log/g)).toHaveLength(1)
-    if (body.truncated) expect(document.body.textContent).toContain('64 KiB')
+    if (body.truncated) expect(document.body.textContent).toContain('64 KB')
+  })
+
+  it('keeps logs across same-installation updates and isolates changed installations and URLs', async () => {
+    const [installation, setInstallation] = createSignal({
+      baseUrl: 'http://first.test',
+      status: { protocol: 1, state: 'failed', role: 'home', open: { root: '/first', engine: 'native' } } as SupervisorStatus,
+    })
+    const pending: Array<(response: Response) => void> = []
+    vi.stubGlobal('fetch', () => new Promise<Response>((resolve) => { pending.push(resolve) }))
+    const root = document.createElement('div')
+    document.body.append(root)
+    unmount = render(() => <WorkflowQueueControl owner={{ id: 'workflow', title: 'Workflow', lineage: asLineageId('workflow') }}
+      executions={[]} canQueue={installation().status.state === 'ready'} onQueue={() => undefined}
+      onOpenExecution={() => undefined}
+      runControl={(runButton) => <EngineRunControl status={installation().status} baseUrl={installation().baseUrl}
+        onRestart={async () => undefined}>{runButton}</EngineRunControl>} />, root)
+    const open = () => {
+      root.querySelector<HTMLButtonElement>('[data-testid="engine-failed"]')!.click()
+      ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Show log')!.click()
+    }
+    const reply = async (index: number, text: string) => {
+      pending[index]!(new Response(JSON.stringify({ available: true, text, truncated: false })))
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
+    }
+    open()
+    setInstallation((current) => ({ ...current, status: { ...current.status, detail: 'Still failed' } }))
+    await reply(0, 'First installation log')
+    const dialog = document.querySelector('dialog')
+    expect(dialog).not.toBeNull()
+    setInstallation((current) => ({ ...current, status: { ...current.status, detail: 'Connection refreshed' } }))
+    expect(document.querySelector('dialog')).toBe(dialog)
+    expect(document.body.textContent).toContain('First installation log')
+    for (const state of ['starting', 'stopped', 'ready', 'failed'] as const) {
+      setInstallation((current) => ({ ...current, status: { ...current.status, state } }))
+      expect(document.querySelector('dialog')).toBe(dialog)
+      expect(document.body.textContent).toContain('First installation log')
+      expect(root.querySelector('[data-testid="queue-button"]') !== null).toBe(state === 'ready')
+    }
+
+    document.querySelector('dialog')!.dispatchEvent(new Event('close'))
+    expect(document.querySelector('dialog')).toBeNull()
+    open()
+    // The home supervisor can open a different installation at the same URL.
+    setInstallation((current) => ({ ...current, status: { ...current.status, open: { root: '/second', engine: 'native' } } }))
+    expect(document.querySelector('dialog')).toBeNull()
+    open()
+    await reply(2, 'Second installation log')
+    await reply(1, 'Stale installation log')
+    expect(document.body.textContent).toContain('Second installation log')
+    expect(document.body.textContent).not.toContain('Stale installation log')
+    document.querySelector('dialog')!.dispatchEvent(new Event('close'))
+    open()
+    setInstallation((current) => ({ ...current, baseUrl: 'http://second.test' }))
+    expect(document.querySelector('dialog')).toBeNull()
+    open()
+    await reply(4, 'Second URL log')
+    await reply(3, 'Stale URL log')
+    expect(document.body.textContent).toContain('Second URL log')
+    expect(document.body.textContent).not.toContain('Stale URL log')
   })
 
   it('shows a refused log request as unavailable instead of substituting status text', async () => {

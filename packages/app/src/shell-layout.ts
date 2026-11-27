@@ -24,21 +24,20 @@ export const SHELL_STATUS_BAR_VISIBLE = 'shell.layout.statusBar.visible'
 
 export interface RegionSizeBounds {
   readonly min: number
-  readonly max: number
   readonly fallback: number
 }
 
-/** Single source of truth for size clamps: setting definitions AND drags. */
+/** Stored preferences have a minimum; the shell bounds their rendered size. */
 export const REGION_SIZE_BOUNDS: Readonly<Record<ShellRegion, RegionSizeBounds>> = {
-  left: { min: 280, max: 640, fallback: 380 },
-  right: { min: 240, max: 560, fallback: 300 },
-  bottom: { min: 120, max: 480, fallback: 240 },
+  left: { min: 280, fallback: 380 },
+  right: { min: 240, fallback: 300 },
+  bottom: { min: 120, fallback: 240 },
 }
 
 export const clampRegionSize = (region: ShellRegion, px: number): number => {
   const bounds = REGION_SIZE_BOUNDS[region]
   if (!Number.isFinite(px)) return bounds.fallback
-  return Math.min(bounds.max, Math.max(bounds.min, Math.round(px)))
+  return Math.max(bounds.min, Math.round(px))
 }
 
 const sizeKey = (region: ShellRegion): string =>
@@ -66,7 +65,6 @@ export class ShellLayout {
         type: 'number',
         defaultValue: bounds.fallback,
         min: bounds.min,
-        max: bounds.max,
         step: 1,
         projectScoped: true,
       })
@@ -153,6 +151,7 @@ export function beginRegionResize(
   region: ShellRegion,
   down: PointerEvent,
   sign: 1 | -1,
+  maximum: () => number = () => Number.POSITIVE_INFINITY,
 ): () => void {
   down.preventDefault()
   const pointerId = down.pointerId
@@ -163,7 +162,7 @@ export function beginRegionResize(
   let done = false
   const move = (e: PointerEvent) => {
     if (e.pointerId !== pointerId) return
-    layout.previewSize(region, startSize + sign * (e[axis] - start))
+    layout.previewSize(region, Math.min(maximum(), startSize + sign * (e[axis] - start)))
   }
   const dispose = () => {
     if (done) return

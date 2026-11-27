@@ -34,6 +34,11 @@ function mount(home: HomeStatus = { role: 'home', state: 'stopped' }) {
       return Response.json(status)
     }
     if (path.startsWith('http://127.0.0.1:3637/')) return new Response('')
+    const project = /^\/api\/projects\/([^/]+)$/.exec(path)
+    if (project !== null) return Response.json({ project: {
+      id: decodeURIComponent(project[1]!), name: decodeURIComponent(project[1]!),
+      created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
+    } })
     const record = /^\/api\/projects\/([^/]+)\/opened$/.exec(path)
     if (record !== null && init?.method === 'POST') {
       recorded.push(decodeURIComponent(record[1]!))

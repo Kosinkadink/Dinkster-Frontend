@@ -17,9 +17,12 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asNodeId } from '../src/ids.js'
-import { registerCatalog } from '../src/i18n/index.js'
+import { readFileSync } from 'node:fs'
+import { registerCatalog, setLocale } from '../src/i18n/index.js'
 
-registerCatalog('en', { 'nodeHelp.action.help': 'Help' })
+for (const locale of ['en', 'zh']) {
+  registerCatalog(locale, JSON.parse(readFileSync(new URL(`../../app/src/locales/${locale}.json`, import.meta.url), 'utf8')))
+}
 
 function graph(partial: Omit<Partial<GraphDef>, 'id'> & { id: string }): GraphDef {
   return {
@@ -258,11 +261,25 @@ describe('core contributions', () => {
         },
       },
     })
-    const selection = { nodes: ['n1', 'n2'], links: [], reroutes: [] }
+    const selection = { nodes: ['n1', 'n2', 's1'], links: [], reroutes: [] }
     const groups = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }, { doc: document, selection }))
     const compact = requireAction(groups.flatMap((group) => group.items)
       .find((entry) => entry.id === 'core.node.compactDynamic')!)
-    expect(compact.label).toBe('Remove unused dynamic inputs from 2 nodes')
+    expect(compact.label).toBe('Clear unused slots on 2 nodes')
+    const single = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }, { doc: document }))
+      .flatMap((group) => group.items).find((entry) => entry.id === 'core.node.compactDynamic')!
+    expect(single.label).toBe('Clear unused slots')
+    setLocale('zh')
+    try {
+      const localized = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }, { doc: document, selection }))
+        .flatMap((group) => group.items).find((entry) => entry.id === 'core.node.compactDynamic')!
+      expect(localized.label).toBe('\u6e05\u9664 2 \u4e2a\u8282\u70b9\u4e0a\u672a\u4f7f\u7528\u7684\u63d2\u69fd')
+      const localizedSingle = coreRegistry().resolve(ctx({ kind: 'node', nodeId: 'n1' }, { doc: document }))
+        .flatMap((group) => group.items).find((entry) => entry.id === 'core.node.compactDynamic')!
+      expect(localizedSingle.label).toBe('\u6e05\u9664\u672a\u4f7f\u7528\u7684\u63d2\u69fd')
+    } finally {
+      setLocale('en')
+    }
     expect(compact.action).toEqual({
       kind: 'command',
       invocation: {

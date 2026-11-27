@@ -7,7 +7,7 @@ import {
   splitProps,
   type JSX,
 } from 'solid-js'
-import { ChevronDown, CircleAlert, Clock, LoaderCircle, X, type LucideIcon } from 'lucide-solid'
+import { CircleAlert, Clock, LoaderCircle, X, type LucideIcon } from 'lucide-solid'
 import { Dynamic } from 'solid-js/web'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
@@ -230,22 +230,29 @@ export function ProductProviderButton(
 export function ProductIconButton(
   props: Omit<ButtonAttributes, 'children' | 'aria-label' | 'title'> & {
     label: string
+    labelContent?: JSX.Element
     icon: LucideIcon
     intent?: ProductRole
     'data-tooltip-label'?: string
   },
 ) {
-  const [local, button] = splitProps(props, ['label', 'icon', 'intent'])
+  const [local, button] = splitProps(props, [
+    'label',
+    'labelContent',
+    'icon',
+    'intent',
+  ])
   return (
     <Button
       {...button}
       intent={local.intent}
       fill="quiet"
-      iconOnly
+      iconOnly={local.labelContent === undefined}
       aria-label={local.label}
       title={button['data-tooltip-label'] ? undefined : local.label}
     >
       <ProductIcon icon={local.icon} />
+      {local.labelContent}
     </Button>
   )
 }
@@ -355,6 +362,8 @@ export function ProductTile(props: {
   detail?: string
   picture?: JSX.Element
   empty?: JSX.Element
+  disabled?: boolean
+  tooltip?: string | undefined
   onClick: () => void
 }) {
   return (
@@ -362,6 +371,8 @@ export function ProductTile(props: {
       type="button"
       class="dinkster-tile"
       aria-label={props.caption ? undefined : props.label}
+      disabled={props.disabled}
+      data-tooltip-label={props.tooltip}
       onClick={() => props.onClick()}
     >
       <span class="dinkster-tile-picture">
@@ -427,18 +438,6 @@ export function ProductTextArea(
 ) {
   useFieldFocus()
   return <textarea {...props} class="dinkster-input dinkster-textarea" />
-}
-
-export function ProductSelect(
-  props: Omit<JSX.SelectHTMLAttributes<HTMLSelectElement>, 'class' | 'style'>,
-) {
-  useFieldFocus()
-  return (
-    <div class="dinkster-select">
-      <select {...props} class="dinkster-input" />
-      <ProductIcon icon={ChevronDown} />
-    </div>
-  )
 }
 
 export function ProductCheckbox(

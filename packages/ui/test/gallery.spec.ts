@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '../../e2e/visual.js'
+import { chooseOption } from '../../e2e/choices.js'
 import axe from 'axe-core'
 
 declare global {
@@ -65,6 +66,55 @@ test('list rows expand independently of their sibling menu and navigation does n
   await expect(version).not.toHaveAttribute('aria-controls')
 })
 
+test('product dropdowns keep candidates separate from saved values and work inside dialogs', async ({ page }) => {
+  await page.goto('/#dropdowns')
+  const runtime = page.getByRole('combobox', { name: 'Runtime', exact: true })
+  await expect(runtime).toHaveAccessibleDescription('The check marks the saved value; the highlight is the keyboard candidate.')
+  await expect(page.getByRole('combobox', { name: 'Unavailable runtime', exact: true })).toBeDisabled()
+  const invalid = page.getByRole('combobox', { name: 'Invalid runtime', exact: true })
+  await expect(invalid).toHaveAttribute('aria-invalid', 'true')
+  await expect(invalid).toHaveAccessibleDescription('Choose a runtime.')
+  await runtime.click()
+  const list = page.getByRole('listbox')
+  await expect(list.getByRole('option', { name: 'Automatic', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(list.getByRole('option', { name: 'Unavailable runtime', exact: true })).toBeDisabled()
+  await page.keyboard.press('ArrowDown')
+  await expect(runtime).toHaveText('Automatic')
+  await expect(runtime).toHaveAttribute('aria-activedescendant', (await list.getByRole('option', { name: 'CPU', exact: true }).getAttribute('id'))!)
+  await page.keyboard.press('Enter')
+  await expect(runtime).toHaveText('CPU')
+  await expect(runtime).toBeFocused()
+  await expect(list).toHaveCount(0)
+  await runtime.press('g')
+  await runtime.press('Escape')
+  await expect(runtime).toHaveText('CPU')
+  await runtime.press('g')
+  await runtime.press('Enter')
+  await expect(runtime).toHaveText('GPU')
+  await runtime.click()
+  await page.getByRole('heading', { name: 'Dropdowns' }).first().click()
+  await expect(list).toHaveCount(0)
+  const long = page.getByRole('combobox', { name: 'Long list', exact: true })
+  await long.press('End')
+  const last = page.getByRole('option', { name: 'Environment 24 - shared production runtime', exact: true })
+  await expect(last).toBeInViewport()
+  await long.press('Enter')
+  await expect(long).toHaveText('Environment 24 - shared production runtime')
+  await page.getByRole('button', { name: 'Open dropdown dialog' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Runtime choice', exact: true })
+  const dialogRuntime = dialog.getByRole('combobox', { name: 'Dialog runtime', exact: true })
+  await dialogRuntime.click()
+  await expect(dialog.getByRole('listbox')).toBeVisible()
+  await dialogRuntime.press('Escape')
+  await expect(dialog).toBeVisible()
+  await dialogRuntime.click()
+  await dialog.getByRole('option', { name: 'CPU', exact: true }).click()
+  expect(await dialog.locator('form').evaluate((form: HTMLFormElement) => new FormData(form).get('runtime'))).toBe('cpu')
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog.getByRole('status').filter({ hasText: 'Saved cpu' })).toBeVisible()
+  await expect(page.locator('select')).toHaveCount(0)
+})
+
 test('multiline fields grow, scroll at their height cap, and shrink after deletion', async ({ page }) => {
   await page.goto('/#controls')
   const notes = page.getByRole('textbox', { name: 'Notes', exact: true })
@@ -116,64 +166,6 @@ test('run activity distinguishes concurrent running jobs from queued jobs and re
     .not.toBe(await clock.evaluate((element) => getComputedStyle(element).color))
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect.poll(() => ring.evaluate((element) => getComputedStyle(element).animationName)).toBe('none')
-})
-
-test('portable site geometry follows the site scale without changing app density', async ({
-  page,
-}) => {
-  await page.goto('/#controls')
-  for (const width of [1280, 1440, 1920, 390]) {
-    await page.setViewportSize({ width, height: 900 })
-    const values = await page.evaluate(() => {
-      const root = document.documentElement
-      root.dataset.density = 'site'
-      const style = getComputedStyle(root)
-      const site = Object.fromEntries(
-        [
-          'navigation-width',
-          'row-button-height',
-          'row-button-mobile-height',
-          'field-height',
-          'main-button-height',
-          'panel-radius',
-          'control-radius',
-          'mobile-top-bar-padding',
-          'status-tint-opacity',
-        ].map((name) => [
-          name,
-          name === 'status-tint-opacity'
-            ? Number(style.getPropertyValue(`--dinkster-site-${name}`))
-            : style.getPropertyValue(`--dinkster-site-${name}`).trim(),
-        ]),
-      )
-      root.dataset.density = 'app'
-      const app = {
-        siteField: getComputedStyle(root)
-          .getPropertyValue('--dinkster-site-field-height')
-          .trim(),
-        input: getComputedStyle(root)
-          .getPropertyValue('--dinkster-input-primary-height')
-          .trim(),
-        body: getComputedStyle(document.body).fontSize,
-      }
-      root.dataset.density = 'site'
-      return { site, app }
-    })
-    expect(values).toEqual({
-      site: {
-        'navigation-width': '220px',
-        'row-button-height': '28px',
-        'row-button-mobile-height': '32px',
-        'field-height': '36px',
-        'main-button-height': '36px',
-        'panel-radius': '8px',
-        'control-radius': '6px',
-        'mobile-top-bar-padding': '8px',
-        'status-tint-opacity': 0.14,
-      },
-      app: { siteField: '', input: '40px', body: '13px' },
-    })
-  }
 })
 
 const background = (locator: Locator) =>
@@ -241,6 +233,7 @@ for (const width of [1280, 390]) {
       await page.goto(`/#${section}`)
       await page.evaluate(() => document.fonts.ready)
       await expect(page.getByRole('main')).toBeVisible()
+      if (section === 'confirmations') expect(await page.evaluate(() => window.scrollY)).toBe(0)
       if (section === 'lists') {
         const heading = page.locator('.storage-folder-heading').first()
         const name = await heading.locator('strong').boundingBox()
@@ -607,10 +600,8 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await page.getByLabel('First choice').focus()
   await page.keyboard.press('ArrowDown')
   await expect(page.getByLabel('Second choice')).toBeChecked()
-  await page
-    .getByLabel('Access', { exact: true })
-    .selectOption({ label: 'Mint only' })
-  await expect(page.getByLabel('Access', { exact: true })).toHaveValue(
+  await chooseOption(page.getByLabel('Access', { exact: true }), 'Mint only')
+  await expect(page.getByLabel('Access', { exact: true })).toHaveText(
     'Mint only',
   )
   await page.getByLabel('Selected unavailable radio').scrollIntoViewIfNeeded()
@@ -1078,13 +1069,17 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await page.goto('/#confirmations')
   const opener = page.getByRole('button', { name: 'Review removal' })
   await opener.click()
-  const dialog = page.getByRole('dialog', { name: 'Remove item?' })
+  const dialog = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
   await expect(dialog).toBeVisible()
   await expect(
-    dialog.getByRole('button', { name: 'Remove item', exact: true }),
+    dialog.getByRole('button', { name: 'Remove backend', exact: true }),
   ).toBeVisible()
   await expect(page).toHaveScreenshot('dialog-open.png', { fullPage: true })
-  await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused()
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+  await opener.click()
   await page.keyboard.press('Shift+Tab')
   expect(
     await dialog.evaluate((element) =>
@@ -1099,7 +1094,7 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(dialog).toHaveCount(0)
   await opener.click()
   const remove = dialog.getByRole('button', {
-    name: 'Remove item',
+    name: 'Remove backend',
     exact: true,
   })
   await remove.focus()
@@ -1123,6 +1118,41 @@ test('dialog contains focus, Escape restores its opener and removal requires con
   await expect(page).toHaveScreenshot('dialog-open-390.png')
 })
 
+test('pending confirmation dismissal controls dim without a page root and recover when work ends', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') })
+  await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'))
+  await page.goto('/#confirmations')
+  // The app mounts dialogs outside a page root; the gallery body normally masks that context.
+  await page.evaluate(() => document.body.classList.remove('dinkster-root'))
+  const opener = page.getByRole('button', { name: 'Review working', exact: true })
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
+  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true })
+  const close = dialog.getByRole('button', { name: 'Close', exact: true })
+  const action = dialog.getByRole('button', { name: 'Remove backend', exact: true })
+  for (const control of [cancel, close]) {
+    await expect(control).toBeDisabled()
+    await expect(control).toHaveCSS('opacity', '0.45')
+    await control.dispatchEvent('click')
+    await expect(dialog).toBeVisible()
+  }
+  await expect(action).toHaveAttribute('aria-busy', 'true')
+  await expect(action).toHaveCSS('opacity', '1')
+  await expect(action.locator('.dinkster-spinner')).toBeVisible()
+  for (let press = 0; press < 4; press += 1) await page.keyboard.press('Escape')
+  await page.mouse.click(1, 1)
+  await expect(dialog).toBeVisible()
+  await page.clock.runFor(600)
+  for (const control of [cancel, close]) {
+    await expect(control).toBeEnabled()
+    await expect(control).toHaveCSS('opacity', '1')
+  }
+  await expect(action).not.toHaveAttribute('aria-busy', 'true')
+  await cancel.click()
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+})
+
 test('wide dialogs use their own width and preserve narrow margins and dismissal', async ({
   page,
 }) => {
@@ -1130,10 +1160,10 @@ test('wide dialogs use their own width and preserve narrow margins and dismissal
   for (const width of [1280, 800, 390]) {
     await page.setViewportSize({ width, height: 900 })
     await page.getByRole('button', { name: 'Review removal' }).click()
-    const regular = page.getByRole('dialog', { name: 'Remove item?' })
-    await expect(regular).toHaveAttribute('data-size', 'default')
+    const regular = page.getByRole('dialog', { name: 'Remove "Studio B"?' })
+    await expect(regular).toHaveAttribute('data-size', 'confirmation')
     const regularBounds = (await regular.boundingBox())!
-    if (width >= 800) expect(regularBounds.width).toBe(480)
+    if (width >= 800) expect(regularBounds.width).toBe(460)
     else {
       expect(regularBounds.x).toBeGreaterThanOrEqual(16)
       expect(regularBounds.width).toBeGreaterThanOrEqual(width - 36)

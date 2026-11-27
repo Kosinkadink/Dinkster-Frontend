@@ -1,7 +1,6 @@
 import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import type { DinksterConnection, LibraryStorage, LibraryStorageCleanup } from '@dinkster/client'
-import { ProductConfirmation, ProductDialog, ProductErrorBanner, ProductSettingsSection, ProductSettingRow, ProductSwitch, ProductTextButton, ProductToast } from '@dinkster/ui'
-import { ProductNumberInput } from './ProductNumberInput.js'
+import { ProductByteSizeInput, ProductConfirmation, ProductDialog, ProductErrorBanner, ProductSettingsSection, ProductSettingRow, ProductSwitch, ProductTextButton, ProductToast } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
 
 export function LibraryStorageSettings(props: {
@@ -109,9 +108,9 @@ export function LibraryStorageSettings(props: {
               error={saveError()?.id === id ? saveError()?.text : undefined}
               menuLabel={message('settingsPage.actions', { name: label() })} copyIdLabel={message('runtimeSettings.page.copyId')}
               onReset={() => {}} onCopyId={() => props.onCopyId?.(id)} menuItems={[{ label: message('runtimeSettings.page.copyId'), description: id, disabled: !props.onCopyId, onSelect: () => props.onCopyId?.(id) }]}>
-              <Show when={id === 'library-storage-limited'} fallback={<ProductNumberInput id={id} ariaLabel={label()} unit="B" value={limit()!}
-                min={1} max={Number.MAX_SAFE_INTEGER} integer disabled={busy()} ariaInvalid={saveError()?.id === id} ariaDescribedBy={saveError()?.id === id ? `${id}-error` : undefined}
-                onCommit={(raw) => { const next = Number(raw); if (Number.isSafeInteger(next) && next > 0) void save(next, id) }} />}>
+              <Show when={id === 'library-storage-limited'} fallback={<ProductByteSizeInput id={id} aria-label={label()} value={limit()!}
+                minimum={1} disabled={busy()} aria-invalid={saveError()?.id === id ? 'true' : undefined} aria-describedby={saveError()?.id === id ? `${id}-error` : undefined}
+                onCommit={(next) => { void save(next, id) }} />}>
                 <ProductSwitch id={id} label={label()} checked={loaded().policyAvailable && limit() !== null} disabled={busy() || !loaded().policyAvailable}
                   aria-describedby={saveError()?.id === id ? `${id}-error` : undefined} onChange={(limited) => { void save(limited ? 21474836480 : null, id) }} />
               </Show>

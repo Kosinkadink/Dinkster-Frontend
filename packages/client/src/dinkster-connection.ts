@@ -27,10 +27,11 @@ import { credentialFetch, mintDelegation, type CollabCredentials, type Delegatio
 import { requestWithDeadline } from './request-deadline.js'
 import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
   type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
-import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs, decodeModelPresence,
-  type ModelRequirement, type ModelDownloadPlan, type ModelDownloadJob, type ModelPresence } from './model-downloads.js'
+import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs, decodeModelPresence, ModelDownloadBusyError,
+  type ModelRequirement, type ModelDownloadRequirement, type ModelDownloadPlan, type ModelDownloadJob, type ModelPresence } from './model-downloads.js'
 import {
   asPromptId,
+  uuidv4,
   createSignal,
   canonicalJson,
   decodeEffectiveExtensionSnapshot,
@@ -1322,7 +1323,8 @@ function libraryStorage(value: unknown): LibraryStorage {
 
 export interface ProjectNeeds {
   readonly packs: readonly { readonly pack: string; readonly version: string | null }[]
-  readonly installed: readonly { readonly pack: string; readonly version: string | null }[]
+  /** Installation facts are supplied only by a running engine. */
+  readonly installed?: readonly { readonly pack: string; readonly version: string | null }[]
   readonly extra: readonly string[]
   readonly unknown: readonly { readonly scope: string; readonly id: string }[]
 }
@@ -1337,18 +1339,60 @@ export interface AccountProjectChoices {
   readonly projects: readonly { readonly id: string; readonly displayName: string | null }[]
 }
 
+export interface ProjectCreation {
+  readonly filesFolder?: string
+  readonly startWith?:
+    | { readonly kind: 'empty' }
+    | { readonly kind: 'workflow'; readonly name: string; readonly content: string }
+    | { readonly kind: 'project'; readonly project: string }
+}
+
 export interface LibraryProject {
   readonly accountProject?: AccountProjectLink | null
   readonly id: string
   readonly uid?: string
   readonly name: string
   readonly created: string
+  /** Last successful opening, independent of the project's revision. */
+  readonly lastOpenedAt?: string | null
   readonly revision: number
   readonly deleted: boolean
+  /** When the record last changed; for a deleted project, when it was deleted. */
+  readonly modified?: string
+  /** The project's selected output folder, an absolute path; null when the process has none to name. */
+  readonly folder?: string | null
+  /** The parent of the input and output folders chosen when the project was made. */
+  readonly filesFolder?: string
   readonly environment?: { readonly id: string } & (
     { readonly lastSnapshot: string; readonly lastRunAt: string } |
     { readonly lastSnapshot: null; readonly lastRunAt: null }
   ) | null
+}
+
+/** One row of an asset list (`assets.list`): an identity with its aliases and every observation in `project`. */
+function decodeAssetCatalogEntry(raw: unknown, project: string, endpoint: string): LocalAssetCatalogEntry {
+  const asset = uploadedAssetRef(raw, undefined, endpoint)
+  const row = raw as Record<string, unknown>
+  if (!Array.isArray(row['aliases']) || !row['aliases'].every((alias) => typeof alias === 'string') ||
+      !Array.isArray(row['observations'])) throw new Error(`${endpoint}: malformed response`)
+  const observations = row['observations'].map((value): AssetObservation => {
+    const ref = uploadedAssetRef(value, undefined, endpoint)
+    const observation = value as Record<string, unknown>
+    const origin = observation['origin']
+    if (ref.digest !== asset.digest || typeof observation['id'] !== 'string' ||
+        typeof observation['originalName'] !== 'string' || typeof observation['kind'] !== 'string' ||
+        observation['project'] !== project || typeof observation['created'] !== 'number' ||
+        !Number.isFinite(observation['created']) || observation['created'] < 0 ||
+        typeof origin !== 'object' || origin === null || Array.isArray(origin) ||
+        !Object.values(origin).every((field) => typeof field === 'string')) {
+      throw new Error(`${endpoint}: malformed observation`)
+    }
+    return {
+      id: observation['id'], asset: ref, originalName: observation['originalName'], kind: observation['kind'],
+      origin: { ...origin } as Record<string, string>, project, created: observation['created'],
+    }
+  })
+  return { asset, aliases: [...row['aliases']] as string[], observations }
 }
 
 function decodeLibraryProject(value: unknown): LibraryProject {
@@ -1389,11 +1433,32 @@ function decodeLibraryProject(value: unknown): LibraryProject {
     }
     link = { issuer: record['issuer'], id: record['id'] }
   }
+  const folder = row['folder']
+  if (folder !== undefined && folder !== null && (typeof folder !== 'string' || folder.length === 0)) {
+    throw new Error('Malformed library project folder')
+  }
+  const filesFolder = row['filesFolder']
+  if (filesFolder !== undefined && (typeof filesFolder !== 'string' || filesFolder.length === 0)) {
+    throw new Error('Malformed library project files folder')
+  }
+  const modified = row['modified']
+  if (modified !== undefined && (typeof modified !== 'string' || !Number.isFinite(Date.parse(modified)))) {
+    throw new Error('Malformed library project modification time')
+  }
+  const lastOpenedAt = row['lastOpenedAt']
+  if (lastOpenedAt !== undefined && lastOpenedAt !== null &&
+    (typeof lastOpenedAt !== 'string' || !Number.isFinite(Date.parse(lastOpenedAt)))) {
+    throw new Error('Malformed library project opening time')
+  }
   return {
     ...(link === undefined ? {} : { accountProject: link }),
     id: row['id'], name: row['name'], created: row['created'], revision: row['revision'] as number, deleted: row['deleted'],
     ...(uid === undefined ? {} : { uid: uid as string }),
     ...(environment === undefined ? {} : { environment: environment as Exclude<LibraryProject['environment'], undefined> }),
+    ...(folder === undefined ? {} : { folder: folder as string | null }),
+    ...(filesFolder === undefined ? {} : { filesFolder: filesFolder as string }),
+    ...(modified === undefined ? {} : { modified: modified as string }),
+    ...(lastOpenedAt === undefined ? {} : { lastOpenedAt: lastOpenedAt as string | null }),
   }
 }
 
@@ -1915,23 +1980,7 @@ export interface HistoryPage {
   readonly cursor?: string
 }
 
-/**
- * RFC 4122 v4 UUID. `crypto.randomUUID` exists only in secure contexts
- * (HTTPS or localhost), and this app is legitimately served over plain HTTP
- * on LAN/tailnet origins - where `getRandomValues` is still available, so
- * derive the UUID from it instead of failing every submit.
- */
-export function uuidv4(): string {
-  const c = globalThis.crypto as Crypto | undefined
-  if (typeof c?.randomUUID === 'function') return c.randomUUID()
-  const bytes = new Uint8Array(16)
-  if (typeof c?.getRandomValues === 'function') c.getRandomValues(bytes)
-  else for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256) // last-resort (non-browser shims)
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40 // version 4
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80 // RFC 4122 variant
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
-}
+export { uuidv4 } from '@dinkster/core'
 
 export class DinksterConnection {
   readonly id: ConnectionId
@@ -3052,30 +3101,32 @@ export class DinksterConnection {
         (payload.cursor !== undefined && (typeof payload.cursor !== 'string' || payload.cursor === ''))) {
       throw new Error(`${endpoint}: malformed response`)
     }
-    const assets = payload.assets.map((raw): LocalAssetCatalogEntry => {
-      const asset = uploadedAssetRef(raw, undefined, endpoint)
-      const row = raw as Record<string, unknown>
-      if (!Array.isArray(row['aliases']) || !row['aliases'].every((alias) => typeof alias === 'string') ||
-          !Array.isArray(row['observations'])) throw new Error(`${endpoint}: malformed response`)
-      const observations = row['observations'].map((value): AssetObservation => {
-        const ref = uploadedAssetRef(value, undefined, endpoint)
-        const observation = value as Record<string, unknown>
-        const origin = observation['origin']
-        if (ref.digest !== asset.digest || typeof observation['id'] !== 'string' ||
-            typeof observation['originalName'] !== 'string' || typeof observation['kind'] !== 'string' ||
-            observation['project'] !== project || typeof observation['created'] !== 'number' ||
-            !Number.isFinite(observation['created']) || observation['created'] < 0 ||
-            typeof origin !== 'object' || origin === null || Array.isArray(origin) ||
-            !Object.values(origin).every((field) => typeof field === 'string')) {
-          throw new Error(`${endpoint}: malformed observation`)
-        }
-        return {
-          id: observation['id'], asset: ref, originalName: observation['originalName'], kind: observation['kind'],
-          origin: { ...origin } as Record<string, string>, project, created: observation['created'],
-        }
-      })
-      return { asset, aliases: [...row['aliases']] as string[], observations }
+    const assets = payload.assets.map((raw) => decodeAssetCatalogEntry(raw, project, endpoint))
+    return { assets, ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}) }
+  }
+
+  /** What one project's runs produced, newest first: the projects page's latest outputs. */
+  async listProjectOutputs(project: string, options: {
+    readonly limit?: number
+    readonly cursor?: string
+    readonly signal?: AbortSignal
+  } = {}): Promise<LocalAssetCatalogPage> {
+    const endpoint = 'GET /api/projects/{id}/outputs'
+    const query = new URLSearchParams()
+    if (options.limit !== undefined) query.set('limit', String(options.limit))
+    if (options.cursor !== undefined) query.set('cursor', options.cursor)
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(project)}/outputs?${query}`, {
+      cache: 'no-store',
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
+    if (!res.ok) throw new Error(`${endpoint} failed: ${res.status}`)
+    const payload = await res.json() as { assets?: unknown; cursor?: unknown } | null
+    // The last page carries a null cursor.
+    if (!payload || !Array.isArray(payload.assets) ||
+        (payload.cursor !== null && (typeof payload.cursor !== 'string' || payload.cursor === ''))) {
+      throw new Error(`${endpoint}: malformed response`)
+    }
+    const assets = payload.assets.map((raw) => decodeAssetCatalogEntry(raw, project, endpoint))
     return { assets, ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}) }
   }
 
@@ -3544,9 +3595,10 @@ export class DinksterConnection {
     return rows
   }
 
-  async planModelDownload(requirement: ModelRequirement, signal?: AbortSignal, source?: string): Promise<ModelDownloadPlan> {
+  async planModelDownload(requirement: ModelDownloadRequirement, signal?: AbortSignal, source?: string): Promise<ModelDownloadPlan> {
     return decodeModelDownloadPlan(await this.modelDownloadRequest('plan', 'POST', {
       name: requirement.name, kind: requirement.kind, project: this.project ?? 'default', scope: 'local',
+      ...(requirement.asset === undefined ? {} : { asset: requirement.asset }),
       ...(source === undefined ? {} : { source }),
     }, signal))
   }
@@ -3579,7 +3631,9 @@ export class DinksterConnection {
         const raw: unknown = await res.json().catch(() => undefined)
         if (path === 'plan' && res.status === 409 && record(raw) &&
           (raw['error'] === 'credential-required' || raw['error'] === 'provider-grant-required' || raw['error'] === 'civitai-access-required' || raw['error'] === 'model-hidden'))
-          return { status: raw['error'] }
+          return { ...raw, status: raw['error'], ...(typeof body?.['source'] === 'string' ? { source: body['source'] } : {}) }
+        if (path === 'start' && res.status === 409 && record(raw) && raw['error'] === 'model-download-busy')
+          throw new ModelDownloadBusyError()
         throw new Error(`Model download ${method} failed: ${res.status}`)
       }
       return res.json() as Promise<unknown>
@@ -3645,7 +3699,7 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/models/locations/${encodeURIComponent(location)}/projects/${encodeURIComponent(this.project ?? 'default')}`, {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }),
     })
-    if (!res.ok) throw new Error(`PUT model project folder failed: ${res.status}`)
+    if (!res.ok) throw new Error(`The library did not answer (${res.status}).`)
     return decodeModelSettingsState(await res.json())
   }
 
@@ -3791,7 +3845,7 @@ export class DinksterConnection {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mounts, outputMount }),
     })
-    if (!res.ok) throw new Error(`PUT project folders failed: ${res.status}`)
+    if (!res.ok) throw new Error(`The library did not answer (${res.status}).`)
   }
 
   async retryMount(id: string): Promise<void> {
@@ -3919,12 +3973,17 @@ export class DinksterConnection {
     readonly scope: string
     readonly query?: string
     readonly label?: string
+    readonly mediaType?: string
+    /** Only this project's records, such as the projects page's workflow list for a project that is not open. */
+    readonly project?: string
     readonly limit?: number
     readonly cursor?: string
   }): Promise<LibraryPage> {
     const params = new URLSearchParams({ scope: req.scope })
     if (req.query !== undefined && req.query !== '') params.set('q', req.query)
     if (req.label !== undefined) params.set('label', req.label)
+    if (req.mediaType !== undefined) params.set('mediaType', req.mediaType)
+    if (req.project !== undefined) params.set('project', req.project)
     if (req.limit !== undefined) params.set('limit', String(req.limit))
     if (req.cursor !== undefined) params.set('cursor', req.cursor)
     const res = await this.fetchFn(`${this.baseUrl}/api/library?${params.toString()}`)
@@ -4115,12 +4174,14 @@ export class DinksterConnection {
     return { id: row['id'], snapshot: row['snapshot'] }
   }
 
-  async listProjects(cursor?: string, signal?: AbortSignal): Promise<{
+  /** One page of projects; deleted ones only when `includeDeleted` asks for them. */
+  async listProjects(cursor?: string, signal?: AbortSignal, includeDeleted = false): Promise<{
     readonly items: readonly LibraryProject[]
     readonly cursor: string | null
   }> {
     const query = new URLSearchParams({ limit: '100' })
     if (cursor !== undefined) query.set('cursor', cursor)
+    if (includeDeleted) query.set('includeDeleted', 'true')
     const res = await this.fetchFn(`${this.baseUrl}/api/projects?${query}`, { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
     if (!res.ok) throw new Error(`GET /api/projects failed: ${res.status}`)
     const payload = await res.json() as Record<string, unknown> | null
@@ -4132,10 +4193,10 @@ export class DinksterConnection {
   }
 
   /** Registration is idempotent: the library's existing record wins. */
-  async registerProject(id: string, name: string, signal?: AbortSignal): Promise<LibraryProject> {
+  async registerProject(id: string, name: string, creation: ProjectCreation = {}, signal?: AbortSignal): Promise<LibraryProject> {
     const res = await this.fetchFn(`${this.baseUrl}/api/projects`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, name }), ...(signal === undefined ? {} : { signal }),
+      body: JSON.stringify({ id, name, ...creation }), ...(signal === undefined ? {} : { signal }),
     })
     if (res.status === 503) {
       const gate = parseEngineNotReady(await res.json().catch(() => undefined))
@@ -4178,8 +4239,8 @@ export class DinksterConnection {
       })
     }
     const packs = readPacks(body['packs'])
-    const installed = readPacks(body['installed'])
-    if (new Set(installed.map(({ pack }) => pack)).size !== installed.length) throw invalid()
+    const installed = body['installed'] === undefined ? undefined : readPacks(body['installed'])
+    if (installed !== undefined && new Set(installed.map(({ pack }) => pack)).size !== installed.length) throw invalid()
     const unknown = body['unknown'].map((raw: unknown) => {
       if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw invalid()
       const record = raw as Record<string, unknown>
@@ -4187,7 +4248,7 @@ export class DinksterConnection {
         typeof record['id'] !== 'string' || record['id'].length === 0) throw invalid()
       return { scope: record['scope'], id: record['id'] }
     })
-    return { packs, installed, extra: body['extra'] as string[], unknown }
+    return { packs, ...(installed === undefined ? {} : { installed }), extra: body['extra'] as string[], unknown }
   }
 
   async accountStatus(signal?: AbortSignal): Promise<AccountStatus> {
@@ -4254,6 +4315,34 @@ export class DinksterConnection {
 
   renameProject(id: string, name: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
     return this.patchProject(id, revision, { name }, signal)
+  }
+
+  /** Marks the project deleted at `revision`; the library keeps its files, and refuses the default project. */
+  async deleteProject(id: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision }), ...(signal === undefined ? {} : { signal }),
+    })
+    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before deleting.')
+    if (!res.ok) throw new Error(`DELETE /api/projects failed: ${res.status}`)
+    const payload = await res.json() as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id || !project.deleted) throw new Error('Library did not delete the project')
+    return project
+  }
+
+  /** Clears the project's deleted mark at `revision`; its workflows and outputs come back with it. */
+  async restoreProject(id: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}/restore`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision }), ...(signal === undefined ? {} : { signal }),
+    })
+    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before restoring.')
+    if (!res.ok) throw new Error(`POST /api/projects/${id}/restore failed: ${res.status}`)
+    const payload = await res.json() as { project?: unknown } | null
+    const project = decodeLibraryProject(payload?.project)
+    if (project.id !== id || project.deleted) throw new Error('Library did not restore the project')
+    return project
   }
 
   setProjectExtraPacks(id: string, extra: readonly string[], revision: number, signal?: AbortSignal): Promise<LibraryProject> {
@@ -4398,7 +4487,7 @@ export class DinksterConnection {
     )
     if (res.status === 204) return true
     if (res.status === 404) return false
-    throw new Error(`DELETE /api/history/${runId} failed: ${res.status}`)
+    throw new Error(`The engine did not answer (${res.status}).`)
   }
 
   /**

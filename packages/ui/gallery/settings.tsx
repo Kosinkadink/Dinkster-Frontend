@@ -6,7 +6,7 @@ import { useAppMessage } from '../../app/src/locale.js'
 import { useSignal } from '../../app/src/solid-adapter.js'
 import { ProductNumberInput } from '../../app/src/ProductNumberInput.js'
 import {
-  ProductConfirmation, ProductDialog, ProductIcon, ProductPage, ProductSelect, ProductSettingRow, ProductTextButton,
+  ProductByteSizeInput, ProductConfirmation, ProductDialog, ProductIcon, ProductPage, ProductSelect, ProductSettingRow, ProductTextButton,
   ProductSettingsPage, ProductSettingsSection, ProductShortcutCapture, ProductShortcutText, ProductSwitch,
   ProductTextArea, ProductTextInput, ProductToast, ProductErrorBanner, type ProductSearchGroup,
 } from '../src/index.js'
@@ -53,7 +53,7 @@ const settings: readonly Setting[] = [
   { id: 'execution.previews', label: 'Live sampling previews', group: 'runs', section: 'Previews', value: 'Off', options: ['Off', 'Cheap', 'Quality', 'Auto'] },
   { id: 'execution.mirrorPreviews', label: 'Mirror previews', group: 'runs', section: 'Previews', value: true },
   { id: 'storage.limited', label: 'Limit the space run files may use', group: 'storage', section: 'Limit', value: true },
-  { id: 'storage.limit', label: 'Keep at most', group: 'storage', section: 'Limit', value: 10, unit: 'GB' },
+  { id: 'storage.limit', label: 'Keep at most', group: 'storage', section: 'Limit', value: 10737418240, unit: 'GB' },
   { id: 'pack.dinkster-nodes-dev.showTips', label: 'Show example tips', group: 'packs', section: 'Dinkster nodes (dev)', value: false, description: 'An example stored pack preference; it does not change node execution.' },
   { id: 'pack.example.enabled', label: 'Enable example pack feature', group: 'packs', section: 'Example pack', value: true, description: 'Gallery fixture, not a live pack setting.' },
   { id: 'engine.dtype.diffusion', label: 'Diffusion model precision', group: 'engine', section: 'Local engine', value: 'Auto', options: ['Auto', 'FP16', 'BF16', 'FP32'], description: 'Applies to workers started from now on.' },
@@ -124,14 +124,14 @@ export function SettingsGallery() {
       { label: setting.group === 'engine' ? 'Copy ID' : 'Copy setting ID', description: setting.id, onSelect: () => { void copyId(setting.id) } },
     ] },
   })
-  const error = (setting: Setting) => typeof setting.value === 'number' && (!Number.isFinite(Number(value(setting))) || Number(value(setting)) < 0 || Number(value(setting)) > 5000) ? 'Enter a number between 0 and 5000.' : undefined
+  const error = (setting: Setting) => typeof setting.value === 'number' && setting.unit !== 'GB' && (!Number.isFinite(Number(value(setting))) || Number(value(setting)) < 0 || Number(value(setting)) > 5000) ? 'Enter a number between 0 and 5000.' : undefined
   const control = (setting: Setting, searching = false) => {
     const attributes = () => ({ id: setting.id, 'aria-label': setting.label, 'aria-describedby': error(setting) ? `${setting.id}-error` : !searching && setting.description ? `${setting.id}-description` : undefined, 'aria-invalid': error(setting) ? 'true' as const : undefined })
     return <Show when={!setting.locked} fallback={<output id={setting.id} class="dinkster-setting-locked"><ProductIcon icon={LockKeyhole} />{typeof value(setting) === 'boolean' ? value(setting) ? 'On' : 'Off' : String(value(setting))}</output>}>
       <Show when={setting.list} fallback={<>
       <Show when={typeof setting.value === 'boolean'}><ProductSwitch id={setting.id} label={setting.label} checked={value(setting) as boolean} onChange={(next) => update(setting.id, next)} /></Show>
-      <Show when={setting.options}><ProductSelect {...attributes()} value={String(value(setting))} onChange={(event) => update(setting.id, event.currentTarget.value)}><For each={setting.options}>{(option) => <option>{option}</option>}</For></ProductSelect></Show>
-      <Show when={typeof setting.value === 'number'}><ProductNumberInput id={setting.id} ariaLabel={setting.label} ariaInvalid={error(setting) !== undefined} ariaDescribedBy={attributes()['aria-describedby']} value={value(setting) as number} min={0} max={5000} unit={setting.unit} onCommit={(raw) => update(setting.id, Number(raw))} /></Show>
+      <Show when={setting.options}><ProductSelect {...attributes()} options={(setting.options ?? []).map((value) => ({ value, label: value }))} value={String(value(setting))} onChange={(next) => update(setting.id, next)} /></Show>
+      <Show when={typeof setting.value === 'number'}><Show when={setting.unit === 'GB'} fallback={<ProductNumberInput id={setting.id} ariaLabel={setting.label} ariaInvalid={error(setting) !== undefined} ariaDescribedBy={attributes()['aria-describedby']} value={value(setting) as number} min={0} max={5000} unit={setting.unit} onCommit={(raw) => update(setting.id, Number(raw))} />}><ProductByteSizeInput {...attributes()} value={value(setting) as number} minimum={1} onCommit={(bytes) => update(setting.id, bytes)} /></Show></Show>
       <Show when={typeof setting.value === 'string' && !setting.options && !setting.multiline}><ProductTextInput {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} /></Show>
       <Show when={setting.multiline}><ProductTextArea {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} /></Show>
       </>}>
@@ -238,7 +238,7 @@ export function SettingsGallery() {
         <Show when={group() === 'shortcuts'} fallback={<For each={sections()}>{(section) => <ProductSettingsSection title={section}>
           <Show when={section === 'Studio server'}><p class="dinkster-settings-note">This server does not allow changing these settings from here.</p></Show>
           <For each={settings.filter((setting) => setting.group === group() && setting.section === section && visible(setting))}>{row}</For>
-          <Show when={section === 'Limit' && limited() && (cleared() ? 9.3 : 12.4) > Number(values()['storage.limit'] ?? 10)}><p class="dinkster-settings-note">Files in use are kept, so the total can stay above the limit.</p></Show>
+          <Show when={section === 'Limit' && limited() && (cleared() ? 9.3 : 12.4) * 1024 ** 3 > Number(values()['storage.limit'] ?? 10737418240)}><p class="dinkster-settings-note">Files in use are kept, so the total can stay above the limit.</p></Show>
         </ProductSettingsSection>}</For>}>
           <For each={settingsCommandGroups(commands)}>{(area) => <ProductSettingsSection title={message(`settingsPage.commands.${area.id}`)}><For each={area.commands}>{(command) => <ProductSettingRow
             id={command.id} label={command.label} modified={combo(command.id) !== keybindings.defaultCombo(command.id)}

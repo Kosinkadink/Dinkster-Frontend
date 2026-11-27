@@ -539,7 +539,7 @@ export function ProductSearch(props: {
             role="listbox"
             aria-label={props.label}
           >
-            <For each={props.groups}>
+            <For each={props.groups.filter((group) => group.rows.length > 0 || group.note !== undefined)}>
               {(group) => {
                 const heading = `${id}-group-${encodeURIComponent(group.key).replace(/%/gu, '_')}`
                 return (
@@ -547,9 +547,9 @@ export function ProductSearch(props: {
                     class="dinkster-search-group"
                     data-group={group.key}
                     role="group"
-                    aria-labelledby={group.label === undefined ? undefined : heading}
+                    aria-labelledby={group.label === undefined || group.rows.length === 0 ? undefined : heading}
                   >
-                    <Show when={group.label}>
+                    <Show when={group.rows.length > 0 ? group.label : undefined}>
                       {(label) => (
                         <div class="dinkster-search-group-heading" id={heading}>
                           <span>{label()}</span>

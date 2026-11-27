@@ -87,7 +87,7 @@ function PackSettingsPanel(props: {
           <ProductNumberInput id={controlId} ariaLabelledBy={ids.label} ariaDescribedBy={describedBy} value={value() as number} min={field.minimum} max={field.maximum} step={field.multipleOf} integer={field.type === 'integer'} disabled={saving()} onCommit={commitNumber} />
         </Show>
         <Show when={field.type === 'string' && field.enum !== undefined}>
-          <ProductSelect id={controlId} aria-labelledby={ids.label} aria-describedby={describedBy} disabled={saving()} value={String(value())} onChange={(event) => { void update(name, event.currentTarget.value) }}><For each={field.enum ?? []}>{(option) => <option value={option}>{option}</option>}</For></ProductSelect>
+          <ProductSelect id={controlId} aria-labelledby={ids.label} aria-describedby={describedBy} disabled={saving()} options={(field.enum ?? []).map((value) => ({ value, label: value }))} value={String(value())} onChange={(next) => { void update(name, next) }} />
         </Show>
         <Show when={field.type === 'string' && field.enum === undefined}>
           <ProductTextInput id={controlId} aria-labelledby={ids.label} aria-describedby={describedBy} disabled={saving()} value={String(value())} onChange={(event) => { void update(name, event.currentTarget.value) }} />
@@ -169,7 +169,7 @@ function SettingField(props: {
           setStringDraft(undefined)
         }}
       /></Show>
-      <Show when={definition.type === 'combo'}><ProductSelect id={controlId} aria-label={props.inline ? name() : undefined} aria-labelledby={props.inline ? undefined : ids.label} aria-describedby={describedBy()} value={String(value())} onChange={(event) => setValue(event.currentTarget.value)}><For each={options()}>{(option) => <option value={option.value}>{option.label}</option>}</For></ProductSelect></Show>
+      <Show when={definition.type === 'combo'}><ProductSelect id={controlId} aria-label={props.inline ? name() : undefined} aria-labelledby={props.inline ? undefined : ids.label} aria-describedby={describedBy()} options={options()} value={String(value())} onChange={setValue} /></Show>
     </>
   return <Show when={!props.inline} fallback={<div data-setting-id={definition.id}>
     {control()}

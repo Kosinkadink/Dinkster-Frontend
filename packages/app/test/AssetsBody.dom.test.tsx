@@ -8,6 +8,7 @@ import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
 import { AssetsBody } from '../src/AssetsBody.js'
 import { AssetEntrySelection } from '../src/asset-browser/rail.js'
 import { assetEntryOf } from '../src/asset-browser/collection-adapter.js'
+import { ASSET_DRAG_TYPE, readAssetDrag } from '../src/asset-browser/drag.js'
 import type { DinksterDesktopBridge } from '../src/desktop-bridge.js'
 import '../src/locale.js'
 
@@ -37,6 +38,34 @@ const stubConnection = <T extends object>(members: T): DinksterConnection => ({
 } as unknown as DinksterConnection)
 
 describe('Assets dock body', () => {
+  it('offers complete available media as project/backend-tagged drags, but not models or missing bytes', async () => {
+    const assets = [
+      { digest: `blake3:${'a'.repeat(64)}`, name: 'song.wav', mediaType: 'audio/wav', size: 42, virtualPath: '' },
+      { digest: `blake3:${'b'.repeat(64)}`, name: 'missing.mp4', mediaType: 'video/mp4', size: 84, virtualPath: '' },
+      { digest: `blake3:${'c'.repeat(64)}`, name: 'model.bin', mediaType: 'application/octet-stream', size: 126, virtualPath: '' },
+    ]
+    const connection = stubConnection({
+      listMounts: async () => [], assetUrl: () => '',
+      listLocalAssets: async () => ({ assets: assets.map((asset) => ({ asset, aliases: [asset.name], observations: [] })) }),
+      checkAssetAvailability: async () => assets.map((asset) => ({ digest: asset.digest, status: asset.name.startsWith('missing') ? 'missing' : 'available' })),
+    })
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" baseUrl="http://engine.test" />, root)
+    try {
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(3))
+      const row = (name: string) => [...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((entry) => entry.textContent?.includes(name))!
+      expect(row('missing.mp4').getAttribute('draggable')).toBe('false')
+      expect(row('model.bin').getAttribute('draggable')).toBe('false')
+      expect(row('song.wav').getAttribute('draggable')).toBe('true')
+      const transfer = new Map<string, string>()
+      const event = new Event('dragstart', { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'dataTransfer', { value: { setData: (type: string, value: string) => transfer.set(type, value) } })
+      row('song.wav').dispatchEvent(event)
+      expect(readAssetDrag(transfer.get(ASSET_DRAG_TYPE)!)).toEqual({ project: 'default', baseUrl: 'http://engine.test', asset: assets[0] })
+      expect(root.querySelector('[data-testid="asset-rail-details"]')).toBeNull()
+    } finally { dispose() }
+  })
+
   it.each(['selection', 'engine'])('ignores a pending hide completion after changing %s', async (change) => {
     const item = (name: string) => assetEntryOf({ id: name, name, kind: 'model/checkpoint', digest: `blake3:${'a'.repeat(64)}`,
       virtualPath: `mounts/models/${name}`, rawRef: { digest: `blake3:${'a'.repeat(64)}`, virtualPath: `mounts/models/${name}` }, source: { id: 'mount:models', label: 'Models' } })
@@ -52,9 +81,10 @@ describe('Assets dock body', () => {
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <AssetEntrySelection entry={entry()} adapters={[]} backendId="native" connection={connection()} visibilityConnection={connection()} backendUrl="" onVisibilityChanged={changed} />, root)
     try {
-      const button = () => root.querySelector<HTMLButtonElement>('[data-testid="model-visibility-action"] button:last-child')!
+      const button = () => [...root.querySelectorAll<HTMLButtonElement>('[data-testid="model-visibility-action"] button')].find((row) => row.textContent === 'Hide in this project')!
       button().click(); button().click()
-      expect(button().disabled).toBe(true)
+      expect(button().getAttribute('aria-disabled')).toBe('true')
+      expect(button().getAttribute('aria-busy')).toBe('true')
       if (change === 'engine') setConnection(second)
       else setEntry(item('second.safetensors'))
       finish(); await Promise.resolve(); await Promise.resolve()
@@ -78,7 +108,7 @@ describe('Assets dock body', () => {
       const action = () => root.querySelector<HTMLElement>('[data-testid="model-visibility-action"]')!
       const button = (text: string) => [...action().querySelectorAll<HTMLButtonElement>('button')].find((row) => row.textContent === text)!
       button('Hide in this project').click()
-      expect(action().textContent).toContain('No files will be deleted')
+      expect(action().textContent).toContain('no files are deleted')
       expect(hideModel).not.toHaveBeenCalled()
       button('Cancel').click()
       expect(hideModel).not.toHaveBeenCalled()
@@ -361,7 +391,7 @@ describe('Assets dock body', () => {
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
     expect(root.querySelector('[data-source="mount:models"]')?.getAttribute('data-state')).toBe('scanning')
     expect(root.querySelector('[data-source="mount:models"]')?.textContent).toContain(
-      'Indexed 4/10 files, 1.0 KiB/4.0 KiB, 2s elapsed',
+      'Indexed 4/10 files, 1 KB/4 KB, 2s elapsed',
     )
 
     await vi.advanceTimersByTimeAsync(1000)

@@ -1015,8 +1015,8 @@ row is fully visible even at fractional shell dimensions.
 
 ## Boot indicator
 
-Before the shell mounts, `main.tsx` loads fonts and completes desktop setup
-when present. The boot indicator fills that window with a centered pulse
+Before the shell mounts, `main.tsx` loads fonts and reads the native window
+context when present. The boot indicator fills that window with a centered pulse
 and the product name. Startup constructs a native Dinkster connection directly;
 backend metadata loads after construction rather than blocking the shell on
 a protocol-choice probe. URL-based backend addition recognizes only a native

@@ -1,6 +1,6 @@
 import { createEffect, createSignal, createUniqueId, For, Index, onCleanup, onMount, Show } from 'solid-js'
 import { LockKeyhole } from 'lucide-solid'
-import { ProductIcon, ProductSettingRow, ProductSwitch, ProductTextButton } from '@dinkster/ui'
+import { ProductIcon, ProductSelect as SharedProductSelect, ProductSettingRow, ProductSwitch, ProductTextButton } from '@dinkster/ui'
 import {
   RuntimeSettingsError,
   type DinksterConnection,
@@ -116,9 +116,9 @@ function EngineSettingRows(props: {
       modified={false} resetLabel="" resetDefaultLabel="" menuLabel={message('settingsPage.actions', { name: message(definition.label) })} copyIdLabel={message('runtimeSettings.page.copyId')}
       onReset={() => {}} onCopyId={() => props.onCopyId(id)} menuItems={[{ label: message('runtimeSettings.page.copyId'), description: id, onSelect: () => props.onCopyId(id) }]}>
       <Show when={props.editable && definition.kind !== 'locked'} fallback={<output id={controlId} class="dinkster-setting-locked"><ProductIcon icon={LockKeyhole} />{shown()}</output>}>
-        <Show when={definition.kind === 'precision' || definition.kind === 'level'}><ProductSelect id={controlId} ariaLabel={message(definition.label)} ariaDescribedBy={error()?.id === id ? `${controlId}-error` : undefined} disabled={saving()} selectedId={String(current())}
-          options={(definition.kind === 'precision' ? ['auto', 'float16', 'bfloat16', 'float32'] : ['debug', 'info', 'warning', 'error', 'critical']).map((item) => ({ id: item, value: item, label: definition.kind === 'precision' ? ({ auto: message('runtimeSettings.dtype.auto'), float16: 'FP16', bfloat16: 'BF16', float32: 'FP32' }[item] ?? item) : item }))}
-          onSelect={(option) => { void save(id, next(option.value)) }} /></Show>
+        <Show when={definition.kind === 'precision' || definition.kind === 'level'}><SharedProductSelect id={controlId} aria-label={message(definition.label)} aria-describedby={error()?.id === id ? `${controlId}-error` : undefined} disabled={saving()} value={String(current())}
+          options={(definition.kind === 'precision' ? ['auto', 'float16', 'bfloat16', 'float32'] : ['debug', 'info', 'warning', 'error', 'critical']).map((item) => ({ value: item, label: definition.kind === 'precision' ? ({ auto: message('runtimeSettings.dtype.auto'), float16: 'FP16', bfloat16: 'BF16', float32: 'FP32' }[item] ?? item) : item }))}
+          onChange={(value) => { void save(id, next(value)) }} /></Show>
         <Show when={definition.kind === 'switch'}><ProductSwitch id={controlId} label={message(definition.label)} checked={current() === true} disabled={saving()} onChange={(item) => { void save(id, next(item)) }} /></Show>
         <Show when={definition.kind === 'number'}><ProductNumberInput id={controlId} ariaLabel={message(definition.label)} ariaDescribedBy={error()?.id === id ? `${controlId}-error` : undefined} value={Number(current())} min={1} integer disabled={saving()} onCommit={(raw) => { void save(id, next(Number(raw))) }} /></Show>
         <Show when={definition.kind === 'list'}><Show when={editing()} fallback={<><span class="dinkster-setting-none">{shown()}</span><ProductTextButton id={controlId} label={message('runtimeSettings.page.edit')} aria-label={message('runtimeSettings.page.editList', { name: message(definition.label) })} disabled={saving()} onClick={beginList} /></>}>

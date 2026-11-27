@@ -70,6 +70,7 @@ import { BoundaryTreeGallery } from './boundary-tree.js'
 import { SaveTargetBoxGallery } from './save-target-box.js'
 import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
+import { FixesNoticeGallery } from './fixes-notice.js'
 import { RowFilePreviewsGallery } from './row-file-previews.js'
 
 type Theme = 'dark' | 'light'
@@ -81,6 +82,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
       [
         'anatomy',
         'boxes',
+        'lines',
         'idle-outline',
         'titles',
         'titles-content',
@@ -124,7 +126,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
     ['Wires', ['types', 'structure', 'wire-looks']],
     ['Subgraphs', ['boundary', 'boundary-names', 'boundary-tree', 'subgraph-icon']],
     ['Flow nodes', ['switch-primitive', 'small-flow-nodes', 'type-conflict']],
-    ['Problems with fixes', ['problem-box']],
+    ['Problems with fixes', ['problem-box', 'fixes-notice']],
     ['Zoom', ['zoom', 'zoom-content', 'zoom-overview', 'minimap']],
   ]
 
@@ -175,6 +177,8 @@ export function selectCanvasPage(href: string) {
 const pageNotes: Record<CanvasGalleryPage, string> = {
   anatomy:
     'The parts of a node: title bar with its minimize arrow, pins, value rows, a section open and closed, a subgraph node with its mark, and a node whose type is missing.',
+  lines:
+    'A shared line starts folded, with wired pins gathered at its ends. Unfolded, each field has its own row and pins beside a grouping rail. The last card shows the proposed pin list and Unfold action; these examples show the look, not working fold controls.',
   boxes:
     'Sections, groups and choices drawn as boxes. A closed box shows how many rows it holds and marks a changed value with a dot. Its row carries the pins of the fields inside it, pressed together, at most three on a side with wired pins first; an unwired input is hollow, and a fourth wire ends on the last pin drawn. A wire held over a closed box names the field it would reach. Opening or closing a box moves neither its name nor any row above it. A member of a group that can be reordered has a grip: dragging it shows where the member would land and dims it in place, and its menu has Move up and Move down. A stored member of a group the user grows has a remove cross; at the fewest members it stays dimmed, and offered members have none.',
   'idle-outline':
@@ -188,6 +192,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'A node\'s declared title suffix, worked out from its values ("20 steps, euler"), one space after the title in the row names\' dim regular type: beside a pack title, beside a renamed title, cut first on a narrow node ("20 steps with the euler sampler"), and on a minimized node.',
   'node-look':
     'The same nodes in the original look and in the flat-title look the owner chose.',
+  'fixes-notice':
+    'The one quiet line that reports the small fixes the editor made by itself, with Review, one Undo and a cross, and the status bar count after it is dismissed. Every card works: Review, Undo, Redo adjustments, the cross and the count can be used.',
   previews:
     'Every node that can show a preview has a "Preview" caption row: before a picture, with one (open, and folded with the caption under the pointer), loading, failed, cached and estimated, and a text result open and folded. A minimized node keeps the caption folded while it has a picture or a text result; its caption opens the picture at its open height.',
   badges: 'Every badge on a node, and the toolbar above a selected node.',
@@ -255,9 +261,9 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     "The Boundary panel lists a subgraph node's rows as one ordered tree: rows, lines of fields, sections and whole groups and choices, in the order the node draws them, with the selected row's settings in the fixed area below. Click a row to select it, a section's arrow to open or close it.",
   zoom: 'Three nodes at 75 percent, the smallest zoom that still draws controls.',
   'zoom-content':
-    'The same nodes at 50 percent, where text stays and controls are hidden.',
+    'The same nodes at 30 percent, where text stays and controls are hidden.',
   'zoom-overview':
-    'The same nodes just below 50 percent, where the canvas draws its overview.',
+    'The same nodes just below 30 percent, where the canvas draws its overview.',
   minimap:
     'The minimap: nodes outlined by state, a bypassed node, wires in their type colors, groups, and the frame of the visible area.',
   'switch-primitive':
@@ -265,7 +271,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'subgraph-icon':
     'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, the cyan mark on a field shown on the subgraph node, and the Create subgraph button on the toolbox over two plain nodes, which one selected subgraph node does not show. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
   'small-flow-nodes':
-    'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
+    'Or else, Has value, Only if and hand-count Unpack as ordinary nodes: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
   'wire-looks':
     'Every look a wire has. A dashed wire means only that it may carry nothing; every other wire, including one being dragged, is solid. A wire whose source is switched off is faded.',
   'type-conflict':
@@ -486,6 +492,11 @@ function ExampleCard(props: {
       include(toolbox.x, toolbox.y)
       include(toolbox.x + toolbox.width, toolbox.y + toolbox.height)
     }
+    const lineList = renderer.getLineListLayout()
+    if (lineList) {
+      include(lineList.x, lineList.y)
+      include(lineList.x + lineList.width, lineList.y + lineList.height)
+    }
     for (const label of labels) {
       include(label.x, label.y - tokens.fontSize)
       include(
@@ -671,7 +682,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
-    if (currentPage === 'row-editing' || currentPage === 'row-states' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'editor-choice-placement' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
+    if (currentPage === 'row-editing' || currentPage === 'row-states' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'editor-choice-placement' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'fixes-notice' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
       if (disposed) return
@@ -753,12 +764,9 @@ export function CanvasGallery() {
               <ProductSelect
                 {...attributes}
                 value={widgetId()}
-                onChange={(event) => setWidgetId(event.currentTarget.value)}
-              >
-                <For each={galleryWidgetInputs}>
-                  {(input) => <option value={input.id}>{input.id}</option>}
-                </For>
-              </ProductSelect>
+                onChange={setWidgetId}
+                options={galleryWidgetInputs.map((input) => ({ value: input.id, label: input.id }))}
+              />
             )}
           </ProductField>
         </div>
@@ -799,6 +807,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'problem-box'}>
           <ProblemBoxGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'fixes-notice'}>
+          <FixesNoticeGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'row-file-previews'}>
           <RowFilePreviewsGallery theme={theme()} registry={registry} />
@@ -954,9 +965,11 @@ export function CanvasGallery() {
             <For each={details().overflow ?? [details().badge]}>
               {(badge) => <p class="dinkster-description">{badge.glyph}</p>}
             </For>
-            <ProductButton onClick={() => setBadgeDetails(undefined)}>
-              Close
-            </ProductButton>
+            <footer class="dinkster-dialog-actions">
+              <ProductButton onClick={() => setBadgeDetails(undefined)}>
+                Close
+              </ProductButton>
+            </footer>
           </ProductDialog>
         )}
       </Show>

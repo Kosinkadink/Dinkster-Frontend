@@ -91,6 +91,7 @@ import {
   type SelectedPreviewAsset,
 } from './node-previews.js'
 import type { NodeProblemMap } from './problem-display.js'
+import { problemBoxRows, runtimeProblemBoxLines } from './problem-box.js'
 import type { ExecutedImage, ExecutedImageBatch } from './executed-image-inventory.js'
 
 const controllerSensitiveFor = (
@@ -697,6 +698,7 @@ export function deriveSceneOverlays(args: {
   readonly nodeProblems?: NodeProblemMap
   /** Nodes whose runtime error badge the user dismissed for THIS run. */
   readonly dismissedErrorNodes?: ReadonlySet<string>
+  readonly dismissedLogTabs?: ReadonlySet<string> | undefined
   readonly rowProblems?: RowProblemMap
   /**
    * Live tabs: whether a node no longer runs as the run ran it, given the
@@ -868,10 +870,20 @@ export function deriveSceneOverlays(args: {
     progress.state === 'error'
       ? !lastRunNodes.has(id)
       : args.frozen || !ended || (progress.state !== 'done' && progress.state !== 'cached' && progress.state !== 'skipped')))
-  let rowProblems = args.rowProblems ?? {}
-  if (lastRunNodes.size > 0) {
+  const runtimeRows: Record<string, Record<string, ProblemKind>> = {}
+  for (const node of scene.nodes) {
+    if (lastRunNodes.has(node.id) || args.dismissedErrorNodes?.has(node.id)) continue
+    const errors = (runErrorsByNode.get(node.id) ?? []).filter((diagnostic) => diagnostic.anchor?.occurrence?.node === node.id)
+    if (errors.length === 0) continue
+    for (const line of runtimeProblemBoxLines(errors, [], 'error', problemBoxRows(node))) {
+      if (line.row !== undefined) (runtimeRows[node.id] ??= {})[line.row] = 'error'
+    }
+  }
+  let rowProblems = { ...args.rowProblems }
+  for (const [nodeId, rows] of Object.entries(runtimeRows)) rowProblems[nodeId] = { ...rowProblems[nodeId], ...rows }
+  if (lastRunNodes.size > 0 || (args.dismissedErrorNodes?.size ?? 0) > 0) {
     const rows: Record<string, Readonly<Record<string, ProblemKind>>> = { ...rowProblems }
-    for (const id of lastRunNodes) {
+    for (const id of new Set([...lastRunNodes, ...(args.dismissedErrorNodes ?? [])])) {
       const kept: Record<string, ProblemKind> = {}
       for (const line of args.nodeProblems?.[id] ?? []) {
         if (line.row === undefined || line.diagnostic.origin === 'runtime') continue
@@ -989,11 +1001,18 @@ export function deriveSceneOverlays(args: {
     if (blocked !== undefined) list.push(executionBlockedBadge(blocked))
     const expanded = expandedByNode.get(n.id)
     if (expanded !== undefined) list.push(executionExpandedBadge(expanded))
+    // Execution errors own their runtime tab; warnings still belong to Problems.
+    const problemLines = (args.nodeProblems?.[n.id] ?? []).filter((line) =>
+      !(line.kind === 'error' && (runErrorsByNode.has(n.id) || lastRunNodes.has(n.id)) && line.diagnostic.origin === 'runtime'))
+    const errorLines = problemLines.filter((line) => line.kind === 'error')
+    const warningLines = problemLines.filter((line) => line.kind === 'warning')
     const nodeLogs = runLogsByNode.get(n.id)
     if (nodeLogs !== undefined) {
-      const warnings = nodeLogs.reduce((total, entry) => entry.level === 'warning' ? total + 1 : total, 0)
-      if (warnings > 0) list.push(logWarningBadge(warnings))
-      if (nodeLogs.length > warnings) list.push(LOG_INFO_BADGE)
+      const warnings = nodeLogs.filter((entry) => entry.level === 'warning' &&
+        !(entry.code !== undefined && entry.origin === undefined && warningLines.some((line) =>
+          line.diagnostic.code === `runtime.${entry.code}` && line.diagnostic.data?.['runtimeId'] === entry.runtimeNodeId))).length
+      if (warnings > 0 && !args.dismissedLogTabs?.has(`${n.id}\u0000warning`)) list.push(logWarningBadge(warnings))
+      if (nodeLogs.some((entry) => entry.level !== 'warning') && !args.dismissedLogTabs?.has(`${n.id}\u0000info`)) list.push(LOG_INFO_BADGE)
     }
     for (const diagnostic of mediaDiagnosticsByNode.get(n.id) ?? []) {
       const port = diagnostic.code === 'alpha_dropped' ? diagnostic.outputId : diagnostic.inputId
@@ -1001,12 +1020,6 @@ export function deriveSceneOverlays(args: {
       if (list.some((badge) => badge.id === id)) continue
       list.push(mediaDiagnosticBadge(id, `${diagnostic.code === 'alpha_dropped' ? 'Alpha dropped' : 'Mask polarity'}: ${port}`))
     }
-    // Execution errors already own the runtime error badge and its
-    // runtime-details popover, so a runtime cause is not counted again here.
-    const problemLines = (args.nodeProblems?.[n.id] ?? []).filter((line) =>
-      !((runErrorsByNode.has(n.id) || lastRunNodes.has(n.id)) && line.diagnostic.origin === 'runtime'))
-    const errorLines = problemLines.filter((line) => line.kind === 'error')
-    const warningLines = problemLines.filter((line) => line.kind === 'warning')
     // A node that cannot run here says so on its tab, with no count.
     if (errorLines.some((line) =>
       line.diagnostic.code === 'dinksterGraph.residentProcessBoundary' || line.diagnostic.code === 'dinksterGraph.nodeUnavailable')) {

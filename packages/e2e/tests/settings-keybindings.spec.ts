@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, setShellRegion, waitForWorkspaceReady, mockProjectPacks } from './fixtures.js'
+import { chooseOption } from '../choices.js'
 
 const proofDir = process.env['DINKSTER_I18N_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -97,7 +98,7 @@ test('captured chord dispatches, conflicts are surfaced, and reset restores the 
 
 test('a changed setting persists through reload', async ({ page }) => {
   // Grid defaults on, and the live renderer holds the preference.
-  const rendererGrid = () => page.evaluate(() => window.__dinksterTest!.renderer?.getGridVisible())
+  const rendererGrid = () => page.evaluate(() => window.__dinksterTest?.renderer?.getGridVisible())
   await expect.poll(rendererGrid).toBe(true)
   await page.getByTestId('settings-button').click()
   await page.getByRole('region', { name: 'Settings', exact: true }).getByRole('link', { name: 'Canvas', exact: true }).click()
@@ -161,7 +162,7 @@ test('language setting updates the document language and persists', async ({ pag
   const dialog = page.getByRole('region', { name: 'Settings', exact: true })
   const row = dialog.locator('[data-setting-id="dinkster.locale"]')
   await expect(row).toContainText('Choose the language used by Dinkster.')
-  await row.getByRole('combobox').selectOption({ label: 'Chinese' })
+  await chooseOption(row.getByRole('combobox'), 'Chinese')
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh')
   const chineseDialog = page.getByRole('region', { name: '\u8bbe\u7f6e', exact: true })
   await expect(chineseDialog).toBeVisible()
@@ -200,8 +201,8 @@ test('settings search and controls remain reachable in a narrow viewport', async
   await dialog.getByRole('combobox', { name: 'Search settings', exact: true }).fill('minimap')
   const size = dialog.getByRole('combobox', { name: 'Size', exact: true })
   await size.scrollIntoViewIfNeeded()
-  await size.selectOption({ label: 'Large' })
-  await expect(size).toHaveValue('large')
+  await chooseOption(size, 'Large')
+  await expect(size).toContainText('Large')
   const lastRow = dialog.getByRole('option').and(dialog.locator('[data-key]')).last()
   await lastRow.scrollIntoViewIfNeeded()
   await expect(lastRow.getByRole('switch')).toBeVisible()

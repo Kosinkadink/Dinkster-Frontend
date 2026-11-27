@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
-import { layoutNode, rowSideEdges, TITLE_START, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { layoutNode, rowSideEdges, TITLE_START, projectNodeLayoutHeight, projectNodeLayoutWidth, projectPictureHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
@@ -42,6 +42,36 @@ const doLayout = (items: NodeSchema['body'], displayName?: string) =>
   layoutNode(schemaOf(items, displayName), nodeData, defaultTokens, measure, widgetMeasure)
 
 describe('pairing', () => {
+  it('keeps live resized boxes, editors and shared fields identical to the released layout', () => {
+    const curve = widget('curve', { widget: { widgetType: 'CURVE', options: {} } })
+    const fields = [widget('short'), widget('longer')]
+    const schemas = [
+      schemaOf([{
+        kind: 'group', id: 'curves', displayName: 'Curves', member: [curve],
+        keys: { kind: 'numbered', prefix: '', start: 1, pad: 0 }, grows: 'button', minMembers: 2, maxMembers: 4,
+      }, output('text')]),
+      schemaOf([{ kind: 'row', rows: fields }]),
+      schemaOf([{ kind: 'row', rows: [fields[0]!, { kind: 'button', id: 'run', label: 'Run', icon: 'play', steps: [] }, fields[1]!] }]),
+    ]
+    const wm: WidgetMeasure = (spec) => spec.widgetType === 'CURVE' ? { viewId: 'core.curve', rows: 2 } : widgetMeasure(spec)
+    for (const schema of schemas) {
+      for (const folded of [true, false]) {
+        const options = { editorUnfolded: { 'curves.1.curve': true }, lineFolds: { short: folded } }
+        const initial = layoutNode(schema, nodeData, defaultTokens, measure, wm, { ...options, size: { width: 850, height: 0 } })
+        for (const width of [610, 980]) {
+          const live = projectNodeLayoutWidth(initial, width)
+          const released = layoutNode(schema, nodeData, defaultTokens, measure, wm, { ...options, size: { width, height: 0 } })
+          expect(live.width).toBe(released.width)
+          expect(live.boxes).toEqual(released.boxes)
+          expect(live.rows).toEqual(released.rows)
+          expect(live.pins).toEqual(released.pins)
+          const preview = projectNodeLayoutWidth(withPreviewRegion(initial, defaultTokens), width)
+          expect(preview.preview).toEqual(withPreviewRegion(released, defaultTokens).preview)
+        }
+      }
+    }
+  })
+
   it('carries resolved field access without changing row geometry or pins', () => {
     const plain = [widget('radius'), widget('mix')]
     const blocked = [widget('radius', { readOnly: true }), widget('mix', { disabled: true, disabledReason: 'Preset controls mix' })]
@@ -140,6 +170,54 @@ describe('pairing', () => {
       expect(inputs[1]!.y - inputs[0]!.y).toBe(7)
       expect(inputs[1]!.y).toBeLessThan(projected.rows[0]!.y + projected.rows[0]!.height)
     }
+  })
+
+  describe('a line of fields', () => {
+    const line: NodeSchema['body'] = [
+      { kind: 'row', rows: [widget('on'), widget('name'), widget('strength')] },
+      widget('after'),
+    ]
+    const lay = (opts: Parameters<typeof layoutNode>[5] = {}) =>
+      layoutNode(schemaOf(line), nodeData, defaultTokens, measure, widgetMeasure, opts)
+    const wired = { connectedPorts: new Set(['in:on', 'in:strength', 'out:name']) }
+
+    it('starts folded: one row, and a pin only for each wired field, gathered at the middle of each end', () => {
+      const l = lay(wired)
+      const [on, name, strength, after] = l.rows
+      expect([name!.y, strength!.y]).toEqual([on!.y, on!.y])
+      expect(after!.y).toBe(on!.y + on!.height)
+      const center = on!.y + defaultTokens.rowHeight / 2
+      const pitch = canvasPaintTokens.node.box.clusterPitch
+      const own = l.pins.filter((pin) => pin.portId !== 'after' && !pin.lineHidden).map((pin) => [pin.portId, pin.direction, pin.y])
+      expect(own).toEqual([
+        ['on', 'in', center - pitch.two / 2],
+        ['strength', 'in', center + pitch.two / 2],
+        ['name', 'out', center],
+      ])
+      expect(l.lines).toEqual([{
+        key: 'on', folded: true, first: 0, last: 2,
+        fields: ['on', 'name', 'strength'].map((id) => ({ portId: id, label: id, type: { kind: 'concrete', name: 'INT' } })),
+      }])
+    })
+
+    it('unfolds by its first field into one row per field beside a rail, each with its ordinary pins', () => {
+      const l = lay({ ...wired, lineFolds: { on: false } })
+      const [on, name, strength, after] = l.rows
+      expect([name!.y, strength!.y, after!.y]).toEqual([on!.y + on!.height, name!.y + name!.height, strength!.y + strength!.height])
+      const pinOf = (id: string, direction: 'in' | 'out') =>
+        l.pins.find((pin) => pin.portId === id && pin.direction === direction)!.y
+      expect(pinOf('strength', 'in')).toBe(strength!.y + defaultTokens.rowHeight / 2)
+      expect(pinOf('name', 'in')).toBe(name!.y + defaultTokens.rowHeight / 2)
+      const railReserve = canvasPaintTokens.node.line.railReserve
+      const insetOf = (row: (typeof l.rows)[number] | undefined) => (row as { inset: number }).inset
+      expect(insetOf(on)).toBe(insetOf(after) + railReserve)
+      const rightOf = (row: (typeof l.rows)[number] | undefined) =>
+        insetOf(row) + ((row as { width?: number }).width ?? l.width - insetOf(row) * 2)
+      expect(rightOf(on)).toBe(rightOf(after))
+      expect(l.lines).toMatchObject([{ key: 'on', folded: false, first: 0, last: 2, railInset: insetOf(after) - canvasPaintTokens.node.line.railOverhang }])
+      // Unwired, the line is still folded: wiring changes pins, never the fold.
+      expect(lay().lines![0]!.folded).toBe(true)
+    })
   })
 
   it('keeps a same-id real output separate from the adjacent widget value output', () => {

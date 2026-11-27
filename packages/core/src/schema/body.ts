@@ -641,22 +641,35 @@ function refuseCountedReads(
   skip: ReadonlySet<string> = CHILD_FIELDS,
 ): void {
   if (names.counted.size === 0) return
-  const formula = (text: string): void => {
-    const scope: FormulaScope = { ...formulas, names: names.names, inputs: names.inputs, assets: names.assets }
+  const formula = (text: string, locals: ReadonlyMap<string, FormulaNameKind>): void => {
+    const scope: FormulaScope = { ...formulas, names: new Map([...names.names, ...locals]), inputs: names.inputs, assets: names.assets }
     for (const name of Formula.parse(text, scope).uses().names) {
       if (!names.counted.has(name)) continue
       const group = [...names.counted].sort((a, b) => a.length - b.length).find((item) => `${name}.`.startsWith(`${item}.`))
       throw new Error(`formula '${text}' reads '${name}': reading the size or the members of group '${group}', whose count is a formula, is not built yet`)
     }
   }
-  const walk = (item: unknown, top: boolean): void => {
+  const walk = (item: unknown, top: boolean, locals: ReadonlyMap<string, FormulaNameKind>): void => {
     if (Array.isArray(item)) {
-      for (const entry of item) walk(entry, false)
+      // Ask and Pick introduce names for later steps, not for other buttons.
+      const declared = new Map(locals)
+      for (const entry of item) {
+        walk(entry, false, declared)
+        if (typeof entry !== 'object' || entry === null) continue
+        if (entry.step === 'pick' && typeof entry.name === 'string') declared.set(entry.name, 'choice')
+        if (entry.step !== 'ask' || !Array.isArray(entry.rows)) continue
+        for (const row of entry.rows) {
+          if (typeof row?.id !== 'string') continue
+          const kind = row.widget?.type === 'MULTI_COMBO' ? 'text[]'
+            : row.type?.kind === 'concrete' ? VALUE_KINDS[row.type.types?.[0]] ?? 'opaque' : 'opaque'
+          declared.set(row.id, kind)
+        }
+      }
       return
     }
     if (typeof item !== 'object' || item === null) return
     const fields = item as Record<string, unknown>
-    if (isFormulaSpec(item)) return formula(item.formula)
+    if (isFormulaSpec(item)) return formula(item.formula, locals)
     const called = typeof fields['lookup'] === 'string' ? fields['lookup'] : fields['step'] === 'call' ? fields['function'] : undefined
     if (called !== undefined && Array.isArray(fields['args'])) {
       for (const argument of fields['args']) {
@@ -667,12 +680,12 @@ function refuseCountedReads(
     }
     for (const [key, entry] of Object.entries(fields)) {
       if (top && skip.has(key)) continue
-      if (top && key === 'leader' && typeof entry === 'string') formula(entry)
-      else if (top && key === 'grows' && typeof entry === 'object' && entry !== null && 'count' in entry) formula(String(entry.count))
-      else walk(entry, false)
+      if (top && key === 'leader' && typeof entry === 'string') formula(entry, locals)
+      else if (top && key === 'grows' && typeof entry === 'object' && entry !== null && 'count' in entry) formula(String(entry.count), locals)
+      else walk(entry, false, locals)
     }
   }
-  walk(value, true)
+  walk(value, true, new Map())
 }
 
 /** `key()` would show a numbered member's hidden key, so its label may not use it. */

@@ -379,12 +379,27 @@ export function menuTargetOf(hit: Hit): MenuTarget {
           ? { synthetic: true as const }
           : {}),
       }
-    case 'widget':
+    case 'widget': {
       // A field on a subgraph's Inputs panel belongs to the panel, which has
       // no menu of its own. An editor row stores nothing of its own: it opens
       // the node's menu.
       if (hit.bnode !== undefined) return { kind: 'canvas' }
-      return hit.row.editor === true ? { kind: 'node', nodeId: hit.node.id } : widgetMenuTarget(hit.node.id, hit.row)
+      if (hit.row.editor === true) return { kind: 'node', nodeId: hit.node.id }
+      const index = hit.node.layout.rows.indexOf(hit.row)
+      const line = hit.node.layout.lines?.find((line) => index >= line.first && index <= line.last)
+      return {
+        ...widgetMenuTarget(hit.node.id, hit.row),
+        ...(line === undefined ? {} : { line: { key: line.key, folded: line.folded } }),
+      }
+    }
+    case 'line':
+      return { kind: 'line', nodeId: hit.node.id, key: hit.line.key, folded: hit.line.folded }
+    case 'button': {
+      const index = hit.node.layout.rows.indexOf(hit.row)
+      const line = hit.node.layout.lines?.find((line) => index >= line.first && index <= line.last)
+      return line === undefined ? { kind: 'node', nodeId: hit.node.id }
+        : { kind: 'line', nodeId: hit.node.id, key: line.key, folded: line.folded }
+    }
     case 'growth':
       return { kind: 'growth', nodeId: hit.node.id, construct: hit.row.construct }
     case 'section':

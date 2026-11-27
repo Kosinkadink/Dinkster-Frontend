@@ -1,4 +1,4 @@
-import { Show, createUniqueId, onCleanup, onMount, type JSX } from 'solid-js'
+import { For, Show, createUniqueId, onCleanup, onMount, type JSX } from 'solid-js'
 import { Check, CircleAlert, Info, X } from 'lucide-solid'
 import {
   ProductButton,
@@ -129,24 +129,44 @@ function ToastMessage(props: { children: JSX.Element; onDismiss: () => void }) {
   )
 }
 
-export function ProductConfirmation(props: {
+export interface ProductConfirmationProps {
   title?: string
   consequence: string
   actionLabel: string
   intent: ProductRole
+  items?: readonly { readonly name: string; readonly detail?: string; readonly outcome: string }[] | undefined
+  children?: JSX.Element
+  error?: string | undefined
   pending?: boolean
   disabled?: boolean
   onConfirm: () => void
   onCancel: () => void
-}) {
+}
+
+function ConfirmationBody(props: ProductConfirmationProps) {
   const strings = useProductStrings()
+  let cancel!: HTMLButtonElement
+  onMount(() => queueMicrotask(() => {
+    if (props.intent === 'remove' && !props.pending && cancel.isConnected) cancel.focus({ preventScroll: true })
+  }))
   return (
-    <section class="dinkster-stack">
-      <Show when={props.title}>
-        <h2 class="dinkster-heading">{props.title}</h2>
-      </Show>
+    <>
       <p class="dinkster-description">{props.consequence}</p>
-      <div class="dinkster-actions">
+      <Show when={props.items?.length}>
+        <ul class="dinkster-confirmation-items">
+          <For each={props.items}>{(item) => <li>
+            <span>{item.name}</span>
+            <Show when={item.detail}><span class="dinkster-metadata">{item.detail}</span></Show>
+            <span class="dinkster-confirmation-outcome">{item.outcome}</span>
+          </li>}</For>
+        </ul>
+      </Show>
+      {props.children}
+      <Show when={props.error}><ProductNotice tone="error">{props.error}</ProductNotice></Show>
+      <div class="dinkster-confirmation-actions">
+        <ProductButton ref={cancel} autofocus={props.intent === 'remove'} disabled={props.pending} onClick={props.onCancel}>
+          {strings.cancel}
+        </ProductButton>
         <ProductButton
           fill="solid"
           intent={props.intent}
@@ -156,20 +176,47 @@ export function ProductConfirmation(props: {
         >
           {props.actionLabel}
         </ProductButton>
-        <ProductButton disabled={props.pending} onClick={props.onCancel}>
-          {strings.cancel}
-        </ProductButton>
       </div>
+    </>
+  )
+}
+
+export function ProductConfirmation(props: ProductConfirmationProps & { surface?: 'filled' | 'inherit' }) {
+  return (
+    <section class="dinkster-confirmation" data-surface={props.surface ?? 'filled'} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        if (!props.pending) props.onCancel()
+      }
+    }}>
+      <Show when={props.title}><h2 class="dinkster-heading">{props.title}</h2></Show>
+      <ConfirmationBody {...props} />
     </section>
   )
+}
+
+export function ProductConfirmationDialog(props: ProductConfirmationProps & {
+  title: string
+  testId?: string | undefined
+  modalId?: string | undefined
+}) {
+  return <ProductDialog title={props.title} pending={props.pending === true} onDismiss={props.onCancel}
+    size="confirmation" testId={props.testId} modalId={props.modalId}>
+    <ConfirmationBody {...props} />
+  </ProductDialog>
 }
 
 export function ProductDialog(props: {
   title: string
   children: JSX.Element
+  /** The footer action; the dialog owns its preceding Cancel and alignment. */
+  action?: JSX.Element
   onDismiss: () => void
   pending?: boolean
-  size?: 'default' | 'wide'
+  size?: 'default' | 'wide' | 'confirmation'
+  testId?: string | undefined
+  modalId?: string | undefined
 }) {
   const strings = useProductStrings()
   let dialog!: HTMLDialogElement
@@ -185,7 +232,18 @@ export function ProductDialog(props: {
       ref={dialog}
       class="dinkster-dialog"
       data-size={props.size ?? 'default'}
+      data-testid={props.testId}
+      data-modal={props.modalId}
       aria-labelledby={id}
+      onPointerDown={(event) => {
+        if (props.size !== 'confirmation') return
+        const rect = dialog.getBoundingClientRect()
+        if (event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right ||
+          event.clientY < rect.top || event.clientY > rect.bottom)) {
+          event.preventDefault()
+          if (!props.pending) dialog.close()
+        }
+      }}
       onKeyDown={(event) => {
         // Browsers stop honoring a cancelled `cancel` event after repeated
         // presses, so Escape itself is cancelled while an operation is pending.
@@ -233,6 +291,12 @@ export function ProductDialog(props: {
           />
         </header>
         {props.children}
+        <Show when={props.action}>{(action) => (
+          <footer class="dinkster-dialog-actions">
+            <ProductButton disabled={props.pending === true} onClick={props.onDismiss}>{strings.cancel}</ProductButton>
+            {action()}
+          </footer>
+        )}</Show>
       </div>
     </dialog>
   )

@@ -45,7 +45,7 @@ describe('RuntimeSettingsPanel', () => {
     } }, update, true)
     await flush()
     root.querySelector<HTMLButtonElement>('[aria-label="Diffusion model precision"]')!.click()
-    document.querySelector<HTMLElement>('[role="option"][data-option-id="bfloat16"]')!.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find((option) => option.textContent === 'BF16')!.click()
     await flush()
     expect(update).toHaveBeenCalledWith('dtype-policy', { diffusion: 'bfloat16', textEncoder: 'float16', vae: 'float32' })
     expect(root.querySelector('[aria-label="Diffusion model precision"]')?.textContent).toContain('BF16')

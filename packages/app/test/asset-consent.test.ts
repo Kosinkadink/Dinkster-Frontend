@@ -17,7 +17,7 @@ describe('asset consent plan presentation', () => {
 
   it('reuses binary size formatting and presents remote hosts', () => {
     const row = presentAssetPlan(asset({ fetchable: true, size: 1572864, sources: ['https://models.example/a', 'https://models.example/b'] }), t)
-    expect(row.size).toBe('1.5 MiB')
+    expect(row.size).toBe('1.5 MB')
     expect(row.source).toBe('Download from models.example')
     expect(row.consentable).toBe(true)
   })

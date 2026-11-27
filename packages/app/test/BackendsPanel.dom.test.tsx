@@ -109,6 +109,43 @@ describe('BackendsPanel', () => {
     await vi.waitFor(() => expect(app.backendFor(extra.id)).toBeUndefined())
   })
 
+  it('keeps a pending removal visible without locking unrelated row disclosures', async () => {
+    const { app, root } = mount()
+    const backend = app.addBackend('https://studio.test', 'Studio', false, 'dinkster')!
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const locks = Object.getOwnPropertyDescriptor(navigator, 'locks')
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: {
+      request: async (_name: string, task: () => Promise<unknown>) => { await gate; return task() },
+    } })
+    try {
+      const row = root.querySelector(`[data-connection="${backend.id}"]`)!
+      row.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click()
+      button(row, 'Remove backend').click()
+      button(row, 'Remove backend').click()
+      await flush()
+      const toggle = row.querySelector<HTMLButtonElement>('button[aria-controls]')!
+      toggle.click()
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      expect(row.querySelector('.dinkster-confirmation')?.textContent).toContain('Remove "Studio"?')
+      expect(button(row, 'Remove backend').getAttribute('aria-busy')).toBe('true')
+      expect(app.backendFor(backend.id)).toBe(backend)
+      const otherToggle = root.querySelector<HTMLButtonElement>('[data-connection="local"] button[aria-controls]')!
+      expect(otherToggle.getAttribute('aria-expanded')).toBe('true')
+      otherToggle.click()
+      expect(otherToggle.getAttribute('aria-expanded')).toBe('false')
+      otherToggle.click()
+      expect(otherToggle.getAttribute('aria-expanded')).toBe('true')
+    } finally {
+      release()
+      try { await vi.waitFor(() => expect(app.backendFor(backend.id)).toBeUndefined()) }
+      finally {
+        if (locks) Object.defineProperty(navigator, 'locks', locks)
+        else Reflect.deleteProperty(navigator, 'locks')
+      }
+    }
+  })
+
   it('relabels mounted chrome without translating server facts or resetting a pending restart', async () => {
     registerCatalog('de-DE', {
       'backendsPanel.action.restarting': '[RESTARTING]',

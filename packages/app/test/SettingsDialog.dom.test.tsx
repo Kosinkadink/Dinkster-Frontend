@@ -145,7 +145,7 @@ describe('SettingsDialog search', () => {
     const input = root.querySelector<HTMLInputElement>('#library-storage-limit')!
     for (const [raw, above] of [['4097', true], ['8193', false]] as const) {
       await vi.waitFor(() => expect(input.disabled).toBe(false))
-      input.value = raw
+      input.value = `${raw} B`
       input.dispatchEvent(new InputEvent('input', { bubbles: true }))
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
       await vi.waitFor(() => expect(limit).toBe(Number(raw)))
@@ -241,11 +241,11 @@ describe('SettingsDialog search', () => {
     expect(limited.getAttribute('aria-checked')).toBe('true')
     expect(root.querySelector('#library-storage-temporaryBytes')?.textContent).toBe('Unknown')
     const input = root.querySelector<HTMLInputElement>('#library-storage-limit')!
-    input.value = '4097'
+    input.value = '4097 B'
     input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     await vi.waitFor(() => expect(root.querySelector('#library-storage-limit-error')?.textContent).toBe('Operator permission denied'))
-    expect(input.value).toBe('8193')
+    expect(input.value).toBe('0 GB')
     unmount()
   })
 
@@ -290,7 +290,9 @@ describe('SettingsDialog search', () => {
     expect(row.textContent).toContain('[Mausradverhalten auswahlen]')
     expect(row.textContent).toContain('[Vergrossern]')
     expect(row.querySelector('button')?.textContent).toBe('Reset')
-    expect([...row.querySelectorAll('option')].map((option) => option.textContent)).toEqual(['[Verschieben]', '[Vergrossern]'])
+    row.querySelector<HTMLButtonElement>('[role="combobox"]')!.click()
+    expect([...document.querySelectorAll('[role="listbox"] [role="option"]')].map((option) => option.textContent)).toEqual(['[Verschieben]', '[Vergrossern]'])
+    row.querySelector<HTMLButtonElement>('[role="combobox"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
 
     searchFor(root, 'Wellenflug')
     expect(root.querySelector('[data-setting-id="canvas.scrollBehavior"]')).not.toBeNull()
@@ -391,15 +393,15 @@ describe('SettingsDialog search', () => {
 
   it('writes combo settings immediately and preserves trigger focus through the rerender', () => {
     const { root, settings, unmount } = mountDialog()
-    const trigger = root.querySelector<HTMLSelectElement>('[data-setting-id="canvas.quality"] select')!
+    const trigger = root.querySelector<HTMLButtonElement>('[data-setting-id="canvas.quality"] [role="combobox"]')!
     expect(trigger.getAttribute('aria-labelledby')).toBe('setting-canvas.quality-label')
     expect(trigger.getAttribute('aria-describedby')).toBe('setting-canvas.quality-description')
     trigger.focus()
-    trigger.value = 'quality'
-    trigger.dispatchEvent(new Event('change', { bubbles: true }))
+    trigger.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find((option) => option.textContent === 'Quality')!.click()
     expect(settings.get('canvas.quality')).toBe('quality')
     expect(document.activeElement).toBe(trigger)
-    expect(root.querySelector('[data-setting-id="canvas.quality"] select')).toBe(trigger)
+    expect(root.querySelector('[data-setting-id="canvas.quality"] [role="combobox"]')).toBe(trigger)
     unmount()
   })
 

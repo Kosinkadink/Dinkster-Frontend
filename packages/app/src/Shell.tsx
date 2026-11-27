@@ -16,6 +16,8 @@
  * frame in.
  */
 import { createSignal, onCleanup, onMount, Show, type Accessor, type JSX } from 'solid-js'
+import { asConnectionId } from '@dinkster/core'
+import { DinksterConnection } from '@dinkster/client'
 import { activeProjectId } from './projects.js'
 import {
   openPath,
@@ -29,6 +31,7 @@ import {
   type ShellView,
 } from './shell-route.js'
 import { useAppMessage } from './locale.js'
+import { ProjectsPage } from './projects-page/ProjectsPage.js'
 
 export const SHELL_FADE_MS = 260
 const ENGINE_POLL_MS = 250
@@ -46,6 +49,7 @@ export interface ProjectOpening {
   readonly reason?: string
   /** The failed row's text, such as "Nightly did not start". */
   readonly failed?: string
+  readonly showLog?: boolean
 }
 
 export interface ShellNavigation {
@@ -54,7 +58,7 @@ export interface ShellNavigation {
   /** The project the page shows selected: the open or opening one. */
   readonly selectedProjectId: Accessor<string | undefined>
   /** Without an installation, the project opens on the installation that is open. */
-  openProject(projectId: string, installation?: ShellInstallation): void
+  openProject(projectId: string, installation?: ShellInstallation, projectName?: string): void
   showProjects(options?: { readonly newProject?: boolean }): void
   cancelOpening(): void
 }
@@ -62,10 +66,10 @@ export interface ShellNavigation {
 export type ProjectsPageComponent = (props: { readonly shell: ShellNavigation }) => JSX.Element
 
 /** The projects page this build shows under the always-on process; without one, every address opens the editor. */
-export const projectsPage: ProjectsPageComponent | undefined = undefined
+export const projectsPage: ProjectsPageComponent | undefined = ProjectsPage
 
 /** Mounts one project's editor into ``host``; resolves once it has drawn, with its disposer. */
-export type MountEditor = (projectId: string, host: HTMLElement, shell: ShellNavigation) => Promise<() => void>
+export type MountEditor = (projectId: string, host: HTMLElement, shell: ShellNavigation, initialProjectName?: string) => Promise<() => void>
 
 const reducedMotion = (): boolean => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -206,7 +210,7 @@ export function Shell(props: {
     coverElement.style.clipPath = ''
   }
 
-  const mount = async (projectId: string, run: number): Promise<void> => {
+  const mount = async (projectId: string, run: number, initialProjectName?: string): Promise<void> => {
     // A project scope cannot overlap the editor still being built for an older open.
     await mounting.catch(() => undefined)
     if (run !== attempt || editorProject() === projectId) return
@@ -215,7 +219,7 @@ export function Shell(props: {
       disposeEditor = undefined
       setEditorProject(undefined)
       try {
-        const dispose = await props.mountEditor(projectId, editorHost, navigation)
+        const dispose = await props.mountEditor(projectId, editorHost, navigation, initialProjectName)
         if (run !== attempt) dispose()
         else {
           disposeEditor = dispose
@@ -231,7 +235,11 @@ export function Shell(props: {
 
   const failedOpening = (opening: ProjectOpening, installation: ShellInstallation, error: unknown): ProjectOpening => {
     const detail = detailOf(error)
-    return { ...opening, ...(detail ? { reason: detail } : {}), failed: message('shell.opening.didNotStart', { installation: nameOf(installation) }) }
+    const unanswered = error instanceof TypeError
+    return {
+      ...opening, ...(detail ? { reason: detail } : {}), showLog: !unanswered,
+      failed: unanswered ? message('shell.opening.notAnswering') : message('shell.opening.didNotStart', { installation: nameOf(installation) }),
+    }
   }
 
   const openInstallationEngine = async (installation: ProjectInstallation): Promise<void> => {
@@ -257,6 +265,7 @@ export function Shell(props: {
       let status: HomeStatus | undefined
       while (run === attempt) {
         status = await readHomeStatus()
+        if (status === undefined) throw new TypeError('Dinkster did not answer')
         if (status?.state === 'failed') throw new Error(status.detail ?? '')
         if (status?.state === 'ready' && status.installationFrontend !== undefined) {
           // Any answer will do; a page of another origin is opaque here.
@@ -278,12 +287,19 @@ export function Shell(props: {
     }
   }
 
-  const openHere = async (projectId: string, installation: ShellInstallation | undefined, run: number): Promise<void> => {
+  const openHere = async (projectId: string, installation: ShellInstallation | undefined, run: number, projectName?: string): Promise<void> => {
     const replacing = editorProject() !== undefined && editorProject() !== projectId
     const starting = installation !== undefined && !sameInstallation(openInstallation, installation)
     const line = starting ? message('shell.opening.starting', { installation: nameOf(installation) }) : message('shell.opening.here')
     setOpening({ projectId, line })
+    let initialProjectName = projectName
     try {
+      if (starting && initialProjectName === undefined) {
+        // Home serves the library now; during engine startup it may refuse project reads.
+        const connection = new DinksterConnection({ id: asConnectionId('project-opening'), baseUrl: '', clientId: 'project-opening' })
+        initialProjectName = (await connection.getProject(projectId)).name
+        if (run !== attempt) return
+      }
       if (installation !== undefined) await openInstallationEngine(installation)
     } catch (error) {
       if (run === attempt && installation !== undefined) setOpening(failedOpening({ projectId, line }, installation, error))
@@ -301,7 +317,7 @@ export function Shell(props: {
       release = holdOldEditor()
     }
     try {
-      await mount(projectId, run)
+      await mount(projectId, run, initialProjectName)
       await projectNamed(run)
     } catch (error) {
       if (run !== attempt) return
@@ -330,7 +346,7 @@ export function Shell(props: {
     }
   }
 
-  const open = async (projectId: string, installation?: ShellInstallation): Promise<void> => {
+  const open = async (projectId: string, installation?: ShellInstallation, projectName?: string): Promise<void> => {
     const run = ++attempt
     const path = openPath(await factsFor((installation ?? openInstallation)?.root))
     if (run !== attempt) return
@@ -342,14 +358,14 @@ export function Shell(props: {
       setOpening({ projectId, line: message('shell.opening.here'), failed: message('shell.opening.unavailable') })
       return
     }
-    return openHere(projectId, installation, run)
+    return openHere(projectId, installation, run, projectName)
   }
 
   const navigation: ShellNavigation = {
     view,
     opening,
     selectedProjectId: () => opening()?.projectId ?? editorProject() ?? (view().kind === 'editor' ? activeProjectId() : undefined),
-    openProject: (projectId, installation) => void open(projectId, installation),
+    openProject: (projectId, installation, projectName) => void open(projectId, installation, projectName),
     showProjects: (options) => {
       attempt += 1
       setOpening(undefined)
