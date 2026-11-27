@@ -94,7 +94,7 @@ describe('rankSearch', () => {
     expect(out).toHaveLength(2)
   })
 
-  it('orders palette names by exact, prefix, phrase, all words, then metadata without changing empty queries', () => {
+  it('orders palette names by exact, prefix, phrase, all words, some words, then metadata without changing empty queries', () => {
     const names = [
       'Load Checkpoint Image Only (img2vid model)', 'Load Image (from Outputs)',
       'Load Image (as Mask)', 'Reload Image', 'Image Load', 'Load Image',
@@ -107,15 +107,23 @@ describe('rankSearch', () => {
     const options = { nameOf: (node: typeof nodes[number]) => node.displayName }
     expect(rankSearch('  lOaD iMaGe  ', nodes, nodeSearchFields, options).map((node) => node.displayName)).toEqual([
       'Load Image', 'Load Image (as Mask)', 'Load Image (from Outputs)', 'Reload Image',
-      'Image Load', 'Load Checkpoint Image Only (img2vid model)', 'Beta', 'Zeta',
-      'Load CLIP (Dual)', 'Load SAM3D Body Model',
+      'Image Load', 'Load Checkpoint Image Only (img2vid model)',
+      'Load CLIP (Dual)', 'Load SAM3D Body Model', 'Beta', 'Zeta',
     ])
     expect(rankSearch('load image', nodes, nodeSearchFields, { ...options, limit: 1 })).toEqual([nodes[5]])
     expect(rankSearch('  ', nodes, nodeSearchFields, options)).toEqual(nodes)
-    const upscale = ['Load Latent Upscale Model', 'Load Upscale Model'].map((displayName) => ({
-      displayName, type: displayName, category: 'loaders',
+    const upscale = [
+      'KSampler', 'Save Image', 'VAE Decode', 'Load Image', 'Load SAM3D Body Model',
+      'Load Checkpoint Image Only (img2vid model)', 'Load Latent Upscale Model', 'Load Upscale Model',
+      'Load CLIP (Dual)',
+    ].map((displayName) => ({
+      displayName, type: displayName, category: 'load upscale model',
     }))
-    expect(rankSearch('Load Upscale Model', upscale, nodeSearchFields, options)).toEqual([upscale[1], upscale[0]])
+    expect(rankSearch('Load Upscale Model', upscale, nodeSearchFields, options).map((node) => node.displayName)).toEqual([
+      'Load Upscale Model', 'Load Latent Upscale Model', 'Load SAM3D Body Model',
+      'Load Checkpoint Image Only (img2vid model)', 'Load Image', 'Load CLIP (Dual)',
+      'KSampler', 'Save Image', 'VAE Decode',
+    ])
   })
 
 })

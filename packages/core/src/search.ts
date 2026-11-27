@@ -116,8 +116,8 @@ export function scoreMatch(query: string, fields: readonly SearchField[]): numbe
  * Rank items by scoreMatch, descending; non-matches drop. Ties keep the
  * input order (stable sort), so callers control the neutral ordering by
  * pre-sorting. With nameOf, rank by exact name, prefix, phrase, all words,
- * then other matches; ties use shorter names, then case-insensitive alphabetic
- * order. Empty query returns the input order unfiltered in either mode.
+ * some words (more first), then other matches; ties use shorter names, then
+ * case-insensitive alphabetic order. Empty query keeps input order in either mode.
  */
 export function rankSearch<T>(
   query: string,
@@ -130,19 +130,20 @@ export function rankSearch<T>(
   if (tokens.length === 0) return items.slice(0, limit === Number.POSITIVE_INFINITY ? undefined : limit)
   const phrase = tokens.toLowerCase()
   const queryWords = phrase.split(/\s+/)
-  const nameTier = (name: string): number => name === phrase ? 0
+  const nameTier = (name: string, matchedWords: number): number => name === phrase ? 0
     : name.startsWith(phrase) ? 1
       : name.includes(phrase) ? 2
-        : queryWords.every((word) => name.includes(word)) ? 3 : 4
-  const scored: { item: T; score: number; name: string; tier: number }[] = []
+        : matchedWords === queryWords.length ? 3 : matchedWords > 0 ? 4 : 5
+  const scored: { item: T; score: number; name: string; tier: number; matchedWords: number }[] = []
   for (const item of items) {
     const score = scoreMatch(query, fieldsOf(item))
     if (score !== undefined) {
       const name = opts?.nameOf?.(item).toLowerCase() ?? ''
-      scored.push({ item, score, name, tier: nameTier(name) })
+      const matchedWords = queryWords.filter((word) => name.includes(word)).length
+      scored.push({ item, score, name, tier: nameTier(name, matchedWords), matchedWords })
     }
   }
   scored.sort((a, b) => opts?.nameOf === undefined ? b.score - a.score
-    : a.tier - b.tier || a.name.length - b.name.length || a.name.localeCompare(b.name))
+    : a.tier - b.tier || b.matchedWords - a.matchedWords || a.name.length - b.name.length || a.name.localeCompare(b.name))
   return scored.slice(0, limit === Number.POSITIVE_INFINITY ? undefined : limit).map((s) => s.item)
 }
