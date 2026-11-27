@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asConnectionId, checkDocument, compile, diag, DocumentStore, loadDocument, parseDinksterSchema, planClipboardPaste, serializeSelection, documentResolver, documentNodeResolver, runPress, coreCommandRegistry, createLocalSession, type ActionHost, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument, boundaryOf, boundaryItems } from '@dinkster/core'
+import { asConnectionId, checkDocument, compile, diag, DocumentStore, elaborateInterface, elabInputsOf, loadDocument, occurrenceDynamicView, parseDinksterSchema, planClipboardPaste, serializeSelection, documentResolver, documentNodeResolver, runPress, coreCommandRegistry, createLocalSession, type ActionHost, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument, boundaryOf, boundaryItems } from '@dinkster/core'
 import { extractSubgraphInvocationThroughBridge, flattenSubgraphThroughBridge } from '../src/CanvasHost.js'
 import { activateProblem } from '../src/ProblemsPanel.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection } from '../src/subgraph-lifecycle.js'
@@ -541,6 +541,16 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     if (!result.ok) throw new Error('remote option lifecycle document did not compile')
     return { prompt: result.artifact.prompt, calls }
   }
+  const remoteSelection = (doc: WorkflowDocument, runtimeId: string) => {
+    const path = runtimeId.split('.')
+    const nodeId = path.pop()!
+    const graphId = path.reduce((graph, hop) => doc.graphs[graph]!.nodes[hop]!.type.slice(1), doc.root as string)
+    const current = doc.graphs[graphId]!.nodes[nodeId]!
+    const view = occurrenceDynamicView(doc, remoteResolve, path)
+    return elabInputsOf(elaborateInterface(picker!, { ...current, values: view.values.get(nodeId) ?? current.values }, undefined, {
+      lookupAnswers: (_lookup, args) => ({ state: 'ready', answer: [`${args[0]}-option`] }),
+    })).find((input) => input.spec.id === 'lora')!
+  }
 
   it.each([1, 2] as const)('remote option fan-out at depth %s preserves both receivers and refuses an incompatible addition', (depth) => {
     const doc = remoteFixture(depth, true)
@@ -565,6 +575,13 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
         expect(calls).toContainEqual(['pack.loras', ['inner-other']])
         expect(prompt.sink!.inputs.adapter).toEqual([`first${suffix}.sample`, 0])
       }
+      for (const [receiver, category] of [
+        [`first${suffix}.sample`, 'sd'], [`first${suffix}.other`, 'inner-other'],
+        [`second${suffix}.sample`, 'sdxl'], [`second${suffix}.other`, 'inner-other'],
+      ]) expect(remoteSelection(document, receiver!)).toMatchObject({
+        looked: { options: { state: 'ready', call: { lookup: 'pack.loras', args: [category] } } },
+        spec: { widget: { options: { options: [`${category}-option`] } } },
+      })
     }
     check(joined, 'kept-first')
     const refused = store.dispatch({ command: 'boundary.addBinding', params: {
@@ -596,12 +613,21 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     const doc = remoteFixture(depth)
     const selection = depth === 1 ? 'pick' : 'list'
     const suffix = depth === 1 ? '.sample' : '.detail.sample'
+    const checkOptions = (current: WorkflowDocument, firstCategory = 'sd') => {
+      for (const [receiver, category] of [[`first${suffix}`, firstCategory], [`second${suffix}`, 'sdxl']]) {
+        expect(remoteSelection(current, receiver!)).toMatchObject({
+          looked: { options: { state: 'ready', call: { lookup: 'pack.loras', args: [category] } } },
+          spec: { widget: { options: { options: [`${category}-option`] } } },
+        })
+      }
+    }
     const initial = remotePrompt(doc)
     expect(initial.prompt).toEqual({
       [`first${suffix}`]: { class_type: 'Picker', inputs: { lora: 'kept-first' }, outputIds: ['result'] },
       [`second${suffix}`]: { class_type: 'Picker', inputs: { lora: 'kept-second' }, outputIds: ['result'] },
       sink: { class_type: 'AdapterSink', inputs: { adapter: [`first${suffix}`, 0] }, outputIds: [] },
     })
+    checkOptions(doc)
     const detached = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
       kind: 'initial', schemaResolverFor: (current) => documentResolver(current, remoteResolve),
     }))
@@ -610,6 +636,7 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     expect(localized.graphs.root!.nodes.first!.type).not.toBe(doc.graphs.root!.nodes.first!.type)
     expect(localized.graphs.root!.nodes.second).toEqual(doc.graphs.root!.nodes.second)
     expect(remotePrompt(localized).prompt).toEqual(initial.prompt)
+    checkOptions(localized)
     expect(detached.dispatch({ command: 'node.setValue', params: {
       graphId: 'root', nodeId: 'first', inputId: selection, value: 'detached-first',
     } }).ok).toBe(true)
@@ -618,16 +645,21 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       [`first${suffix}`]: { ...initial.prompt[`first${suffix}`]!, inputs: { lora: 'detached-first' } },
     }
     expect(remotePrompt(edited).prompt).toEqual(detachedPrompt)
+    checkOptions(edited)
     expect(edited.graphs.detail).toEqual(doc.graphs.detail)
     expect(edited.graphs.portrait).toEqual(doc.graphs.portrait)
     expect(detached.undo()).toBe(true)
     expect(detached.doc).toEqual(localized)
+    checkOptions(detached.doc)
     expect(detached.undo()).toBe(true)
     expect(detached.doc).toEqual(doc)
+    checkOptions(detached.doc)
     expect(detached.redo()).toBe(true)
     expect(detached.redo()).toBe(true)
     expect(detached.doc).toEqual(edited)
-    expect(remotePrompt(loadDocument(JSON.parse(JSON.stringify(edited))).document!).prompt).toEqual(detachedPrompt)
+    const reopenedDetached = loadDocument(JSON.parse(JSON.stringify(edited))).document!
+    expect(remotePrompt(reopenedDetached).prompt).toEqual(detachedPrompt)
+    checkOptions(reopenedDetached)
 
     expect(detached.undo()).toBe(true)
     expect(detached.doc).toEqual(localized)
@@ -638,6 +670,7 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
         : { kind: 'inner-other', pick: 'private-selection' },
     } }).ok).toBe(true)
     expect(remotePrompt(detached.doc).prompt).toEqual(initial.prompt)
+    checkOptions(detached.doc)
     const privateDefaults = detached.doc
     expect(detached.dispatch({ command: 'node.setValues', params: {
       graphId: 'root', nodeId: 'first', values: {}, unset: [depth === 1 ? 'kind' : 'category', selection],
@@ -651,18 +684,21 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       expect(prompt).toEqual(fallbackPrompt)
       expect(calls).toContainEqual(['pack.loras', ['inner-other']])
       expect(calls).toContainEqual(['pack.loras', ['sdxl']])
+      checkOptions(current, 'inner-other')
       expect(current.graphs.detail).toEqual(doc.graphs.detail)
       expect(current.graphs.portrait).toEqual(doc.graphs.portrait)
     }
     expect(detached.undo()).toBe(true)
     expect(detached.doc).toEqual(privateDefaults)
     expect(remotePrompt(detached.doc).prompt).toEqual(initial.prompt)
+    checkOptions(detached.doc)
     expect(detached.undo()).toBe(true)
     expect(detached.doc).toEqual(localized)
     expect(detached.redo()).toBe(true)
     expect(detached.redo()).toBe(true)
     expect(detached.doc).toEqual(fallback)
     expect(remotePrompt(detached.doc).prompt).toEqual(fallbackPrompt)
+    checkOptions(detached.doc, 'inner-other')
 
     for (const mode of ['active', 'muted', 'bypassed', 'loop'] as const) {
       const first = doc.graphs.root!.nodes.first!
@@ -701,7 +737,16 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
       } })
       expect(result.session.redo()).toBe(true)
       expect(result.session.doc).toEqual(flattened)
-      expect(remotePrompt(loadDocument(JSON.parse(JSON.stringify(flattened))).document!).prompt).toEqual(remotePrompt(flattened).prompt)
+      const reopenedFlattened = loadDocument(JSON.parse(JSON.stringify(flattened))).document!
+      expect(remotePrompt(reopenedFlattened).prompt).toEqual(remotePrompt(flattened).prompt)
+      for (const current of [flattened, reopenedFlattened]) {
+        for (const [receiver, category] of [
+          ...(mode === 'active' ? [[receivingId, 'sd']] : []), [`second${suffix}`, 'sdxl'],
+        ]) expect(remoteSelection(current, receiver!)).toMatchObject({
+          looked: { options: { state: 'ready', call: { lookup: 'pack.loras', args: [category] } } },
+          spec: { widget: { options: { options: [`${category}-option`] } } },
+        })
+      }
     }
   })
 
