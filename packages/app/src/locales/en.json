@@ -1212,6 +1212,8 @@
   "learn.state.loadingGuide": "Loading guide...",
   "learn.state.missing": "This guide page is no longer available.",
   "learn.state.unavailable": "Guides require a connected Dinkster backend.",
+  "node.clearUnusedSlots": "Clear unused slots",
+  "node.clearUnusedSlots.multiple": "Clear unused slots on {count} nodes",
   "nodeHelp.action.help": "Help",
   "nodeHelp.command.open": "Open node help",
   "nodeHelp.panel.ariaLabel": "Node help",
