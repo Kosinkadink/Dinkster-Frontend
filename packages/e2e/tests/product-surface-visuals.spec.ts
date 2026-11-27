@@ -86,16 +86,10 @@ for (const theme of ['dark', 'light'] as const) {
 }
 
 const closeGallery = async (page: Page): Promise<void> => {
-  const close = page.locator('.template-gallery-close')
+  const close = page.getByRole('button', { name: 'Close Templates', exact: true })
   if ((await close.count()) > 0 && (await close.first().isVisible()))
     await close.first().click()
-  else
-    await page.evaluate(() =>
-      (window.__dinksterTest!.app as unknown as {
-        readonly templateGalleryOpen: { set(value: boolean): void }
-      }).templateGalleryOpen.set(false),
-    )
-  await expect(page.getByTestId('template-gallery')).toBeHidden()
+  await expect(page.getByTestId('templates-page')).toBeHidden()
 }
 
 for (const theme of ['dark', 'light'] as const) {
@@ -114,6 +108,11 @@ for (const theme of ['dark', 'light'] as const) {
   })
 
   test(`brand assets and persisted ${theme} theme`, async ({ page }) => {
+    await page.route('/api/templates*', (route) => route.fulfill({ json: { templates: [] } }))
+    await page.route('/api/models/settings*', (route) => route.fulfill({ json: {
+      settings: { version: 1, locations: [], downloadLocation: null }, locations: [],
+      revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+    } }))
     await page.addInitScript((selected) => {
       localStorage.setItem('dinkster.settings', JSON.stringify({ v: 1, values: { 'dinkster.theme': selected } }))
     }, theme)
@@ -157,12 +156,12 @@ for (const theme of ['dark', 'light'] as const) {
     await page.evaluate(() => {
       const app = window.__dinksterTest!.app as unknown as {
         readonly backends: { get(): readonly { readonly templatesEnabled: { set(value: boolean): void } }[] }
-        readonly templateGalleryOpen: { set(value: boolean): void }
+        readonly commands: { get(id: string): { run(): void } }
       }
       app.backends.get()[0]!.templatesEnabled.set(true)
-      app.templateGalleryOpen.set(true)
+      app.commands.get('workflow.openTemplateGallery').run()
     })
-    await expect(page.getByTestId('template-gallery')).toBeVisible()
+    await expect(page.getByTestId('templates-page')).toBeVisible()
     await screenshot(page, `brand-gallery-${theme}`)
     await closeGallery(page)
     await screenshot(page, `brand-shell-${theme}`)
@@ -275,7 +274,7 @@ const emptyVisualBackend = async (route: Route): Promise<void> => {
     }] } })
   } else if (path.endsWith('/api/sessions')) {
     await route.fulfill({ json: { sessions: [] } })
-  } else if (path.endsWith('/api/history/runs')) {
+  } else if (path.endsWith('/api/history') || path.endsWith('/api/history/runs')) {
     await route.fulfill({ json: { records: [] } })
   } else if (path.endsWith('/api/projects/default')) {
     await route.fulfill({ json: { project: {
@@ -1169,9 +1168,8 @@ test('App view explains an empty flow and an empty arrangement group', async ({ 
   }
 })
 
-test('Template gallery presents loading error retry and empty search states', async ({ page }) => {
-  let mode: 'loading' | 'empty' | 'error' = 'loading'
-  let mountChangesAllowed = false
+test('Templates page presents loading error retry and empty search states', async ({ page }) => {
+  let mode: 'loading' | 'empty' | 'error' | 'settings-error' = 'loading'
   let release: (() => void) | undefined
   await page.route('**/gallery-visual/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
@@ -1181,7 +1179,12 @@ test('Template gallery presents loading error retry and empty search states', as
         ? route.fulfill({ status: 503, body: 'Template fixture unavailable' })
         : route.fulfill({ json: { templates: [] } })
     }
-    if (path.endsWith('/api/mounts')) return route.fulfill({ json: { mounts: [], mountChangesAllowed } })
+    if (path.endsWith('/api/models/settings')) return mode === 'settings-error'
+      ? route.fulfill({ status: 503, body: 'Model settings fixture unavailable' })
+      : route.fulfill({ json: {
+        settings: { version: 1, locations: [], downloadLocation: null }, locations: [],
+        revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+      } })
     if (path.endsWith('/api/settings')) return route.fulfill({ json: { features: { templates: { enabled: true } }, categories: { available: [], granted: [] }, settings: {} } })
     await emptyVisualBackend(route)
   })
@@ -1190,61 +1193,60 @@ test('Template gallery presents loading error retry and empty search states', as
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app as unknown as {
       activeTab(): { id: string }
-      addBackend(url: string, label: string, persist: boolean, protocol: string): { id: string }
+      addBackend(url: string, label: string, persist: boolean, protocol: string): { id: string; templatesEnabled: { set(value: boolean): void } }
       setTabTarget(tab: string, backend: string): void
       refreshBackendSchemas(backend: unknown): Promise<void>
-      templateGalleryOpen: { set(value: boolean): void }
+      commands: { get(id: string): { run(): void } }
     }
     const backend = app.addBackend('/gallery-visual', 'Gallery visual', false, 'dinkster')
     app.setTabTarget(app.activeTab().id, backend.id)
     await app.refreshBackendSchemas(backend)
-    app.templateGalleryOpen.set(true)
+    backend.templatesEnabled.set(true)
   })
-  const gallery = page.getByTestId('template-gallery')
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.commands.get('workflow.openTemplateGallery') !== undefined)).toBe(true)
+  await page.evaluate(() => {
+    const commands = window.__dinksterTest!.app.commands as unknown as { get(id: string): { run(): void } }
+    commands.get('workflow.openTemplateGallery').run()
+  })
+  const gallery = page.getByTestId('templates-page')
   const capture = async (state: string): Promise<void> => {
     for (const [width, height] of [[1440, 900], [900, 700]] as const) {
       await page.setViewportSize({ width, height })
-      if (state === 'folder-form') {
-        const grant = gallery.getByRole('button', { name: 'Grant folder', exact: true })
-        await grant.scrollIntoViewIfNeeded()
-        await expect(grant).toBeInViewport({ ratio: 1 })
-      }
+      const search = await gallery.getByRole('searchbox').boundingBox()
+      const blank = await gallery.getByRole('button', { name: 'Blank workflow', exact: true }).boundingBox()
+      expect(search).not.toBeNull()
+      expect(blank).not.toBeNull()
+      expect(search!.x + search!.width).toBeLessThanOrEqual(blank!.x)
       await page.mouse.move(0, 0)
       await screenshot(page, `gallery-${state}-${width}`)
     }
   }
-  await expect(gallery.getByRole('status')).toContainText('Loading starter templates...')
+  await expect(gallery.getByText('Loading starter templates...', { exact: true })).toBeVisible()
   await capture('loading')
   await expect.poll(() => release !== undefined).toBe(true)
   mode = 'error'
   release?.()
-  await expect(gallery.getByRole('alert')).toContainText('GET /api/templates failed: 503')
+  await expect(gallery.getByRole('alert')).toContainText('Could not load templates')
+  await expect(gallery).not.toContainText('GET /api/templates')
+  await expect(gallery.getByRole('listbox', { name: 'Makes', exact: true })).toHaveCount(0)
+  await expect(gallery.getByText('No templates yet. Packs you add can bring their own.', { exact: true })).toHaveCount(0)
   await expect(gallery.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
   await capture('error')
+  mode = 'settings-error'
+  await gallery.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(gallery.getByRole('alert')).toContainText('Could not load templates')
+  await expect(gallery).not.toContainText('GET /api/models/settings')
+  await expect(gallery.getByRole('listbox', { name: 'Makes', exact: true })).toHaveCount(0)
+  await expect(gallery.getByText('No templates yet. Packs you add can bring their own.', { exact: true })).toHaveCount(0)
   mode = 'empty'
   await gallery.getByRole('button', { name: 'Retry', exact: true }).click()
-  await expect(gallery.getByText('No starter templates are available.', { exact: true })).toBeVisible()
+  await expect(gallery.getByText('No templates yet. Packs you add can bring their own.', { exact: true })).toBeVisible()
   await expect(gallery.getByRole('alert')).toHaveCount(0)
-  await expect(gallery.getByText('Grant read-only access to an existing folder. Dinkster indexes models in place without copying them.', { exact: true })).toBeVisible()
   await capture('empty')
-  await gallery.getByTestId('template-gallery-search').fill('unmatched-template-507')
-  await expect(gallery.getByText('No starter templates match this search.', { exact: true })).toBeVisible()
-  await capture('no-matches')
-  await gallery.getByTestId('template-gallery-search').press('Escape')
-  await expect(gallery.getByTestId('template-gallery-search')).toHaveValue('')
-  await expect(gallery.getByText('No starter templates are available.', { exact: true })).toBeVisible()
+  await gallery.getByRole('searchbox', { name: 'Search templates' }).fill('unmatched-template-507')
+  await expect(gallery.getByText('No templates yet. Packs you add can bring their own.', { exact: true })).toBeVisible()
   await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toHaveCount(0)
-  mountChangesAllowed = true
-  await closeGallery(page)
-  await page.evaluate(() => {
-    const app = window.__dinksterTest!.app as unknown as { templateGalleryOpen: { set(value: boolean): void } }
-    app.templateGalleryOpen.set(true)
-  })
-  await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toBeVisible()
-  await gallery.getByLabel('Path', { exact: true }).fill('/models/shared')
-  await gallery.getByLabel('Mount name', { exact: true }).fill('shared-models')
-  await expect(gallery.getByRole('button', { name: 'Grant folder', exact: true })).toBeEnabled()
-  await capture('folder-form')
+  await expect(gallery.locator('form')).toHaveCount(0)
 })
 
 test('Problems Selection only explains an empty selection and absent document', async ({ page }) => {

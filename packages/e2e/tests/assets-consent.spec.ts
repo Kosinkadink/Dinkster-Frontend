@@ -156,8 +156,12 @@ test('model review separates download, retry and a single captured-body Run', as
   const row = dialog.locator('.dinkster-model-download-row')
   await expect(dialog.getByRole('button', { name: 'Download 1 model', exact: true })).toBeEnabled()
   await row.getByRole('button', { name: `Source details for ${selection.name}`, exact: true }).click()
-  await expect(dialog).toContainText(selection.sha256)
+  await expect(dialog).not.toContainText(selection.revision)
+  await expect(dialog).not.toContainText(selection.sha256)
   await expect(dialog).toContainText(selection.destination)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await dialog.getByRole('button', { name: 'Copy revision and checksum', exact: true }).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`Revision: ${selection.revision}\nSHA-256: ${selection.sha256}`)
   expect(starts).toBe(0)
   const captureModel = async (name: string) => {
     if (process.env['DINKSTER_CAPTURE_ISSUE_998'] === '1') {

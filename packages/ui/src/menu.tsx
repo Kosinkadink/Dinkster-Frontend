@@ -23,6 +23,7 @@ import {
 } from 'lucide-solid'
 import { ProductIcon, ProductTextInput, type ProductRole } from './controls.js'
 import { useProductStrings } from './strings.js'
+import { ProductShortcut } from './shortcut.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import tokens from '@dinkster/branding/components' with { type: 'json' }
 
@@ -44,6 +45,8 @@ export interface ProductMenuItem {
   disabled?: boolean
   checked?: boolean
   attention?: ProductAttention | undefined
+  /** Shortcut keys rendered with the shared key chips at the row's end. */
+  keys?: readonly string[] | undefined
   /** A second action at the row's end, shown on hover and keyboard focus. */
   rowAction?: { label: string; icon: LucideIcon; onSelect: () => void }
   onSelect: () => void
@@ -459,6 +462,9 @@ function Menu(props: {
                         </Show>
                         <Show when={item().attention}>
                           {(attention) => <Attention attention={attention()} />}
+                        </Show>
+                        <Show when={item().keys}>
+                          {(keys) => <span class="dinkster-menu-item-keys" aria-hidden="true"><ProductShortcut keys={keys()} /></span>}
                         </Show>
                       </button>
                     )
