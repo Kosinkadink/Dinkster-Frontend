@@ -2,6 +2,84 @@ import { expect, test } from '@playwright/test'
 
 test.use({ hasTouch: true })
 
+test('card controls edit without dragging, menus dismiss, and removal is undoable', async ({
+  page,
+}) => {
+  await page.goto('/#board-cards')
+  const card = page.locator('[data-board-item="workflow-1"]')
+  const blueprint = page.locator('[data-board-item="blueprint-1"]')
+  const original = (await card.boundingBox())!
+  await card
+    .getByRole('textbox', { name: 'Prompt', exact: true })
+    .fill('Morning light')
+  await card.getByRole('textbox', { name: 'Prompt', exact: true }).press('Tab')
+  await expect(
+    card.getByRole('textbox', { name: 'Prompt', exact: true }),
+  ).toHaveValue('Morning light')
+  await expect(
+    blueprint.getByRole('textbox', { name: 'Motion', exact: true }),
+  ).toHaveValue('Slow push in')
+  await card.getByRole('button', { name: 'Run', exact: true }).click()
+  await expect(
+    card.getByRole('button', { name: 'Stop', exact: true }),
+  ).toBeVisible()
+  await expect(card.getByRole('status')).toHaveText('Running')
+  expect((await card.boundingBox())!.x).toBeCloseTo(original.x)
+  expect((await card.boundingBox())!.y).toBeCloseTo(original.y)
+  await card.getByRole('button', { name: 'Stop', exact: true }).click()
+  await expect(
+    card.getByRole('button', { name: 'Run', exact: true }),
+  ).toBeVisible()
+  const actions = card.getByRole('button', {
+    name: 'Actions for Diner establishing shot',
+  })
+  await actions.click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu', { name: 'Card actions' })).toHaveCount(0)
+  await actions.click()
+  await page
+    .getByRole('menuitem', { name: 'Choose inputs', exact: true })
+    .click()
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Choose inputs:' }),
+  ).toHaveText('Choose inputs: Diner establishing shot')
+  await actions.click()
+  await page
+    .getByRole('menuitem', { name: 'Remove from board', exact: true })
+    .click()
+  await expect(card).toHaveCount(0)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(
+    card.getByRole('textbox', { name: 'Prompt', exact: true }),
+  ).toHaveValue('Morning light')
+  const add = page.getByRole('button', { name: 'Add', exact: true })
+  await add.click()
+  await expect(
+    page.getByRole('menuitem', { name: 'Blueprint', exact: true }),
+  ).toBeVisible()
+  await page.getByRole('heading', { name: 'Board cards', level: 2 }).click()
+  await expect(
+    page.getByRole('menu', { name: 'Add', exact: true }),
+  ).toHaveCount(0)
+  await add.click()
+  await page.getByRole('menuitem', { name: 'Workflow', exact: true }).click()
+  const placed = page.locator('[data-board-item][data-kind="workflow"]').last()
+  await expect(placed).toHaveAttribute('data-selected', 'true')
+  await expect(
+    page.getByRole('menu', { name: 'Add', exact: true }),
+  ).toHaveCount(0)
+  await page.goto('/#board')
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(
+    page.getByRole('menuitem', { name: 'Blueprint', exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('menuitem', { name: 'Workflow', exact: true }),
+  ).toHaveCount(0)
+  await page.getByRole('menuitem', { name: 'Media', exact: true }).click()
+  await expect(page.locator('[data-kind="picture"]')).toHaveCount(4)
+})
+
 test('pictures move and resize without changing their shape, and edits undo and redo', async ({
   page,
 }) => {

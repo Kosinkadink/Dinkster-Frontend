@@ -6,17 +6,24 @@ import {
   createSignal,
   createUniqueId,
   onCleanup,
+  type Accessor,
   type JSX,
 } from 'solid-js'
 import {
+  Ellipsis,
+  Images,
   MousePointer2,
   Pause,
   Play,
   Plus,
   Redo2,
+  SlidersHorizontal,
   SquareDashed,
+  Square,
+  Trash2,
   Type,
   Undo2,
+  Workflow,
 } from 'lucide-solid'
 import {
   BOARD_MIN_SIDE,
@@ -24,6 +31,7 @@ import {
   boardPaintOrder,
   sectionMembers,
   type BoardAsset,
+  type BoardCardItem,
   type BoardItem,
   type BoardMediaItem,
   type BoardSession,
@@ -35,12 +43,113 @@ import {
   wheelNavigationViewport,
 } from '@dinkster/canvas'
 import {
+  ProductButton,
+  ProductIcon,
   ProductIconButton,
   ProductTextArea,
   ProductTextInput,
 } from './controls.js'
 import { ProductAudioWaveform } from './audio-waveform.js'
 import { useFieldFocus } from './field-focus.js'
+import { ProductMenu } from './menu.js'
+import { BlueprintIcon } from './search.js'
+
+/** Shared card chrome; the source owner supplies exposed controls and run state. */
+export function ProductBoardCard(props: {
+  readonly name: string
+  readonly kind: 'workflow' | 'blueprint'
+  readonly children: JSX.Element
+  readonly lastRun: string
+  readonly running?: boolean
+  readonly disabled?: boolean
+  readonly error?: string | undefined
+  readonly onRun: () => void
+  readonly onStop: () => void
+  readonly onOpen: () => void
+  readonly onChooseInputs: () => void
+  readonly onOpenLastRun?: () => void
+  readonly onRemove: () => void
+}) {
+  return (
+    <div
+      class="dinkster-board-card"
+      onDblClick={(event) => {
+        if (
+          !(event.target as Element).closest('button, input, textarea, select')
+        )
+          props.onOpen()
+      }}
+    >
+      <header class="dinkster-board-card-header">
+        <ProductIcon
+          icon={props.kind === 'blueprint' ? BlueprintIcon : Workflow}
+        />
+        <span class="dinkster-board-card-name" title={props.name}>
+          {props.name}
+        </span>
+        <Show when={props.kind === 'blueprint'}>
+          <span class="dinkster-board-card-badge">Blueprint</span>
+        </Show>
+        <ProductMenu
+          label="Card actions"
+          triggerName={`Actions for ${props.name}`}
+          icon={Ellipsis}
+          iconOnly
+          fill="quiet"
+          items={[
+            {
+              label: 'Open workflow',
+              icon: Workflow,
+              onSelect: props.onOpen,
+            },
+            {
+              label: 'Choose inputs',
+              icon: SlidersHorizontal,
+              onSelect: props.onChooseInputs,
+            },
+            ...(props.onOpenLastRun
+              ? [
+                  {
+                    label: 'Open last run',
+                    icon: Play,
+                    onSelect: props.onOpenLastRun,
+                  },
+                ]
+              : []),
+            'separator',
+            {
+              label: 'Remove from board',
+              icon: Trash2,
+              intent: 'remove',
+              onSelect: props.onRemove,
+            },
+          ]}
+        />
+      </header>
+      <div class="dinkster-board-card-inputs">{props.children}</div>
+      <Show when={props.error}>
+        {(error) => (
+          <p class="dinkster-board-card-error" role="alert">
+            {error()}
+          </p>
+        )}
+      </Show>
+      <footer class="dinkster-board-card-footer">
+        <ProductButton
+          intent={props.running ? 'neutral' : 'add'}
+          disabled={props.disabled && !props.running}
+          onClick={() => (props.running ? props.onStop() : props.onRun())}
+        >
+          <ProductIcon icon={props.running ? Square : Play} />
+          {props.running ? 'Stop' : 'Run'}
+        </ProductButton>
+        <span class="dinkster-metadata" role="status">
+          {props.lastRun}
+        </span>
+      </footer>
+    </div>
+  )
+}
 
 export interface ProductBoardProps {
   readonly store: BoardSession
@@ -52,6 +161,21 @@ export interface ProductBoardProps {
     readonly onZoomBy: (factor: number) => void
     readonly onZoomTo: (scale: number) => void
   }) => JSX.Element
+  readonly card?: (
+    item: Accessor<BoardCardItem>,
+    remove: () => void,
+  ) => JSX.Element
+  /** Absent when the source kind is unavailable; cancellation resolves without an id. */
+  readonly onAddCard?: {
+    readonly workflow?: (point: {
+      x: number
+      y: number
+    }) => string | undefined | Promise<string | undefined>
+    readonly blueprint?: (point: {
+      x: number
+      y: number
+    }) => string | undefined | Promise<string | undefined>
+  }
   readonly onAddMedia?: (point: { x: number; y: number }) => void
   readonly onDropMedia?: (
     event: DragEvent,
@@ -383,6 +507,14 @@ export function ProductBoard(props: ProductBoardProps) {
       y: (clientY - bounds.top - view.y) / view.scale,
     }
   }
+  const center = () => {
+    const bounds = surface.getBoundingClientRect()
+    return point(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)
+  }
+  const addCard = async (kind: 'workflow' | 'blueprint') => {
+    const id = await props.onAddCard?.[kind]?.(center())
+    if (id && props.store.doc.items[id]) setSelected(id)
+  }
   const zoom = (factor: number) => {
     const view = camera()
     const scale = clampScale(view.scale * factor)
@@ -457,7 +589,12 @@ export function ProductBoard(props: ProductBoardProps) {
   ) => {
     if (event.button !== 0) return
     setSelected(item.id)
-    if ((event.target as Element).closest('input, textarea')) return
+    if (
+      (event.target as Element).closest(
+        'input, textarea, button, select, [role="menu"]',
+      )
+    )
+      return
     event.stopPropagation()
     event.preventDefault()
     surface.focus({ preventScroll: true })
@@ -650,7 +787,11 @@ export function ProductBoard(props: ProductBoardProps) {
           surface.focus({ preventScroll: true })
           return
         }
-        if ((event.target as Element).closest('input, textarea, audio, video'))
+        if (
+          (event.target as Element).closest(
+            'input, textarea, audio, video, button, select, [role="menu"]',
+          )
+        )
           return
         if (
           event.key === 'Enter' &&
@@ -763,6 +904,22 @@ export function ProductBoard(props: ProductBoardProps) {
                       if (item().kind === 'note') setEditingNote(id)
                     }}
                   >
+                    <Show
+                      when={((item) =>
+                        (item.kind === 'workflow' ||
+                          item.kind === 'blueprint') &&
+                        item)(item())}
+                    >
+                      {(card) =>
+                        props.card?.(card, () => {
+                          props.store.dispatch({
+                            command: 'board.item.remove',
+                            params: { ids: [id] },
+                          })
+                          if (selected() === id) setSelected(undefined)
+                        })
+                      }
+                    </Show>
                     <Show
                       when={((item) => item.kind === 'picture' && item)(item())}
                     >
@@ -976,20 +1133,46 @@ export function ProductBoard(props: ProductBoardProps) {
           aria-pressed={tool() === 'section'}
           onClick={() => setTool('section')}
         />
-        <Show when={props.onAddMedia}>
-          <ProductIconButton
-            label="Add media"
-            labelContent="Add media"
+        <Show
+          when={
+            props.onAddMedia ||
+            props.onAddCard?.workflow ||
+            props.onAddCard?.blueprint
+          }
+        >
+          <ProductMenu
+            label="Add"
             icon={Plus}
-            onClick={() => {
-              const bounds = surface.getBoundingClientRect()
-              props.onAddMedia?.(
-                point(
-                  bounds.left + bounds.width / 2,
-                  bounds.top + bounds.height / 2,
-                ),
-              )
-            }}
+            fill="quiet"
+            items={[
+              ...(props.onAddMedia
+                ? [
+                    {
+                      label: 'Media',
+                      icon: Images,
+                      onSelect: () => props.onAddMedia?.(center()),
+                    },
+                  ]
+                : []),
+              ...(props.onAddCard?.workflow
+                ? [
+                    {
+                      label: 'Workflow',
+                      icon: Workflow,
+                      onSelect: () => void addCard('workflow'),
+                    },
+                  ]
+                : []),
+              ...(props.onAddCard?.blueprint
+                ? [
+                    {
+                      label: 'Blueprint',
+                      icon: BlueprintIcon,
+                      onSelect: () => void addCard('blueprint'),
+                    },
+                  ]
+                : []),
+            ]}
           />
         </Show>
         <ProductIconButton

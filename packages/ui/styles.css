@@ -2063,6 +2063,17 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-board-world { position: absolute; inset: 0; transform-origin: 0 0; pointer-events: none; }
 .dinkster-board-item { position: absolute; pointer-events: auto; cursor: move; }
 .dinkster-board-item[data-selected='true'] { outline: var(--dinkster-border-width) solid var(--dinkster-text-primary); }
+.dinkster-board-card { box-sizing: border-box; display: flex; flex-direction: column; gap: var(--dinkster-space-8); width: 100%; height: 100%; padding: var(--dinkster-space-8); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-panel); }
+.dinkster-board-card-header { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; }
+.dinkster-board-card-header > .dinkster-icon { flex: none; color: var(--dinkster-text-secondary); }
+.dinkster-board-card-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--dinkster-weight-bold); }
+.dinkster-board-card-badge { flex: none; padding: 0 var(--dinkster-space-4); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-quiet); color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
+.dinkster-board-card-inputs { display: grid; align-content: start; gap: var(--dinkster-space-4); min-height: 0; overflow: auto; }
+.dinkster-board-card-input { display: flex; align-items: center; gap: var(--dinkster-space-8); padding-left: var(--dinkster-space-8); border-radius: var(--dinkster-radius-small); background: var(--dinkster-surface-inset); color: var(--dinkster-text-secondary); white-space: nowrap; }
+.dinkster-board-card-input > input { flex: 1; min-width: 0; min-height: var(--dinkster-input-canvas-height); border-color: transparent; background: transparent; text-align: right; }
+.dinkster-board-card-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); margin-top: auto; }
+.dinkster-board-card-footer > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dinkster-board-card-error { margin: 0; color: var(--dinkster-danger-foreground); overflow-wrap: anywhere; }
 .dinkster-board-picture { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: var(--dinkster-radius-small); }
 .dinkster-board-media { position: relative; width: 100%; height: 100%; border-radius: var(--dinkster-radius-small); }
 .dinkster-board-media[data-kind='sound'] { padding: var(--dinkster-space-8); background: var(--dinkster-surface-quiet); }
