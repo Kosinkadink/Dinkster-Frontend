@@ -373,7 +373,7 @@ function boxOf(scene: Scene, example: InNodeEditorExample): Pick<SceneNode, 'x' 
   return panel === undefined ? undefined : boundaryFieldNode(panel)
 }
 
-function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
+export function InNodeEditorExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
   let canvas!: HTMLCanvasElement
   const [scene, setScene] = createSignal<Scene>()
   createEffect(() => {
@@ -387,8 +387,6 @@ function ExampleCard(props: { example: InNodeEditorExample; theme: 'dark' | 'lig
         ...defaultTokens,
         widgetEditing: 'in-row',
         widgetRowLook: 'raised-editors',
-        // As the Node boxes page, the page shows the remove cross the editor leaves off until it works.
-        memberRemoveCross: true,
         ...canvasTypePaintForTheme(theme),
         colors: canvasColorsForTheme(theme),
       }
@@ -491,7 +489,7 @@ export function InNodeEditorsGallery(props: { theme: 'dark' | 'light' }) {
         <ProductSection title={title}>
           <div class="dinkster-canvas-examples">
             <For each={inNodeEditorExamples.filter(matches)}>
-              {(example) => <ExampleCard example={example} theme={props.theme} registry={registry} />}
+              {(example) => <InNodeEditorExampleCard example={example} theme={props.theme} registry={registry} />}
             </For>
           </div>
         </ProductSection>

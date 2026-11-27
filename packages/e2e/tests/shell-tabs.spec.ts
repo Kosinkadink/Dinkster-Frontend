@@ -122,7 +122,7 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
   // Loaded tabs start dirty by design, so closing one requires the product
   // discard decision before the tab can be removed.
   await tab(page, 'Subgraph').click({ button: 'middle' })
-  const confirm = page.getByRole('dialog', { name: 'Close "Subgraph" and discard unsaved changes?' })
+  const confirm = page.getByRole('dialog', { name: 'Close "Subgraph"?' })
   await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
   await confirm.getByRole('button', { name: 'Close and discard' }).click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(1)
@@ -139,7 +139,7 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
   const untitled = tab(page, 'Untitled')
   await untitled.hover()
   await untitled.getByTestId('tab-close').click()
-  await page.getByRole('dialog', { name: 'Close "Untitled" and discard unsaved changes?' })
+  await page.getByRole('dialog', { name: 'Close "Untitled"?' })
     .getByRole('button', { name: 'Close and discard' }).click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(1)
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
@@ -492,12 +492,12 @@ actionsTest.describe('workflow tab actions', () => {
         .toEqual(['Basic', 'Basic copy 2', 'Basic copy'])
       await tabAction(page, 'Basic', 'closeOthers')
       const dialog = page.getByRole('dialog', {
-        name: 'Close others',
+        name: 'Close 2 other tabs?',
         exact: true,
       })
       await expect(dialog).toHaveCount(1)
       await expect
-        .poll(async () => (await dialog.locator('li').allTextContents()).sort())
+        .poll(async () => (await dialog.locator('li > span:first-child').allTextContents()).sort())
         .toEqual(['Basic copy', 'Basic copy 2'])
       await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
       await expect

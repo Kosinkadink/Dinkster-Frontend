@@ -64,4 +64,4 @@
 .widget-editor input:where(:not(.product-text-input)):where(:hover:not(:disabled)), .widget-editor textarea:where(:not(.product-text-area)):where(:hover:not(:disabled)), .widget-editor select:where(:hover:not(:disabled)) { border-color: var(--dinkster-border-hover); }
 .widget-editor input:where(:not(.product-text-input)):focus-visible,
 .widget-editor textarea:where(:not(.product-text-area)):focus-visible,
-.widget-editor select:focus-visible { border-color: var(--dinkster-border-focus); box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-interaction-selected); }
+.widget-editor select:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 2px; }

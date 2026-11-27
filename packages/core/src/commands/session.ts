@@ -34,6 +34,7 @@ import type {
 import { predictAllocatedId } from './alloc.js'
 import type { PatchOp } from './patch.js'
 import { DocumentStore, type BoundaryPositionResolver, type NodeHeightResolver, type DocumentCommitPolicy, type HistorySnapshot, type PreparedDocumentDispatch } from './store.js'
+import type { GroupGeometryResolver } from '../group-membership.js'
 
 /**
  * One committed change, shaped to the collab envelope. Locally minted
@@ -103,6 +104,13 @@ export interface DocumentSession extends DocumentStoreContract {
    * successor's document is identical to this session's).
    */
   historySnapshot(): HistorySnapshot
+  /**
+   * Replay recorded patches, such as an earlier history record's inverse, as
+   * one new undo step. Refused, changing nothing, when the document no longer
+   * holds the values they were recorded against, when they no longer fit it,
+   * or when the result breaks an invariant.
+   */
+  replayRecorded(ops: readonly PatchOp[]): boolean
   /** Stage an exact candidate without publishing or submitting shared operations. */
   prepareDispatch?(invocation: CommandInvocation): PreparedDocumentDispatch
 }
@@ -144,6 +152,7 @@ export interface LocalSessionOptions {
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
   readonly boundaryPositionsFor?: BoundaryPositionResolver
   readonly nodeHeightFor?: NodeHeightResolver
+  readonly groupGeometryFor?: GroupGeometryResolver
   readonly validateCommit?: DocumentCommitPolicy
 }
 
@@ -174,6 +183,7 @@ class LocalDocumentSession implements DocumentSession {
       options?.validateCommit,
       options?.boundaryPositionsFor,
       options?.nodeHeightFor,
+      options?.groupGeometryFor,
     )
     this.store.onTransaction((event) => {
       this.opCounter += 1
@@ -260,6 +270,10 @@ class LocalDocumentSession implements DocumentSession {
 
   historySnapshot(): HistorySnapshot {
     return this.store.historySnapshot()
+  }
+
+  replayRecorded(ops: readonly PatchOp[]): boolean {
+    return this.store.replayRecorded(ops)
   }
 
   onOp(listener: (op: SessionOp) => void): () => void {

@@ -18,3 +18,8 @@ workloads: `dinkster.image.empty_image` and `dinkster.image.image_scale_by`
 expose `IMAGE`, while `dinkster.image.preview_image` exposes `images`.
 Core compiler and canvas performance tests share these records.
 They model port contracts, not a complete catalog or runtime parity capture.
+
+`flow_schemas.json` is the native wire exported with `schema_to_wire` from
+OrElse, HasValue and OnlyIf in dinkster-nodes `dinkster_utilities/flow.py` at
+`5a4957aa93cd22987e897acabe8a943f4c975eb3`. Compiler and interaction tests
+decode these pack declarations rather than substituting test-only flow nodes.
