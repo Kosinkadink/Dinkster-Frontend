@@ -2093,6 +2093,26 @@ const viewSetSectionCollapsed: CommandDefinition = {
   },
 }
 
+const viewSetLineFolded: CommandDefinition = {
+  id: 'view.setLineFolded',
+  run(doc, params, tx) {
+    if (
+      !isObj(params) || typeof params.nodeId !== 'string' ||
+      typeof params.lineKey !== 'string' || params.lineKey.length === 0 ||
+      typeof params.folded !== 'boolean'
+    ) return [err('params.invalid', 'view.setLineFolded: params must be {graphId, nodeId, lineKey, folded: boolean}')]
+    const def = graphOf(doc, params.graphId)
+    if (!def) return [err('graph.missing', `view.setLineFolded: unknown graph '${String(params.graphId)}'`)]
+    const graphId = params.graphId as string
+    const nodeId = params.nodeId
+    const view = doc.view.graphs[graphId]?.nodes[nodeId]
+    if (!def.nodes[nodeId] || !view) return [err('node.missing', `view.setLineFolded: unknown placed node '${nodeId}'`)]
+    if (!view.lines) tx.set(['view', 'graphs', graphId, 'nodes', nodeId, 'lines'], {})
+    tx.set(['view', 'graphs', graphId, 'nodes', nodeId, 'lines', params.lineKey], { folded: params.folded })
+    return []
+  },
+}
+
 /**
  * Set, or with null clear, one editor's fold or picture height. The editor
  * is a node's, by value key, or the Inputs panel's (`inputsPanel: true`), by
@@ -2195,8 +2215,7 @@ const viewSetPictureHeight: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// Groups: pure view rectangles with NO stored membership (which nodes a
-// group contains is derived spatially at interaction time). All group
+// Groups and their persisted membership are pure view state. All group
 // commands live entirely in the view tree - creating/moving/deleting a
 // group never touches semantic state or the semantic hash.
 // ---------------------------------------------------------------------------
@@ -2266,7 +2285,7 @@ const viewCreateGroup: CommandDefinition = {
 // view.moveGroup {graphId, groupId, bounds, positions, reroutes?, boundary?}
 //
 // One undo step per group drag: the group's new origin plus the final
-// positions of the nodes it carried (membership was derived at drag start).
+// positions of its persisted descendants.
 // ---------------------------------------------------------------------------
 
 const viewMoveGroup: CommandDefinition = {
@@ -2285,6 +2304,14 @@ const viewMoveGroup: CommandDefinition = {
       x: params.bounds.x,
       y: params.bounds.y,
     })
+    if (params.groups !== undefined) {
+      if (!isObj(params.groups)) return [err('params.invalid', 'view.moveGroup: groups must be a positions map')]
+      for (const [id, pos] of Object.entries(params.groups)) {
+        const child = groupOf(doc, graphId, id)
+        if (!child || !isVec2(pos)) return [err('params.invalid', 'view.moveGroup: invalid child group position')]
+        tx.set(['view', 'graphs', graphId, 'groups', id, 'bounds'], { ...child.bounds, x: pos.x, y: pos.y })
+      }
+    }
     for (const [nodeId, pos] of Object.entries(params.positions)) {
       if (!def.nodes[nodeId]) return [err('node.missing', `view.moveGroup: unknown node '${nodeId}'`)]
       if (!isVec2(pos)) return [err('params.invalid', `view.moveGroup: position for '${nodeId}' must be {x,y}`)]
@@ -2384,7 +2411,7 @@ const viewSetGroupColor: CommandDefinition = {
 }
 
 // ---------------------------------------------------------------------------
-// view.removeGroup {graphId, groupId}  (nodes are untouched: no membership)
+// view.removeGroup {graphId, groupId}  (children are released, never deleted)
 // ---------------------------------------------------------------------------
 
 const viewRemoveGroup: CommandDefinition = {
@@ -2750,6 +2777,7 @@ export const CORE_COMMANDS: readonly CommandDefinition[] = [
   viewSetTextBoxLines,
   viewSetPreviewFolded,
   viewSetSectionCollapsed,
+  viewSetLineFolded,
   viewSetEditorUnfolded,
   viewSetHistogramVisible,
   viewSetPictureHeight,

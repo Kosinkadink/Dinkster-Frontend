@@ -102,53 +102,26 @@ test('sub-threshold panel movement remains a tab click', async ({ page }) => {
   expect(await zoneOrder(page, 'right')).toEqual(before)
 })
 
-test('right-zone tab drag previews from one geometry snapshot and persists on release', async ({ page }) => {
+test('right-zone tab drag keeps a stable insertion slot and persists on release', async ({ page }) => {
   const outputs = rightTab(page, 'problems')
   const queue = rightTab(page, 'runs')
   const from = await center(outputs)
   const to = await center(queue)
+  const draggedWidth = (await outputs.boundingBox())!.width
   const storedBefore = await page.evaluate(() =>
     (window.__dinksterTest!.app as unknown as DockingTestApp).settings.get<string>('shell.dock.layout'))
 
-  await page.evaluate(() => {
-    const state = window as unknown as {
-      __panelDragRectOriginal: typeof Element.prototype.getBoundingClientRect
-      __panelDragRectPhase: boolean
-      __panelDragRectReads: number
-    }
-    state.__panelDragRectOriginal = Element.prototype.getBoundingClientRect
-    state.__panelDragRectPhase = false
-    state.__panelDragRectReads = 0
-    Element.prototype.getBoundingClientRect = function () {
-      if (
-        state.__panelDragRectPhase
-        && this.matches('.body, .canvas-pane, .canvas-stage, .dock-zone, .product-tablist, .product-tab, .product-tabpanel, [data-testid="dock-zone-overflow-button"]')
-      ) state.__panelDragRectReads += 1
-      return state.__panelDragRectOriginal.call(this)
-    }
-  })
-
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
-  await page.evaluate(() => {
-    ;(window as unknown as { __panelDragRectPhase: boolean }).__panelDragRectPhase = true
-  })
   await page.mouse.move(to.x - 10, to.y, { steps: 3 })
-  const moveReads = await page.evaluate(() => {
-    const state = window as unknown as {
-      __panelDragRectOriginal: typeof Element.prototype.getBoundingClientRect
-      __panelDragRectPhase: boolean
-      __panelDragRectReads: number
-    }
-    state.__panelDragRectPhase = false
-    Element.prototype.getBoundingClientRect = state.__panelDragRectOriginal
-    return state.__panelDragRectReads
-  })
-
-  expect(moveReads).toBe(0)
-  await expect(page.getByTestId('panel-drag-target')).toHaveAttribute('data-kind', 'tab')
-  await expect(page.getByTestId('panel-drag-target')).toHaveAttribute('data-zone', 'right')
-  await expect(page.getByTestId('panel-drag-caret')).toBeVisible()
+  const slot = page.getByTestId('dock-zone-right').locator('.panel-tab-drop-slot')
+  await expect(slot).toBeVisible()
+  expect((await slot.boundingBox())!.width).toBeCloseTo(draggedWidth, 1)
+  const slotLeft = (await slot.boundingBox())!.x
+  await page.mouse.move(to.x - 10, to.y)
+  expect((await slot.boundingBox())!.x).toBe(slotLeft)
+  await expect(page.getByTestId('panel-drag-target')).toHaveCount(0)
+  await capture(page, 'panel-empty-insertion-slot')
   expect(await page.evaluate(() =>
     (window.__dinksterTest!.app as unknown as DockingTestApp).settings.get<string>('shell.dock.layout'))).toBe(storedBefore)
 
@@ -279,12 +252,97 @@ test('the hidden-tab tail of a strip appends without reading hidden tab boxes as
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
   await page.mouse.move(strip.x + strip.width - 2, strip.y + strip.height / 2, { steps: 4 })
-  const target = page.getByTestId('panel-drag-target')
-  await expect(target).toHaveAttribute('data-kind', 'tab')
-  await expect(target).toHaveAttribute('data-zone', 'right')
+  const slot = host.locator('.panel-tab-drop-slot')
+  await expect(slot).toBeVisible()
+  const gap = (await slot.boundingBox())!
+  expect(gap.x + gap.width).toBeLessThanOrEqual(strip.x + strip.width)
+  await capture(page, 'panel-hidden-tail-slot')
   await page.mouse.up()
 
   expect((await zoneOrder(page, 'right')).at(-1)).toBe('runs')
+})
+
+test('crowded destinations reserve a whole slot without changing selection and oversized arrivals append', async ({ page }) => {
+  await page.getByTestId('bottom-panel-toggle').click()
+  await page.getByTestId('library-toggle').click()
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app as unknown as DockingTestApp
+    for (let i = 0; i < 3; i += 1) app.panels.register({
+      id: `crowded-${i}`, title: `Crowded destination ${i}`, placement: 'rail',
+      allowedPlacements: ['rail'], order: 100 + i, component: () => document.createElement('div'),
+    })
+    app.panels.register({ id: 'incoming-panel', title: 'Incoming panel', placement: 'bottom',
+      allowedPlacements: ['rail', 'bottom'], order: 100, component: () => document.createElement('div') })
+    app.panels.register({ id: 'oversized-panel', title: 'A genuinely oversized panel title that cannot fit in the narrow destination row', placement: 'bottom',
+      allowedPlacements: ['rail', 'bottom'], order: 101, component: () => document.createElement('div') })
+  })
+  await page.getByTestId('rail-resize').focus()
+  await page.keyboard.press('Home')
+  const rail = page.getByTestId('dock-zone-right')
+  const strip = (await rail.locator('.product-tablist').boundingBox())!
+  const body = rail.locator('.product-tabpanel:not([hidden])')
+  const selectedBody = await body.getAttribute('id')
+  const visibleTabs = () => rail.locator('.product-tab:visible').evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute('data-tab-id')))
+  const before = await visibleTabs()
+  const source = zoneTab(page, 'bottom', 'incoming-panel')
+  const width = (await source.boundingBox())!.width
+  const enter = async (tab: Locator, x: number): Promise<void> => {
+    const from = await center(tab)
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.move(x, strip.y + strip.height / 2, { steps: 4 })
+  }
+  await enter(source, strip.x + strip.width - 2)
+  const slot = rail.locator('.panel-tab-drop-slot')
+  await expect(slot).toBeVisible()
+  const slotBox = (await slot.boundingBox())!
+  expect(slotBox.width).toBeCloseTo(width, 1)
+  expect(slotBox.x + slotBox.width).toBeLessThanOrEqual(strip.x + strip.width)
+  await expect(rightTab(page, 'runs')).toBeHidden()
+  await expect(body).toHaveAttribute('id', selectedBody!)
+  await capture(page, 'panel-slot-selected-in-overflow')
+  const reservedTabs = await visibleTabs()
+  await page.mouse.move(strip.x + 7, strip.y + strip.height / 2, { steps: 4 })
+  expect(await visibleTabs()).toEqual(reservedTabs)
+  const canvas = (await page.getByTestId('graph-canvas').boundingBox())!
+  await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2)
+  expect(await visibleTabs()).toEqual(before)
+  await page.mouse.move(strip.x + strip.width - 2, strip.y + strip.height / 2)
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  expect(await visibleTabs()).toEqual(before)
+  await expect(body).toHaveAttribute('id', selectedBody!)
+  await enter(source, strip.x + strip.width - 2)
+  await page.mouse.up()
+  expect((await zoneOrder(page, 'right')).at(-1)).toBe('incoming-panel')
+
+  const title = page.getByTestId('dock-zone-left').locator('[data-panel-title]')
+  const libraryId = await title.getAttribute('data-tab-id')
+  expect((await title.boundingBox())!.width).toBeGreaterThan(strip.width)
+  await enter(title, strip.x + 8)
+  await expect(slot).toBeVisible()
+  const librarySlotWidth = (await slot.boundingBox())!.width
+  expect(librarySlotWidth).toBeLessThan(strip.width)
+  await capture(page, 'panel-library-title-slot')
+  await page.mouse.up()
+  expect((await zoneOrder(page, 'right'))[0]).toBe(libraryId)
+  expect((await rightTab(page, libraryId!).boundingBox())!.width).toBeCloseTo(librarySlotWidth, 1)
+
+  const oversized = zoneTab(page, 'bottom', 'oversized-panel')
+  expect((await oversized.boundingBox())!.width).toBeGreaterThan(strip.width)
+  const activeBody = await body.getAttribute('id')
+  const beforeFallback = await visibleTabs()
+  await enter(oversized, strip.x + 8)
+  await expect(slot).toHaveCount(0)
+  await expect(page.getByTestId('panel-drag-target')).toHaveAttribute('data-kind', 'zone')
+  await expect(body).toHaveAttribute('id', activeBody!)
+  expect(await visibleTabs()).toEqual(beforeFallback)
+  const caption = (await page.locator('.panel-drag-target-label').boundingBox())!
+  const ghost = (await page.getByTestId('tab-drag-ghost').boundingBox())!
+  expect(caption.y).toBeGreaterThan(ghost.y + ghost.height)
+  await capture(page, 'panel-truly-oversized-fallback')
+  await page.mouse.up()
+  expect((await zoneOrder(page, 'right')).at(-1)).toBe('oversized-panel')
 })
 
 test('release rolls back when the previewed zone disappears during a drag', async ({ page }) => {

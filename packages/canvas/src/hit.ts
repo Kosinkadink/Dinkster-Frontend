@@ -5,7 +5,7 @@
  */
 
 import type { TypeExpr } from '@dinkster/core'
-import type { LayoutRow, MemberGrip, MemberRemoval, PinLayout } from './layout.js'
+import type { LayoutLine, LayoutRow, MemberGrip, MemberRemoval, PinLayout } from './layout.js'
 import { canvasPaintTokens, defaultTokens, type CanvasDetailLevel } from './tokens.js'
 import { noteLookupRows } from './layout.js'
 import {
@@ -48,6 +48,7 @@ export const REROUTE_HIT_RADIUS = REROUTE_RADIUS + canvasPaintTokens.hit.reroute
 export const REROUTE_SOCKET_HIT_RADIUS = REROUTE_SOCKET_RADIUS + canvasPaintTokens.hit.rerouteSocketPadding
 
 export type Hit =
+  | { readonly kind: 'line'; readonly node: SceneNode; readonly line: LayoutLine }
   | {
       readonly kind: 'pin'
       readonly node: SceneNode
@@ -348,11 +349,11 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
       // A kept row's pin keeps its wire; no wire starts or ends on it.
-      if (pin.widgetTap !== true || pin.stacked === true || pin.kept !== undefined || !opts?.widgetTaps?.has(`${node.id}:${pin.portId}:out:tap`)) continue
+      if (pin.widgetTap !== true || pin.stacked === true || pin.lineHidden === true || pin.kept !== undefined || !opts?.widgetTaps?.has(`${node.id}:${pin.portId}:out:tap`)) continue
       const x = node.x + node.layout.width
       const y = node.y + pin.y
       const distance = Math.hypot(wx - x, wy - y)
-      if (distance <= tapDistance) {
+      if (distance <= tapDistance && (tap === undefined || distance < tapDistance)) {
         tapDistance = distance
         tap = { kind: 'widgetTap', node, input: pin.address.port as string, x, y, type: pin.type, pin }
       }
@@ -429,6 +430,13 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       }
       const remove = memberRemoveAt(node, wx, wy)
       if (remove !== undefined) return { kind: 'memberRemove', node, remove }
+      for (const line of l.lines ?? []) {
+        if (line.folded || line.railInset === undefined) continue
+        const first = l.rows[line.first]!
+        const last = l.rows[line.last]!
+        if (wx >= node.x + line.railInset && wx <= node.x + line.railInset + canvasPaintTokens.node.line.railWidth &&
+          wy >= node.y + first.y && wy <= node.y + last.y + last.height) return { kind: 'line', node, line }
+      }
       const grip = gripAt(node, wx, wy)
       if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
@@ -924,12 +932,12 @@ export function hitTestPin(
     const node = scene.nodes[i]!
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
-      if (pin.widgetTap === true || pin.stacked === true) continue
+      if (pin.widgetTap === true || pin.stacked === true || pin.lineHidden === true) continue
       if (pinRevealed && !pinRevealed(node, pin)) continue
       const px = pin.direction === 'in' ? node.x : node.x + node.layout.width
       const py = node.y + pin.y
       const d = Math.hypot(wx - px, wy - py)
-      if (d <= bestDist) {
+      if (d <= bestDist && (best === undefined || d < bestDist)) {
         bestDist = d
         best = { kind: 'pin', node, portId: pin.portId, direction: pin.direction, x: px, y: py, type: pin.type, pin }
       }

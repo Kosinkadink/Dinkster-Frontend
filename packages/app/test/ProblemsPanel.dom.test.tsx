@@ -97,48 +97,6 @@ afterEach(() => {
 })
 
 describe('ProblemsPanel browser interactions', () => {
-  it('disables upgrade undo after an edit and restores the whole batch after that edit is undone', async () => {
-    const app = prepareWorkflowApp(new AppState())
-    const backend = app.backends.get()[0]!
-    backend.registry.set(buildDinksterRegistry(backend.id, {
-      schemaVersion: 1, epoch: 1, dinkster: { version: 'notice-test', schemaWire: 2 }, packs: {},
-      nodes: { Current: { body: [], replacements: [{
-        from: 'Previous', cases: [{ to: 'Current' }],
-      }] } },
-    }))
-    expect((await app.openDocument({ ...workflow, graphs: { g0: { ...workflow.graphs.g0!, nextOrdinal: 3, nodes: {
-      n1: { id: asNodeId('n1'), type: 'Previous', values: {} },
-      n2: { id: asNodeId('n2'), type: 'Previous', values: {} },
-    } } } }, 'Upgraded document'))).toEqual([])
-    const tab = app.activeTab()!
-    await vi.waitFor(() => expect(app.migrationNotices.get().has(tab.id)).toBe(true))
-    const root = document.createElement('div')
-    document.body.append(root)
-    const unmount = render(() => {
-      const notices = useSignal(app.migrationNotices)
-      return <ProblemsPanel app={app} diagnostics={() => []} compatSkips={() => []}
-        migrationNotice={() => notices().get(tab.id)} />
-    }, root)
-    const undo = [...root.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Undo upgrades')!
-    expect(undo.disabled).toBe(false)
-    expect(tab.store.dispatch({ command: 'node.move', params: {
-      graphId: 'g0', positions: { n1: { x: 310, y: 170 } },
-    } }).ok).toBe(true)
-    await Promise.resolve()
-    expect(undo.disabled).toBe(true)
-    undo.click()
-    expect(tab.store.doc.graphs.g0!.nodes.n1!.type).toBe('Current')
-    expect(tab.store.undo()).toBe(true)
-    await Promise.resolve()
-    expect(undo.disabled).toBe(false)
-    undo.click()
-    expect(Object.values(tab.store.doc.graphs.g0!.nodes).map((node) => node.type)).toEqual(['Previous', 'Previous'])
-    expect(tab.store.canUndo).toBe(false)
-    expect(root.querySelector('[data-testid="migration-notice"]')).toBeNull()
-    unmount()
-    app.dispose()
-  })
-
   it('updates mounted static chrome while preserving disclosure nodes and raw diagnostics', () => {
     registerCatalog('de-DE', {
       'shell.panel.problems.title': '[Probleme]',

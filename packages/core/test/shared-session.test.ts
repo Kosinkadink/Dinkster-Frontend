@@ -1030,31 +1030,37 @@ describe('shared DocumentSession', () => {
     expect(detached).toBe(1)
   })
 
-  it.each([false, true])('keeps a wire arrival folded through a shared rebase without consulting changed schemas (batch=%s)', async (batch) => {
+  it.each([false, true].flatMap((batch) => [undefined, false, true].map((unfolded) => ({ batch, unfolded }))))('preserves editor folds through a wire arrival and shared rebase (batch=$batch, unfolded=$unfolded)', async ({ batch, unfolded }) => {
     const schema: NodeSchema = { type: 'KSampler', displayName: 'Editor', category: '', source: 'v3', isOutputNode: false,
       body: [{ kind: 'input', id: 'curve', optional: true, type: { kind: 'concrete', name: 'CURVE' },
         widget: { widgetType: 'CURVE', options: { unfolded: true } } }] }
     let available = true
-    const { conn, session } = await makeShared('actorA', baseDoc(), () => () => available ? schema : undefined)
+    const initial = baseDoc()
+    const editor = unfolded === undefined ? undefined : { unfolded }
+    const size = { width: 360, height: 420 }
+    const { conn, session } = await makeShared('actorA', {
+      ...initial, view: { graphs: { g0: { nodes: { n2: { size, ...(editor === undefined ? {} : { editors: { curve: editor } }) } } } } },
+    }, () => () => available ? schema : undefined)
     const gate = deferred()
     conn.postHook = () => { conn.postHook = undefined; return gate.promise }
     const connect = { command: 'link.connect', params: { graphId: 'g0',
       from: { node: 'n1', port: 'out' }, to: { node: 'n2', port: 'curve' } } }
     expect(session.dispatch(batch ? { command: 'batch', params: { invocations: [connect] } } : connect).ok).toBe(true)
-    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual(editor)
     await until(() => conn.postedOps.length === 1)
     available = false
     conn.appendForeign('peer', foreignAddNode('n9-peer'))
-    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual(editor)
     gate.resolve()
     await session.settle()
-    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual(editor)
     expect(session.undo()).toBe(true)
     await session.settle()
-    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toBeUndefined()
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual(editor)
     expect(session.redo()).toBe(true)
     await session.settle()
-    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual({ unfolded: false })
+    expect(session.doc.view.graphs.g0?.nodes.n2?.editors?.curve).toEqual(editor)
+    expect(session.doc.view.graphs.g0?.nodes.n2?.size).toEqual(size)
     session.close()
   })
 

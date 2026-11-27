@@ -20,6 +20,8 @@ interface RowFocusDetails extends RowBox {
   readonly tabId: string
   readonly graphId: string
   readonly nodeId: string
+  /** Navigation marks the row without showing its default or help. */
+  readonly markOnly?: boolean
   /** The declared default, as the row shows it. */
   readonly defaultText?: string
   readonly help?: string
@@ -42,8 +44,9 @@ export type RowFocusState = RowFocusDetails & (
 
 /**
  * Draws the open field's outline around the row the keyboard is on, with a
- * side part holding the row's default and help text. The canvas still draws
- * the row; Buttons get a semantic focus target for their keyboard actions.
+ * side part holding the row's default and help text unless navigation asks
+ * for the mark alone. The canvas still draws the row; Buttons get a semantic
+ * focus target for their keyboard actions.
  */
 export function RowFocusOverlay(props: {
   focus: RowFocusState
@@ -111,7 +114,7 @@ export function RowFocusOverlay(props: {
           sideTop={placement().sideTop}
           {...(placement().sideMaxHeight === undefined ? {} : { sideMaxHeight: placement().sideMaxHeight! })}
           onSideSize={setSideSize}
-          {...(props.focus.tooltipOnly || props.focus.defaultText === undefined && props.focus.help === undefined && props.focus.representation === undefined && props.focus.note === undefined && props.focus.arriving === undefined && props.focus.cancellation === undefined ? {} : { side })}
+          {...(props.focus.markOnly || props.focus.tooltipOnly || props.focus.defaultText === undefined && props.focus.help === undefined && props.focus.representation === undefined && props.focus.note === undefined && props.focus.arriving === undefined && props.focus.cancellation === undefined ? {} : { side })}
         />
       </div>
     </div>

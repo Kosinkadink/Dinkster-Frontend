@@ -401,6 +401,8 @@
 .asset-browser-selection { width: min(220px, 50%); box-sizing: border-box; flex: none; max-height: 100%; }
 .asset-browser-selection .asset-section-heading { flex-wrap: wrap; }
 .asset-browser-selection .asset-section-heading > div { flex: 1 1 120px; }
+.assets-panel .collection-content:has(.model-visibility-action .dinkster-confirmation) { flex-direction: column; }
+.assets-panel .asset-browser-selection:has(.dinkster-confirmation) { width: 100%; max-height: 50vh; }
 .assets-panel .collection-details { display: none; }
 .asset-editor .collection-footer { flex-wrap: wrap; flex: none; }
 .asset-editor > .product-action-footer { flex: none; padding-top: var(--dinkster-space-8); }

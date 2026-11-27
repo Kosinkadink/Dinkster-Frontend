@@ -41,6 +41,7 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly label?: string
   readonly draggedId?: string | undefined
   readonly insertionIndex?: number | undefined
+  readonly dropIndex?: number | undefined
   readonly runState?: ((tab: T) => TabRunState) | undefined
   readonly isDirty: (tab: T) => boolean
   readonly isFrozen: (tab: T) => boolean
@@ -252,7 +253,10 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
       <div class="visually-hidden" role="tablist" aria-label={props.label ?? message('shell.workflowTabs.openWorkflows')}
         aria-owns={props.tabs.map((tab) => workflowTabDomId(tab.id)).join(' ')} />
       <div class="workflow-tablist">
-        <For each={props.tabs}>{(tab) => (
+        <For each={props.tabs}>{(tab, index) => (<>
+          <Show when={props.dropIndex === index()}>
+            <div class="tab-drop-slot" aria-hidden="true" />
+          </Show>
           <div
             classList={{
               tab: true,
@@ -350,7 +354,10 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               </button>
             </span>
           </div>
-        )}</For>
+        </>)}</For>
+        <Show when={props.dropIndex === props.tabs.length}>
+          <div class="tab-drop-slot" aria-hidden="true" />
+        </Show>
         <Show when={props.showNew !== false}>
           <Show when={newItems().length > 0} fallback={<button
             class="tab-new"
