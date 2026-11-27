@@ -877,12 +877,14 @@ export function buildScene(input: BuildSceneInput): Scene {
     const fields = elabInputsOf(shown)
     const unknown = new Set<string>()
     const knownCounts = new Map<string, number>()
+    const listCountGroups = new Set<string>()
     for (const [path, group] of constructsOf(schema, node.dynamic)) {
       if (group.kind !== 'group' || typeof group.grows !== 'object' || !('count' in group.grows)) continue
       const prefix = path.slice(0, path.lastIndexOf('.') + 1)
       const target = contexts.get(prefix)?.paths.get(group.grows.count)
       const field = fields.find(field => field.address.port === target)
       if (field?.spec.listCountOf === undefined) continue
+      listCountGroups.add(path)
       const fieldPrefix = field.address.port.slice(0, field.address.port.lastIndexOf('.') + 1)
       const source = contexts.get(fieldPrefix)?.paths.get(field.spec.listCountOf)
       const fact = source === undefined ? undefined : solvedTypes.listCountFactOf(asNodeId(nodeId), 'input', source)
@@ -905,7 +907,16 @@ export function buildScene(input: BuildSceneInput): Scene {
         ...(sourcePath === undefined ? {} : { anchor: { occurrence: { instancePath: sourcePath, node: asNodeId(nodeId) } } }),
       })
     }
-    return hideKnownListCountButtons(counted, contexts, port => solvedTypes.listCountOf(asNodeId(nodeId), 'input', port))
+    // Presence drawing follows known positions; declarations and run validation stay optional.
+    const presence = { ...counted, items: counted.items.map(item => {
+      if (item.kind !== 'output' || item.kept !== undefined || item.spec.optional !== true) return item
+      const countedAncestors = item.ancestry?.filter(member => listCountGroups.has(member.construct)) ?? []
+      return countedAncestors.length > 0 && countedAncestors.every(member => {
+        const count = knownCounts.get(member.construct)
+        return count !== undefined && member.ordinal < count
+      }) ? { ...item, spec: { ...item.spec, optional: false } } : item
+    }) }
+    return hideKnownListCountButtons(presence, contexts, port => solvedTypes.listCountOf(asNodeId(nodeId), 'input', port))
   }
   if (!def) return { graphId: input.graphId, nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
   const sourcePath = input.occurrence === undefined

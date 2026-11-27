@@ -377,6 +377,18 @@ it('retires only excess estimated outputs without editing the stored count or gr
   const known = buildScene({ document: knownDocument, graphId: 'g0',
     resolve: type => type === 'Source' ? knownSource : resolve(type), tokens: defaultTokens, measure, widgetMeasure })
   expect(outputs(known).map(pin => [pin.portId, pin.inactive === true])).toEqual([['items.0', false], ['items.2', true]])
+  expect(outputs(known).map(pin => [pin.portId, pin.maybeAbsent === true])).toEqual([['items.0', false], ['items.2', true]])
+  const grownKnown = buildScene({ document: doc, graphId: 'g0', resolve: type => type === 'Source'
+    ? { ...knownSource, body: [{ kind: 'output', id: 'out', type: texts, listCount: 3 },
+      { kind: 'output', id: 'other', type: texts.element, optional: true }] } : resolve(type),
+    tokens: defaultTokens, measure, widgetMeasure })
+  expect(outputs(grownKnown).every(pin => pin.maybeAbsent !== true)).toBe(true)
+  expect(grownKnown.links.find(link => link.from.kind === 'port' && link.from.node === 'unpack')?.maybeAbsent).toBeUndefined()
+  expect(grownKnown.nodes.find(node => node.id === 'source')!.layout.pins.find(pin => pin.portId === 'other')?.maybeAbsent).toBe(true)
+  for (const count of [1, 3, undefined]) {
+    expect(shown(count).links.find(link => link.from.kind === 'port' && link.from.node === 'unpack')?.maybeAbsent).toBe(true)
+    expect(outputs(shown(count)).every(pin => pin.maybeAbsent === true)).toBe(true)
+  }
   expect(known.diagnostics).toContainEqual(expect.objectContaining({ code: 'list.count.retiredOutputs', severity: 'warning',
     anchor: { occurrence: { instancePath: [], node: 'unpack' } } }))
   expect(outputs(shown(0)).map(pin => [pin.portId, pin.inactive === true])).toEqual([['items.2', true]])
