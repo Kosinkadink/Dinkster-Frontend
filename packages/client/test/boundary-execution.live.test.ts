@@ -325,6 +325,128 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
   }
 
   for (const depth of [1, 2]) {
+    it(`boundary/construct-links/native-depth-${depth}`, async () => {
+      const connection = new DinksterConnection({ id: asConnectionId('construct-links-live'), baseUrl: LIVE_URL!, clientId: `construct-links-${process.pid}` })
+      const registry = await connection.fetchSchemas()
+      const primitive: NodeSchema = {
+        type: 'dinkster.utilities.primitive_float', displayName: 'Float', category: 'utilities', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+            widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
+          { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, knownValue: { input: 'value' } },
+        ],
+      }
+      const resolve = (type: string) => type === primitive.type ? primitive : registry.resolve(type)
+      const document = JSON.parse(readFileSync(new URL('./fixtures/boundary-sample.json', import.meta.url), 'utf8')) as WorkflowDocument
+      if (depth === 1) {
+        delete (document.graphs as Record<string, unknown>).portrait
+        for (const id of ['first', 'second']) Object.assign(document.graphs.root!.nodes[id]!, { type: '#detail' })
+      }
+      for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+        if (types[node.type]) Object.assign(node, { type: types[node.type] })
+      }
+      Object.assign(document.graphs.root!.nodes, {
+        literal: { id: 'literal', type: primitive.type, values: { value: 0.57 } },
+        runtime: { id: 'runtime', type: 'boundary-sample.float', values: {} },
+      })
+      const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, resolve) }))
+      const edit = (command: string, params: Record<string, Json>) => {
+        const result = store.dispatch({ command, params })
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+      }
+      const wire = (node: string, port: string, input: string) => edit('link.connect', {
+        graphId: 'root', from: { node, port }, to: { node: 'first', port: input },
+      })
+      const disconnect = (port: string) => {
+        const link = Object.values(store.doc.graphs.root!.links).find((item) =>
+          'port' in item.to && item.to.node === 'first' && item.to.port === port)!
+        edit('link.disconnect', { graphId: 'root', linkId: link.id })
+      }
+      edit('dynamic.materialize', { graphId: 'root', nodeId: 'first', frames: [{ construct: 'layers', members: ['layer0'] }] })
+      edit('node.setValues', { graphId: 'root', nodeId: 'first', values: {
+        'layers.layer0.strength': 0.27, 'mode.mix': 0.67, 'mode.text': 'linked choice dormant text',
+      } })
+      const baseline = store.doc
+      const suffix = depth === 1 ? '.sample' : '.detail.sample'
+      const first = `first${suffix}`, second = `second${suffix}`
+      const run = async (phase: string, value: number, image: boolean) => {
+        const loaded = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+        expect(loaded).toEqual(store.doc)
+        expect(loaded.graphs.detail).toEqual(baseline.graphs.detail)
+        expect(loaded.graphs.portrait).toEqual(baseline.graphs.portrait)
+        expect(loaded.graphs.root!.nodes.second).toEqual(baseline.graphs.root!.nodes.second)
+        expect(loaded.graphs.root!.nodes.first!.values).toEqual(baseline.graphs.root!.nodes.first!.values)
+        const compiled = compile({ document: loaded, revision: 1, resolve, scope: { kind: 'full' },
+          connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Construct links did not compile')
+        const submitted = await connection.submit(compiled.artifact)
+        expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
+        if (!submitted.ok) throw new Error('Construct links were refused')
+        const expected = {
+          [first]: { layers: [{ key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null },
+            { key: 'layer2', strength: phase === 'disconnected' ? 0.27 : value, image: null }],
+          mode: { key: image ? 'image' : 'text', mix: value, picture: image ? [0.125, 0.25, 0.5] : null,
+            text: image ? null : 'linked choice dormant text' }, strength: 0.2 },
+          [second]: { layers: [{ key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null }],
+            mode: { key: 'text', mix: 0.3, picture: null, text: 'second text' }, strength: 0.8 },
+        }
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline) {
+          const job = await connection.fetchJob(submitted.execution.prompt)
+          if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
+          if (job?.state === 'completed') {
+            const actual: Record<string, unknown> = {}
+            for (const nodeId of [first, second]) {
+              const query = { jobId: submitted.execution.prompt, nodeId, outputId: 'receipt' }
+              const peek = await connection.values().peek(query)
+              expect(peek.available, JSON.stringify(peek)).toBe(true)
+              if (!peek.available) throw new Error('Construct link receipt unavailable')
+              const text = await connection.values().rendition(query, 'text', { descriptor: peek.descriptor })
+              expect(text.available, JSON.stringify(text)).toBe(true)
+              if (!text.available) throw new Error('Construct link text unavailable')
+              const receipt = JSON.parse(new TextDecoder().decode(text.bytes))
+              expect(receipt, nodeId).toMatchObject(expected[nodeId]!)
+              actual[nodeId] = receipt
+            }
+            console.info('Boundary construct link receipt', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt, expected, actual }))
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        throw new Error('Construct links did not complete')
+      }
+      wire('literal', 'value', 'layers.layer0.strength')
+      wire('literal', 'value', 'mode.mix')
+      wire('imageA', 'image', 'mode.picture')
+      await run('literal', 0.57, true)
+      disconnect('layers.layer0.strength')
+      disconnect('mode.mix')
+      wire('runtime', 'number', 'layers.layer0.strength')
+      wire('runtime', 'number', 'mode.mix')
+      await run('runtime', 0.9, true)
+      const linked = store.doc
+      edit('dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
+      expect(store.doc.graphs.root!.links).toEqual(linked.graphs.root!.links)
+      const text = store.doc
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(linked)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(text)
+      await run('inactive-image', 0.9, false)
+      disconnect('layers.layer0.strength')
+      disconnect('mode.mix')
+      const disconnected = store.doc
+      expect(store.undo()).toBe(true)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(disconnected)
+      edit('dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'image' })
+      await run('disconnected', 0.67, true)
+    }, 120_000)
+  }
+
+  for (const depth of [1, 2]) {
     it(`boundary/buttons/native-depth-${depth}`, async () => {
       const connection = new DinksterConnection({ id: asConnectionId('button-live'), baseUrl: LIVE_URL!, clientId: `buttons-${process.pid}` })
       const registry = await connection.fetchSchemas()
