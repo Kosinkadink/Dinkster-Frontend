@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, openRailPanel, waitForWorkspaceReady, nativeTest as test } from './fixtures.js'
+import { chooseOption } from '../choices.js'
 
 const proofDir = process.env['DINKSTER_REGION_INSPECTOR_PROOF_DIR']
 if (proofDir !== undefined) mkdirSync(proofDir, { recursive: true })
@@ -139,9 +140,9 @@ test('inspects simple and nested region iterations by exact retained runtime ide
     await page.screenshot({ path: join(proofDir, 'region-iteration-simple-map.png'), animations: 'disabled', fullPage: true })
   }
 
-  const selects = inspector.locator('select')
-  await selects.nth(0).selectOption({ label: 'Iteration 1' })
-  await selects.nth(1).selectOption({ label: 'No-output step' })
+  const selects = inspector.getByRole('combobox')
+  await chooseOption(selects.nth(0), 'Iteration 1')
+  await chooseOption(selects.nth(1), 'No-output step')
   await expect(inspector).toContainText('This body node has no inspectable outputs.')
   await page.evaluate(() => {
     const tabs = window.__dinksterTest!.app.tabs
@@ -158,10 +159,10 @@ test('inspects simple and nested region iterations by exact retained runtime ide
   if (proofDir !== undefined) {
     await page.screenshot({ path: join(proofDir, 'region-iteration-absent-output.png'), animations: 'disabled', fullPage: true })
   }
-  await expect(selects.nth(1)).toHaveValue('outer[0]/sink')
+  await expect(selects.nth(1)).toHaveText('No-output step')
   await expect(inspector).toContainText('This body node has no inspectable outputs.')
 
-  await selects.nth(0).selectOption({ label: 'Iteration 2' })
+  await chooseOption(selects.nth(0), 'Iteration 2')
   await expect(inspector).toContainText('Cached or coalesced')
   await expect(inspector).toContainText('outer[1]/source:value')
   await page.evaluate(() => {
@@ -172,14 +173,14 @@ test('inspects simple and nested region iterations by exact retained runtime ide
       runtimeNodeId: 'outer', iterations: 2,
     } as never)
   })
-  await expect(selects.nth(0)).toHaveValue(JSON.stringify([{ nodeId: 'outer', iteration: 1 }]))
+  await expect(selects.nth(0)).toHaveText('Iteration 2')
   await expect(inspector).toContainText('Cached or coalesced')
   await expect(inspector).toContainText('outer[1]/source:value')
   if (proofDir !== undefined) {
     await page.screenshot({ path: join(proofDir, 'region-iteration-cached.png'), animations: 'disabled', fullPage: true })
   }
 
-  await selects.nth(0).selectOption({ label: 'Iteration 2 / inner iteration 3' })
+  await chooseOption(selects.nth(0), 'Iteration 2 / inner iteration 3')
   await expect(inspector).toContainText('Nested result')
   await expect(inspector).toContainText('This nested intermediate is no longer retained.')
 

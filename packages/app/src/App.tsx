@@ -127,7 +127,7 @@ import {
   type PanelDragSectionGeometry,
   type PanelDragVisibleZoneGeometry,
 } from './panel-drag.js'
-import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
+import { WorkflowTabs, workflowTabDomId, workflowTabIcon } from './WorkflowTabs.js'
 import { isPageTab, PageTabPanel } from './page-tabs.js'
 import type { AppTab } from './app-page-tabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
@@ -894,6 +894,7 @@ export function App(props: {
   const [tabDrag, setTabDrag] = createSolidSignal<{
     readonly tabId: string
     readonly title: string
+    readonly icon: LucideIcon
     readonly sourceGroupId: string
     readonly x: number
     readonly y: number
@@ -1139,6 +1140,7 @@ export function App(props: {
       restoreTabFocusAfter(() => setTabDrag({
         tabId: tab.id,
         title: tab.title,
+        icon: workflowTabIcon(tab, !isPageTab(tab) && tab.execution !== undefined),
         sourceGroupId: groupId,
         x: event.clientX,
         y: event.clientY,
@@ -2917,6 +2919,14 @@ export function App(props: {
             onActivate={(event, tab) => activateTab(event, tab.id, p.groupId)}
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
             onRename={(tab, title) => app.renameTab(tab.id, title)}
+            canRename={(tab) => {
+              const board = boardForTab(tab.id)
+              return board ? app.boards.canRename(board.id) : !isPageTab(tab) && ['graph', 'app'].includes(tab.editorKind)
+            }}
+            renameName={(tab) => {
+              const board = boardForTab(tab.id)
+              return board ? board.name : tab.title
+            }}
             onDuplicate={(tab) => {
               if (isPageTab(tab)) return
               void app.duplicateTab(tab.id).then((copy) => {
@@ -3495,13 +3505,11 @@ export function App(props: {
             drag={drag()}
             ghostTitle={descriptor()?.title ?? drag().panelId}
             ghostIcon={descriptor()?.icon}
-            ghostActive={DOCK_ZONE_IDS.some((zone) => zoneSections(zone).some((section) => section.activeId === drag().panelId))}
           />
         )
       }}</Show>
       <Show when={tabDrag()}>{(drag) => (
-        <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused}
-          active={findGroup(displayLayout(), drag().sourceGroupId)?.activeTabId === drag().tabId} />
+        <TabDragGhost title={drag().title} icon={drag().icon} x={drag().x} y={drag().y} refused={drag().refused} />
       )}</Show>
 
       <Show when={!panelDrag()?.started && tabDrag() === undefined ? tooltip() : undefined}>{(tip) => <ShellTooltip tip={tip()} />}</Show>

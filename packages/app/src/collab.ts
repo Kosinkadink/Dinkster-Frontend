@@ -15,6 +15,7 @@ import {
   createCollabSession,
   getCollabSession,
   listCollabSessions,
+  renameCollabSession,
   type FetchLike,
 } from '@dinkster/client'
 import { isValidActorId, type CollabConnection, type CollabDocumentKind, type CollabSessionDescriptor } from '@dinkster/core'
@@ -76,10 +77,12 @@ export interface CollabTransport {
       readonly documentId: string
       readonly snapshot: unknown
       readonly documentKind?: CollabDocumentKind
+      readonly title?: string
     },
   ): Promise<CollabSessionDescriptor>
   list(baseUrl: string, scope: string): Promise<readonly CollabSessionDescriptor[]>
   get(baseUrl: string, sessionId: string): Promise<CollabSessionDescriptor | undefined>
+  rename?(baseUrl: string, sessionId: string, title: string): Promise<CollabSessionDescriptor>
   /** DELETE the session for every participant. */
   end(baseUrl: string, sessionId: string): Promise<void>
   connect(config: { readonly baseUrl: string; readonly sessionId: string; readonly actorId: string }): CollabConnection
@@ -91,6 +94,7 @@ export function httpCollabTransport(): CollabTransport {
     create: createCollabSession,
     list: listCollabSessions,
     get: getCollabSession,
+    rename: renameCollabSession,
     end: closeCollabSession,
     connect: (config) => new CollabHttpConnection(config),
   }

@@ -6355,6 +6355,15 @@ export class AppState {
   }
 
   renameTab(tabId: string, title: string): void {
+    const board = this.boards.entries.get().find((entry) => `page:board:${entry.id}` === tabId)
+    if (board) {
+      title = title.trim()
+      if (!title || title === board.name) return
+      void this.boards.rename(board.id, title).catch((error: unknown) => {
+        this.reportProblems(board.id, [diag('error', 'collab', 'board.rename.refused', error instanceof Error ? error.message : String(error))])
+      })
+      return
+    }
     const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
     title = title.trim()
     if (!tab || tab.execution || !title || title === tab.title ||

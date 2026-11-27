@@ -1262,9 +1262,6 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
   })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes.length)).toBe(2)
   for (const [name, badge, text] of [
-    ['error', 'core.error', 'No error details recorded.'],
-    ['info', 'core.log.info', 'No log records for this run.'],
-    ['warning', 'core.log.warning', 'No log records for this run.'],
     ['problem', 'core.problem.error', 'No problem details recorded.'],
     ['subgraph', 'core.subgraph', 'Definition missing.'],
     ['replacement', 'core.deprecated', 'Node missing.'],
@@ -1280,11 +1277,9 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       document.querySelector('.canvas-pane')!.append(host)
       const dispose = render(() => BadgePopover({
         anchor: { x: 32, y: 96, nodeId: 'source', badge: { id: badge, glyph: '!', color: '#f00' } },
-        errors: () => [], nodeLogs: () => [], problems: () => [],
+        problems: () => [],
         subgraphInfo: () => undefined, deprecationInfo: () => undefined,
         onOpenSubgraph: () => {}, onClose: () => {},
-        onDismissError: () => { host.dataset['action'] = 'dismiss' },
-        onOpenExecutionLog: () => { host.dataset['action'] = 'log' },
       }), host)
       target.disposeBadgeVisual = () => { dispose(); host.remove() }
     }, badge)
@@ -1295,14 +1290,6 @@ test('Badge popover empty and unavailable states preserve focus and actions', as
       await page.setViewportSize({ width, height })
       await page.mouse.move(0, 0)
       await screenshot(page, `badge-${name}-empty-${width}`)
-    }
-    if (badge === 'core.error') {
-      await popover.getByRole('button', { name: 'Dismiss', exact: true }).click()
-      await expect(popover.locator('..')).toHaveAttribute('data-action', 'dismiss')
-    }
-    if (badge === 'core.log.info' || badge === 'core.log.warning') {
-      await popover.getByRole('button', { name: 'Open in Execution log', exact: true }).click()
-      await expect(popover.locator('..')).toHaveAttribute('data-action', 'log')
     }
   }
   await page.evaluate(() => (window as unknown as { disposeBadgeVisual(): void }).disposeBadgeVisual())
