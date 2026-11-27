@@ -1,6 +1,5 @@
 import { createSignal } from 'solid-js'
 import { ProductNumberInput } from '../../app/src/ProductNumberInput.js'
-import { ProductSelect as AppSelect } from '../../app/src/ProductSelect.js'
 import {
   ProductButton,
   ProductDialog,
@@ -123,9 +122,6 @@ export function FieldAlignmentGallery() {
     <ProductSection title="Field alignment" description="Form values share one left inset; arrows and number buttons keep their own space at the right.">
       <ProductField label="Dropdown">
         {(attributes) => <ProductSelect {...attributes} value={choice()} options={choices} onChange={setChoice} />}
-      </ProductField>
-      <ProductField label="Editor dropdown">
-        {(attributes) => <AppSelect id={attributes.id} selectedId={choice()} options={choices.map((option) => ({ ...option, id: option.value }))} onSelect={(option) => setChoice(option.id)} />}
       </ProductField>
       <ProductField label="Text field">
         {(attributes) => <ProductTextInput {...attributes} value="Models" />}

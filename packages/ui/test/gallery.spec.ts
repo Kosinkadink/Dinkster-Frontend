@@ -72,7 +72,7 @@ test('stacked form values start on the same line in app and site densities', asy
     await expect(page.getByLabel('Text field', { exact: true })).toBeVisible()
     await page.evaluate(() => document.fonts.ready)
     const origins = []
-    for (const label of ['Dropdown', 'Editor dropdown', 'Text field', 'Password field', 'Number field']) {
+    for (const label of ['Dropdown', 'Text field', 'Password field', 'Number field']) {
       origins.push(await page.getByLabel(label, { exact: true }).evaluate((control) => {
         const input = control as HTMLInputElement
         const face = control.closest('.product-number') ?? control
