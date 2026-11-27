@@ -366,6 +366,16 @@ export interface RuntimeSettings {
   readonly settings: Readonly<Record<string, RuntimeSettingSection>>
 }
 
+export type SecretScope = 'account' | 'deployment'
+
+/** Authorized presence only; credential values never come back from the host. */
+export interface SecretPresence {
+  readonly name: string
+  readonly set: boolean
+  readonly source: SecretScope | null
+  readonly fallback: boolean
+}
+
 export interface PackSettingSchema {
   readonly type: 'string' | 'integer' | 'number' | 'boolean'
   readonly title: string
@@ -2359,6 +2369,48 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/settings`)
     if (!res.ok) throw new RuntimeSettingsError(res.status, undefined)
     return await res.json() as RuntimeSettings
+  }
+
+  /** Presence is never cached: it belongs to the current host and signed-in account. */
+  async fetchSecretPresence(name: string, signal?: AbortSignal): Promise<SecretPresence> {
+    return this.requestSecret(name, '', { method: 'GET', ...(signal === undefined ? {} : { signal }) })
+  }
+
+  async saveSecret(name: string, value: string, scope: SecretScope = 'account'): Promise<SecretPresence> {
+    return this.requestSecret(name, '', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value, scope }),
+    })
+  }
+
+  async removeSecret(name: string, scope: SecretScope = 'account'): Promise<SecretPresence> {
+    return this.requestSecret(name, `?scope=${encodeURIComponent(scope)}`, { method: 'DELETE' })
+  }
+
+  private async requestSecret(name: string, query: string, init: RequestInit): Promise<SecretPresence> {
+    if (name.length > 128 || !/^[A-Za-z_]/.test(name) || /[^A-Za-z0-9_.-]/.test(name)) {
+      throw new Error('Choose a secret name')
+    }
+    try {
+      init.signal?.throwIfAborted()
+      const response = await this.fetchFn(`${this.baseUrl}/api/secrets/${encodeURIComponent(name)}${query}`, {
+        ...init, cache: 'no-store', redirect: 'error',
+      })
+      if (!response.ok) throw new Error()
+      const raw: unknown = await response.json()
+      init.signal?.throwIfAborted()
+      if (!record(raw) || !exactKeys(raw, ['name', 'set', 'source', 'fallback'])
+        || raw['name'] !== name || typeof raw['set'] !== 'boolean' || typeof raw['fallback'] !== 'boolean'
+        || (raw['source'] !== null && raw['source'] !== 'account' && raw['source'] !== 'deployment')
+        || raw['set'] !== (raw['source'] !== null) || (raw['fallback'] && raw['source'] !== 'account')) {
+        throw new Error()
+      }
+      return { name, set: raw['set'], source: raw['source'], fallback: raw['fallback'] }
+    } catch {
+      // Neither backend error bodies nor transport exceptions may reflect a submitted value.
+      throw new Error('Cannot access secret. Try again')
+    }
   }
 
   async fetchPackSettings(packId: string): Promise<PackSettings> {
