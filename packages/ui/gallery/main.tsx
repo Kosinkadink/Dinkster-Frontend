@@ -106,6 +106,7 @@ import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
+import { SettingsSectionGallery } from './settings-section.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -210,7 +211,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#models', '#settings-section'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -223,7 +224,9 @@ function Gallery() {
     >
       <ProductPage
         title={
-          route() === '#signed-out'
+          route() === '#settings-section'
+            ? 'Settings groups'
+            : route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
               (route() === '#models' ? 'Models' : route() === '#project-loading' ? 'Project loading' : route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
@@ -242,6 +245,9 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#settings-section'}>
+              <SettingsSectionGallery />
+            </Match>
             <Match when={route() === '#page-loading'}>
               <PageLoadingGallery activity={activity()} />
             </Match>
@@ -1717,7 +1723,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs', '#models'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs', '#models', '#settings-section'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
