@@ -533,7 +533,8 @@ const dynamicCompact: CommandDefinition = {
     if (unresolvedOverlay) return []
 
     const schema = schemaResolverForCommand(doc, context)?.(node.type)
-    if (schema !== undefined) {
+    // Automatic post-edit compaction must preserve other retained wires.
+    if (params.clearRetainedOutputs === true && schema !== undefined) {
       const retained = new Set([...elabOutputsOf(elaborateInterface(schema, node,
         buildGraphConnectivity(def)(node.id)))].filter((output) => output.kept !== undefined)
         .map((output) => output.address.port))

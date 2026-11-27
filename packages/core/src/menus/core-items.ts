@@ -16,6 +16,7 @@ import { asNodeId, asPortId, samePortRef, type PortRef } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { constructsAround } from '../schema/derive-boundary.js'
 import { boundaryFieldState } from '../commands/boundary-commands.js'
+import { buildGraphConnectivity, elabOutputsOf, elaborateInterface } from '../schema/elaborate.js'
 import { t } from '../i18n/index.js'
 import type { MenuContribution, MenuContext, MenuItem } from './contract.js'
 import { boundaryItems } from '../format/document.js'
@@ -361,14 +362,19 @@ const nodeCompactDynamic: MenuContribution = {
     if (ctx.target.kind !== 'node') return []
     const def = ctx.doc.graphs[ctx.graphId]
     if (!def) return []
+    const connectivity = buildGraphConnectivity(def)
     const nodeIds = targetNodeIds(ctx, ctx.target.nodeId).filter((nodeId) => {
-      const dynamic = def.nodes[nodeId]?.dynamic
-      return Object.values(dynamic ?? {}).some((state) => (state.members?.length ?? 0) > 0)
+      const node = def.nodes[nodeId]
+      if (node === undefined) return false
+      if (Object.values(node.dynamic ?? {}).some((state) => (state.members?.length ?? 0) > 0)) return true
+      const schema = ctx.resolve?.(node.type)
+      return schema !== undefined && [...elabOutputsOf(elaborateInterface(schema, node, connectivity(node.id)))]
+        .some((output) => output.kept !== undefined)
     })
     if (nodeIds.length === 0) return []
     const invocations = nodeIds.map((nodeId) => ({
       command: 'dynamic.compact',
-      params: { graphId: ctx.graphId, nodeId },
+      params: { graphId: ctx.graphId, nodeId, clearRetainedOutputs: true },
     }))
     return [{
       id: 'core.node.compactDynamic',

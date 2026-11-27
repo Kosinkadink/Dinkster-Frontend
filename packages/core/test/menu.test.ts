@@ -286,8 +286,8 @@ describe('core contributions', () => {
         command: 'batch',
         params: {
           invocations: [
-            { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } },
-            { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n2' } },
+            { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1', clearRetainedOutputs: true } },
+            { command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n2', clearRetainedOutputs: true } },
           ],
         },
       },

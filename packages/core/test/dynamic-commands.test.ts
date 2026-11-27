@@ -26,6 +26,8 @@ import {
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import type { BodyRow, GroupSpec, InputSpec, NodeSchema } from '../src/schema/model.js'
 import { boundaryItems, boundaryOf } from '../src/format/document.js'
+import { coreMenuContributions } from '../src/menus/core-items.js'
+import { createMenuRegistry } from '../src/menus/contract.js'
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -508,6 +510,15 @@ describe('dynamic.compact', () => {
     () => ({ kind: 'initial', schemaResolverFor: () => (type) => type === 'Batch' ? schema : undefined }))
     const before = store.doc
     expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
+    expect(store.doc).toEqual(before)
+    const menus = createMenuRegistry()
+    for (const contribution of coreMenuContributions()) menus.register(contribution)
+    const clear = menus.resolve({ doc: store.doc, graphId: 'g0', target: { kind: 'node', nodeId: 'n1' },
+      selection: { nodes: [], links: [], reroutes: [] }, worldX: 0, worldY: 0,
+      resolve: (type) => type === 'Batch' ? schema : undefined,
+    }).flatMap((group) => group.items).find((item) => item.id === 'core.node.compactDynamic')?.action
+    if (clear?.kind !== 'command') throw new Error('Missing Clear unused slots command')
+    expect(store.dispatch(clear.invocation).ok).toBe(true)
     const after = store.doc.graphs['g0']!
     expect(after.links).toEqual({ live: initial.graphs['g0']!.links['live'] })
     expect(after.nets).toEqual({ liveNet: initial.graphs['g0']!.nets['liveNet'] })
@@ -521,7 +532,7 @@ describe('dynamic.compact', () => {
     expect(store.redo()).toBe(true)
     expect(store.doc.graphs['g0']!.links).toEqual(after.links)
     const revision = store.revision
-    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } }).ok).toBe(true)
+    expect(store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1', clearRetainedOutputs: true } }).ok).toBe(true)
     expect(store.revision).toBe(revision)
   })
 
