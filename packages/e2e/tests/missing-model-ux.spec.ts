@@ -46,7 +46,10 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   const checkpointEntries = await checkpointResponse.json() as { entries: Array<Record<string, unknown>> }
   const checkpoint = checkpointEntries.entries.find((entry) => entry['name'] === 'audit-local-checkpoint.safetensors')
   expect(checkpoint).toBeDefined()
-  const { kind: _kind, ...checkpointRef } = checkpoint!
+  const checkpointRef = {
+    digest: checkpoint!['digest'], name: checkpoint!['name'], size: checkpoint!['size'],
+    mediaType: checkpoint!['mediaType'], virtualPath: checkpoint!['virtualPath'],
+  }
   await page.evaluate(async (requested) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
@@ -182,7 +185,7 @@ test('a real missing model opens standalone review without posting a workflow', 
   const box = page.getByTestId('problem-box')
   await expect(box.getByTestId('problem-box-line')).toHaveCount(1)
   await page.screenshot({ path: test.info().outputPath('real-missing-model-box.png') })
-  await box.getByRole('button', { name: 'Review download', exact: true }).click()
+  await box.getByRole('button', { name: 'Download models', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Download models', exact: true })
   const row = dialog.locator('.dinkster-model-download-row')
   await expect(row).toHaveCount(1)
