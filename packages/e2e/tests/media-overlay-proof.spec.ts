@@ -271,6 +271,12 @@ test('sound controls fit the node and retain playback, seeking, looping and volu
       await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.readyState)).toBeGreaterThan(0)
       await loop.click()
       await expect(loop).toHaveAttribute('aria-pressed', 'true')
+      const loopStyle = await loop.evaluate((button) => {
+        const style = getComputedStyle(button)
+        return { color: style.color, borderColor: style.borderTopColor, borderWidth: style.borderTopWidth }
+      })
+      expect(loopStyle.borderColor).toBe(loopStyle.color)
+      expect(loopStyle.borderWidth).toBe('1px')
       await loop.focus(); await page.keyboard.press('Space')
       await expect(loop).toHaveAttribute('aria-pressed', 'false')
       await volume.click({ position: { x: 2, y: 8 } })

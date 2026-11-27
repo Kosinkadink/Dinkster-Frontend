@@ -2094,7 +2094,7 @@ button.dinkster-row-main { cursor: pointer; }
 .audio-preview-failure { display: flex; align-items: center; justify-content: center; width: 100%; padding: 0 var(--dinkster-space-8); color: var(--dinkster-warning-foreground); font-size: var(--dinkster-type-metadata-size); text-align: center; overflow-wrap: anywhere; }
 .audio-transport-row { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; height: var(--dinkster-space-24); flex: none; }
 .audio-transport-row .dinkster-button { flex: none; width: var(--dinkster-space-24); height: var(--dinkster-space-24); min-height: var(--dinkster-space-24); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-small); }
-.audio-transport-row .dinkster-button[aria-pressed='true'] { color: var(--dinkster-accent-foreground); border-color: var(--dinkster-accent-foreground); }
+.audio-transport-row .dinkster-button[data-icon-only][data-fill='quiet'][aria-pressed='true'] { color: var(--dinkster-accent-foreground); border-color: var(--dinkster-accent-foreground); }
 .audio-transport-row .product-slider { min-width: 0; min-height: var(--dinkster-space-24); flex: 1; }
 .audio-volume-icon { display: flex; color: var(--dinkster-text-secondary); flex: none; }
 .audio-batch-stepper { display: flex; align-items: center; gap: var(--dinkster-space-4); flex: none; white-space: nowrap; font-size: var(--dinkster-type-metadata-size); font-variant-numeric: tabular-nums; }
