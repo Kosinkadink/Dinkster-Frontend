@@ -526,6 +526,7 @@ export interface RuleSpec {
   readonly check: FormulaSpec
   readonly message: string
   readonly fix: readonly StepSpec[]
+  readonly fixLabel?: string
 }
 
 // ---------------------------------------------------------------------------

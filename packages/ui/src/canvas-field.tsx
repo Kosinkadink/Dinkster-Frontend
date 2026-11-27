@@ -667,6 +667,7 @@ function StepGlyph(props: { path: string }) {
  */
 export function CanvasSidePart(props: {
   result?: string
+  note?: string
   problem?: string
   /** Id of the problem line, so the field can name it as its error. */
   problemId?: string
@@ -680,6 +681,9 @@ export function CanvasSidePart(props: {
     <>
       <Show when={props.result}>
         <p class="dinkster-canvas-side-result">{props.result}</p>
+      </Show>
+      <Show when={props.note}>
+        <p class="dinkster-canvas-side-kept">{props.note}</p>
       </Show>
       <Show when={props.problem}>
         <p

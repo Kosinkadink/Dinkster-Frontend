@@ -57,6 +57,7 @@
 
 import type { Json, JsonObject, WorkflowDocument } from '../format/document.js'
 import { ownJson } from '../format/json.js'
+import { isIntegerWidgetValue } from '../schema/numeric-step.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { loadDocument } from '../format/migrate.js'
 import { checkDocument } from '../invariants.js'
@@ -178,6 +179,7 @@ interface SubmittedAttempt {
   readonly opId: string
   readonly baseRevision: number
   readonly patch: readonly WirePatchOp[]
+  readonly numericCorrections?: CollabServerOp['numericCorrections']
 }
 
 interface PendingEntry {
@@ -805,7 +807,9 @@ class SharedDocumentSession implements DocumentSession {
       // intention while the POST's fate is unknown, ordered ingress needs
       // this identity to recognize the commit (see PendingEntry.attempts).
       if (head.attempts.length === 0 || head.attempts[head.attempts.length - 1]!.opId !== submittedOpId) {
-        head.attempts.push({ opId: submittedOpId, baseRevision: submittedBase, patch: submittedPatch })
+        head.attempts.push({ opId: submittedOpId, baseRevision: submittedBase, patch: submittedPatch,
+          ...(head.invocation.numericCorrections === undefined ? {} : { numericCorrections: head.invocation.numericCorrections }),
+        })
       }
       let outcome: PostOpOutcome
       try {
@@ -815,6 +819,7 @@ class SharedDocumentSession implements DocumentSession {
           actorId: this.actorId,
           baseRevision: submittedBase,
           patch: head.predicted,
+          ...(head.invocation.numericCorrections === undefined ? {} : { numericCorrections: head.invocation.numericCorrections }),
         })
       } catch (e) {
         outcome = { kind: 'error', message: e instanceof Error ? e.message : String(e) }
@@ -993,7 +998,8 @@ class SharedDocumentSession implements DocumentSession {
       // Ack only what is EXACTLY the pending head: same opId, same patch.
       const head = this.pending[0]
       if (head !== undefined && head.opId === op.opId) {
-        if (jsonSameValue(op.patch as unknown as Json, head.predicted as unknown as Json)) {
+        if (jsonSameValue(op.patch as unknown as Json, head.predicted as unknown as Json) &&
+          jsonSameValue((op.numericCorrections ?? []) as unknown as Json, (head.invocation.numericCorrections ?? []) as unknown as Json)) {
           return this.ack(op, committed)
         }
         // Same opId, different patch: the server committed something we did
@@ -1010,7 +1016,8 @@ class SharedDocumentSession implements DocumentSession {
         const attempt = this.pending[idx]!.attempts.find((a) => a.opId === op.opId)!
         if (
           op.baseRevision !== attempt.baseRevision ||
-          !jsonSameValue(op.patch as unknown as Json, attempt.patch as unknown as Json)
+          !jsonSameValue(op.patch as unknown as Json, attempt.patch as unknown as Json) ||
+          !jsonSameValue((op.numericCorrections ?? []) as unknown as Json, (attempt.numericCorrections ?? []) as unknown as Json)
         ) {
           // The server committed something under our id that we never sent.
           return 'own op patch mismatch'
@@ -1031,6 +1038,7 @@ class SharedDocumentSession implements DocumentSession {
 
   /** Head pending op accepted: confirmed catches up to what optimistic already shows. */
   private ack(op: CollabServerOp, committed?: () => void): string | null {
+    const oldGround = this.confirmed
     let next: WorkflowDocument
     try {
       // With no later optimistic intentions, exact patch equality above
@@ -1052,7 +1060,7 @@ class SharedDocumentSession implements DocumentSession {
     this.snapshotPolicy.observeConfirmed(op.revision)
     const entry = this.pending.shift()
     committed?.()
-    this.emitOp(op, entry?.origin ?? op.opId)
+    this.emitOp(op, entry?.origin ?? op.opId, oldGround, next)
     this.considerSnapshotPublication()
     return null
   }
@@ -1082,7 +1090,7 @@ class SharedDocumentSession implements DocumentSession {
     const entry = this.pending[idx]!
     if (entry.record) this.removeRecord(entry.record)
     this.rebase(oldGround, new Set([entry]), committed)
-    this.emitOp(op, entry.origin)
+    this.emitOp(op, entry.origin, oldGround, next)
     this.considerSnapshotPublication()
     return null
   }
@@ -1103,7 +1111,7 @@ class SharedDocumentSession implements DocumentSession {
     // Rebase FIRST, emit after: listeners must never observe a server
     // revision the optimistic document does not contain yet.
     this.rebase(oldGround, undefined, committed)
-    this.emitOp(op, 'remote')
+    this.emitOp(op, 'remote', oldGround, next)
     this.considerSnapshotPublication()
     return null
   }
@@ -1610,7 +1618,14 @@ class SharedDocumentSession implements DocumentSession {
 
   // -- Op feed ------------------------------------------------------------------
 
-  private emitOp(op: CollabServerOp, origin: string): void {
+  private emitOp(op: CollabServerOp, origin: string, beforeDocument: WorkflowDocument, afterDocument: WorkflowDocument): void {
+    const numericCorrections = op.numericCorrections?.flatMap((correction) => {
+      const { graphId, nodeId, valueKey } = correction.owner
+      const before = beforeDocument.graphs[graphId]?.nodes[nodeId]?.values[valueKey]
+      const after = afterDocument.graphs[graphId]?.nodes[nodeId]?.values[valueKey]
+      return isIntegerWidgetValue(before) && isIntegerWidgetValue(after) && before !== after
+        ? [{ ...correction, before, after }] : []
+    })
     const sessionOp: SessionOp = Object.freeze({
       opId: op.opId,
       actorId: op.actorId,
@@ -1619,6 +1634,7 @@ class SharedDocumentSession implements DocumentSession {
       patch: op.patch,
       timestamp: op.timestamp,
       origin,
+      ...(numericCorrections === undefined ? {} : { numericCorrections }),
     })
     for (const l of [...this.opListeners]) {
       try {

@@ -51,7 +51,7 @@ export interface FixesNoticeStrings {
   readonly summary: (changes: number, nodes: number) => string
   /** A kind's group heading with its count, "Numbers corrected to limits (2)". */
   readonly group: (kind: string, count: number) => string
-  /** The link to Review upgrades, which governs node replacements only. */
+  /** Opens the personal Automatic fixes settings. */
   readonly settings: string
 }
 

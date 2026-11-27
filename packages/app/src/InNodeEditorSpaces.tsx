@@ -345,7 +345,7 @@ export function SaveTargetSpace(props: {
     onCleanup(() => { live = false })
   }))
   const ready = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready' && !entry.saveError).map((entry) => entry.id) ?? []
-  const noDefault = () => settings() !== undefined && settings()!.activeOutputMount === undefined
+  const noDefault = () => settings() !== undefined && !ready().includes(settings()!.activeOutputMount ?? '')
   const projectMount = () => settings()?.activeOutputMount ?? message(noDefault() ? 'saveTargetWidget.noOutputMount' : 'saveTargetWidget.projectDefault')
   const options = () => [
     { id: '', label: message('saveTargetWidget.projectDefaultIs', { mount: projectMount() }), closedLabel: message('saveTargetWidget.projectDefault') },
@@ -353,7 +353,7 @@ export function SaveTargetSpace(props: {
     ...(mount() !== null && !ready().includes(mount()!) ? [{ id: mount()!, label: message('saveTargetWidget.notHere', { id: mount()! }), closedLabel: mount()!, unavailable: true }] : []),
   ]
   const draft = () => saveTargetDraft({ stored: props.value ?? null, mount: mount(), prefix: prefix(),
-    ready: settings() === undefined || ready().length === 0 ? undefined : ready(), projectMount: projectMount() })
+    ready: settings() === undefined ? undefined : ready(), projectMount: projectMount() })
   createEffect(() => {
     const unchanged = mount() === sourceMount() && prefix() === sourcePrefix()
     const valuePreview = props.wired || blocked() || mountUnknown() || prefixUnknown() || unchanged ? undefined
@@ -376,7 +376,8 @@ export function SaveTargetSpace(props: {
     <CanvasEditorNote tone={mountTone() === 'warning' ? 'warning' : 'problem'} details={{
       label: message('runs.details'),
       title: failed() ? message('mountWidget.error') : mountStops()
-        ? message(mountGone() ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.noDefaultTitle', mountWords())
+        ? message(mountGone() ? settings()?.activeOutputMount === undefined ? 'saveTargetWidget.bothTitle' : 'saveTargetWidget.bothUnavailableTitle'
+          : 'saveTargetWidget.noDefaultTitle', mountWords())
         : mountGone() ? message('saveTargetWidget.missingTitle', mountWords()) : message('saveTargetWidget.noMounts'),
       body: message(mountStops() || !mountGone() ? 'saveTargetWidget.noDefaultBody' : 'saveTargetWidget.missingBody', mountWords()),
       ...(mountGone() && !noDefault() && !mountBlocked() ? { action: { label: message('saveTargetWidget.useProjectDefault'), onClick: () => { prefixInput?.focus(); setMount(null) } } }

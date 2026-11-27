@@ -173,6 +173,44 @@ function nextIntegerValue(current: bigint, direction: -1 | 1, constraints: Integ
   return direction === 1 ? (special < onStep ? special : onStep) : (special > onStep ? special : onStep)
 }
 
+/**
+ * Correct a stored number to its limits and, for INT, the nearest step from
+ * the declared offset. Ties use the lower value; declared specials stay.
+ * Undefined means no valid correction can be determined, including when
+ * no whole number fits both the step and the limits.
+ * Callers must exclude values arriving by wire.
+ */
+export function correctNumericValue(
+  current: IntegerWidgetValue,
+  constraints: NumericStepConstraints,
+): IntegerWidgetValue | undefined {
+  if (!constraints.integer) {
+    if (typeof current !== 'number' || !Number.isFinite(current)) return undefined
+    if (constraints.special.includes(current)) return current
+    return Math.min(constraints.max, Math.max(constraints.min, current))
+  }
+  if (!isIntegerWidgetValue(current)) return undefined
+  const exact = exactInteger(current)
+  if (exact !== undefined && constraints.special.includes(exact)) return current
+  const min = constraints.min ?? MIN_INTEGER_WIDGET_VALUE
+  const max = constraints.max ?? MAX_INTEGER_WIDGET_VALUE
+  if (constraints.offset === undefined) {
+    if (exact !== undefined) return integerWidgetValue(exact < min ? min : exact > max ? max : exact)
+    return undefined
+  }
+  const { offset, step } = constraints
+  const first = offset - floorDiv(offset - min, step) * step
+  const last = offset + floorDiv(max - offset, step) * step
+  if (first > last) return undefined
+  const floor = exact ?? BigInt(Math.floor(current as number))
+  const lower = offset + floorDiv(floor - offset, step) * step
+  const upper = lower + step
+  const nearer = exact !== undefined
+    ? exact - lower <= upper - exact ? lower : upper
+    : (current as number) - Number(lower) <= Number(upper) - (current as number) ? lower : upper
+  return integerWidgetValue(nearer < first ? first : nearer > last ? last : nearer)
+}
+
 export function numericStepPrecision(step: number): number {
   if (!Number.isFinite(step) || step <= 0) return 0
   const [coefficient, exponentText] = Math.abs(step).toString().toLowerCase().split('e')
