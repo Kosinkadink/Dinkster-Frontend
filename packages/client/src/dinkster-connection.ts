@@ -1332,6 +1332,8 @@ function libraryStorage(value: unknown): LibraryStorage {
 }
 
 export interface ProjectNeeds {
+  readonly canWrite?: boolean
+  readonly hasInstalledNodes?: boolean
   readonly packs: readonly { readonly pack: string; readonly version: string | null }[]
   /** Installation facts are supplied only by a running engine. */
   readonly installed?: readonly { readonly pack: string; readonly version: string | null }[]
@@ -1356,6 +1358,8 @@ export interface ProjectCreation {
     | { readonly kind: 'workflow'; readonly name: string; readonly content: string }
     | { readonly kind: 'project'; readonly project: string }
 }
+
+export class ProjectRevisionConflictError extends Error {}
 
 export interface LibraryProject {
   readonly accountProject?: AccountProjectLink | null
@@ -4259,7 +4263,13 @@ export class DinksterConnection {
         typeof record['id'] !== 'string' || record['id'].length === 0) throw invalid()
       return { scope: record['scope'], id: record['id'] }
     })
-    return { packs, ...(installed === undefined ? {} : { installed }), extra: body['extra'] as string[], unknown }
+    for (const field of ['canWrite', 'hasInstalledNodes']) {
+      if (body[field] !== undefined && typeof body[field] !== 'boolean') throw invalid()
+    }
+    return { packs, ...(installed === undefined ? {} : { installed }), extra: body['extra'] as string[], unknown,
+      ...(body['canWrite'] === undefined ? {} : { canWrite: body['canWrite'] as boolean }),
+      ...(body['hasInstalledNodes'] === undefined ? {} : { hasInstalledNodes: body['hasInstalledNodes'] as boolean }),
+    }
   }
 
   async accountStatus(signal?: AbortSignal): Promise<AccountStatus> {
@@ -4360,13 +4370,21 @@ export class DinksterConnection {
     return this.patchProject(id, revision, { packs: { extra } }, signal)
   }
 
+  enableAllInstalledProjectPacks(id: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
+    return this.patchProject(id, revision, { packs: { extra: [], allInstalled: true } }, signal)
+  }
+
   private async patchProject(id: string, revision: number, patch: Readonly<Record<string, unknown>>, signal?: AbortSignal): Promise<LibraryProject> {
     const res = await this.fetchFn(`${this.baseUrl}/api/projects/${encodeURIComponent(id)}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ revision, patch }), ...(signal === undefined ? {} : { signal }),
     })
-    if (res.status === 409) throw new Error('Project changed elsewhere. Refresh before saving.')
-    if (!res.ok) throw new Error(`PATCH /api/projects failed: ${res.status}`)
+    if (!res.ok) {
+      const failure: unknown = await res.json().catch(() => undefined)
+      const reason = typeof failure === 'object' && failure !== null && 'error' in failure ? failure.error : undefined
+      if (res.status === 409) throw new ProjectRevisionConflictError(`Project changed elsewhere. Refresh before saving.${typeof reason === 'string' ? ` ${reason}` : ''}`)
+      throw new Error(typeof reason === 'string' ? reason : `PATCH /api/projects failed: ${res.status}`)
+    }
     const payload = await res.json() as { project?: unknown } | null
     const project = decodeLibraryProject(payload?.project)
     if (project.id !== id) throw new Error('Library returned another project')

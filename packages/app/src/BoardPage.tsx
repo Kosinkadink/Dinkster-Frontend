@@ -173,7 +173,9 @@ export function installBoardPages(app: AppState): () => void {
       if (registrations.has(entry.id)) continue
       const [saveError, setSaveError] = createSignal<string>()
       registrations.set(entry.id, app.pages.register({
-        id: pageId(entry.id), title: entry.title, icon: Images, enabled,
+        id: pageId(entry.id),
+        get title() { changed(); return app.boards.entries.get().find((candidate) => candidate.id === entry.id)?.title ?? t('board.title') },
+        icon: Images, enabled,
         dirty: () => { changed(); return app.boards.isDirty(entry.id) },
         save: async () => {
           const owner = app.boards.entries.get().find((candidate) => candidate.id === entry.id)
@@ -213,7 +215,7 @@ export function installBoardPages(app: AppState): () => void {
         run: () => {
           const backend = app.collabBackend()
           if (!enabled() || !backend) return
-          const entry = app.boards.open(emptyBoard(), t('board.title'), backend.baseUrl)
+          const entry = app.boards.open(emptyBoard(), undefined, backend.baseUrl)
           app.pages.open(pageId(entry.id))
         },
       })

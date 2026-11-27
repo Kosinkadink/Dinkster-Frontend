@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { createSignal } from 'solid-js'
+import { createMemo, createSignal, type JSX } from 'solid-js'
+import { ProductRecoveryNotice } from '@dinkster/ui'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerCatalog, setLocale, type WidgetRegistry } from '@dinkster/core'
@@ -22,16 +23,20 @@ const entry = (type: string, name: string, category = 'Image', input = 'IMAGE', 
 })
 const mount = (entries: () => PaletteEntry[], options: {
   anchor?: PaletteAnchor; recent?: readonly string[]; onCommit?: (entry: PaletteEntry) => void; onHelp?: (entry: PaletteEntry) => void
-  onRemoveLinkDrop?: () => void; bounds?: { width: number; height: number }
+  onRemoveLinkDrop?: () => void; bounds?: { width: number; height: number }; catalogRecovery?: () => JSX.Element
 } = {}) => {
   const root = document.createElement('div')
   document.body.append(root)
-  const dispose = render(() => <NodePalette entries={entries}
+  const dispose = render(() => {
+    const catalogRecovery = createMemo(() => options.catalogRecovery?.())
+    return <NodePalette entries={entries}
     anchor={options.anchor ?? { x: 80, y: 60, worldX: 10, worldY: 20 }}
     recentTypes={() => options.recent ?? []} widgetRegistry={{ kind: () => undefined, viewsFor: () => [] } as unknown as WidgetRegistry}
     bounds={() => options.bounds ?? { width: 800, height: 600 }} onCommit={options.onCommit ?? (() => {})}
+    catalogRecovery={catalogRecovery()}
     {...(options.onHelp === undefined ? {} : { onHelp: options.onHelp })}
-    onRemoveLinkDrop={options.onRemoveLinkDrop ?? (() => {})} onClose={() => {}} />, root)
+    onRemoveLinkDrop={options.onRemoveLinkDrop ?? (() => {})} onClose={() => {}} />
+  }, root)
   const input = root.querySelector<HTMLInputElement>('[role="combobox"]')!
   const search = (query: string) => { input.value = query; input.dispatchEvent(new InputEvent('input', { bubbles: true })) }
   return { root, input, search, dispose }
@@ -82,6 +87,37 @@ describe('NodePalette shared search', () => {
       expect(option.getAttribute('aria-selected')).toBe('true')
       key(view.input, 'Enter')
       expect(commit).toHaveBeenCalledExactlyOnceWith(late)
+    } finally { view.dispose() }
+  })
+
+  it('offers catalog recovery without treating Enter as consent or losing the search query', async () => {
+    const [enabled, setEnabled] = createSignal(false)
+    const late = entry('late', 'Late arrival')
+    const view = mount(() => enabled() ? [late] : [], {
+      catalogRecovery: () => enabled() ? undefined : <ProductRecoveryNotice
+        message="No packs are enabled in this project"
+        action={{ label: 'Enable all installed packs', onSelect: () => setEnabled(true) }}
+      />,
+    })
+    try {
+      await flush()
+      view.search('Late arrival')
+      expect(view.root.textContent).toContain('No packs are enabled in this project')
+      expect(view.root.textContent).not.toContain('No matching nodes')
+      expect(view.root.querySelector('[role="status"]')?.textContent ?? '').not.toContain('No matches')
+      key(view.input, 'Enter')
+      expect(rows(view.root)).toHaveLength(0)
+      const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+      view.input.dispatchEvent(tab)
+      expect(tab.defaultPrevented).toBe(false)
+      button(view.root, 'Enable all installed packs').click()
+      await flush()
+      expect(view.input.isConnected).toBe(true)
+      expect(view.input.value).toBe('Late arrival')
+      expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:late'])
+      expect(view.root.textContent).not.toContain('No packs are enabled in this project')
+      view.search('Absent node')
+      expect(view.root.textContent).toContain('No matching nodes')
     } finally { view.dispose() }
   })
 

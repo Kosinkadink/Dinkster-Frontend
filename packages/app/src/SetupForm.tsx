@@ -3,7 +3,7 @@ import { formatByteSize } from '@dinkster/core'
 import { ProductBrandMark, ProductButton, ProductDialog, ProductField, ProductMenu, ProductNotice, ProductPageLoad, ProductProgress, ProductTextButton, ProductTextInput } from '@dinkster/ui'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { useAppMessage } from './locale.js'
-import { createSetupController, setupJobActive, type SetupJob } from './setup-job.js'
+import { createSetupController, setupJobActive, type SetupJob, type UnusableGraphicsCard } from './setup-job.js'
 import './styles/setup.css'
 
 export type SetupStatus = 'not-set-up' | 'setting-up'
@@ -29,6 +29,9 @@ export function SetupForm(props: {
   const problem = () => (setup.page.error() ? undefined : setup.error()?.message) ?? folderError() ?? setup.job()?.error?.message
   const busy = () => setup.changing() || setup.planning() || setupJobActive(setup.job()) || folderBusy()
   const canChange = () => !setupJobActive(setup.job()) && setup.job()?.state !== 'completed'
+  const variant = () => setupJobActive(setup.job()) ? setup.job()!.variant : setup.plan()?.variant
+  const choice = () => setup.plan()?.choices?.find((choice) => choice.variant === variant())
+  const graphicsVendor = () => setupJobActive(setup.job()) ? choice()?.vendor : setup.plan()?.graphicsVendor
   const buildLabel = () => {
     const plan = setup.plan()
     const job = setup.job()
@@ -37,11 +40,47 @@ export function SetupForm(props: {
       : plan?.buildLabel
   }
   const cardNames = () => {
-    const variant = setupJobActive(setup.job()) ? setup.job()!.variant : setup.plan()?.variant
-    if (variant?.endsWith('-cpu')) return []
+    const plan = setup.plan()
+    if (graphicsVendor() === null) return []
+    const assigned = choice()?.gpus ?? (variant() === plan?.variant ? plan?.gpus : undefined)
     const counts = new Map<string, number>()
-    for (const card of setup.plan()?.detectedCards ?? []) counts.set(card.name, (counts.get(card.name) ?? 0) + 1)
+    for (const card of plan?.detectedCards ?? []) {
+      if (!assigned?.includes(card.id) || (graphicsVendor() && (card.vendor ?? 'nvidia') !== graphicsVendor())) continue
+      counts.set(card.name, (counts.get(card.name) ?? 0) + 1)
+    }
     return [...counts].map(([name, count]) => count > 1 ? `${count} x ${name}` : name)
+  }
+  const repairable = () => setup.plan()?.unusableCards?.some((card) =>
+    card.reason === 'driver-too-old' || card.reason === 'detection-tool-missing' || card.reason === 'detection-tool-failed') ?? false
+  const graphicsSelected = () => Boolean(graphicsVendor())
+  const graphicsWarning = () => !graphicsSelected() && Boolean(setup.plan()?.unusableCards?.length)
+  const cpuChoice = () => setup.plan()?.choices?.find((choice) => choice.vendor === null)
+  const cardLines = (description: boolean) => {
+    const groups = new Map<string, { card: UnusableGraphicsCard; count: number }>()
+    for (const card of setup.plan()?.unusableCards ?? []) {
+      if (description && card.reason === 'no-published-build') continue
+      const key = JSON.stringify([card.name, card.vendor, card.reason, card.minimumDriver, card.driver, card.tool])
+      const group = groups.get(key)
+      if (group) group.count++
+      else groups.set(key, { card, count: 1 })
+    }
+    return [...groups.values()].map(({ card, count }) => {
+      const vendor = card.vendor ? { nvidia: 'NVIDIA', amd: 'AMD', intel: 'Intel' }[card.vendor] : ''
+      const name = card.name || message(vendor ? 'setup.graphics.unnamedVendor' : 'setup.graphics.unnamed', { vendor })
+      const params = {
+        name: count > 1 ? `${count} x ${name}` : name,
+        vendor, minimum: card.minimumDriver ?? '', driver: card.driver ?? '', tool: card.tool ?? '',
+        system: message(`setup.graphics.system.${setup.plan()?.system}`),
+      }
+      const reason = description && card.reason.startsWith('detection-tool-') ? 'detection-unchecked' : card.reason
+      const suffix = !vendor && reason === 'no-published-build' ? '-unknown'
+        : !description && reason === 'driver-too-old' && card.driver ? '-known' : ''
+      return message(`setup.graphics.${description ? 'unused' : 'warning'}.${reason}${suffix}`, params)
+    })
+  }
+  const checkAgain = () => {
+    const plan = setup.plan()!
+    void setup.refresh(graphicsWarning() && repairable() ? { root: plan.root, channel: plan.channel } : undefined)
   }
   const download = () => {
     const plan = setup.plan()!
@@ -102,9 +141,13 @@ export function SetupForm(props: {
           <dl class="setup-facts">
             <dt>{message('setup.folder')}</dt>
             <dd><span>{setupJobActive(setup.job()) ? setup.job()!.root : plan().root}</span><Show when={canChange()}><ProductTextButton label={message('setup.chooseFolder')} disabled={busy()} onClick={() => { void chooseFolder() }} /></Show></dd>
-            <Show when={plan().buildLabel || setupJobActive(setup.job())}><dt>{message('setup.build')}</dt>
-            <dd><div><Show when={buildLabel()}>{(label) => <span>{label()}</span>}</Show><For each={cardNames()}>{(name) => <p class="dinkster-description">{name}</p>}</For></div>
-              <Show when={canChange() && (plan().choices?.length ?? 0) > 1}><ProductMenu fill="quiet" align="end" label={message('setup.changeBuild')} items={(plan().choices ?? []).map((choice) => ({
+            <Show when={plan().buildLabel || graphicsWarning() || setupJobActive(setup.job())}><dt>{message('setup.build')}</dt>
+            <dd><div>
+              <Show when={buildLabel()} fallback={<Show when={!variant()}><span class="dinkster-description">{message('setup.notChosen')}</span></Show>}>{(label) => <span>{label()}</span>}</Show>
+              <For each={cardNames()}>{(name) => <p class="dinkster-description">{name}</p>}</For>
+              <Show when={graphicsSelected()}><For each={cardLines(true)}>{(line) => <p class="dinkster-description">{line}</p>}</For></Show>
+            </div>
+              <Show when={canChange() && plan().variant && (plan().choices?.length ?? 0) > 1}><ProductMenu fill="quiet" align="end" label={message('setup.changeBuild')} items={(plan().choices ?? []).map((choice) => ({
                 label: choice.label,
                 description: choice.reason,
                 checked: choice.variant === plan().variant,
@@ -114,6 +157,10 @@ export function SetupForm(props: {
             </dd></Show>
             <Show when={download()}>{(size) => <><dt>{message('setup.download')}</dt><dd><span>{message('setup.downloadSpace', { size: size(), free: formatByteSize(plan().freeBytes) })}</span></dd></>}</Show>
           </dl>
+          <Show when={graphicsWarning()}><ProductNotice tone="warning">
+            {message(repairable() ? plan().variant ? 'setup.graphics.cpuRepair' : 'setup.graphics.repair' : 'setup.graphics.cpu')}
+            <For each={cardLines(false)}>{(line) => <><br /><span class="dinkster-description">{line}</span></>}</For>
+          </ProductNotice></Show>
           <Show when={setup.job()}><div class="setup-job" role="status">
             <strong>{jobLine()}</strong>
             <Show when={setupJobActive(setup.job())}><ProductProgress label={progress() ?? jobLine()} value={progressValue()} /></Show>
@@ -131,8 +178,9 @@ export function SetupForm(props: {
           <div class="dinkster-actions setup-actions">
             <Show when={setupJobActive(setup.job())} fallback={
               <>
-                <Show when={setup.error() || plan().refusal}><ProductButton disabled={busy()} onClick={() => { void setup.refresh() }}>{message('setup.retry')}</ProductButton></Show>
-                <Show when={!plan().refusal && setup.job()?.state !== 'completed'}><ProductButton intent="add" fill="solid" disabled={!setup.canStart() || folderBusy()} onClick={() => { void setup.start() }}>{message('setup.start')}</ProductButton></Show>
+                <Show when={setup.error() || plan().refusal || canChange() && graphicsWarning() && repairable()}><ProductButton disabled={busy()} onClick={checkAgain}>{message('setup.retry')}</ProductButton></Show>
+                <Show when={canChange() && !plan().variant && !plan().refusal && cpuChoice()}>{(cpu) => <ProductButton disabled={busy()} onClick={() => { void setup.refresh({ root: plan().root, channel: plan().channel, variant: cpu().variant }) }}>{message('setup.useCpu')}</ProductButton>}</Show>
+                <Show when={plan().variant && !plan().refusal && setup.job()?.state !== 'completed'}><ProductButton intent="add" fill="solid" disabled={!setup.canStart() || folderBusy()} onClick={() => { void setup.start() }}>{message('setup.start')}</ProductButton></Show>
               </>
             }><ProductButton disabled={setup.changing() || setup.job()?.state === 'cancelling'} onClick={() => void setup.cancel()}>{message('setup.cancel')}</ProductButton></Show>
           </div>

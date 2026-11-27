@@ -6,6 +6,16 @@ export interface SetupProblem {
   readonly message: string
 }
 
+export interface UnusableGraphicsCard {
+  readonly id: string
+  readonly name: string | null
+  readonly vendor: 'nvidia' | 'amd' | 'intel' | null
+  readonly reason: 'driver-too-old' | 'card-too-old' | 'detection-tool-missing' | 'detection-tool-failed' | 'no-published-build'
+  readonly minimumDriver?: string
+  readonly driver?: string | null
+  readonly tool?: string
+}
+
 export interface SetupPlan {
   readonly id: string
   readonly root: string
@@ -18,11 +28,21 @@ export interface SetupPlan {
   readonly detectedCards: readonly {
     readonly id: string
     readonly name: string
+    readonly vendor?: 'nvidia' | 'amd' | 'intel'
     readonly driver: string | null
     readonly computeCapability: string | null
     readonly memoryMiB: number | null
   }[] | null
-  readonly choices: readonly { readonly variant: string; readonly label: string; readonly reason: string }[] | null
+  readonly unusableCards?: readonly UnusableGraphicsCard[]
+  readonly system?: 'windows' | 'linux' | 'macos' | null
+  readonly graphicsVendor?: 'nvidia' | 'amd' | 'intel' | null
+  readonly choices: readonly {
+    readonly variant: string
+    readonly label: string
+    readonly reason: string
+    readonly vendor?: 'nvidia' | 'amd' | 'intel' | null
+    readonly gpus?: readonly string[]
+  }[] | null
   readonly gpus: readonly string[]
   readonly downloadBytes: number | null
   readonly downloadEstimate?: { readonly kind: 'upper-bound'; readonly bytes: number; readonly reason: string } | null

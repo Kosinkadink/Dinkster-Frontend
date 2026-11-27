@@ -120,6 +120,52 @@ describe('workflow tabs', () => {
     view.dispose()
   })
 
+  it('keeps a Board rename draft across remote names and refuses read-only renames', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const [title, setTitle] = createSignal('Board')
+    const [name, setName] = createSignal<string>()
+    const [canEdit, setCanEdit] = createSignal(true)
+    const tab = { id: 'board', editorKind: 'page', get title() { return title() } }
+    const rename = vi.fn((_tab: typeof tab, value: string) => { setName(value); setTitle(value) })
+    const dispose = render(() => <WorkflowTabs
+      tabs={[tab]} activeId="board" isDirty={() => false} isFrozen={() => false}
+      isShared={() => true} setRoot={() => undefined} onActivate={() => undefined}
+      onClose={() => undefined} onPointerDown={() => undefined} onNew={() => undefined}
+      canShare={() => false} onShare={() => undefined} onRename={rename}
+      canRename={() => canEdit()} renameName={() => name()}
+    />, root)
+    const start = async (): Promise<HTMLInputElement | null> => {
+      root.querySelector('.tab-title')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+      await Promise.resolve()
+      return root.querySelector('input')
+    }
+    let input = (await start())!
+    expect(input.value).toBe('')
+    expect(input.placeholder).toBe('Board')
+    input.blur()
+    expect(rename).not.toHaveBeenCalled()
+    input = (await start())!
+    input.value = 'My draft'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    setName('Remote name')
+    setTitle('Remote name')
+    expect(root.querySelector('input')).toBe(input)
+    expect(input.value).toBe('My draft')
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(root.querySelector('.tab-title')?.textContent).toBe('My draft')
+    input = (await start())!
+    input.value = 'Refused draft'
+    setCanEdit(false)
+    input.blur()
+    expect(root.querySelector('.tab-title')?.textContent).toBe('My draft')
+    expect(await start()).toBeNull()
+    root.querySelector('[data-tab-id="board"]')!
+      .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }))
+    expect([...document.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent === 'Rename')).toBe(false)
+    dispose()
+  })
+
   it('keeps the kind icon and unsaved mark while running and announces result changes', () => {
     const view = fixture()
     const first = view.root.querySelector<HTMLElement>('[data-tab-id="one"]')!
