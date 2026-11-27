@@ -1,4 +1,4 @@
-import { createEffect, createRoot, createSignal, createUniqueId, For, Index, getOwner, on, onCleanup, onMount, Show, type Component, type JSX } from 'solid-js'
+import { createEffect, createMemo, createRenderEffect, createRoot, createSignal, createUniqueId, For, Index, getOwner, on, onCleanup, onMount, Show, type Component, type JSX } from 'solid-js'
 import type { MenuActionItem, MenuItem, ResolvedMenuGroup } from '@dinkster/core'
 import ChevronDown from 'lucide-solid/icons/chevron-down'
 import X from 'lucide-solid/icons/x'
@@ -16,7 +16,7 @@ import {
 import { aggregatePanelIndicators, type PanelDescriptor, type PanelIndicator } from './panels.js'
 import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
-import type { PanelDragModel } from './panel-drag.js'
+import type { PanelDragModel, PanelDragTabFit } from './panel-drag.js'
 import { useAppMessage } from './locale.js'
 import type { TooltipContent, VisibleTooltip } from './tooltips.js'
 import { ProductShortcut } from '@dinkster/ui'
@@ -424,6 +424,7 @@ function DockSectionDivider(props: {
 function DockZoneSection(props: {
   readonly zone: DockZoneId
   readonly drag: PanelDragModel | undefined
+  readonly onDragTabFit?: ((fit: PanelDragTabFit | undefined) => void) | undefined
   readonly label: string
   /** Index of this section in the zone's DockZoneState.sections. */
   readonly section: number
@@ -492,16 +493,19 @@ function DockZoneSection(props: {
   const clippedIndicator = (): PanelIndicator | undefined =>
     aggregatePanelIndicators(
       props.panels
-        .filter((panel) => hiddenTabIds().has(panel.id) && panel.id !== props.activeId)
+        .filter((panel) => hiddenTabIds().has(panel.id))
         .map((panel) => panel.indicator?.()),
     )
   const [overflowOpen, setOverflowOpen] = createSignal(false)
   let root!: HTMLDivElement
   let overflowRoot: HTMLDivElement | undefined
   let overflowButton: HTMLButtonElement | undefined
-  const measureTabs = (): void => {
-    // Keep the pre-drag whole-tab fit while an insertion slot parts the row.
-    if (props.drag?.started && !props.drag.rolledBack) return
+  const [slotReserved, setSlotReserved] = createSignal(false)
+  const [slotFits, setSlotFits] = createSignal(true)
+  let savedHiddenIds: ReadonlySet<string> | undefined
+  const measureTabs = (reservedWidth?: number): PanelDragTabFit | undefined => {
+    // Reserve once on entry; observer callbacks must not refit a moving slot.
+    if (props.drag?.started && !props.drag.rolledBack && reservedWidth === undefined) return
     if (props.titleOnly) {
       if (hiddenTabIds().size > 0) setHiddenTabIds(new Set<string>())
       return
@@ -522,44 +526,101 @@ function DockZoneSection(props: {
       tab.style.display = display
       return [tab.dataset['tabId']!, width] as const
     }))
+    if (reservedWidth !== undefined) widths.delete(props.drag!.panelId)
     const actions = root.querySelector<HTMLElement>('.dock-zone-actions')
     const actionGap = actions === null ? 0 : Number.parseFloat(getComputedStyle(actions).columnGap) || 0
     const overflowWidth = overflowRoot !== undefined && root.contains(overflowRoot)
       ? overflowRoot.getBoundingClientRect().width + actionGap
       : 0
     const available = tablist.clientWidth - padding
-    const allWidth = [...widths.values()].reduce((sum, width) => sum + width, 0)
-      + Math.max(0, widths.size - 1) * gap
+    const count = widths.size + (reservedWidth === undefined ? 0 : 1)
+    const allWidth = [...widths.values()].reduce((sum, width) => sum + width, reservedWidth ?? 0)
+      + Math.max(0, count - 1) * gap
     const visibleIds = new Set<string>()
     if (allWidth <= available + overflowWidth) {
       for (const id of widths.keys()) visibleIds.add(id)
     } else {
+      if (reservedWidth !== undefined && overflowWidth === 0 && widths.size > 0) {
+        // Mount the existing overflow control before measuring its share.
+        setHiddenTabIds(new Set(widths.keys()))
+        return
+      }
       // Reserve the active title first, then fit the remaining complete tabs.
-      let used = 0
-      if (props.activeId !== undefined && widths.has(props.activeId)) {
+      let used = reservedWidth ?? 0
+      let visibleCount = reservedWidth === undefined ? 0 : 1
+      if (props.activeId !== undefined && widths.has(props.activeId)
+        && (reservedWidth === undefined || used + gap + widths.get(props.activeId)! <= available)) {
         visibleIds.add(props.activeId)
-        used = widths.get(props.activeId)!
+        used += (visibleCount > 0 ? gap : 0) + widths.get(props.activeId)!
+        visibleCount += 1
       }
       for (const [id, width] of widths) {
         if (visibleIds.has(id)) continue
-        const nextWidth = used + (visibleIds.size > 0 ? gap : 0) + width
+        const nextWidth = used + (visibleCount > 0 ? gap : 0) + width
         if (nextWidth > available) continue
         visibleIds.add(id)
         used = nextWidth
+        visibleCount += 1
       }
     }
     const next = new Set(props.panels.filter((panel) => !visibleIds.has(panel.id)).map((panel) => panel.id))
     const previous = hiddenTabIds()
-    if (previous.size === next.size && [...previous].every((id) => next.has(id))) return
-    setHiddenTabIds(next)
-    queueMicrotask(measureTabs)
+    if (previous.size !== next.size || [...previous].some((id) => !next.has(id))) {
+      setHiddenTabIds(next)
+      if (reservedWidth === undefined) queueMicrotask(() => measureTabs())
+    }
+    if (reservedWidth === undefined) return
+    const rect = tablist.getBoundingClientRect()
+    let left = rect.left + Number.parseFloat(style.paddingLeft)
+    const slots = [...widths].flatMap(([id, width]) => {
+      if (!visibleIds.has(id)) return []
+      const slot = { id, rect: { left, right: left + width, top: rect.top, bottom: rect.bottom } }
+      left += width + gap
+      return [slot]
+    })
+    return { zone: props.zone, section: props.section, slots,
+      acceptsSlot: reservedWidth <= (allWidth <= available + overflowWidth ? available + overflowWidth : available) }
   }
+  const insideStrip = createMemo(() => {
+    const drag = props.drag
+    const target = drag?.preview?.target
+    const strip = drag?.snapshot.zones[props.zone].sections.find((section) => section.section === props.section)?.tabStrip.rect
+    return !props.titleOnly && drag?.started === true && !drag.rolledBack && drag.preview?.allowed === true
+      && target?.kind !== 'floating' && target?.zone === props.zone && 'section' in target && target.section === props.section
+      && strip !== undefined && drag.point.x >= strip.left && drag.point.x <= strip.right
+      && drag.point.y >= strip.top && drag.point.y <= strip.bottom
+  })
+  createRenderEffect(on(insideStrip, (inside) => {
+    if (inside) {
+      savedHiddenIds = hiddenTabIds()
+      const width = Number.parseFloat(getComputedStyle(root).getPropertyValue('--tab-drag-width'))
+      setSlotFits(false)
+      setSlotReserved(true)
+      const applyFit = (fit: PanelDragTabFit | undefined): void => {
+        if (fit === undefined || !slotReserved()) return
+        setSlotFits(fit.acceptsSlot)
+        props.onDragTabFit?.(fit)
+      }
+      const fit = measureTabs(width)
+      if (fit === undefined) queueMicrotask(() => {
+        if (slotReserved()) applyFit(measureTabs(width))
+      })
+      else applyFit(fit)
+    } else if (savedHiddenIds !== undefined) {
+      setSlotReserved(false)
+      setHiddenTabIds(savedHiddenIds)
+      savedHiddenIds = undefined
+      if (props.drag?.tabFit?.zone === props.zone && props.drag.tabFit.section === props.section) {
+        props.onDragTabFit?.(undefined)
+      }
+    }
+  }))
   onMount(() => {
     const tablist = root.querySelector('[role="tablist"]')
     if (tablist === null || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measureTabs)
+    const observer = new ResizeObserver(() => measureTabs())
     observer.observe(tablist)
-    const contentObserver = new MutationObserver(measureTabs)
+    const contentObserver = new MutationObserver(() => measureTabs())
     contentObserver.observe(tablist, { childList: true, subtree: true, characterData: true })
     onCleanup(() => {
       observer.disconnect()
@@ -602,11 +663,12 @@ function DockZoneSection(props: {
     >
       <ProductTabs
         class={`dock-zone-tabs${props.titleOnly ? ' dock-zone-title-only' : ''}`}
+        hiddenIds={hiddenTabIds()}
         draggedId={props.drag?.started && !props.drag.rolledBack ? props.drag.panelId : undefined}
         dropSlot={(() => {
           const drag = props.drag
           const target = drag?.preview?.target
-          if (!drag?.started || drag.rolledBack || props.titleOnly || drag.preview?.allowed !== true
+          if (!slotReserved() || !slotFits() || !drag?.started || drag.rolledBack || props.titleOnly || drag.preview?.allowed !== true
             || target?.kind !== 'tab' || target.zone !== props.zone || target.section !== props.section) return undefined
           const remaining = props.panels.filter((panel) => panel.id !== drag.panelId)
           return { beforeId: remaining[target.index]?.id }
@@ -695,6 +757,7 @@ function DockZoneSection(props: {
 export function DockZoneHost(props: {
   readonly zone: DockZoneId
   readonly drag?: PanelDragModel | undefined
+  readonly onDragTabFit?: ((fit: PanelDragTabFit | undefined) => void) | undefined
   readonly ariaLabel: string
   readonly titleOnly?: boolean
   /** Rendered sections in visual order (caller filters visibility). */
@@ -798,6 +861,7 @@ export function DockZoneHost(props: {
           <DockZoneSection
             zone={props.zone}
             drag={props.drag}
+            onDragTabFit={props.onDragTabFit}
             label={renderedCount() < 2
               ? props.ariaLabel
               : message(`shell.chrome.section.${props.zone === 'bottom'

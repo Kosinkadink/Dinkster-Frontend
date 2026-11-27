@@ -97,6 +97,13 @@ export interface PanelDragPreview {
   readonly allowed: boolean
 }
 
+export interface PanelDragTabFit {
+  readonly zone: DockZoneId
+  readonly section: number
+  readonly slots: readonly PanelDragTabSlot[]
+  readonly acceptsSlot: boolean
+}
+
 export interface PanelDragModel {
   readonly pointerId: number
   readonly panelId: string
@@ -108,6 +115,7 @@ export interface PanelDragModel {
   readonly snapshot: PanelDragSnapshot
   readonly legality: PanelDragLegality
   readonly preview: PanelDragPreview | undefined
+  readonly tabFit?: PanelDragTabFit | undefined
 }
 
 export type PanelDragPointerDisposition = 'start' | 'owner' | 'foreign'
@@ -249,9 +257,10 @@ const tabInsertionIndex = (
   section: PanelDragSectionSnapshot,
   panelId: string,
   clientX: number,
+  fit?: PanelDragTabFit,
 ): number => {
   const order = remainingOrder(sectionOrder(zone, section.section), panelId)
-  const slots = section.tabStrip.slots
+  const slots = (fit?.slots ?? section.tabStrip.slots)
     .filter((slot) => slot.id !== panelId && order.includes(slot.id))
     .sort((a, b) => a.rect.left - b.rect.left)
   const next = slots.find((slot) => clientX < (slot.rect.left + slot.rect.right) / 2)
@@ -262,6 +271,7 @@ export function resolvePanelDragTarget(
   snapshot: PanelDragSnapshot,
   panelId: string,
   point: PanelDragPoint,
+  fit?: PanelDragTabFit,
 ): PanelDragTarget | undefined {
   for (const zoneId of DOCK_ZONE_IDS) {
     const zone = snapshot.zones[zoneId]
@@ -280,11 +290,16 @@ export function resolvePanelDragTarget(
     const zone = snapshot.zones[zoneId]
     for (const section of zone.sections) {
       if (contains(section.tabStrip.rect, point)) {
+        const tabFit = fit?.zone === zoneId && fit.section === section.section ? fit : undefined
+        if (tabFit?.acceptsSlot === false) {
+          return { kind: 'zone', zone: zoneId, section: section.section,
+            index: remainingOrder(sectionOrder(zone, section.section), panelId).length }
+        }
         return {
           kind: 'tab',
           zone: zoneId,
           section: section.section,
-          index: tabInsertionIndex(zone, section, panelId, point.x),
+          index: tabInsertionIndex(zone, section, panelId, point.x, tabFit),
         }
       }
     }
@@ -332,7 +347,7 @@ export function movePanelDragModel(
   if (!model.started && Math.hypot(point.x - model.start.x, point.y - model.start.y) < PANEL_DRAG_THRESHOLD) {
     return model
   }
-  const target = resolvePanelDragTarget(model.snapshot, model.panelId, point)
+  const target = resolvePanelDragTarget(model.snapshot, model.panelId, point, model.tabFit)
   return {
     ...model,
     point,
@@ -368,6 +383,7 @@ export function panelDragReleaseAction(
     currentGeometry.snapshot,
     model.panelId,
     currentGeometry.point,
+    model.tabFit,
   )
   if (currentTarget === undefined || !sameSemanticTarget(model.preview.target, currentTarget)) return 'rollback'
   return model.preview.allowed ? 'commit' : 'refuse'

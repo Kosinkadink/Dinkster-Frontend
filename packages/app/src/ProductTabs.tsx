@@ -15,6 +15,7 @@ interface ProductTabsBaseProps {
   /** Actions rendered in the tab row, after the tablist (e.g. host chrome). */
   readonly trailing?: JSX.Element
   readonly draggedId?: string | undefined
+  readonly hiddenIds?: ReadonlySet<string> | undefined
   readonly dropSlot?: { readonly beforeId: string | undefined } | undefined
 }
 
@@ -169,6 +170,7 @@ export function ProductTabs(props: ProductTabsProps) {
               class="product-tab"
               data-tab-id={id}
               data-dragged={props.draggedId === id ? 'true' : undefined}
+              hidden={props.hiddenIds?.has(id)}
               role="tab"
               aria-selected={resolvedSelected() === id}
               aria-controls={panelId(id)}

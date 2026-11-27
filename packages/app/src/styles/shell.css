@@ -459,9 +459,10 @@
 .dock-zone-tabs .product-tab { position: relative; flex: none; min-width: 64px; border-radius: var(--dinkster-radius-control); background: transparent; border-color: transparent; }
 .dock-zone-tabs .product-tab[aria-selected='true'] { color: var(--dinkster-text-primary); background: var(--dinkster-surface-raised); }
 .dock-zone-tabs .product-tab[aria-selected='true']::after { content: ''; position: absolute; right: 10px; bottom: -2px; left: 10px; height: 3px; border-radius: 3px; background: var(--dinkster-accent-foreground); pointer-events: none; }
-.dock-zone-tabs .product-tab:disabled { display: none; }
+.dock-zone-tabs .product-tab:disabled,
+.dock-zone-tabs .product-tab[hidden] { display: none; }
 .dock-zone-tabs .product-tab[data-dragged='true'] { display: none; }
-.panel-tab-drop-slot { flex: none; width: var(--tab-drag-width); }
+.panel-tab-drop-slot { flex: none; width: var(--tab-drag-width); min-height: var(--dinkster-control-compact-height); }
 /* Keep the whole title and its attention badge in the measured tab width. */
 .dock-zone-tabs .tab-title { display: flex; align-items: center; justify-content: center; }
 .dock-zone-tabs .tab-title-text { white-space: nowrap; }

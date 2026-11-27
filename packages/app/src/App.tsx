@@ -118,6 +118,7 @@ import {
   panelDragReleaseAction,
   rollbackPanelDragModel,
   type PanelDragModel,
+  type PanelDragTabFit,
   type PanelDragRect,
   type PanelDragSectionGeometry,
   type PanelDragVisibleZoneGeometry,
@@ -2257,13 +2258,14 @@ export function App(props: {
   let panelDragWidth = 0
   let panelDragPointerId: number | undefined
   let disposePanelDrag: (() => void) | undefined
+  let updatePanelDragTabFit: ((fit: PanelDragTabFit | undefined) => void) | undefined
   const publishPanelDrag = (drag: PanelDragModel | undefined): void => {
-    setPanelDrag(drag)
     const active = drag?.started === true && !drag.rolledBack
     if (active) {
       tooltips.hide()
       bodyElement.style.setProperty('--tab-drag-width', `${panelDragWidth}px`)
     } else bodyElement.style.removeProperty('--tab-drag-width')
+    setPanelDrag(drag)
     document.body.classList.toggle('panel-drag-active', active)
     document.body.classList.toggle('panel-drag-not-allowed', active && drag.preview?.allowed === false)
   }
@@ -2350,6 +2352,11 @@ export function App(props: {
         floating: descriptor.allowedPlacements.includes('floating'),
       },
     )
+    updatePanelDragTabFit = (tabFit) => {
+      if (panelDrag() === undefined || drag.rolledBack) return
+      drag = movePanelDragModel({ ...drag, tabFit }, pointerId, drag.point)
+      publishPanelDrag(drag)
+    }
     let captured = false
     let disposed = false
     let clickCleanupTimer: ReturnType<typeof setTimeout> | undefined
@@ -2380,6 +2387,7 @@ export function App(props: {
       target.removeEventListener('lostpointercapture', lostCapture)
       if (captured && target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
       if (panelDragPointerId === pointerId) panelDragPointerId = undefined
+      updatePanelDragTabFit = undefined
       if (disposePanelDrag === dispose) disposePanelDrag = undefined
     }
     const rollback = (): void => {
@@ -3324,6 +3332,7 @@ export function App(props: {
             <DockZoneHost
               zone="left"
               drag={panelDrag()}
+              onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
               titleOnly={activityBarVisible()}
               ariaLabel={message('shell.primaryDockPanels')}
               sections={zoneSections('left')}
@@ -3404,6 +3413,7 @@ export function App(props: {
               <DockZoneHost
                 zone="bottom"
                 drag={panelDrag()}
+                onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
                 ariaLabel={message('shell.bottomPanels')}
                 sections={zoneSections('bottom')}
                 split={zoneSplit('bottom')}
@@ -3434,6 +3444,7 @@ export function App(props: {
           <DockZoneHost
             zone="right"
             drag={panelDrag()}
+            onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
             ariaLabel={message('shell.inspectorPanels')}
             sections={zoneSections('right')}
             split={zoneSplit('right')}
