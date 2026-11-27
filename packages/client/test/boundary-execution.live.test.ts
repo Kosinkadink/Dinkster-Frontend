@@ -10,6 +10,9 @@ import {
   documentNodeResolver,
   DocumentStore,
   documentResolver,
+  elaborateInterface,
+  elabInputsOf,
+  occurrenceDynamicView,
   lifecycleCanonicalHash,
   lifecycleFlattenFingerprint,
   loadDocument,
@@ -97,6 +100,20 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
             pick: runtime && id === first ? ['runtime', 0] : receipt.pick },
           outputIds: ['result', 'receipt'], outputMembers: { layers: receipt.layers.map(({ key }) => key) },
         }
+        const resolveDocument = documentResolver(doc, resolve)
+        for (const [id, receipt] of Object.entries(expected)) {
+          const path = id.split('.')
+          const nodeId = path.pop()!
+          let graph = doc.graphs[doc.root]!
+          for (const hop of path) graph = doc.graphs[graph.nodes[hop]!.type.slice(1)]!
+          const node = graph.nodes[nodeId]!
+          const view = occurrenceDynamicView(doc, resolveDocument, path)
+          const effective = { ...node, values: view.values.get(nodeId) ?? node.values,
+            dynamic: view.dynamic.get(nodeId) ?? node.dynamic ?? {} }
+          const rows = elabInputsOf(elaborateInterface(resolve(type)!, effective))
+          expect(rows.find((row) => row.spec.id === 'pick')!.spec.widget!.options['options'], id)
+            .toEqual(receipt.layers.map(({ key }) => key))
+        }
         if (runtime) prompt.runtime = { class_type: 'boundary-sample.group-choice', inputs: {}, outputIds: ['value'] }
         expect(compiled.artifact.prompt).toEqual(prompt)
         const submitted = await connection.submit(compiled.artifact)
@@ -180,27 +197,36 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         detail: { ...reordered.graphs.detail!, nodes: { ...reordered.graphs.detail!.nodes, other: extra } },
       } })
       edit(fanout, 'boundary.addBinding', { graphId: 'detail', itemId: 'selection', node: 'other', port: 'pick' })
+      edit(fanout, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: pick, value: 'red' })
       const extraFirst = depth === 1 ? 'first.other' : 'first.detail.other'
       const extraSecond = depth === 1 ? 'second.other' : 'second.detail.other'
       const extraReceipt: Receipt = { layers: [{ key: 'gold', value: 43 }, { key: 'red', value: 53 }], pick: 'gold', order: 'gold,red' }
-      await run('fanout', fanout.doc, { [first]: ordered, [second]: sibling, [extraFirst]: extraReceipt, [extraSecond]: extraReceipt },
-        { [first]: 19, [second]: 1, [extraFirst]: 43, [extraSecond]: 43 })
+      await run('fanout', fanout.doc, { [first]: { ...ordered, pick: 'red' }, [second]: sibling,
+        [extraFirst]: { ...extraReceipt, pick: 'red' }, [extraSecond]: extraReceipt },
+        { [first]: 7, [second]: 1, [extraFirst]: 53, [extraSecond]: 43 })
       const groupFanout = storeFor({ ...reordered, graphs: { ...reordered.graphs, detail: { ...reordered.graphs.detail!, nodes: {
         ...reordered.graphs.detail!.nodes, other: { id: asNodeId('other'), type, values: {}, dynamic: { layers: { members: [] } } },
       } } } })
       edit(groupFanout, 'boundary.addBinding', { graphId: 'detail', itemId: 'selection', node: 'other', port: 'pick' })
       edit(groupFanout, 'boundary.addBinding', { graphId: 'detail', itemId: 'stack', node: 'other', port: 'layers' })
-      await run('group-fanout', groupFanout.doc, { [first]: ordered, [second]: sibling, [extraFirst]: ordered, [extraSecond]: sibling },
-        { [first]: 19, [second]: 1, [extraFirst]: 19, [extraSecond]: 1 })
-      const detached = storeFor(reordered)
+      edit(groupFanout, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: pick, value: 'red' })
+      await run('group-fanout', groupFanout.doc, { [first]: { ...ordered, pick: 'red' }, [second]: sibling,
+        [extraFirst]: { ...ordered, pick: 'red' }, [extraSecond]: sibling },
+        { [first]: 7, [second]: 1, [extraFirst]: 7, [extraSecond]: 1 })
+      const detached = storeFor({ ...reordered, graphs: { ...reordered.graphs, root: { ...reordered.graphs.root!, nodes: {
+        ...reordered.graphs.root!.nodes, first: { ...reordered.graphs.root!.nodes.first!,
+          values: { ...reordered.graphs.root!.nodes.first!.values, [`${group}.blue`]: 11 },
+          dynamic: { [group]: { members: ['red', 'gold', 'blue'] } } },
+      } } } })
       edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
       const privateGraph = detached.doc.graphs.root!.nodes.first!.type.slice(1)
-      edit(detached, 'node.setValue', { graphId: privateGraph, nodeId: depth === 1 ? 'sample' : 'detail', inputId: depth === 1 ? 'pick' : 'selection', value: 'red' })
+      edit(detached, 'node.setValue', { graphId: privateGraph, nodeId: depth === 1 ? 'sample' : 'detail', inputId: depth === 1 ? 'pick' : 'selection', value: 'blue' })
       edit(detached, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: [pick] })
       expect(detached.doc.graphs.detail).toEqual(reordered.graphs.detail)
       expect(detached.doc.graphs.portrait).toEqual(reordered.graphs.portrait)
       expect(detached.doc.graphs.root!.nodes.second).toEqual(reordered.graphs.root!.nodes.second)
-      await run('detached', detached.doc, { [first]: { ...ordered, pick: 'red' }, [second]: sibling }, { [first]: 7, [second]: 1 })
+      await run('detached', detached.doc, { [first]: { layers: [...ordered.layers, { key: 'blue', value: 11 }], pick: 'blue', order: 'red,gold,blue' },
+        [second]: sibling }, { [first]: 11, [second]: 1 })
       for (const mode of ['active', 'muted', 'bypassed'] as const) {
         const doc: WorkflowDocument = { ...reordered, graphs: { ...reordered.graphs, root: { ...reordered.graphs.root!, nodes: {
           ...reordered.graphs.root!.nodes, first: { ...reordered.graphs.root!.nodes.first!, ...(mode === 'active' ? {} : { mode }) },
