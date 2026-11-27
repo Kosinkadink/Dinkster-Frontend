@@ -20,6 +20,17 @@ export function useAppMessage(): (key: string, params?: MessageParams) => string
   }
 }
 
+export function useModelKindLabel(): (kind: string) => string {
+  const message = useAppMessage()
+  return (kind) => {
+    const name = kind.replace(/^model\//, '')
+    const canonical = ({ checkpoints: 'checkpoint', upscale_models: 'upscale', controlnets: 'controlnet', loras: 'lora' } as Record<string, string>)[name] ?? name
+    const key = `storagePanel.kind.${canonical}`
+    const label = message(key)
+    return label === key ? canonical.replaceAll('_', ' ').replaceAll('-', ' ') : label
+  }
+}
+
 export function useAppMessageGroup<Prefix extends string>(prefix: Prefix): () => Readonly<Record<MessageGroupKey<Prefix>, string>> {
   const message = useAppMessage()
   const messages = new Proxy({}, {

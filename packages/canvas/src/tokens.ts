@@ -45,7 +45,8 @@ export const canvasPaintTokens = {
     fallbackValueMaxCharacters: 42,
   },
   viewport: { initialOffset: 40, fitMargin: 60, minFitScale: 0.1, maxFitScale: 2 },
-  graphCache: { tilePixels: 512, bleedPixels: 2 },
+  keyboardFocus: { stroke: 1, outset: 2 },
+  graphCache: { tilePixels: 512, bleedPixels: 2, detailMinScale: 0.3, detailMaxScale: 0.5 },
   badge: {
     radius: 3,
     baselineOffset: 0.5,
@@ -143,6 +144,8 @@ export const canvasPaintTokens = {
     textOutputMaxRows: 6,
     /** Rows an open text result shows at least. */
     textOutputMinRows: 2,
+    /** Waveform, two transport rows and padding, without the caption. */
+    audioPreview: { minWidth: 240, minHeight: 126 },
     /**
      * The bar of a node whose preview is open: the text box's bar
      * (`widget.textBoxEdge`), its top `barRise` above the node's bottom edge
@@ -720,10 +723,8 @@ export const canvasPaintTokens = {
 /**
  * The editors that fold out in the node, by widget view id: the picture's own
  * height (absent for an editor without one) and how many rows of controls sit
- * under it. The rows are fixed for each editor, so the node does not change
- * height when the editor's state changes; a host that knows the controls
- * differ for good, such as a recorder on a backend that cannot take uploads,
- * gives their height in the widget's measure.
+ * under it. These are the initial rows; the host reports the actual control
+ * height when an editor adds a problem line or expands a section.
  */
 export const IN_NODE_EDITORS: Readonly<Record<string, {
   readonly picture?: number
@@ -746,10 +747,10 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   'core.audioRecord': { controlRows: 5 },
   // Start camera or Capture frame and Stop; the stored frame's line.
   'core.webcam': { picture: 180, controlRows: 2 },
-  // Camera projection, Field of view, Model placement and Animation closed, then room for a problem note.
+  // Camera projection, Field of view, Model placement and Animation closed.
   'core.load3d': {
     picture: 200,
-    controlRows: 5,
+    controlRows: 4,
     // Model position, rotation and scale; Animation clip, its time, its speed, Play.
     sections: [{ id: 'placement', rows: 3 }, { id: 'animation', rows: 4 }],
   },
@@ -766,12 +767,11 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
 /** Minimum zoom for text detail and transient media DOM. */
 export const CANVAS_DETAIL_MIN_SCALE = canvasPaintTokens.detailMinScale
 
-/** Typed presentation density derived from the two shared Canvas thresholds. */
-export type CanvasDetailLevel = 'overview' | 'content' | 'controls'
+/** Node content and its controls share the configured detail threshold. */
+export type CanvasDetailLevel = 'overview' | 'controls'
 
-export function canvasDetailLevel(scale: number, mediaControlMinScale: number, detailMinScale: number = CANVAS_DETAIL_MIN_SCALE): CanvasDetailLevel {
-  if (scale >= mediaControlMinScale) return 'controls'
-  return scale >= detailMinScale ? 'content' : 'overview'
+export function canvasDetailLevel(scale: number, detailMinScale: number = CANVAS_DETAIL_MIN_SCALE): CanvasDetailLevel {
+  return scale >= detailMinScale ? 'controls' : 'overview'
 }
 
 export type NodeLook = 'original' | 'flat-title'
@@ -819,7 +819,6 @@ export interface DesignTokens {
   readonly previewGap: number
   readonly mediaTransportHeight: number
   readonly detailMinScale: number
-  readonly mediaControlMinScale: number
   readonly nodeMinWidth: number
   readonly nodeMaxAutoWidth: number
   readonly pinRadius: number
@@ -895,6 +894,7 @@ export interface DesignTokens {
     readonly nodeIdleOutline: string
     readonly nodeBorder: string
     readonly nodeSelectedBorder: string
+    readonly keyboardFocus: string
     /** Neutral group tint and border when the document supplies no color. */
     readonly groupDefault: string
     readonly title: string
@@ -932,8 +932,6 @@ export interface DesignTokens {
     /** A box's outline, and the outline of a box inside a box. */
     readonly boxOutline: string
     readonly boxInnerOutline: string
-    /** The shared canvas choice list's outer frame. */
-    readonly listOutline: string
     /** A box's header or closed row under the pointer. */
     readonly boxHover: string
     /** A box's member or row count. */
@@ -1047,7 +1045,6 @@ export const defaultTokens: DesignTokens = {
   previewGap: 6,
   mediaTransportHeight: 64,
   detailMinScale: CANVAS_DETAIL_MIN_SCALE,
-  mediaControlMinScale: 0.75,
   nodeMinWidth: 140,
   nodeMaxAutoWidth: 420,
   pinRadius: 5.5,
@@ -1149,6 +1146,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     nodeIdleOutline: tokens.border.subtle,
     nodeBorder: tokens.border.subtle,
     nodeSelectedBorder: tokens.border.selected,
+    keyboardFocus: tokens.border.keyboardFocus,
     groupDefault: tokens.border.strong,
     title: tokens.text.primary,
     label: tokens.text.secondary,
@@ -1182,7 +1180,6 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     warningMark: tokens.meaning.warning.border,
     boxOutline: tokens.border.box,
     boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
-    listOutline: tokens.meaning.accent.restBorder,
     boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,
     boxCount: tokens.text.muted,
     boxChanged: tokens.meaning.accent.border,

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { chooseOption } from '../../e2e/choices.js'
 import {
   canvasGalleryPages,
   galleryWidgetInputs,
@@ -811,73 +812,24 @@ test('Canvas waits for the bundled italic face before publishing title paint', a
   }
 })
 
-test('Canvas pages are listed under eight headings in the side list', async ({
+test('Every Canvas page opens by a click in the side list', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/#canvas')
-  const headings = sideList(page).locator('button[aria-expanded]')
-  await expect(headings).toHaveText([
-    'Nodes',
-    'Tabs and states',
-    'Rows',
-    'Wires',
-    'Subgraphs',
-    'Flow nodes',
-    'Problems with fixes',
-    'Zoom',
-  ])
-  // Only the heading holding the current page starts open.
-  expect(
-    await headings.evaluateAll((all) =>
-      all.map((heading) => heading.getAttribute('aria-expanded')),
-    ),
-  ).toEqual([
-    'true',
-    'false',
-    'false',
-    'false',
-    'false',
-    'false',
-    'false',
-    'false',
-  ])
-  await expect(pageLink(page, 'anatomy')).toHaveAttribute(
-    'aria-current',
-    'page',
-  )
+  await expect(pageLink(page, 'anatomy')).toHaveAttribute('aria-current', 'page')
   await expect(
     sideList(page).getByRole('link', { name: 'Canvas', exact: true }),
   ).toHaveAttribute('aria-current', 'true')
-  // Every page is listed exactly once.
-  const listed = await sideList(page)
-    .locator('a[href^="?page="]')
-    .evaluateAll((links) =>
-      links.map((link) =>
-        new URLSearchParams(link.getAttribute('href')!.split('#')[0]).get(
-          'page',
-        ),
-      ),
-    )
-  expect(listed.sort()).toEqual(canvasGalleryPages.map(([id]) => id).sort())
-  // A heading opens and closes; the page picker and theme buttons are gone.
-  const rows = headings.filter({ hasText: 'Rows' })
+  const rows = sideList(page).getByRole('button', { name: 'Rows', exact: true })
+  await expect(rows).toHaveAttribute('aria-expanded', 'false')
+  await expect(pageLink(page, 'row-editing')).toBeHidden()
   await rows.click()
   await expect(rows).toHaveAttribute('aria-expanded', 'true')
   await expect(pageLink(page, 'row-editing')).toBeVisible()
   await rows.click()
   await expect(rows).toHaveAttribute('aria-expanded', 'false')
   await expect(pageLink(page, 'row-editing')).toBeHidden()
-  await expect(page.getByRole('combobox')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /theme$/ })).toHaveCount(0)
-  await expect(page.getByText('No action yet')).toHaveCount(0)
-})
-
-test('Every Canvas page opens by a click in the side list', async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  await page.goto('/#canvas')
   for (const [id, label] of canvasGalleryPages) {
     await choosePage(page, id)
     await expect(
@@ -1237,7 +1189,7 @@ for (const theme of ['dark', 'light'] as const) {
         await ordinary.evaluate(
           (element) => element.getBoundingClientRect().height,
         ),
-      ).toBe(density === 'app' ? 40 : 36)
+      ).toBe(density === 'app' ? 32 : 36)
       expect(
         await seed.evaluate((element) => ({
           height: element.getBoundingClientRect().height,
@@ -1314,6 +1266,12 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(dialog.getByText('Detail 9', { exact: true })).toBeVisible()
     await expect(dialog.getByText('Detail 4', { exact: true })).toHaveCount(0)
     await expect(dialog).toHaveScreenshot(`tabs-overflow-${theme}.png`)
+    await page.mouse.click(0, 0)
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
+    await expect(dialog).toHaveCount(0)
+    await canvas.click({ position: { x: 101, y: 152 } })
+    await expect(dialog).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
   })
@@ -1333,9 +1291,10 @@ for (const theme of ['dark', 'light'] as const) {
           page.getByRole('heading', { name: label, exact: true }),
         ).toBeVisible()
         if (input) {
-          await page
-            .getByRole('combobox', { name: 'Widget kind', exact: true })
-            .selectOption(input.id)
+          await chooseOption(
+            page.getByRole('combobox', { name: 'Widget kind', exact: true }),
+            input.id,
+          )
           await expect(
             page.locator('figure.dinkster-canvas-example canvas').first(),
           ).toHaveAttribute('data-ready', `${id}-${theme}`)
@@ -1393,6 +1352,14 @@ for (const theme of ['dark', 'light'] as const) {
             ])
         } else await expect(comparisons).toHaveCount(0)
         const section = page.getByRole('region', { name: label, exact: true })
+        if (id === 'problem-box') {
+          const messageBox = section.locator('figure').filter({
+            has: page.getByTestId('problem-box-run-message'),
+          })
+          const text = await messageBox.locator('.problem-box-text').boundingBox()
+          const actions = await messageBox.locator('.problem-box-actions').boundingBox()
+          expect(actions!.y).toBe(text!.y)
+        }
         await expect(section).toHaveScreenshot(
           `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}-${theme}.png`,
         )

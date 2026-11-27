@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { asPromptId, diag, type DinksterNodesPayload, type JsonObject, type NodeSchema } from '@dinkster/core'
+import { BOARD_MEDIA_TYPE, asPromptId, diag, emptyBoard, type DinksterNodesPayload, type JsonObject, type NodeSchema } from '@dinkster/core'
 import { buildDinksterRegistry, type LibraryRecord } from '@dinkster/client'
 import {
   AppState,
@@ -103,6 +103,188 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
   app.setTabTarget(tab.id, added.id)
   return { backend: added, tab }
 }
+
+describe('Board Library persistence', () => {
+  it('saves and reopens every item kind with membership and media facts, then patches the linked record without losing newer edits', async () => {
+    const { backend } = await nativeSetup()
+    const { connection, baseUrl } = backend
+    const entry = app.boards.open(emptyBoard(), 'References', baseUrl)
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [
+      { id: 'section', kind: 'section', name: 'Study', rect: { x: 1, y: 2, width: 900, height: 800 } },
+      { id: 'picture', kind: 'picture', sectionId: 'section', rect: { x: 20, y: 30, width: 100, height: 200 },
+        asset: { digest: DIGEST, mediaType: 'image/png', name: 'Portrait', width: 300, height: 600, origin: { source: 'upload' } } },
+      { id: 'video', kind: 'video', rect: { x: 210, y: 37, width: 320, height: 180 },
+        asset: { digest: DIGEST2, mediaType: 'video/webm', name: 'Motion', duration: 3.5, width: 1920, height: 1080 } },
+      { id: 'sound', kind: 'sound', rect: { x: 90, y: 220, width: 320, height: 80 },
+        asset: { digest: DIGEST, mediaType: 'audio/wav', name: 'Voice', duration: 7 } },
+      { id: 'note', kind: 'note', text: 'Keep the proportions', sectionId: 'section', rect: { x: 50, y: 320, width: 180, height: 90 } },
+    ] } })
+    const expected = structuredClone(entry.session.doc)
+    let bytes = ''
+    let saved = record({ name: entry.title, mediaType: BOARD_MEDIA_TYPE, labels: ['board'] })
+    vi.spyOn(connection, 'uploadAsset').mockImplementation(async (value) => { bytes = String(value); return DIGEST })
+    vi.spyOn(connection, 'createLibraryRecord').mockImplementation(async (value) => { saved = { ...saved, ...value }; return saved })
+    vi.spyOn(connection, 'getLibraryRecord').mockImplementation(async () => saved)
+    vi.spyOn(connection, 'fetchAssetText').mockImplementation(async () => bytes)
+    vi.spyOn(connection, 'patchLibraryRecord').mockImplementation(async (_id, patch) => {
+      if (patch.revision !== saved.revision) return { ok: false, conflict: true }
+      saved = { ...saved, ...patch, revision: saved.revision + 1 }
+      return { ok: true, record: saved }
+    })
+    expect(app.boards.isDirty(entry.id)).toBe(true)
+    await app.boards.save(entry.id)
+    expect(app.boards.isDirty(entry.id)).toBe(false)
+    expect(JSON.parse(bytes)).toEqual(expected)
+    app.boards.close(entry.id)
+    const reopened = await app.boards.openSaved(saved.id, baseUrl)
+    expect(reopened.session.doc).toEqual(expected)
+    expect(reopened.title).toBe('References')
+    expect(app.boards.isDirty(reopened.id)).toBe(false)
+    reopened.session.dispatch({ command: 'board.note.edit', params: { id: 'note', text: 'New version' } })
+    expect(app.boards.isDirty(reopened.id)).toBe(true)
+    expect(reopened.session.undo()).toBe(true)
+    expect(app.boards.isDirty(reopened.id)).toBe(false)
+    expect(reopened.session.redo()).toBe(true)
+    await app.boards.rename(reopened.id, 'Renamed references')
+    await Promise.all([app.boards.save(reopened.id), app.boards.save(reopened.id)])
+    expect(saved.revision).toBe(3)
+    expect(saved.name).toBe('Renamed references')
+    expect(app.boards.isDirty(reopened.id)).toBe(false)
+    expect((await app.boards.openSaved(saved.id, baseUrl)).session.doc.items['note']).toMatchObject({ text: 'New version' })
+    await app.boards.rename(reopened.id, 'Name only')
+    expect(app.boards.isDirty(reopened.id)).toBe(true)
+    await app.boards.save(reopened.id)
+    expect(app.boards.isDirty(reopened.id)).toBe(false)
+    app.boards.close(reopened.id)
+    expect((await app.boards.openSaved(saved.id, baseUrl)).title).toBe('Name only')
+  })
+
+  it('refuses another saved record with the same document identity without redirecting its edits to the open record', async () => {
+    const { backend } = await nativeSetup()
+    const { connection, baseUrl } = backend
+    const entry = app.boards.open(emptyBoard(), 'A', baseUrl)
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [
+      { id: 'note', kind: 'note', text: 'A contents', rect: { x: 10, y: 20, width: 160, height: 80 } },
+    ] } })
+    const copy = { ...entry.session.doc, items: {
+      ...entry.session.doc.items, note: { ...entry.session.doc.items['note']!, kind: 'note', text: 'B contents' },
+    } }
+    const records = new Map<string, LibraryRecord>([
+      ['copy', record({ id: 'copy', name: 'B', digest: DIGEST2, mediaType: BOARD_MEDIA_TYPE })],
+    ])
+    const bytes = new Map([[DIGEST2, JSON.stringify(copy)]])
+    let upload = 0
+    vi.spyOn(connection, 'uploadAsset').mockImplementation(async (text) => {
+      const digest = 'blake3:' + String(++upload).repeat(64)
+      bytes.set(digest, String(text))
+      return digest
+    })
+    vi.spyOn(connection, 'createLibraryRecord').mockImplementation(async (value) => {
+      const saved = record({ ...value, id: 'original' })
+      records.set(saved.id, saved)
+      return saved
+    })
+    vi.spyOn(connection, 'getLibraryRecord').mockImplementation(async (id) => records.get(id))
+    vi.spyOn(connection, 'fetchAssetText').mockImplementation(async (digest) => bytes.get(digest))
+    vi.spyOn(connection, 'patchLibraryRecord').mockImplementation(async (id, patch) => {
+      const saved = records.get(id)!
+      if (patch.revision !== saved.revision) return { ok: false, conflict: true }
+      const updated = { ...saved, ...patch, revision: saved.revision + 1 }
+      records.set(id, updated)
+      return { ok: true, record: updated }
+    })
+    await expect(app.boards.openSaved('copy', baseUrl)).rejects.toThrow('document identity')
+    await app.boards.save(entry.id)
+    await expect(app.boards.openSaved('copy', baseUrl)).rejects.toThrow('document identity')
+    entry.session.dispatch({ command: 'board.note.edit', params: { id: 'note', text: 'Edited A' } })
+    expect((await app.boards.openSaved('original', baseUrl)).session.doc.items['note']).toMatchObject({ text: 'Edited A' })
+    expect(app.boards.isDirty(entry.id)).toBe(true)
+    await app.boards.save(entry.id)
+    const original = records.get('original')!
+    expect(JSON.parse(bytes.get(original.digest)!).items.note.text).toBe('Edited A')
+    expect(JSON.parse(bytes.get(records.get('copy')!.digest)!).items.note.text).toBe('B contents')
+    records.set('original', { ...original, revision: original.revision + 1, digest: DIGEST2 })
+    await expect(app.boards.openSaved('original', baseUrl)).rejects.toThrow('changed since')
+    expect(entry.session.doc.items['note']).toMatchObject({ text: 'Edited A' })
+    app.boards.close(entry.id)
+    const opened = await app.boards.openSaved('copy', baseUrl)
+    expect(opened.title).toBe('B')
+    expect(opened.session.doc.items['note']).toMatchObject({ text: 'B contents' })
+    opened.session.dispatch({ command: 'board.note.edit', params: { id: 'note', text: 'Edited B' } })
+    await app.boards.save(opened.id)
+    expect(JSON.parse(bytes.get(records.get('copy')!.digest)!).items.note.text).toBe('Edited B')
+    expect(records.get('original')).toEqual({ ...original, revision: original.revision + 1, digest: DIGEST2 })
+  })
+
+  it('keeps edits made during a save dirty and refuses foreign record changes rather than overwriting them', async () => {
+    const { backend } = await nativeSetup()
+    const { connection, baseUrl } = backend
+    const entry = app.boards.open(emptyBoard(), 'References', baseUrl)
+    let release!: (digest: string) => void
+    const waiting = new Promise<string>((resolve) => { release = resolve })
+    const upload = vi.spyOn(connection, 'uploadAsset').mockReturnValue(waiting)
+    vi.spyOn(connection, 'createLibraryRecord').mockImplementation(async (value) => record(value))
+    const saving = app.boards.save(entry.id)
+    await uploadStarted(upload)
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [
+      { id: 'note', kind: 'note', text: 'Not in saved snapshot', rect: { x: 20, y: 30, width: 160, height: 80 } },
+    ] } })
+    release(DIGEST)
+    await saving
+    expect(app.boards.isDirty(entry.id)).toBe(true)
+    expect(entry.session.undo()).toBe(true)
+    expect(app.boards.isDirty(entry.id)).toBe(false)
+    entry.session.redo()
+    vi.spyOn(connection, 'patchLibraryRecord').mockResolvedValue({ ok: false, conflict: true })
+    await expect(app.boards.save(entry.id)).rejects.toThrow('changed elsewhere')
+    expect(app.boards.isDirty(entry.id)).toBe(true)
+    expect(entry.session.doc.items['note']).toMatchObject({ text: 'Not in saved snapshot' })
+  })
+
+  it('does not save into a reopened owner or resurrect a Board closed while saved bytes load', async () => {
+    const { backend } = await nativeSetup()
+    const { connection, baseUrl } = backend
+    const entry = app.boards.open(emptyBoard(), 'References', baseUrl)
+    let release!: (digest: string) => void
+    const upload = vi.spyOn(connection, 'uploadAsset').mockReturnValue(new Promise<string>((resolve) => { release = resolve }))
+    const saving = app.boards.save(entry.id)
+    const refused = expect(saving).rejects.toThrow('changed while saving')
+    await uploadStarted(upload)
+    app.boards.close(entry.id)
+    const reopened = app.boards.open(entry.session.doc, 'Reopened', baseUrl)
+    release(DIGEST)
+    await refused
+    expect(app.boards.isDirty(reopened.id)).toBe(true)
+    let load!: (text: string) => void
+    vi.spyOn(connection, 'getLibraryRecord').mockResolvedValue(record({ mediaType: BOARD_MEDIA_TYPE }))
+    const fetch = vi.spyOn(connection, 'fetchAssetText').mockReturnValue(new Promise<string>((resolve) => { load = resolve }))
+    const opening = app.boards.openSaved('r1', baseUrl)
+    const cancelled = expect(opening).rejects.toThrow('closed while opening')
+    for (let i = 0; i < 50 && fetch.mock.calls.length === 0; i++) await Promise.resolve()
+    expect(fetch.mock.calls.length).toBe(1)
+    app.boards.close(reopened.id)
+    load(JSON.stringify(entry.session.doc))
+    await cancelled
+    expect(app.boards.entries.get()).toEqual([])
+    const next = app.boards.open(entry.session.doc, 'Next', baseUrl)
+    upload.mockResolvedValue(DIGEST)
+    let finish!: (saved: LibraryRecord) => void
+    let started!: () => void
+    const creating = new Promise<void>((resolve) => { started = resolve })
+    vi.spyOn(connection, 'createLibraryRecord').mockImplementation(() => {
+      started()
+      return new Promise<LibraryRecord>((resolve) => { finish = resolve })
+    })
+    const late = app.boards.save(next.id)
+    const retired = expect(late).rejects.toThrow('original document is no longer active')
+    await creating
+    app.boards.close(next.id)
+    const replacement = app.boards.open(next.session.doc, 'Replacement', baseUrl)
+    finish(record({ mediaType: BOARD_MEDIA_TYPE }))
+    await retired
+    expect(app.boards.isDirty(replacement.id)).toBe(true)
+  })
+})
 
 describe('saveWorkflow', () => {
   it.each(['available', 'denied', 'edited', 'timed out'] as const)('saves an early snapshot with optional location lookup %s', async (outcome) => {
@@ -293,7 +475,7 @@ describe('saveWorkflow', () => {
     expect(await app.saveWorkflow(tab.id)).toBe(false)
     expect(app.problems.get().some((entry) => entry.code === 'import.notice')).toBe(true)
     expect(app.problems.get().some((d) => d.code === 'library.saveFailed')).toBe(true)
-    expect(app.transientStatus.get()).toBe('Save failed on Native: boom')
+    expect(app.transientStatus.get()).toBe('The workflow could not be saved on Native.')
   })
 
   it('AP2: an edit made while the save is in flight keeps the tab dirty', async () => {

@@ -6,6 +6,7 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { widgetValueText } from '@dinkster/canvas'
 import { BrandMark } from './BrandMark.js'
+import { failureMessage } from './request-failure.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
@@ -19,26 +20,28 @@ import BookOpen from 'lucide-solid/icons/book-open'
 import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
 import Users from 'lucide-solid/icons/users'
+import Workflow from 'lucide-solid/icons/workflow'
+import LayoutTemplate from 'lucide-solid/icons/layout-template'
 import AudioLines from 'lucide-solid/icons/audio-lines'
 import Box from 'lucide-solid/icons/box'
 import FileIcon from 'lucide-solid/icons/file'
 import FileText from 'lucide-solid/icons/file-text'
 import Film from 'lucide-solid/icons/film'
 import type { LucideIcon } from 'lucide-solid'
-import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
+import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, coreOccurrencePlanner } from './CanvasHost.js'
 import { CanvasViewControls } from './CanvasChrome.js'
 import { ContextMenu } from './ContextMenu.js'
-import { formatCollectionDate, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
+import { boardsSource, formatCollectionDate, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard, ExecutionOpenButton, executionStatusLabel } from './ExecutionActivityCard.js'
 import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
 import { mediaMetadataOf } from './media-metadata.js'
-import { resolveNodeOccurrence, withoutPassedOnDefaults } from './problem-display.js'
+import { executionProblemDiagnostics, resolveNodeOccurrence, withoutPassedOnDefaults } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
 import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
@@ -47,7 +50,7 @@ import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductConfirmation, ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductConfirmation, ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, ProductTextButton, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import type { ShellNavigation } from './Shell.js'
@@ -56,7 +59,10 @@ import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
-import { TemplateGallery } from './TemplateGallery.js'
+import { TemplatesPage } from './TemplatesPage.js'
+import { EditorFirstRunSetup } from './EditorFirstRunSetup.js'
+import { NodeCatalogRecovery } from './NodeCatalogRecovery.js'
+import type { SetupStatus } from './SetupForm.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
 import { SettingsDialog } from './SettingsDialog.js'
@@ -87,7 +93,7 @@ import { ResourcesPanel } from './ResourcesPanel.js'
 import { LearnPanel } from './help/LearnPanel.js'
 import { NodeHelpPanel } from './help/NodeHelpPanel.js'
 import { useAppMessage } from './locale.js'
-import { UniversalSearch, UniversalSearchTrigger } from './UniversalSearch.js'
+import { shortcutKeys, UniversalSearch, UniversalSearchTrigger } from './UniversalSearch.js'
 import { bindSearchCatalog, registerCoreSearchProviders } from './universal-search.js'
 import { NodeInstallPrompt } from './NodeInstallPrompt.js'
 import { ProjectNeedsPrompt } from './ProjectNeedsPrompt.js'
@@ -99,10 +105,12 @@ import {
   FloatingPanelHost,
   IconBar,
   PanelIndicatorBadge,
+  positionResizeGrip,
   ShellRegionIcon,
   ShellResizeHandle,
   ShellTooltip,
   TransientStatus,
+  windowBarPlatform,
 } from './ShellChrome.js'
 import { PanelDragOverlay } from './PanelDragOverlay.js'
 import { TabDragGhost } from './TabDragGhost.js'
@@ -117,11 +125,12 @@ import {
   panelDragReleaseAction,
   rollbackPanelDragModel,
   type PanelDragModel,
+  type PanelDragTabFit,
   type PanelDragRect,
   type PanelDragSectionGeometry,
   type PanelDragVisibleZoneGeometry,
 } from './panel-drag.js'
-import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
+import { WorkflowTabs, workflowTabDomId, workflowTabIcon } from './WorkflowTabs.js'
 import { isPageTab, PageTabPanel } from './page-tabs.js'
 import type { AppTab } from './app-page-tabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
@@ -199,7 +208,7 @@ const splitDropNextLayout = (layout: EditorLayout, target: SplitDropTarget, tabI
 }
 
 const APP_MENU_COMMAND_GROUPS = [
-  { group: '10-open', ids: ['workflow.open', 'workflow.importFile'] },
+  { group: '10-open', ids: ['workflow.open', 'workflow.importFile', 'board.new'] },
   { group: '20-write', ids: ['workflow.save', 'workflow.export'] },
   { group: '30-edit', ids: ['edit.undo', 'edit.redo', 'edit.selectAll', 'subgraph.manageDefinitions'] },
   { group: '40-view', ids: ['view.zoomIn', 'view.zoomOut', 'view.fitSelection', 'layout.customize'] },
@@ -366,7 +375,7 @@ export function dispatchAppCommandKey(
   }
   const commandId = app.keybindings.match(event)
   if (shortcutSuppressed(event)) return
-  if (commandId !== 'search.open' && !hasActiveTab) return
+  if (!hasActiveTab && commandId !== 'search.open' && commandId !== 'workflow.new' && commandId !== 'workflow.openTemplateGallery') return
   const command = commandId ? app.commands.get(commandId) : undefined
   if (!command) return
   if (command.enabled?.() !== false) {
@@ -503,6 +512,8 @@ export function App(props: {
   const dirtyTabs = useSignal(app.dirtyTabs)
   const tabResultClears = useSignal(app.clearedTabResults)
   const collabTabs = useSignal(app.collabTabs)
+  const boards = useSignal(app.boards.entries)
+  const boardForTab = (id: string) => boards().find((entry) => `page:board:${entry.id}` === id)
   const executions = useSignal(app.store.executions)
   const problems = useSignal(app.problems)
   const queueRefusal = useSignal(app.queueRefusal)
@@ -532,6 +543,7 @@ export function App(props: {
   const modalPanel = useSignal(app.modalPanel)
   const searchOpen = useSignal(app.searchOpen)
   const nodeInstallRequest = useSignal(app.nodeInstallRequest)
+  const catalogSetupRequested = useSignal(app.nodeCatalogSetupRequested)
   const projectNeedsReview = useSignal(app.projectNeedsReview)
   const projectPackNotification = useSignal(app.projectPackNotification)
   const placementStatus = useSignal(app.placementStatus)
@@ -564,17 +576,7 @@ export function App(props: {
   const activityBarVisible = useSignal(app.shell.activityBarVisible)
   // Desktop marks the bar with its platform. On macOS the logo sits at the top
   // of the left bar, and after the window buttons while that bar is hidden.
-  const [barPlatform, setBarPlatform] = createSolidSignal<string | undefined>()
-  onMount(() => {
-    // The bar may mount after this component, and Desktop may set the attribute later.
-    const read = (): void => {
-      setBarPlatform(document.querySelector<HTMLElement>('.dinkster-window-toolbar-host')?.dataset['platform'])
-    }
-    read()
-    const observer = new MutationObserver(read)
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-platform'] })
-    onCleanup(() => observer.disconnect())
-  })
+  const barPlatform = windowBarPlatform(() => shellEl)
   const logoInLeftBar = (): boolean => barPlatform() === 'darwin' && activityBarVisible()
   const statusBarVisible = useSignal(app.shell.statusBarVisible)
   const dockWidth = useSignal(app.shell.leftWidth)
@@ -587,10 +589,11 @@ export function App(props: {
     endRegionResize?.()
     if (region === 'left') app.shell.previewSize(region, renderedDockWidth())
     if (region === 'right') app.shell.previewSize(region, renderedRailWidth())
-    endRegionResize = beginRegionResize(app.shell, region, down, sign)
+    if (region === 'bottom') app.shell.previewSize(region, renderedBottomHeight())
+    endRegionResize = beginRegionResize(app.shell, region, down, sign, () => maximumRegionSize(region))
   }
   const resizeFromKeyboard = (region: ShellRegion) => (value: number): void => {
-    app.shell.previewSize(region, value)
+    app.shell.previewSize(region, Math.min(maximumRegionSize(region), value))
     app.shell.commitSize(region)
   }
   onCleanup(() => endRegionResize?.())
@@ -616,7 +619,7 @@ export function App(props: {
   })
   // Built-in browsable collections; sources are live (corpus re-read per
   // page), so one instance each for the app's lifetime is correct.
-  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app)]
+  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app), boardsSource(app)]
   const storedRuns = runsSource(app)
   const browserHistory = historySource(app)
   const libraryTemplatesEnabled = createMemo(() => {
@@ -625,7 +628,12 @@ export function App(props: {
     backendsTick()
     return app.libraryBackend()?.templatesEnabled.get() === true
   })
-  const librarySources = createMemo(() => builtinLibrarySources.filter((source) => source.id !== 'templates' || libraryTemplatesEnabled()))
+  const librarySources = createMemo(() => {
+    settingsTick()
+    return builtinLibrarySources.filter((source) =>
+      (source.id !== 'templates' || libraryTemplatesEnabled()) &&
+      (source.id !== 'boards' || app.settings.get<boolean>('features.board.enabled')))
+  })
   // The backend the library browses (the active tab's target). A memo so
   // the panel re-pages exactly when the resolved backend IDENTITY changes
   // (tab switch onto another backend, retarget, backend removal) - not on
@@ -641,13 +649,33 @@ export function App(props: {
   // (dis)connect/reload packs, executions arrive or change status, or the
   // library backend itself changes (remote sources now serve a different
   // backend's records - a stale mixed list must not linger).
+  const boardsLibraryChanged = useSignal(app.boards.libraryChanged)
   const libraryTick = (): number => {
     backendsTick()
     executions()
     libraryOwner()
+    boardsLibraryChanged()
     return 0
   }
   const activateLibraryEntry = (sourceId: string, entry: CollectionEntry): void => {
+    if (sourceId === 'boards') {
+      if (!app.settings.get<boolean>('features.board.enabled') || entry.owner === undefined) return
+      const backend = app.backends.get().find((candidate) => candidate.id === entry.owner && candidate.protocol === 'dinkster')
+      if (!backend) {
+        app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'library.ownerGone', 'the backend this entry came from is no longer connected')])
+        return
+      }
+      const stillWanted = app.beginDocumentOpen()
+      void app.boards.openSaved(entry.id, backend.baseUrl, stillWanted).then((board) => {
+        if (!stillWanted() || !app.backends.get().includes(backend) || !app.boards.entries.get().includes(board)) return
+        if (app.pages.open(`board:${board.id}`)) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
+      }).catch((reason: unknown) => {
+        if (stillWanted() && app.backends.get().includes(backend)) app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
+          diag('error', 'validation', 'board.openFailed', failureMessage(reason, 'The board could not be opened.')),
+        ])
+      })
+      return
+    }
     if (sourceId === 'workflows') {
       if (entry.owner === undefined) return
       void app.openFromLibrary(entry.id, entry.owner).then((ok) => {
@@ -674,7 +702,7 @@ export function App(props: {
       if (entry.owner === undefined) return
       const ref = entry.ref as TemplateCollectionRef | undefined
       const opening = ref?.kind === 'remote'
-        ? app.openRemoteTemplate(ref.template, entry.title)
+        ? app.openRemoteTemplate(ref.template, entry.title, entry.owner)
         : ref?.kind === 'local'
           ? app.openTemplate(ref.pack, ref.id, entry.title, entry.owner)
           : Promise.resolve(false)
@@ -685,59 +713,20 @@ export function App(props: {
     }
     if (sourceId !== 'runs' || entry.owner === undefined) return
     const runId = runIdOfEntry(entry)
-    if (actionId === 'delete' && !deletingRun()) {
-      setDeleteRunError('')
-      setPendingDeleteRun({ owner: entry.owner, id: entry.id, runId, name: entry.title })
+    if (actionId === 'delete') {
+      // AppState reports deletion failures in Problems before rejecting.
+      void app.deleteHistoryRun(runId, entry.owner).catch(() => {})
     }
     if (actionId === 'open') void app.openRunWorkflow(runId, entry.owner)
     if (actionId === 'resubmit') void app.resubmitRunWorkflow(runId, entry.owner)
   }
-  const [pendingDeleteRun, setPendingDeleteRun] = createSolidSignal<{ owner: string; id: string; runId: string; name: string }>()
-  const [deletingRun, setDeletingRun] = createSolidSignal(false)
-  const [deleteRunError, setDeleteRunError] = createSolidSignal('')
-  const confirmDeleteRun = async (): Promise<void> => {
-    const target = pendingDeleteRun()
-    if (!target || deletingRun()) return
-    setDeletingRun(true)
-    setDeleteRunError('')
-    try {
-      await app.deleteHistoryRun(target.runId, target.owner)
-      setPendingDeleteRun(undefined)
-    } catch (cause) {
-      setDeleteRunError(message('runs.delete.failed', { name: target.name, reason: cause instanceof Error ? cause.message : String(cause) }))
-    } finally { setDeletingRun(false) }
-  }
-  createEffect(() => {
-    if (!deletingRun() && pendingDeleteRun()?.owner !== activeBackend().id) setPendingDeleteRun(undefined)
-  })
-  // The confirmation keeps the committed collection page's owner, never
-  // routing a clear to a backend selected while that page is being replaced.
-  const [pendingClear, setPendingClear] = createSolidSignal<{ owner: string; name: string }>()
   const [clearing, setClearing] = createSolidSignal(false)
-  const [clearError, setClearError] = createSolidSignal('')
   const librarySourceAction = (sourceId: string, actionId: string, owner?: string): void => {
     if (sourceId !== 'runs' || actionId !== 'clear' || owner === undefined || clearing()) return
-    const backend = backends().find((candidate) => candidate.id === owner)
-    if (backend) {
-      setClearError('')
-      setPendingClear({ owner, name: backend.label })
-    }
-  }
-  const confirmClear = async (): Promise<void> => {
-    const target = pendingClear()
-    if (!target || clearing()) return
     setClearing(true)
-    setClearError('')
-    try {
-      await app.clearRunHistory(target.owner)
-      setPendingClear(undefined)
-    } catch (cause) {
-      setClearError(message('runs.clear.failed', { reason: cause instanceof Error ? cause.message : String(cause) }))
-    } finally { setClearing(false) }
+    // The committed page supplies its owner; AppState reports failures in Problems.
+    void app.clearRunHistory(owner).catch(() => {}).finally(() => setClearing(false))
   }
-  createEffect(() => {
-    if (!clearing() && pendingClear()?.owner !== activeBackend().id) setPendingClear(undefined)
-  })
   const multiBackend = () => backends().length > 1
 
   // Pending close is validated by (id, DocumentSession): a same-id
@@ -908,9 +897,11 @@ export function App(props: {
   const [tabDrag, setTabDrag] = createSolidSignal<{
     readonly tabId: string
     readonly title: string
+    readonly icon: LucideIcon
     readonly sourceGroupId: string
     readonly x: number
     readonly y: number
+    readonly width: number
     /** Reorder preview; set only while the pointer rides the source strip. */
     readonly order: readonly string[] | undefined
     readonly insertionIndex: number | undefined
@@ -918,6 +909,7 @@ export function App(props: {
     readonly dropTarget: SplitDropTarget | undefined
     /** Another group's strip the pointer is over. */
     readonly targetStripId: string | undefined
+    readonly targetStripIndex: number | undefined
     /** True when releasing here would do nothing (refused split, pop-out unavailable). */
     readonly refused: boolean
   } | undefined>(undefined)
@@ -1005,9 +997,11 @@ export function App(props: {
     paneEntriesPrev = next
     return next
   })
-  const beginDividerDrag = (divider: SplitDividerRect, down: PointerEvent): void => {
+  const beginDividerDrag = (divider: SplitDividerRect, down: PointerEvent & { currentTarget: HTMLDivElement }): void => {
     if (down.button !== 0 || regionElement === undefined) return
     down.preventDefault()
+    positionResizeGrip(down)
+    down.currentTarget.setPointerCapture(down.pointerId)
     const region = regionElement.getBoundingClientRect()
     // The divider's area (its split node's box) is fixed for the whole
     // drag: only this split's own ratio changes.
@@ -1046,6 +1040,7 @@ export function App(props: {
   }
   const beginTabDrag = (tab: AppTab, down: PointerEvent, groupId: string): void => {
     if (down.button !== 0) return
+    tooltips.hide()
     const strip = stripElements.get(groupId)
     if (strip === undefined) return
     const pointerId = down.pointerId
@@ -1055,6 +1050,24 @@ export function App(props: {
       return
     }
     if ((down.target as Element | null)?.closest('.tab-close')) return
+    // Feedback parts the row. Hit-testing uses the unshifted centers, adjusted
+    // for scrolling, rather than measuring its own insertion gap.
+    const stripSlots = new Map([...stripElements.values()].map((element) => {
+      const row = element.querySelector<HTMLElement>('.workflow-tablist')!
+      const left = element.getBoundingClientRect().left
+      const slots = [...element.querySelectorAll<HTMLElement>('.tab')].map((item) => {
+        const rect = item.getBoundingClientRect()
+        return { id: item.dataset['tabId']!, left: rect.left - left + row.scrollLeft, right: rect.right - left + row.scrollLeft }
+      })
+      return [element, { row, slots }] as const
+    }))
+    const sourceSlot = stripSlots.get(strip)!.slots.find((slot) => slot.id === tab.id)!
+    const width = sourceSlot.right - sourceSlot.left
+    const slotsFor = (element: HTMLElement): readonly TabDragSlot[] => {
+      const snapshot = stripSlots.get(element)!
+      const offset = element.getBoundingClientRect().left - snapshot.row.scrollLeft
+      return snapshot.slots.map((slot) => ({ id: slot.id, left: slot.left + offset, right: slot.right + offset }))
+    }
     tabDragPointerId = pointerId
     let drag = beginTabDragModel(pointerId, tab.id, down.clientX)
     let captured = false
@@ -1065,10 +1078,7 @@ export function App(props: {
     const within = (rect: DOMRect, x: number, y: number, pad = 0): boolean =>
       x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad
     const stripInsertionIndex = (element: HTMLElement, clientX: number): number =>
-      Array.from(element.querySelectorAll<HTMLElement>('.tab')).filter((el) => {
-        const rect = el.getBoundingClientRect()
-        return clientX >= (rect.left + rect.right) / 2
-      }).length
+      slotsFor(element).filter((slot) => clientX >= (slot.left + slot.right) / 2).length
     const dispose = (): void => {
       if (disposed) return
       disposed = true
@@ -1085,11 +1095,7 @@ export function App(props: {
       const wasStarted = drag.started
       const elements = Array.from(strip.querySelectorAll<HTMLElement>('.tab'))
       const currentOrder = elements.map((element) => element.dataset['tabId']!)
-      const slots: readonly TabDragSlot[] = elements.map((element) => {
-        const rect = element.getBoundingClientRect()
-        return { id: element.dataset['tabId']!, left: rect.left, right: rect.right }
-      })
-      drag = moveTabDragModel(drag, event.pointerId, event.clientX, currentOrder, slots)
+      drag = moveTabDragModel(drag, event.pointerId, event.clientX, currentOrder, slotsFor(strip))
       if (!drag.started) return
       if (!wasStarted && !captured) {
         try {
@@ -1111,7 +1117,7 @@ export function App(props: {
       overSourceStrip = within(strip.getBoundingClientRect(), event.clientX, event.clientY, 24)
       if (!overSourceStrip) {
         for (const [gid, element] of stripElements) {
-          if (gid === groupId || !element.isConnected) continue
+          if (gid === groupId || !element.isConnected || !stripSlots.has(element)) continue
           if (within(element.getBoundingClientRect(), event.clientX, event.clientY, 8)) {
             stripTarget = { groupId: gid, index: stripInsertionIndex(element, event.clientX) }
             break
@@ -1137,13 +1143,16 @@ export function App(props: {
       restoreTabFocusAfter(() => setTabDrag({
         tabId: tab.id,
         title: tab.title,
+        icon: workflowTabIcon(tab, !isPageTab(tab) && tab.execution !== undefined),
         sourceGroupId: groupId,
         x: event.clientX,
         y: event.clientY,
+        width,
         order: overSourceStrip ? preview.order : undefined,
         insertionIndex: overSourceStrip ? preview.insertionIndex : undefined,
         dropTarget: paneTarget,
         targetStripId: stripTarget?.groupId,
+        targetStripIndex: stripTarget?.index,
         refused,
       }))
     }
@@ -1279,9 +1288,13 @@ export function App(props: {
     backendsTick()
     return b.registry.get()?.schemas.size
   }
+  const [setupEditors, setSetupEditors] = createSolidSignal<ReadonlyMap<object, { backend: string; status: SetupStatus }>>(new Map())
+  const setupStatus = () => [...setupEditors().values()].find((editor) => editor.backend === activeBackend().baseUrl)?.status
   const engineGate = (tab: Tab) => {
     backendsTick()
-    const sup = app.backendForTab(tab).supervisor.get()
+    const backend = app.backendForTab(tab)
+    if ([...setupEditors().values()].some((editor) => editor.backend === backend.baseUrl)) return undefined
+    const sup = backend.supervisor.get()
     return sup && sup.state !== 'ready' ? sup : undefined
   }
 
@@ -1292,7 +1305,9 @@ export function App(props: {
     backendsTick()
     tabTargets()
     const tab = activeTab()
-    return tab ? app.backendForTab(tab) : backends()[0]!
+    const board = app.boards.entries.get().find((entry) => `page:board:${entry.id}` === activeTabId())
+    return board ? backends().find((backend) => backend.baseUrl === board.baseUrl) ?? backends()[0]!
+      : tab ? app.backendForTab(tab) : backends()[0]!
   }
 
   const servicesKind = (): 'qa' | 'custom' | undefined => {
@@ -1417,6 +1432,9 @@ export function App(props: {
         return { label: backend.label, protocol: backend.protocol, status: statusOf(backend) }
       }}
       refreshTick={libraryTick}
+      catalogRecovery={activeBackend().registry.get()?.schemas.size === 0
+        ? <Show when={activeBackend()} keyed>{(backend) => <NodeCatalogRecovery app={app} backend={backend} />}</Show>
+        : undefined}
       onActivate={activateLibraryEntry}
       onAction={libraryEntryAction}
     />
@@ -1588,7 +1606,7 @@ export function App(props: {
         const values = backend.connection.historyValues(run)
         setLoaded({ execution, values })
       } catch (error) {
-        if (alive) setLoadError(error instanceof Error ? error.message : String(error))
+        if (alive) setLoadError(failureMessage(error, message('runs.loadError')))
       } finally {
         if (alive) setLoading(false)
       }
@@ -1657,7 +1675,6 @@ export function App(props: {
       onCopyJobId={() => { const jobId = record()?.jobId; if (jobId !== undefined) void navigator.clipboard?.writeText(jobId) }}
       onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
-      <Show when={pendingDeleteRun()?.owner === p.entry.owner && pendingDeleteRun()?.id === p.entry.id} fallback={<>
       <div class="run-row-line">
         <span class="run-row-thumbnail" aria-hidden="true">
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
@@ -1672,7 +1689,7 @@ export function App(props: {
       </div>
       <Show when={p.selected()}>
         <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
-        <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
+        <Show when={loadError()}>{(error) => <p role="status" title={error()}>{error()}</p>}</Show>
         <Show when={known()} fallback={<Show when={loaded()} fallback={<>
           {chosen()}
           <Show when={inspectOpen()}><div class="run-chosen-inspection" data-testid="run-inspection"><Facts /></div></Show>
@@ -1681,12 +1698,6 @@ export function App(props: {
         }</Show>}>
           {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />}
         </Show>
-      </Show>
-      </>}>
-        <ProductConfirmation title={message('runs.delete.title', { name: pendingDeleteRun()!.name })}
-          consequence={message('runs.delete.consequence')} actionLabel={message('runs.chosen.delete')}
-          intent="remove" surface="inherit" pending={deletingRun()} error={deleteRunError()}
-          onCancel={() => { setDeleteRunError(''); setPendingDeleteRun(undefined) }} onConfirm={() => void confirmDeleteRun()} />
       </Show>
     </div>
   }
@@ -1734,17 +1745,13 @@ export function App(props: {
       </Show>
       <Show when={shownRunScope() === 'workflow'} fallback={<>
         <h3 class="run-section-title">{message('runs.section.finished')}</h3>
-        <Show when={pendingClear()}>{(target) => <ProductConfirmation
-          title={message('runs.clear.title', { backend: target().name })} consequence={message('runs.clear.confirmation')}
-          actionLabel={message('runs.clear.action')} intent="remove" pending={clearing()} error={clearError()}
-          onCancel={() => { setClearError(''); setPendingClear(undefined) }} onConfirm={() => void confirmClear()} />}</Show>
         <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
             ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
           entryContent={(entry, selected) => <StoredRun entry={entry()} selected={selected} />}
           onAction={libraryEntryAction}
-          sourceActions={pendingClear() ? [] : [{ sourceId: 'runs', id: 'clear', label: message('runs.clear.action') }]}
+          sourceActions={[{ sourceId: 'runs', id: 'clear', label: message('runs.clear.action') }]}
           onSourceAction={librarySourceAction} />
       </>}>
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>
@@ -1781,7 +1788,7 @@ export function App(props: {
     const others = [
       ...visibleProblems(problems(), new Set([activeTabId()])),
       ...(activeTab()?.execution ? execution?.artifact?.diagnostics ?? [] : []),
-      ...(execution?.errors ?? []),
+      ...(execution === undefined ? [] : executionProblemDiagnostics(execution)),
     ]
     return [...withoutPassedOnDefaults(solveDiagnostics(), others), ...others]
   }
@@ -1966,9 +1973,50 @@ export function App(props: {
     backendsTick()
     return backends().some((backend) => backend.templatesEnabled.get())
   })
+  const openTemplates = (backend: Backend | undefined = app.libraryBackend()): void => {
+    if (backend?.templatesEnabled.get()) app.pages.open('templates', backend.id)
+  }
+  onCleanup(app.frontendDoors.command('workflow.new', {
+    get label() { return message('templatesEntry.blank') },
+    run: () => { app.createWorkflow() },
+  }))
+  onCleanup(app.keybindings.register({ command: 'workflow.new', combo: 'Alt+N' }))
+  const documentKeys = (command: string): readonly string[] | undefined => {
+    settingsTick()
+    const combo = app.keybindings.combo(command)
+    return combo === undefined ? undefined : shortcutKeys(combo)
+  }
+  onCleanup(app.pages.register({
+    id: 'templates',
+    get title() { return message('templatesPage.title') },
+    icon: LayoutTemplate,
+    enabled: () => {
+      backendsTick()
+      const page = shellTabs().find((tab) => isPageTab(tab) && tab.pageId === 'templates')
+      return page && isPageTab(page)
+        ? backends().some((backend) => backend.id === page.parameters && backend.templatesEnabled.get())
+        : templatesAvailable()
+    },
+    component: (context) => {
+      const backend = app.backends.get().find((candidate) => candidate.id === context.tab.parameters)
+      if (backend?.protocol !== 'dinkster') return undefined
+      return <TemplatesPage app={app} backend={backend}
+        onOpen={(entry) => {
+          const ref = entry.ref as TemplateCollectionRef
+          return ref.kind === 'remote'
+            ? app.openRemoteTemplate(ref.template, entry.title, backend.id, context.tab)
+            : app.openTemplate(ref.pack, ref.id, entry.title, backend.id, context.tab)
+        }}
+        onBlank={() => {
+          const workflow = app.createWorkflow()
+          app.setTabTarget(workflow.id, backend.id)
+          context.replaceWithWorkflow(workflow)
+        }}
+        onOpenStorage={() => openStorage(backend)} />
+    },
+  }))
   createEffect(() => {
     if (!templatesAvailable()) {
-      app.templateGalleryOpen.set(false)
       return
     }
     const unregisterSetting = app.settings.register({
@@ -1978,18 +2026,19 @@ export function App(props: {
       category: 'templates', type: 'string', defaultValue: '',
     })
     const unregisterCommand = app.frontendDoors.command('workflow.openTemplateGallery', {
-      get label() { return t('command.workflow.openTemplateGallery') },
-      run: () => app.templateGalleryOpen.set(true),
-      enabled: () => app.activeTab() !== undefined && app.activeTab()?.execution === undefined && activeBackend().templatesEnabled.get(),
+      get label() { return message('templatesEntry.fromTemplate') },
+      run: () => openTemplates(),
+      enabled: () => app.libraryBackend()?.templatesEnabled.get() === true,
     })
-    onCleanup(() => { unregisterCommand(); unregisterSetting() })
+    const unregisterKeybinding = app.keybindings.register({ command: 'workflow.openTemplateGallery', combo: 'Alt+T' })
+    onCleanup(() => { unregisterKeybinding(); unregisterCommand(); unregisterSetting() })
   })
   // The center region resolves every editor through EditorRegistry rather
   // than shell JSX branches.
   const GraphEditor = (editorProps: { readonly host?: EditorHostContext }) => {
+    const setupOwner = {}
     const tabs = useSignal(app.tabs)
     const globalActiveTabId = useSignal(app.activeTabId)
-    const galleryRequested = useSignal(app.templateGalleryOpen)
     const [documentRevision, setDocumentRevision] = createSolidSignal(0)
     const activeTabId = () => editorProps.host?.tabId() ?? globalActiveTabId()
     const activeEditorTab = () => tabs().find((tab) => tab.id === activeTabId())
@@ -2031,8 +2080,10 @@ export function App(props: {
       const root = tab.store.doc.graphs[tab.store.doc.root]
       return root !== undefined && Object.keys(root.nodes).length === 0
     }
-    const close = (): void => {
-      app.templateGalleryOpen.set(false)
+    const templatesEnabled = (): boolean => {
+      backendsTick()
+      const tab = activeEditorTab()
+      return tab !== undefined && app.backendForTab(tab).templatesEnabled.get()
     }
     return <div class="graph-editor-with-gallery">
       <div class="graph-editor-canvas">
@@ -2049,13 +2100,21 @@ export function App(props: {
             />
         </Show>
       </div>
-      <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
-        <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
-          {message('templateGallery.open')}
-        </ProductButton>
+      <Show when={empty() && !catalogSetupRequested()}>
+        <EditorFirstRunSetup backendUrl={activeBackend().baseUrl} onStatusChange={(status) => {
+          setSetupEditors((current) => {
+            const next = new Map(current)
+            if (status) next.set(setupOwner, { backend: activeBackend().baseUrl, status })
+            else next.delete(setupOwner)
+            return next
+          })
+        }} />
       </Show>
-      <Show when={activeBackend().templatesEnabled.get()}>
-        <TemplateGallery app={app} visible={galleryRequested} onClose={close} />
+      <Show when={templatesEnabled() && activeEditorTab()?.execution === undefined && !sessionFailed() && empty()}>
+        <div class="template-empty-canvas" data-testid="template-empty-canvas">
+          <span>{message('templatesEntry.addNode')}</span>
+          <span>{message('templatesEntry.or')}{' '}<ProductTextButton label={message('templateGallery.open')} onClick={() => openTemplates(app.backendForTab(activeEditorTab()!))} /></span>
+        </div>
       </Show>
     </div>
   }
@@ -2095,7 +2154,7 @@ export function App(props: {
    * editor consumed from double-firing as a command.
    */
   const onCommandKeyDown = (e: KeyboardEvent): void => {
-    dispatchAppCommandKey(app, e, activeTab() !== undefined)
+    dispatchAppCommandKey(app, e, shellTabs().some((tab) => tab.id === activeTabId()))
   }
   window.addEventListener('keydown', onCommandKeyDown)
   onCleanup(() => window.removeEventListener('keydown', onCommandKeyDown))
@@ -2203,6 +2262,7 @@ export function App(props: {
   const bottomOpen = () => zoneOpen('bottom') && bottomZonePanels().length > 0
   let bodyElement!: HTMLDivElement
   const [sideSpace, setSideSpace] = createSolidSignal<{ single: number; both: number }>()
+  const [bottomSpace, setBottomSpace] = createSolidSignal(REGION_SIZE_BOUNDS.bottom.fallback)
   onMount(() => {
     if (managedContext().kind === 'panel') return
     const sidebar = bodyElement.querySelector<HTMLElement>(':scope > .left-sidebar')!
@@ -2212,19 +2272,33 @@ export function App(props: {
       const sidebarWidth = sidebar.getBoundingClientRect().width
       const sidebarShare = sidebarWidth > 0 ? sidebarWidth + gap + Number.parseFloat(getComputedStyle(sidebar).marginRight) : 0
       const available = bodyElement.clientWidth - Number.parseFloat(style.paddingLeft)
-        - Number.parseFloat(style.paddingRight) - sidebarShare - 320
+        - Number.parseFloat(style.paddingRight) - sidebarShare - 200
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
-        : { single: Math.max(0, available - gap), both: Math.max(0, available - 2 * gap) })
+        : { single: Math.max(0, Math.floor(available - gap)), both: Math.max(0, Math.floor(available - 2 * gap)) })
+      const tabHeight = Math.max(0, ...Array.from(bodyElement.querySelectorAll<HTMLElement>('.editor-group > .tab-strip'),
+        (strip) => strip.getBoundingClientRect().height))
+      setBottomSpace(Math.max(REGION_SIZE_BOUNDS.bottom.min, Math.floor(bodyElement.clientHeight - tabHeight - 160 - gap)))
     }
     const observer = new ResizeObserver(measure)
     observer.observe(bodyElement)
     observer.observe(sidebar)
+    if (regionElement) observer.observe(regionElement)
     measure()
     onCleanup(() => observer.disconnect())
   })
-  const renderedDockWidth = () => Math.min(dockWidth(), Math.max(REGION_SIZE_BOUNDS.left.min, sideSpace()?.single ?? dockWidth()))
-  const renderedRailWidth = () => Math.min(railWidth(), Math.max(REGION_SIZE_BOUNDS.right.min, sideSpace()?.single ?? railWidth()))
+  const maximumRegionSize = (region: ShellRegion): number => {
+    if (region === 'bottom') return bottomSpace()
+    const space = sideSpace()
+    const opposite = region === 'left' ? railWidth() : dockWidth()
+    const oppositeOpen = region === 'left' ? railOpen() : leftOpen()
+    return Math.max(REGION_SIZE_BOUNDS[region].min, space === undefined
+      ? bodyElement?.clientWidth ?? REGION_SIZE_BOUNDS[region].fallback
+      : oppositeOpen ? space.both - opposite : space.single)
+  }
+  const renderedDockWidth = () => Math.min(dockWidth(), maximumRegionSize('left'))
+  const renderedRailWidth = () => Math.min(railWidth(), maximumRegionSize('right'))
+  const renderedBottomHeight = () => Math.min(bottomHeight(), maximumRegionSize('bottom'))
   let previousRailOpen = railOpen()
   createEffect(() => {
     const right = railOpen()
@@ -2238,11 +2312,17 @@ export function App(props: {
     }
   })
   const [panelDrag, setPanelDrag] = createSolidSignal<PanelDragModel>()
+  let panelDragWidth = 0
   let panelDragPointerId: number | undefined
   let disposePanelDrag: (() => void) | undefined
+  let updatePanelDragTabFit: ((fit: PanelDragTabFit | undefined) => void) | undefined
   const publishPanelDrag = (drag: PanelDragModel | undefined): void => {
-    setPanelDrag(drag)
     const active = drag?.started === true && !drag.rolledBack
+    if (active) {
+      tooltips.hide()
+      bodyElement.style.setProperty('--tab-drag-width', `${panelDragWidth}px`)
+    } else bodyElement.style.removeProperty('--tab-drag-width')
+    setPanelDrag(drag)
     document.body.classList.toggle('panel-drag-active', active)
     document.body.classList.toggle('panel-drag-not-allowed', active && drag.preview?.allowed === false)
   }
@@ -2317,6 +2397,18 @@ export function App(props: {
     if (panelId === undefined || originZone === undefined || descriptor === undefined || snapshot === undefined) return
 
     disposePanelDrag?.()
+    const tab = target.matches('[data-panel-title]')
+      ? target.closest('.dock-zone-section')!.querySelector<HTMLElement>(`.product-tab[data-tab-id="${CSS.escape(panelId)}"]`)!
+      : target
+    const tablist = tab.closest<HTMLElement>('.product-tablist')!
+    const display = tablist.style.display
+    const tabDisplay = tab.style.display
+    // Title-only headers stretch, but their mounted tab has the landing-row size.
+    tablist.style.display = 'flex'
+    tab.style.display = 'block'
+    panelDragWidth = tab.getBoundingClientRect().width
+    tab.style.display = tabDisplay
+    tablist.style.display = display
     panelDragPointerId = pointerId
     let drag = beginPanelDragModel(
       pointerId,
@@ -2328,6 +2420,11 @@ export function App(props: {
         floating: descriptor.allowedPlacements.includes('floating'),
       },
     )
+    updatePanelDragTabFit = (tabFit) => {
+      if (panelDrag() === undefined || drag.rolledBack) return
+      drag = movePanelDragModel({ ...drag, tabFit }, pointerId, drag.point)
+      publishPanelDrag(drag)
+    }
     let captured = false
     let disposed = false
     let clickCleanupTimer: ReturnType<typeof setTimeout> | undefined
@@ -2358,6 +2455,7 @@ export function App(props: {
       target.removeEventListener('lostpointercapture', lostCapture)
       if (captured && target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
       if (panelDragPointerId === pointerId) panelDragPointerId = undefined
+      updatePanelDragTabFit = undefined
       if (disposePanelDrag === dispose) disposePanelDrag = undefined
     }
     const rollback = (): void => {
@@ -2423,6 +2521,8 @@ export function App(props: {
     }
     const finish = (event: PointerEvent): void => {
       if (event.pointerId !== pointerId) return
+      // Restore the unshifted row before the release-time geometry check.
+      publishPanelDrag(undefined)
       const currentSnapshot = drag.started ? capturePanelDragSnapshot() : undefined
       const action = panelDragReleaseAction(drag, currentSnapshot === undefined ? undefined : {
         snapshot: currentSnapshot,
@@ -2822,7 +2922,10 @@ export function App(props: {
         data-testid="editor-group"
         data-group-id={p.groupId}
         data-focused={paneFocused() ? 'true' : 'false'}
-        style={paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }}
+        style={{
+          ...(paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }),
+          '--tab-drag-width': tabDrag() !== undefined ? `${tabDrag()!.width}px` : undefined,
+        }}
         onFocusIn={focusPane}
         ref={sectionElement}
       >
@@ -2833,6 +2936,7 @@ export function App(props: {
             activeId={group().activeTabId}
             draggedId={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.tabId : undefined}
             insertionIndex={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.insertionIndex : undefined}
+            dropIndex={tabDrag()?.targetStripId === p.groupId ? tabDrag()?.targetStripIndex : undefined}
             runState={(tab) => {
               executions()
               tabResultClears()
@@ -2847,9 +2951,9 @@ export function App(props: {
               return message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
                 state: status === undefined ? '' : executionStatusLabel(status).toLocaleLowerCase() })
             }}
-            isShared={(tab) => collabTabs().has(tab.id)}
+            isShared={(tab) => collabTabs().has(tab.id) || boardForTab(tab.id)?.shared !== undefined}
             renderLeading={(tab) => (
-              <Show when={collabTabs().get(tab.id)} keyed>
+              <Show when={collabTabs().get(tab.id) ?? boardForTab(tab.id)?.shared} keyed>
                 {(entry) => <TabCollabDot entry={entry} />}
               </Show>
             )}
@@ -2862,6 +2966,14 @@ export function App(props: {
             onActivate={(event, tab) => activateTab(event, tab.id, p.groupId)}
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
             onRename={(tab, title) => app.renameTab(tab.id, title)}
+            canRename={(tab) => {
+              const board = boardForTab(tab.id)
+              return board ? app.boards.canRename(board.id) : !isPageTab(tab) && ['graph', 'app'].includes(tab.editorKind)
+            }}
+            renameName={(tab) => {
+              const board = boardForTab(tab.id)
+              return board ? board.name : tab.title
+            }}
             onDuplicate={(tab) => {
               if (isPageTab(tab)) return
               void app.duplicateTab(tab.id).then((copy) => {
@@ -2875,11 +2987,30 @@ export function App(props: {
             onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
-            canShare={(tab) => !isPageTab(tab) && tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
+            newItems={[
+              { label: message('templatesEntry.blank'), icon: Workflow, visible: true,
+                get keys() { return documentKeys('workflow.new') },
+                onSelect: () => { app.commands.get('workflow.new')!.run() } },
+              { label: message('templatesEntry.fromTemplate'), icon: LayoutTemplate,
+                get visible() { backendsTick(); return activeBackend().templatesEnabled.get() },
+                get keys() { return documentKeys('workflow.openTemplateGallery') },
+                onSelect: () => { app.commands.get('workflow.openTemplateGallery')?.run() } },
+            ]}
+            canShare={(tab) => {
+              if (isPageTab(tab)) {
+                const board = boardForTab(tab.id)
+                return board !== undefined && board.shared === undefined && backends().some((backend) =>
+                  backend.baseUrl === board.baseUrl && backend.protocol === 'dinkster')
+              }
+              return tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')
+            }}
             onShare={(tab) => {
               app.activeTabId.set(tab.id)
               app.showTransientStatus(message('shell.share.sharing', { title: tab.title }))
-              void app.shareActiveTab().then((error) => {
+              const board = boardForTab(tab.id)
+              const sharing = board ? app.boards.share(board.id).then(() => undefined, (reason: unknown) =>
+                failureMessage(reason, 'The board could not be shared.')) : app.shareActiveTab()
+              void sharing.then((error) => {
                 app.showTransientStatus(error === undefined
                   ? message('shell.share.shared', { title: tab.title })
                   : message('shell.share.failed', { error }))
@@ -3028,9 +3159,9 @@ export function App(props: {
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), app.registryForTab(tab()) !== undefined)}
                       blockedReason={(backendsTick(), app.engineOffReason(tab(), message))}
-                      runControl={<Show when={tab().execution === undefined ? engineGate(tab()) : undefined}>
+                      runControl={(runButton) => <Show when={(backendsTick(), tab().execution === undefined ? app.backendForTab(tab()).supervisor.get() : undefined)} fallback={runButton}>
                         {(status) => <EngineRunControl status={status()} baseUrl={app.backendForTab(tab()).baseUrl}
-                          onRestart={() => app.restartEngine(app.backendForTab(tab()))} />}
+                          onRestart={() => app.restartEngine(app.backendForTab(tab()))}>{runButton}</EngineRunControl>}
                       </Show>}
                       hideRunList={engineGate(tab())?.state === 'failed'}
                       onQueue={tab().execution === undefined ? () => { void app.queue(tab()) } : undefined}
@@ -3295,6 +3426,8 @@ export function App(props: {
           >
             <DockZoneHost
               zone="left"
+              drag={panelDrag()}
+              onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
               titleOnly={activityBarVisible()}
               ariaLabel={message('shell.primaryDockPanels')}
               sections={zoneSections('left')}
@@ -3310,7 +3443,7 @@ export function App(props: {
               label={message('shell.resize.primaryDockPanels')}
               value={renderedDockWidth()}
               min={REGION_SIZE_BOUNDS.left.min}
-              max={REGION_SIZE_BOUNDS.left.max}
+              max={maximumRegionSize('left')}
               testId="dock-resize"
               onPointerDown={beginResize('left', 1)}
               onResize={resizeFromKeyboard('left')}
@@ -3332,7 +3465,7 @@ export function App(props: {
             <Index each={regionRects().dividers}>
               {(divider) => (
                 <div
-                  class="editor-split-divider"
+                  class="editor-split-divider panel-resize-handle"
                   data-testid="editor-split-divider"
                   role="separator"
                   tabindex="0"
@@ -3343,6 +3476,7 @@ export function App(props: {
                   aria-valuenow={Math.round(divider().ratio * 100)}
                   data-direction={divider().direction}
                   style={rectStyle(divider().rect)}
+                  onPointerMove={positionResizeGrip}
                   onPointerDown={(event) => beginDividerDrag(divider(), event)}
                   onKeyDown={(event) => onDividerKeyDown(divider(), event)}
                 />
@@ -3359,20 +3493,22 @@ export function App(props: {
               class="bottom-panel"
               data-testid="bottom-panel"
               data-active-panel={bottomActiveId()}
-              style={{ height: `${bottomHeight()}px` }}
+              style={{ height: `${renderedBottomHeight()}px` }}
             >
               <ShellResizeHandle
                 region="bottom"
                 label={message('shell.resize.bottomPanels')}
-                value={bottomHeight()}
+                value={renderedBottomHeight()}
                 min={REGION_SIZE_BOUNDS.bottom.min}
-                max={REGION_SIZE_BOUNDS.bottom.max}
+                max={maximumRegionSize('bottom')}
                 testId="bottom-resize"
                 onPointerDown={beginResize('bottom', -1)}
                 onResize={resizeFromKeyboard('bottom')}
               />
               <DockZoneHost
                 zone="bottom"
+                drag={panelDrag()}
+                onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
                 ariaLabel={message('shell.bottomPanels')}
                 sections={zoneSections('bottom')}
                 split={zoneSplit('bottom')}
@@ -3392,7 +3528,7 @@ export function App(props: {
             label={message('shell.resize.inspectorPanels')}
             value={renderedRailWidth()}
             min={REGION_SIZE_BOUNDS.right.min}
-            max={REGION_SIZE_BOUNDS.right.max}
+            max={maximumRegionSize('right')}
             testId="rail-resize"
             onPointerDown={beginResize('right', -1)}
             onResize={resizeFromKeyboard('right')}
@@ -3402,6 +3538,8 @@ export function App(props: {
               must not reopen the zone. */}
           <DockZoneHost
             zone="right"
+            drag={panelDrag()}
+            onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
             ariaLabel={message('shell.inspectorPanels')}
             sections={zoneSections('right')}
             split={zoneSplit('right')}
@@ -3414,6 +3552,8 @@ export function App(props: {
         </aside></Show>
       </div>
 
+      <Show when={catalogSetupRequested()}><EditorFirstRunSetup backendUrl={activeBackend().baseUrl} requested
+        onComplete={() => { app.nodeCatalogSetupRequested.set(false); void app.refreshBackendSchemas(activeBackend()) }} /></Show>
       <Show when={panelDrag()}>{(drag) => {
         const descriptor = () => app.panels.get(drag().panelId)
         return (
@@ -3425,10 +3565,10 @@ export function App(props: {
         )
       }}</Show>
       <Show when={tabDrag()}>{(drag) => (
-        <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused} />
+        <TabDragGhost title={drag().title} icon={drag().icon} x={drag().x} y={drag().y} refused={drag().refused} />
       )}</Show>
 
-      <Show when={tooltip()}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
+      <Show when={!panelDrag()?.started && tabDrag() === undefined ? tooltip() : undefined}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
       <Show when={queueRefusal() !== undefined && queueRefusal() === activeTab() && problemsIndicator()}>{(summary) => (
         <ProductEmptyState
           class="queue-refusal-toast"
@@ -3456,6 +3596,7 @@ export function App(props: {
       )}</Show>
       <TransientStatus message={transientStatus()} />
       <StatusBar app={app} backend={activeBackend} tab={activeTab} problems={problemsIndicator}
+        setupStatus={setupStatus}
         visible={statusBarVisible} placement={placementStatus} transient={transientStatus}
         context={() => {
           const tab = activeTab()
@@ -3508,7 +3649,7 @@ export function App(props: {
  * transitions (connected -> reconnecting -> closed) mutate the session in
  * place and would otherwise never rerender the dot.
  */
-function TabCollabDot(props: { entry: CollabTabState }) {
+function TabCollabDot(props: { entry: { readonly session: Pick<SharedDocumentSession, 'status'> } }) {
   const message = useAppMessage()
   const status = useSignal(props.entry.session.status)
   return (

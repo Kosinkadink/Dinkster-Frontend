@@ -151,7 +151,7 @@ export interface DynamicAnnotations {
   readonly inactive?: true
   /**
    * A row no longer part of the node, kept only for the wire on its output
-   * (ElaboratedInput.kept): drawn inactive, not editable, no new wire starts
+   * (ElaboratedInput.kept or ElaboratedOutput.kept): drawn inactive, not editable, no new wire starts
    * or ends on it. The text says why.
    */
   readonly kept?: string
@@ -514,6 +514,8 @@ export interface PinLayout extends DynamicAnnotations {
   readonly collapsedSection?: string
   /** Pin in a shared field line's compact cluster. */
   readonly pressed?: true
+  /** Unwired folded-line pin: available to its field and list, not on the node edge. */
+  readonly lineHidden?: true
   /** A wire's end under the last drawn pin of a full closed-box cluster: not drawn and not grabbed. */
   readonly stacked?: true
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
@@ -615,17 +617,19 @@ export function memberSpans(layout: NodeLayout, construct: string): MemberSpan[]
   for (const row of layout.rows) {
     if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.reorder?.construct !== construct) continue
     const own = row.kind === 'member' ? layout.boxes?.find((candidate) => candidate.id === row.memberId) : undefined
+    const line = layout.lines?.find((line) => !line.folded && layout.rows[line.first] === row)
+    const lastRow = line === undefined ? row : layout.rows[line.last]!
     const x = own?.x ?? (row.kind === 'widget' ? row.inset : (group?.x ?? 0) + box.stroke + box.fieldGap)
     // One span per member, however many rows it draws.
     const last = spans.at(-1)
     if (last?.member === row.reorder.member) {
-      spans[spans.length - 1] = { ...last, bottom: own === undefined ? row.y + row.height : own.y + own.height }
+      spans[spans.length - 1] = { ...last, bottom: own === undefined ? lastRow.y + lastRow.height : own.y + own.height }
       continue
     }
     spans.push({
       member: row.reorder.member,
       top: own?.y ?? row.y,
-      bottom: own === undefined ? row.y + row.height : own.y + own.height,
+      bottom: own === undefined ? lastRow.y + lastRow.height : own.y + own.height,
       x,
       width: own?.width ?? layout.width - x * 2,
     })
@@ -1019,6 +1023,28 @@ export function withTextOutputRegion(
   }
 }
 
+/** Project every explicit horizontal span to the live width, retaining fixed chrome and gaps. */
+export function projectNodeLayoutWidth(layout: NodeLayout, width: number): NodeLayout {
+  const delta = width - layout.width
+  if (delta === 0) return layout
+  const rows = layout.rows.map((row): LayoutRow => {
+    if (!('width' in row) || row.width === undefined || !('inset' in row)) return row
+    const peers = layout.rows.filter((other) => other.y === row.y && 'inset' in other && 'width' in other && other.width !== undefined)
+    const mixed = peers.some((other) => other.kind === 'widget')
+    const fixed = (other: LayoutRow): boolean => mixed && other.kind === 'button' && other.icon !== undefined
+    const flexible = peers.filter((other) => !fixed(other))
+    const share = delta / flexible.length
+    const preceding = flexible.filter((other) => 'inset' in other && other.inset < row.inset).length
+    return { ...row, inset: row.inset + preceding * share, width: row.width + (fixed(row) ? 0 : share) }
+  })
+  return {
+    ...layout, width, rows,
+    ...(layout.boxes === undefined ? {} : { boxes: layout.boxes.map((box) => ({ ...box, width: box.width + delta })) }),
+    ...(layout.preview === undefined ? {} : { preview: { ...layout.preview, width: layout.preview.width + delta } }),
+    ...(layout.textOutput === undefined ? {} : { textOutput: { ...layout.textOutput, width: layout.textOutput.width + delta } }),
+  }
+}
+
 /**
  * Reflow the row the node's bottom edge sizes for an in-flight resize
  * preview. The scene remains committed; the renderer uses this projected
@@ -1050,7 +1076,7 @@ export function projectNodeLayoutHeight(
       height,
       preview: {
         ...layout.preview,
-        height: previewPanelMinHeight(tokens) + extra,
+        height: layout.preview.height + height - layout.height,
       },
     }
   }
@@ -1325,13 +1351,13 @@ export function layoutNode(
     return { construct, member, ...(members.length <= spec.minMembers ? { disabledReason: 'The group already has its fewest members.' } : {}) }
   }
   const rowRemoval = (item: ElaboratedInput | ElaboratedOutput, chain: readonly string[]): { remove?: MemberRemoval } => {
-    if (item.kind === 'input' && item.kept !== undefined || item.origin.kind !== 'member' || item.origin.ghost === true || chain.at(-1) !== groupBoxKey(item.origin.construct)) return {}
+    if (item.kept !== undefined || item.origin.kind !== 'member' || item.origin.ghost === true || chain.at(-1) !== groupBoxKey(item.origin.construct)) return {}
     const remove = removalOf(item.origin.construct, item.origin.key)
     return remove === undefined ? {} : { remove }
   }
   /** Reserve the cross's place on offered members too, so their fields align. */
   const removable = (item: ElaboratedInput | ElaboratedOutput, chain: readonly string[]): boolean => {
-    if (!tokens.memberRemoveCross || item.kind === 'input' && item.kept !== undefined || item.origin.kind !== 'member' || chain.at(-1) !== groupBoxKey(item.origin.construct)) return false
+    if (!tokens.memberRemoveCross || item.kept !== undefined || item.origin.kind !== 'member' || chain.at(-1) !== groupBoxKey(item.origin.construct)) return false
     const spec = constructs.get(item.origin.construct)
     return spec?.kind === 'group' && typeof spec.grows === 'string'
   }
@@ -1390,8 +1416,8 @@ export function layoutNode(
       ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
       ...(frames !== undefined ? { materialize: frames } : {}),
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
-      ...(selectorDisplay?.[item.address.port] === 'inactive' || (item.kind === 'input' && item.kept !== undefined) ? { inactive: true } : {}),
-      ...(item.kind === 'input' && item.kept !== undefined ? { kept: item.kept } : {}),
+      ...(selectorDisplay?.[item.address.port] === 'inactive' || item.kept !== undefined ? { inactive: true } : {}),
+      ...(item.kept !== undefined ? { kept: item.kept } : {}),
       ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }
@@ -2301,7 +2327,8 @@ export function layoutNode(
       const own = (pin: PinLayout): boolean => fields.has(pin.portId) && pin.direction === direction &&
         (direction === 'in' ? pin.widgetBacked === true && !options.wirelessInputs?.has(pin.portId) : pin.widgetTap === true)
       const wired = pins.filter((pin) => own(pin) && isConnected(direction, pin.portId))
-      pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...wired.map((pin, index) => {
+      const unwired = pins.filter((pin) => own(pin) && !isConnected(direction, pin.portId))
+      pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...unwired.map((pin) => ({ ...pin, y: center, lineHidden: true as const })), ...wired.map((pin, index) => {
         const { dy, stacked } = pressed(index, wired.length)
         return { ...pin, y: center + dy, pressed: true as const, ...(stacked ? { stacked: true as const } : {}) }
       }))
@@ -2334,8 +2361,25 @@ export function layoutNode(
   for (const row of unfolded) {
     const index = rowIndex.get(row)!
     const placedRow = rows[index]!
-    if ((placedRow.kind === 'widget' || placedRow.kind === 'note' || placedRow.kind === 'button') && placedRow.width === undefined)
-      rows[index] = { ...placedRow, width: width - placedRow.inset * 2 + canvasPaintTokens.node.line.railReserve }
+    if (placedRow.kind === 'widget' || placedRow.kind === 'note' || placedRow.kind === 'button') {
+      rows[index] = {
+        ...placedRow,
+        ...(placedRow.width === undefined ? { width: width - placedRow.inset * 2 + canvasPaintTokens.node.line.railReserve } : {}),
+        ...(placedRow.kind === 'widget' && placedRow.reorder !== undefined ? {
+          reorder: { ...placedRow.reorder, gripX: placedRow.reorder.gripX - canvasPaintTokens.node.line.railReserve },
+        } : {}),
+      }
+    }
+  }
+  for (const { line, folded } of foldable) {
+    if (folded) continue
+    for (const row of line.slice(1)) {
+      const index = rowIndex.get(row)!
+      const placedRow = rows[index]!
+      if (placedRow.kind !== 'widget') continue
+      const { reorder: _reorder, remove: _remove, ...field } = placedRow
+      rows[index] = field
+    }
   }
   // An unfolded editor and its row are one box: the space takes the row's
   // place and width, so a member's grip and cross stay beside both.

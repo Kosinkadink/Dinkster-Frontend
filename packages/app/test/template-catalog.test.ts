@@ -67,6 +67,7 @@ describe("RemoteTemplateCatalog", () => {
     expect(await catalog.list()).toEqual([template()]);
     expect(fetchFn).toHaveBeenCalledWith(
       "https://registry.example/index/templates?limit=200",
+      undefined,
     );
 
     fetchFn.mockRejectedValueOnce(new Error("offline"));
@@ -110,6 +111,7 @@ describe("RemoteTemplateCatalog", () => {
     expect(fetchFn).toHaveBeenNthCalledWith(
       2,
       "https://registry.example/index/templates?limit=200&cursor=next+page",
+      undefined,
     );
   });
 

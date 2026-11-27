@@ -1,3 +1,4 @@
+import { formatByteSize } from '@dinkster/core'
 import {
   For,
   Match,
@@ -25,6 +26,7 @@ import {
   MousePointer,
   Search,
   Plus,
+  Play,
   Settings,
   SlidersHorizontal,
   Trash2,
@@ -50,6 +52,7 @@ import {
   ProductQrCode,
   ProductResourceUsage,
   ProductButton,
+  ProductByteSizeInput,
   ProductCheckbox,
   ProductConfirmation,
   ProductConfirmationDialog,
@@ -104,11 +107,15 @@ import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 import { ProjectsGallery } from './projects.js'
 import { TemplatesGallery } from './templates.js'
+import { ModelDownloadsGallery } from './model-downloads.js'
 import { EngineStatesGallery } from './engine-states.js'
 import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
+import { BoardGallery } from './board.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
+import { SettingsSectionGallery } from './settings-section.js'
+import { SelectGallery } from './select.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -117,6 +124,7 @@ const navigation = [
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
+  { label: 'Board', href: '#board', icon: LayoutList },
   {
     label: 'Canvas',
     href: '#canvas',
@@ -175,6 +183,7 @@ function Gallery() {
   const [refuseName, setRefuseName] = createSignal(false)
   const [nameTaken, setNameTaken] = createSignal(false)
   const [activity, setActivity] = createSignal('No action yet')
+  const [sizeLimit, setSizeLimit] = createSignal(10000000000)
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
   const [serverOpen, setServerOpen] = createSignal(false)
@@ -214,7 +223,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#models'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models', '#settings-section'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -227,7 +236,11 @@ function Gallery() {
     >
       <ProductPage
         title={
-          route() === '#signed-out'
+          route() === '#settings-section'
+            ? 'Settings groups'
+            : route() === '#dropdowns'
+            ? 'Dropdowns'
+            : route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
               (route() === '#models' ? 'Models' : route() === '#project-loading' ? 'Project loading' : route() === '#menu-filter' ? 'Menu filter' : route() === '#menu-alignment' ? 'Menu alignment' : route() === '#segmented-states' ? 'Segmented choices' : route() === '#page-loading' ? 'Page loading' : route() === '#setup-components' ? 'Setup feedback' : route() === '#resource-usage' ? 'Resource usage' : route() === '#run-controls' ? 'Run controls' : 'Buttons and fields'))
@@ -237,7 +250,7 @@ function Gallery() {
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#node-search'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#node-search'}
       >
         <Show
           when={!loading()}
@@ -246,6 +259,9 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#settings-section'}>
+              <SettingsSectionGallery />
+            </Match>
             <Match when={route() === '#page-loading'}>
               <PageLoadingGallery activity={activity()} />
             </Match>
@@ -340,7 +356,7 @@ function Gallery() {
                       ]}
                       now={120_000}
                       limit={22}
-                      format={(value) => `${value.toFixed(1)} GB`}
+                      format={(value) => formatByteSize(value * 1024 ** 3)}
                       historyLabel="Last 2 minutes"
                       limitLabel="Limit"
                       compact={compact}
@@ -373,7 +389,7 @@ function Gallery() {
                   segments={[{ label: 'Used', value: 5, tone: 'other' }]}
                   samples={[]}
                   now={120_000}
-                  format={(value) => `${value.toFixed(1)} GB`}
+                  format={(value) => formatByteSize(value * 1024 ** 3)}
                   historyLabel="Last 2 minutes"
                   limitLabel="Limit"
                 />
@@ -471,6 +487,9 @@ function Gallery() {
             <Match when={route() === '#search'}>
               <SearchGallery />
             </Match>
+            <Match when={route() === '#board'}>
+              <BoardGallery />
+            </Match>
             <Match when={route() === '#node-search'}>
               <NodeSearchGallery />
             </Match>
@@ -486,6 +505,9 @@ function Gallery() {
               <Section title="Context menus" components="ContextMenu">
                 <ContextMenuGallery />
               </Section>
+            </Match>
+            <Match when={route() === '#dropdowns'}>
+              <SelectGallery />
             </Match>
             <Match when={route() === '#controls'}>
               <Section
@@ -555,6 +577,7 @@ function Gallery() {
                     onClick={() => {}}
                   />
                   <ProductSpinner label="Pending work" />
+                  <ProductIconButton label="Loading preview" icon={Play} pending />
                   <ProductIcon icon={Settings} />
                 </div>
                 <p class="dinkster-description">
@@ -626,6 +649,12 @@ function Gallery() {
                     />
                   )}
                 </ProductField>
+                <ProductField label="Keep at most">
+                  {(attributes) => <ProductByteSizeInput {...attributes} value={sizeLimit()} minimum={1} onCommit={setSizeLimit} />}
+                </ProductField>
+                <ProductField label="Unavailable size limit">
+                  {(attributes) => <ProductByteSizeInput {...attributes} value={4097} disabled onCommit={() => {}} />}
+                </ProductField>
                 <ProductField
                   label="Email address"
                   description="A filled field."
@@ -693,27 +722,20 @@ function Gallery() {
                   error="Choose an access level."
                 >
                   {(attributes) => (
-                    <ProductSelect {...attributes}>
-                      <option value="">Choose access</option>
-                      <option>Read only</option>
-                    </ProductSelect>
+                    <ProductSelect {...attributes} options={[{ value: '', label: 'Choose access' }, { value: 'read', label: 'Read only' }]} />
                   )}
                 </ProductField>
                 <ProductField label="Access">
                   {(attributes) => (
-                    <ProductSelect {...attributes}>
-                      <option>Read only</option>
-                      <option>Mint only</option>
-                    </ProductSelect>
+                    <ProductSelect {...attributes} options={[{ value: 'read', label: 'Read only' }, { value: 'disabled', label: 'Unavailable', disabled: true }, { value: 'mint', label: 'Mint only' }]} />
                   )}
                 </ProductField>
                 <ProductField label="Unavailable choice">
                   {(attributes) => (
-                    <ProductSelect {...attributes} disabled>
-                      <option>Read only</option>
-                    </ProductSelect>
+                    <ProductSelect {...attributes} disabled options={[{ value: 'read', label: 'Read only' }]} />
                   )}
                 </ProductField>
+                <ProductLink href="#dropdowns">All dropdown states</ProductLink>
               </Section>
               <Section
                 title="Choices"
@@ -1059,6 +1081,7 @@ function Gallery() {
                     items={[
                       {
                         label: 'View package',
+                        keys: ['Ctrl', 'Shift', '1'],
                         onSelect: () => complete('Package viewed'),
                       },
                       {
@@ -1425,12 +1448,9 @@ function WindowToolbarGallery() {
             <ProductSelect
               {...attributes}
               value={state()}
-              onChange={(event) => setState(event.currentTarget.value)}
-            >
-              <For each={['idle', 'running', 'pending']}>
-                {(value) => <option value={value}>{value}</option>}
-              </For>
-            </ProductSelect>
+              onChange={setState}
+              options={['idle', 'running', 'pending'].map((value) => ({ value, label: value }))}
+            />
           )}
         </ProductField>
         <ProductField label="All-workflow activity">
@@ -1438,13 +1458,9 @@ function WindowToolbarGallery() {
             <ProductSelect
               {...attributes}
               value={runActivity()}
-              onChange={(event) => setRunActivity(event.currentTarget.value)}
-            >
-              <option value="idle">Idle</option>
-              <option value="waiting">Queued only</option>
-              <option value="running">One running, two queued</option>
-              <option value="multiple">Three running, two queued</option>
-            </ProductSelect>
+              onChange={setRunActivity}
+              options={[{ value: 'idle', label: 'Idle' }, { value: 'waiting', label: 'Queued only' }, { value: 'running', label: 'One running, two queued' }, { value: 'multiple', label: 'Three running, two queued' }]}
+            />
           )}
         </ProductField>
         <ProductField label="Brand presentation">
@@ -1452,11 +1468,9 @@ function WindowToolbarGallery() {
             <ProductSelect
               {...attributes}
               value={brand()}
-              onChange={(event) => setBrand(event.currentTarget.value)}
-            >
-              <option value="menu">Plain menu</option>
-              <option value="wordmark">D symbol action</option>
-            </ProductSelect>
+              onChange={setBrand}
+              options={[{ value: 'menu', label: 'Plain menu' }, { value: 'wordmark', label: 'D symbol action' }]}
+            />
           )}
         </ProductField>
         <ProductField label="Project name">
@@ -1473,21 +1487,9 @@ function WindowToolbarGallery() {
             <ProductSelect
               {...attributes}
               value={account()}
-              onChange={(event) => setAccount(event.currentTarget.value)}
-            >
-              <option value="none">No account control</option>
-              <option value="signed-out">Signed out</option>
-              <option value="signing-in">Signing in</option>
-              <option value="signing-in-no-url">
-                Signing in without local URL
-              </option>
-              <option value="sign-in-unavailable">
-                Sign in from engine machine
-              </option>
-              <option value="signed-in">Signed in</option>
-              <option value="signed-in-email">Email only</option>
-              <option value="signed-in-empty">No profile</option>
-            </ProductSelect>
+              onChange={setAccount}
+              options={[{ value: 'none', label: 'No account control' }, { value: 'signed-out', label: 'Signed out' }, { value: 'signing-in', label: 'Signing in' }, { value: 'signing-in-no-url', label: 'Signing in without local URL' }, { value: 'sign-in-unavailable', label: 'Sign in from engine machine' }, { value: 'signed-in', label: 'Signed in' }, { value: 'signed-in-email', label: 'Email only' }, { value: 'signed-in-empty', label: 'No profile' }]}
+            />
           )}
         </ProductField>
         <ProductField label="Right panel attention">
@@ -1495,13 +1497,9 @@ function WindowToolbarGallery() {
             <ProductSelect
               {...attributes}
               value={rightAttention()}
-              onChange={(event) => setRightAttention(event.currentTarget.value)}
-            >
-              <option value="none">None</option>
-              <option value="info">One message</option>
-              <option value="warning">Two warnings</option>
-              <option value="problem">Three problems</option>
-            </ProductSelect>
+              onChange={setRightAttention}
+              options={[{ value: 'none', label: 'None' }, { value: 'info', label: 'One message' }, { value: 'warning', label: 'Two warnings' }, { value: 'problem', label: 'Three problems' }]}
+            />
           )}
         </ProductField>
         <ProductField label="Search shortcut">
@@ -1509,12 +1507,9 @@ function WindowToolbarGallery() {
             <ProductSelect
               {...attributes}
               value={shortcut()}
-              onChange={(event) => setShortcut(event.currentTarget.value)}
-            >
-              <option value="Ctrl+K">Default binding</option>
-              <option value="Alt+K">Alternate binding</option>
-              <option value="">No shortcut</option>
-            </ProductSelect>
+              onChange={setShortcut}
+              options={[{ value: 'Ctrl+K', label: 'Default binding' }, { value: 'Alt+K', label: 'Alternate binding' }, { value: '', label: 'No shortcut' }]}
+            />
           )}
         </ProductField>
         <p role="status">{activity()}</p>
@@ -1740,7 +1735,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs', '#models'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models', '#settings-section'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
@@ -1771,6 +1766,9 @@ function GalleryRoot() {
           </Match>
           <Match when={route() === '#templates'}>
             <TemplatesGallery />
+          </Match>
+          <Match when={route() === '#model-downloads'}>
+            <ModelDownloadsGallery />
           </Match>
           <Match when={route() === '#page-tabs'}>
             <PageTabsGallery />

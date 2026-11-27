@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
+import { failureMessage } from './request-failure.js'
 import type { DinksterConnection, MountDescriptor } from '@dinkster/client'
-import type { CollectionSource, MessageParams } from '@dinkster/core'
+import { formatByteSize, type CollectionSource, type MessageParams } from '@dinkster/core'
 import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js'
 import { assetCollectionSource } from './asset-browser/collection-adapter.js'
 import { allAssetsCollectionSource, mountPresentationKey, type AssetSourceFailure } from './asset-browser/cross-mount-collection-source.js'
@@ -14,6 +15,8 @@ import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { activeProjectId } from './projects.js'
+import { ASSET_DRAG_TYPE, draggableMediaAsset, type AssetDrag } from './asset-browser/drag.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
 type SourceSectionKey = 'assets.source.section.models' | 'assets.source.section.media' | 'assets.source.section.inputOutput' | 'assets.source.section.other'
@@ -26,19 +29,8 @@ interface MountPresentation {
   readonly sectionKey: SourceSectionKey
 }
 
-const errorText = (reason: unknown): string => reason instanceof Error ? reason.message : String(reason)
+const errorText = (reason: unknown): string => failureMessage(reason, 'Files could not be loaded.')
 const MOUNT_SCAN_POLL_MS = 1000
-
-const formatScanBytes = (bytes: number): string => {
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'] as const
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${unit === 0 ? value : value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`
-}
 
 const mountDetail = (mount: MountDescriptor, message: AssetMessage): string => {
   const progress = mount.scanProgress
@@ -46,8 +38,8 @@ const mountDetail = (mount: MountDescriptor, message: AssetMessage): string => {
   return message('assets.source.scanProgress', {
     filesDone: progress.filesDone,
     filesTotal: progress.filesTotal,
-    bytesDone: formatScanBytes(progress.bytesDone),
-    bytesTotal: formatScanBytes(progress.bytesTotal),
+    bytesDone: formatByteSize(progress.bytesDone),
+    bytesTotal: formatByteSize(progress.bytesTotal),
     elapsed: Math.floor(progress.elapsedSeconds),
   })
 }
@@ -199,6 +191,7 @@ function assetState(state: CollectionPanelState, message: AssetMessage) {
 
 export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly onOpenStorage?: () => void; readonly mountFocus?: { readonly mountId: string } | undefined }) {
   const message = useAppMessage()
+  const project = activeProjectId()
   const [adapters, setAdapters] = createSignal<readonly AssetSourceAdapter[]>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
   const [discoveryError, setDiscoveryError] = createSignal<string>()
@@ -274,6 +267,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
   const sources = createMemo((): readonly CollectionSource[] => {
     const browsable = presentedAdapters()
     const connection = props.connection
+    const baseUrl = props.baseUrl ?? ''
     const assetUrl = (digest: string): string => connection.assetUrl(digest)
     const healthGeneration = discoveryGeneration
     const reportFailures = (failures: readonly AssetSourceFailure[]): void => {
@@ -286,7 +280,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
     return [
       local,
       ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl })),
-    ]
+    ].map((source) => ({ ...source, page: async (request) => ({ ...await source.page(request), owner: baseUrl }) }))
   })
 
   return (
@@ -299,6 +293,16 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
       <ProductButton type="button" onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton>
             <CollectionPanel
               sources={sources()}
+              drag={{
+                enabled: (entry, owner) => owner === (props.baseUrl ?? '') && activeProjectId() === project && draggableMediaAsset(entry) !== undefined,
+                start: (entry, event, owner) => {
+                  const asset = draggableMediaAsset(entry)
+                  if (!asset || !event.dataTransfer || owner !== (props.baseUrl ?? '') || activeProjectId() !== project) { event.preventDefault(); return }
+                  const data: AssetDrag = { project, baseUrl: owner, asset }
+                  event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(data))
+                  event.dataTransfer.effectAllowed = 'copy'
+                },
+              }}
               sourceRail={({ selectedId, select }) => <>
                 <AssetSourceControl sources={sources()} presentations={presentations()} failures={failures()} selectedId={selectedId} select={select} mountFocus={props.mountFocus} message={message} />
                 <Show when={discoveryError()}>

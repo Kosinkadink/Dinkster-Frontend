@@ -38,6 +38,7 @@ import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { SearchInput } from './SearchSurface.js'
 import { CollectionImage } from './CollectionImage.js'
+import { failureMessage } from './request-failure.js'
 
 const PAGE_SIZE = 24
 const DEBOUNCE_MS = 120
@@ -60,6 +61,11 @@ export function CollectionPanel(props: {
   }) => JSX.Element
   /** Optional entry activation (open frozen view, insert blueprint, ...). */
   readonly onActivate?: (sourceId: string, entry: CollectionEntry) => void
+  /** Hosts own the transfer format; collections only expose the row gesture. */
+  readonly drag?: {
+    readonly enabled: (entry: CollectionEntry, owner?: string) => boolean
+    readonly start: (entry: CollectionEntry, event: DragEvent, owner?: string) => void
+  }
   /** Optional handler for per-entry actions (entry.actions clicks). */
   readonly onAction?: (sourceId: string, entry: CollectionEntry, actionId: string) => void
   /** Source-scoped toolbar operations (bulk clear, ...), host-provided. */
@@ -152,6 +158,7 @@ export function CollectionPanel(props: {
   const [items, setItems] = createSolidSignal<readonly CollectionEntry[]>([])
   const [cursor, setCursor] = createSolidSignal<string | undefined>(undefined)
   const [total, setTotal] = createSolidSignal<number | undefined>(undefined)
+  const [disabledActions, setDisabledActions] = createSolidSignal<readonly string[]>([])
   const [loading, setLoading] = createSolidSignal(false)
   const [error, setError] = createSolidSignal<string | undefined>(undefined)
   // Owner of the COMMITTED page (see onSourceAction). Invalidated the
@@ -334,6 +341,7 @@ export function CollectionPanel(props: {
         setItems(append ? [...new Map([...items(), ...page.items].map((entry) => [entry.id, entry])).values()] : page.items)
         setCursor(page.cursor)
         setTotal(page.total)
+        setDisabledActions(page.disabledActions ?? [])
         setPageOwner(page.owner)
         setLoading(false)
         if (!append && pendingInitialSelection !== undefined && selectedId() === undefined) {
@@ -358,7 +366,7 @@ export function CollectionPanel(props: {
         }
         setCursor(undefined)
         setLoading(false)
-        setError(reason instanceof Error ? reason.message : String(reason))
+        setError(failureMessage(reason, message('collection.state.failed', { source: source()?.label ?? '' })))
       })
   }
 
@@ -551,6 +559,13 @@ export function CollectionPanel(props: {
       data-testid="collection-entry"
       data-entry={p.entry.id}
       role="option"
+      draggable={props.drag?.enabled(p.entry, pageOwner()) === true}
+      onDragStart={(event) => {
+        if (!props.drag) return
+        if ((event.target as Element).closest('button, input, textarea, a') ||
+            !props.drag.enabled(p.entry, pageOwner())) { event.preventDefault(); return }
+        props.drag.start(p.entry, event, pageOwner())
+      }}
       aria-selected={highlighted(p.entry)}
       aria-disabled={props.pick !== undefined && p.entry.folder === undefined && !props.pick.pickable(p.entry) ? 'true' : undefined}
       // A host that draws its own entry content already shows these facts, and the tooltip would cover the rows under it.
@@ -771,7 +786,7 @@ export function CollectionPanel(props: {
               class="collection-source-action"
               data-testid="collection-source-action"
               data-action={a.id}
-              disabled={loading()}
+              disabled={loading() || disabledActions().includes(a.id)}
               onClick={() => props.onSourceAction?.(sourceId(), a.id, pageOwner())}
             >
               {a.label}

@@ -29,7 +29,7 @@ it('masks and clears private input, confirms forgetting, and never starts a mode
   try {
     await vi.waitFor(() => expect(button('Use an access token instead').disabled).toBe(false))
     button('Use an access token instead').click()
-    const input = root.querySelector<HTMLInputElement>('#model-provider-token')!
+    const input = root.querySelector<HTMLInputElement>('input[type="password"]')!
     expect(input.type).toBe('password')
     input.value = 'synthetic-private-canary'; input.dispatchEvent(new Event('input', { bubbles: true }))
     button('Save token').click()
@@ -39,7 +39,7 @@ it('masks and clears private input, confirms forgetting, and never starts a mode
     expect(root.innerHTML).not.toContain(supplied)
     button('Forget sign-in').click()
     expect(root.textContent).toContain('Pending model consent is invalidated')
-    root.querySelector<HTMLButtonElement>('[data-variant="danger"]')!.click()
+    ;[...root.querySelectorAll<HTMLButtonElement>('button')].reverse().find((row) => row.textContent === 'Forget sign-in')!.click()
     await vi.waitFor(() => expect(root.textContent).toContain('Not signed in on this engine.'))
   } finally { dispose() }
 })
@@ -53,7 +53,7 @@ it('can forget expired credentials without replacing them', async () => {
   try {
     await vi.waitFor(() => expect(root.textContent).toContain('Sign-in expired.'))
     button('Forget sign-in').click()
-    root.querySelector<HTMLButtonElement>('[data-variant="danger"]')!.click()
+    ;[...root.querySelectorAll<HTMLButtonElement>('button')].reverse().find((row) => row.textContent === 'Forget sign-in')!.click()
     await vi.waitFor(() => expect(root.textContent).toContain('Not signed in on this engine.'))
     expect(expired).toBe(false)
   } finally { dispose() }

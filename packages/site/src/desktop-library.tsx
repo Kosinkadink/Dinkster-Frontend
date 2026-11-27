@@ -507,6 +507,18 @@ function RestoreSoftware(props: {
       title={`Restore snapshot ${props.entry.generation}`}
       pending={applying()}
       onDismiss={props.onDismiss}
+      action={
+        review()?.alternatives[alternative()] ? (
+          <ProductButton
+            intent="neutral"
+            fill="solid"
+            pending={applying()}
+            onClick={() => void apply()}
+          >
+            Apply restore
+          </ProductButton>
+        ) : undefined
+      }
     >
       <ProductNotice>
         Restoring changes environment software, not saved workflow runs. Review
@@ -519,17 +531,14 @@ function RestoreSoftware(props: {
             {...attributes}
             value={scope()}
             disabled={reviewing() || applying()}
-            onChange={(event) => {
-              setScope(event.currentTarget.value as RestoreScope | '')
+            onChange={(value) => {
+              setScope(value as RestoreScope | '')
               window.clearTimeout(expires)
               setReview(undefined)
               setError(undefined)
             }}
-          >
-            <option value="">Choose a scope</option>
-            <option value="every-project">Every project on it</option>
-            <option value="only-project">Only this project</option>
-          </ProductSelect>
+            options={[{ value: '', label: 'Choose a scope' }, { value: 'every-project', label: 'Every project on it' }, { value: 'only-project', label: 'Only this project' }]}
+          />
         )}
       </ProductField>
       <ProductButton
@@ -575,21 +584,13 @@ function RestoreSoftware(props: {
                 {(attributes) => (
                   <ProductSelect
                     {...attributes}
-                    value={alternative()}
+                    value={String(alternative())}
                     disabled={applying()}
-                    onChange={(event) =>
-                      setAlternative(Number(event.currentTarget.value))
+                    onChange={(value) =>
+                      setAlternative(Number(value))
                     }
-                  >
-                    <For each={value().alternatives}>
-                      {(choice, index) => (
-                        <option value={index()}>
-                          Alternative {index() + 1}: engine{' '}
-                          {choice.snapshot.engine.version}
-                        </option>
-                      )}
-                    </For>
-                  </ProductSelect>
+                    options={value().alternatives.map((choice, index) => ({ value: String(index), label: `Alternative ${index + 1}: engine ${choice.snapshot.engine.version}` }))}
+                  />
                 )}
               </ProductField>
               <Show when={value().alternatives[alternative()]}>
@@ -617,14 +618,6 @@ function RestoreSoftware(props: {
                   </ProductSection>
                 )}
               </Show>
-              <ProductButton
-                intent="neutral"
-                fill="solid"
-                pending={applying()}
-                onClick={() => void apply()}
-              >
-                Apply restore
-              </ProductButton>
             </Show>
           </>
         )}

@@ -26,6 +26,7 @@ import { ProductButton, ProductShortcut } from '@dinkster/ui'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import type { Backend } from './app-state.js'
+import { failureMessage } from './request-failure.js'
 
 export interface PackSettingsClient {
   fetchPackSettings(packId: string): Promise<PackSettings>
@@ -45,7 +46,7 @@ function PackSettingsPanel(props: {
   const [saving, setSaving] = createSignal(false)
   onMount(() => {
     void props.client.fetchPackSettings(props.packId).then(setSettings).catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(failureMessage(cause))
     })
   })
   const update = async (name: string, value: string | number | boolean): Promise<void> => {
@@ -56,7 +57,7 @@ function PackSettingsPanel(props: {
     try {
       setSettings(await props.client.updatePackSettings(props.packId, { ...current.values, [name]: value }))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(failureMessage(cause))
     } finally {
       setSaving(false)
     }

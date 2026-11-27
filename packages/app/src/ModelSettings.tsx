@@ -7,6 +7,7 @@ import { useAppMessage } from './locale.js'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { ModelProvider, type ModelProviderConnection } from './ModelProvider.js'
 import { ProductButton as SharedButton, ProductErrorBanner, ProductField as SharedField, ProductLoading, ProductSelect as SharedSelect, ProductSwitch, ProductTextButton, ProductTextInput as SharedInput } from '@dinkster/ui'
+import { failureMessage } from './request-failure.js'
 
 export function ModelSettings(props: {
   readonly connection: Pick<DinksterConnection, 'fetchModelSettings' | 'updateModelSettings' | 'setModelLocationEnabled' | 'onMountsChanged'>
@@ -58,7 +59,7 @@ export function ModelSettings(props: {
       setState(next)
       setError('')
     } catch (cause) {
-      if (owner === generation && request === read) setError(cause instanceof Error ? cause.message : String(cause))
+      if (owner === generation && request === read) setError(failureMessage(cause))
     }
   }
   createEffect(() => {
@@ -97,7 +98,7 @@ export function ModelSettings(props: {
       props.onChanged?.()
       return true
     } catch (cause) {
-      if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause))
+      if (owner === generation) setError(failureMessage(cause))
       return false
     } finally { if (owner === generation) setBusy(false) }
   }
@@ -144,7 +145,7 @@ export function ModelSettings(props: {
       const selected = await desktopFileBridge()!.chooseDirectory(new URL(props.backendUrl || '/', window.location.href).href)
       if (owner === generation && selected) enterPath(selected)
     } catch (cause) {
-      if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause))
+      if (owner === generation) setError(failureMessage(cause))
     } finally { if (owner === generation) setBusy(false) }
   }
   const reveal = async (location: string) => {
@@ -154,13 +155,13 @@ export function ModelSettings(props: {
     setBusy(true)
     setError('')
     try { await bridge.revealModelLocation(new URL(props.backendUrl || '/', window.location.href).href, location) }
-    catch (cause) { if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause)) }
+    catch (cause) { if (owner === generation) setError(failureMessage(cause)) }
     finally { if (owner === generation) setBusy(false) }
   }
   const copy = async (value: string) => {
     const owner = generation
     try { await navigator.clipboard.writeText(value) }
-    catch (cause) { if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause)) }
+    catch (cause) { if (owner === generation) setError(failureMessage(cause)) }
   }
   const disabled = () => busy() || state()?.changesAllowed !== true
   const changed = () => {
@@ -266,11 +267,12 @@ export function ModelSettings(props: {
         </div>}
       </SharedField>
       <SharedField label={message('storagePanel.usedBy')}>
-        {(attributes) => <SharedSelect {...attributes} value={visibility()} disabled={disabled()} onChange={(event) => setVisibility(event.currentTarget.value as ModelLocation['visibility'])}>
-          <option value="always-on">{message('storagePanel.everyProject')}</option>
-          <option value="default-on">{message('modelSettings.default-on')}</option>
-          <option value="opt-in">{message('modelSettings.opt-in')}</option>
-        </SharedSelect>}
+        {(attributes) => <SharedSelect {...attributes} value={visibility()} disabled={disabled()}
+          options={[
+            { value: 'always-on', label: message('storagePanel.everyProject') },
+            { value: 'default-on', label: message('modelSettings.default-on') },
+            { value: 'opt-in', label: message('modelSettings.opt-in') },
+          ]} onChange={(value) => setVisibility(value as ModelLocation['visibility'])} />}
       </SharedField>
       <div class="dinkster-actions"><ProductSwitch checked={writable()} label={message('storagePanel.downloadInto')} disabled={disabled()} onChange={setWritable} /><span>{message('storagePanel.downloadInto')}</span></div>
       <p class="dinkster-description">{message('storagePanel.downloadHint')}</p>

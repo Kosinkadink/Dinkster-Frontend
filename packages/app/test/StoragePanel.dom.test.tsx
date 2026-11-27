@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { DinksterConnection, ModelSettingsState, MountDescriptor, MountSettings } from '@dinkster/client'
 import { canvasTypePaintForTheme } from '@dinkster/canvas'
 import { semanticTokensForTheme } from '@dinkster/core'
+import { RequestFailure } from '@dinkster/client'
 import { StorageFolders, StoragePanel } from '../src/StoragePanel.js'
 import { AppState } from '../src/app-state.js'
 
@@ -54,27 +55,29 @@ it.each([true, false])('adds a model folder with download destination enabled: %
     onMountsChanged: () => () => {},
     updateModelSettings: async (settings: ModelSettingsState['settings'], revision: string) => {
       expect(revision).toBe('before')
-      if (refused) throw new Error('Folder is unavailable')
+      if (refused) throw new RequestFailure('PUT', '/api/models/settings', 400, 'Folder is unavailable')
       state = { ...state, settings, revision: 'after', locations: settings.locations.map((row) => ({ ...row, active: false, enabled: true, mounts: [] })) }
       return state
     },
   } as unknown as DinksterConnection
   const root = document.createElement('div'); document.body.append(root)
   disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} focus={{ addModelFolder: true }} />, root))
-  await vi.waitFor(() => expect(root.querySelector('select')).not.toBeNull())
+  await vi.waitFor(() => expect(root.querySelector('[role="combobox"]')).not.toBeNull())
   const folderLabel = [...root.querySelectorAll('label')].find((label) => label.textContent === 'Folder')!
   const folder = root.querySelector<HTMLInputElement>(`#${folderLabel.htmlFor}`)!
   folder.value = '/archive/models'; folder.dispatchEvent(new Event('input', { bubbles: true }))
-  const usedBy = root.querySelector<HTMLSelectElement>('select')!
-  expect(usedBy.value).toBe('always-on')
-  usedBy.value = 'opt-in'; usedBy.dispatchEvent(new Event('change', { bubbles: true }))
+  const usedBy = root.querySelector<HTMLButtonElement>('[role="combobox"]')!
+  expect(usedBy.textContent).toContain('Every project')
+  usedBy.click()
+  const option = [...document.querySelectorAll<HTMLDivElement>('[role="option"]')].find((row) => row.textContent?.includes('Opt in - projects must enable'))!
+  option.click()
   const toggle = root.querySelector<HTMLButtonElement>('[role="switch"]')!
   expect(toggle.getAttribute('aria-checked')).toBe('false')
   if (download) toggle.click()
   root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('Folder is unavailable'))
   expect(folder.value).toBe('/archive/models')
-  expect(usedBy.value).toBe('opt-in')
+  expect(usedBy.textContent).toContain('Opt in - projects must enable')
   expect(toggle.getAttribute('aria-checked')).toBe(String(download))
   refused = false
   root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
@@ -92,7 +95,7 @@ it.each([true, false])('keeps a refused mount form and adds with saving allowed:
     fetchModelSettings: async () => ({ locations: [], settings: { locations: [] }, changesAllowed: true }),
     onMountsChanged: () => () => {},
     addMount: async (id: string, path: string, mode: 'read' | 'readwrite') => {
-      if (refused) throw new Error('Folder cannot be written to')
+      if (refused) throw new RequestFailure('POST', '/api/mounts', 400, 'Folder cannot be written to')
       const mount: MountDescriptor = { id, path, mode, state: 'ready' }
       mounts.push(mount)
       return mount
@@ -126,7 +129,7 @@ it('shows live file and byte reading progress for mounts and grouped model folde
   let mounts: MountDescriptor[] = [
     { id: 'models-lora', mode: 'read', state: 'scanning', source: 'shared-models', kind: 'model/lora', scanProgress: { filesDone: 3, filesTotal: 12, bytesDone: 1024, bytesTotal: 8192, elapsedSeconds: 1 } },
     { id: 'models-vae', mode: 'read', state: 'scanning', source: 'shared-models', kind: 'model/vae', scanProgress: { filesDone: 2, filesTotal: 8, bytesDone: 1024, bytesTotal: 2048, elapsedSeconds: 1 } },
-    { id: 'input', mode: 'readwrite', state: 'scanning', scanProgress: { filesDone: 7, filesTotal: 10, bytesDone: 4096, bytesTotal: 16384, elapsedSeconds: 1 } },
+    { id: 'input', mode: 'readwrite', state: 'scanning', scanProgress: { filesDone: 7, filesTotal: 10, bytesDone: 512, bytesTotal: 16384, elapsedSeconds: 1 } },
   ]
   const location = { id: 'models', path: '/models', mode: 'read' as const, visibility: 'default-on' as const }
   let changed = () => {}
@@ -141,12 +144,12 @@ it('shows live file and byte reading progress for mounts and grouped model folde
   disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
   await vi.waitFor(() => expect(root.textContent).toContain('Reading, 5 of 20'))
   const model = root.querySelector('[data-model-location="models"]')!
-  expect(model.textContent).toContain('2.0 KiB of 10 KiB read')
+  expect(model.textContent).toContain('2 of 10 KB read')
   expect(model.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0.2')
   const input = root.querySelector('[data-mount-id="input"]')!
   expect(input.textContent).toContain('Reading, 7 of 10')
-  expect(input.textContent).toContain('4.0 KiB of 16 KiB read')
-  expect(input.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0.25')
+  expect(input.textContent).toContain('0.5 of 16 KB read')
+  expect(input.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0.03125')
   mounts = mounts.map(({ scanProgress: _, ...mount }) => ({ ...mount, state: 'ready', entryCount: 12 }))
   changed()
   await vi.waitFor(() => expect(root.querySelectorAll('[role="progressbar"]')).toHaveLength(0))
@@ -200,7 +203,7 @@ it('groups model grants under one folder and switches project membership without
     fetchModelSettings: async () => models,
     onMountsChanged: () => () => {},
     updateProjectFolders: async (ids: readonly string[], output: string) => {
-      if (!ids.includes('plates') && refuseRemoval) throw new Error('Folder changes are temporarily unavailable.')
+      if (!ids.includes('plates') && refuseRemoval) throw new RequestFailure('PUT', '/api/projects/default/folders', 503, 'Folder changes are temporarily unavailable.')
       settings = { mounts: ids.map((id) => all.find((row) => row.id === id)!), outputMount: output, mountChangesAllowed: true }
     },
   } as unknown as DinksterConnection

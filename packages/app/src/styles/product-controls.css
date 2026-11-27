@@ -26,9 +26,9 @@
 .product-button[data-variant='danger']:active:not(:disabled) { border-color: var(--dinkster-danger-border); background: var(--dinkster-danger-wash-pressed); }
 /* A secondary or ghost outline is subtle at rest, the hover outline under the pointer and strong only while pressed or open; primary, accent and danger keep their own. */
 .product-button:is([data-variant='secondary'], [data-variant='ghost']):hover:not(:disabled) { border-color: var(--dinkster-border-hover); }
-.product-button:is([data-variant='secondary'], [data-variant='ghost']):is(:active, [aria-expanded='true']):not(:disabled) { border-color: var(--dinkster-border-strong); }
+.product-button:is([data-variant='secondary'], [data-variant='ghost']):is(:active, [aria-expanded='true']:not(:where(.problems-models-toggle))):not(:disabled) { border-color: var(--dinkster-border-strong); }
 .product-button[data-variant='primary']:is(:hover, :active):not(:disabled) { color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); }
-.product-button:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+.product-button:disabled, .collection-source-action:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .product-button[data-variant='primary']:disabled { border-color: var(--dinkster-border-subtle); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); opacity: 1; }
 
 .product-text-input,
@@ -192,7 +192,7 @@
 .product-number .product-number-field:focus-visible { outline: 0; }
 .product-number-field:disabled { color: var(--dinkster-text-disabled); }
 .product-number-steppers { display: flex; flex: none; border-left: 1px solid var(--dinkster-border-subtle); }
-.product-number-steppers button { min-width: var(--dinkster-control-compact-height); min-height: var(--dinkster-control-compact-height); padding: 0; border: 0; color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); line-height: 1; cursor: pointer; }
+.product-number-steppers button { min-width: var(--dinkster-control-compact-height); min-height: calc(var(--dinkster-control-compact-height) - 2 * var(--dinkster-border-width)); padding: 0; border: 0; color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); line-height: 1; cursor: pointer; }
 .product-number-steppers button + button { border-left: 1px solid var(--dinkster-border-subtle); }
 .product-number-steppers button:hover:not(:disabled) { background: var(--dinkster-interaction-hover); color: var(--dinkster-text-primary); }
 .product-number-steppers button:disabled { color: var(--dinkster-text-disabled); }

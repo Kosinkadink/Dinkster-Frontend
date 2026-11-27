@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import type { DinksterConnection, ModelSettingsState, MountDescriptor, MountLocations, MountSettings, MountScanProgress } from '@dinkster/client'
 import { canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
-import { semanticTokensForTheme } from '@dinkster/core'
+import { formatByteProgress, semanticTokensForTheme } from '@dinkster/core'
 import Ellipsis from 'lucide-solid/icons/ellipsis'
 import ChevronLeft from 'lucide-solid/icons/chevron-left'
 import { ProductButton, ProductConfirmation, ProductCountStrip, ProductDisclosure, ProductErrorBanner, ProductList, ProductListRow, ProductLoading, ProductMenu, ProductNotice, ProductProgress, ProductSection, ProductTextButton, ProductToast } from '@dinkster/ui'
@@ -12,7 +12,7 @@ import { ProductSelect } from './ProductSelect.js'
 import { ProductPanelHeader } from './ProductSurfaces.js'
 import { ModelSettings } from './ModelSettings.js'
 import { MountFolderForm } from './MountFolderForm.js'
-import { formatSize } from './asset-browser/helpers.js'
+import { failureMessage } from './request-failure.js'
 
 type NativeBackend = Extract<Backend, { protocol: 'dinkster' }>
 
@@ -85,7 +85,7 @@ export function StorageFolders(props: {
       setOperatorNotice(paths.status === 'rejected' || modelState.status === 'rejected')
       setError('')
     } catch (cause) {
-      if (current()) setError(cause instanceof Error ? cause.message : String(cause))
+      if (current()) setError(failureMessage(cause, message('request.storageLoadFailed')))
     }
   }
   createEffect(() => {
@@ -118,7 +118,7 @@ export function StorageFolders(props: {
       await load()
       if (owner === generation) setNotification({ message: message('storagePanel.saved') })
     } catch (cause) {
-      if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause))
+      if (owner === generation) setError(failureMessage(cause, message('request.storageSaveFailed')))
     } finally { if (owner === generation) setBusy(false) }
   }
   const selected = () => settings()?.mounts ?? []
@@ -141,11 +141,14 @@ export function StorageFolders(props: {
       elapsedSeconds: Math.max(sum.elapsedSeconds, row.elapsedSeconds),
     }), { filesDone: 0, filesTotal: 0, bytesDone: 0, bytesTotal: 0, elapsedSeconds: 0 })
   }
-  const scan = (progress: MountScanProgress) => <div class="dinkster-stack">
-    <ProductProgress label={message('storagePanel.reading', { done: progress.filesDone, total: progress.filesTotal })}
-      value={progress.bytesTotal > 0 ? progress.bytesDone / progress.bytesTotal : undefined} />
-    <span class="dinkster-metadata">{message('storagePanel.bytesRead', { done: formatSize(progress.bytesDone), total: formatSize(progress.bytesTotal) })}</span>
-  </div>
+  const scan = (progress: MountScanProgress) => {
+    const bytes = formatByteProgress(progress.bytesDone, progress.bytesTotal)
+    return <div class="dinkster-stack">
+      <ProductProgress label={message('storagePanel.reading', { done: progress.filesDone, total: progress.filesTotal })}
+        value={progress.bytesTotal > 0 ? progress.bytesDone / progress.bytesTotal : undefined} />
+      <span class="dinkster-metadata">{message('storagePanel.bytesRead', { done: bytes.received, total: bytes.total })}</span>
+    </div>
+  }
   const kinds = (ids: readonly string[]) => {
     const result = new Map<string, number | undefined>()
     for (const row of counts(ids)) {
@@ -184,7 +187,7 @@ export function StorageFolders(props: {
     }
   }
   const mountFailure = (mount: MountDescriptor) => <Show when={mount.state === 'failed'}>
-    <ProductNotice tone="warning">{mount.error || mount.state} <ProductTextButton label={message('desktopSetup.retry')} disabled={disabled()}
+    <ProductNotice tone="warning">{mount.error || mount.state} <ProductTextButton label={message('common.tryAgain')} disabled={disabled()}
       onClick={() => { void perform(() => props.connection.retryMount(mount.id)) }} /></ProductNotice>
   </Show>
   const folderPath = (value: string) => {

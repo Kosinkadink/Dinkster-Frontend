@@ -1052,6 +1052,58 @@ describe('small flow nodes', () => {
     graphFeatures: ['regions', 'typedLiteral'],
   })
 
+  it('submits Unpack output members from the stored count without inventing document state', () => {
+    for (const count of [0, 3, 512]) {
+      const document = dynDoc({ nodes: { unpack: { type: 'dinkster.utilities.unpack', values: { count } } } })
+      const before = JSON.stringify(document)
+      const result = run(document, 'unpack')
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) continue
+      const members = Array.from({ length: count }, (_, index) => String(index))
+      expect(result.artifact.dinksterGraph?.nodes.unpack).toEqual({
+        nodeType: 'dinkster.utilities.unpack', inputs: { count }, outputMembers: { items: members },
+      })
+      expect(JSON.stringify(document)).toBe(before)
+    }
+  })
+
+  it('delivers absence from a retained Unpack output, restores it on growth, and rejects malformed outputs', () => {
+    for (const port of ['items.2', 'items.02', 'items.512', 'items.2.unknown']) {
+      const document = dynDoc({
+        nodes: { unpack: { type: 'dinkster.utilities.unpack', values: { count: 2 } },
+          sink: { type: 'dinkster.utilities.has_value' } },
+        links: [[['unpack', port], ['sink', 'value']]],
+      })
+      const result = compile({ ...compileInput(document), resolve,
+        graphFeatures: ['regions', 'typedLiteral', DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+      if (port !== 'items.2') {
+        expect(result.ok).toBe(false)
+        if (!result.ok) expect(result.diagnostics.some((d) => d.code === 'compile.port.unknownOutput')).toBe(true)
+        continue
+      }
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) continue
+      expect(result.artifact.dinksterGraph?.nodes.sink).toMatchObject({ inputs: { value: { $absent: expect.anything() } } })
+      expect(result.artifact.dinksterGraph?.nodes.unpack).toMatchObject({ outputMembers: { items: ['0', '1'] } })
+      const grown = { ...document, graphs: { ...document.graphs, g0: { ...document.graphs.g0!,
+        nodes: { ...document.graphs.g0!.nodes, unpack: { ...document.graphs.g0!.nodes.unpack!, values: { count: 3 } } } } } }
+      const restored = compile({ ...compileInput(grown), resolve, graphFeatures: ['regions', 'typedLiteral', DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+      expect(restored.ok, JSON.stringify(!restored.ok && restored.diagnostics)).toBe(true)
+      if (restored.ok) expect(restored.artifact.dinksterGraph?.nodes.sink).toMatchObject({ inputs: { value: { $link: { node: 'unpack', output: 'items.2' } } } })
+    }
+    const forwarded = dynDoc({
+      nodes: { box: { type: '#inner' }, sink: { type: 'dinkster.utilities.has_value' } },
+      links: [[['box', 'third'], ['sink', 'value']]],
+      subgraphs: { inner: { nodes: { unpack: { type: 'dinkster.utilities.unpack', values: { count: 2 } } },
+        boundary: { outputs: [{ id: 'third', binds: { kind: 'port', node: 'unpack', port: 'items.2' } }] } } },
+    })
+    const throughBoundary = compile({ ...compileInput(forwarded), resolve,
+      graphFeatures: ['regions', 'typedLiteral', DINKSTER_GRAPH_FEATURE_ABSENT_INPUT] })
+    expect(throughBoundary.ok, JSON.stringify(!throughBoundary.ok && throughBoundary.diagnostics)).toBe(true)
+    if (throughBoundary.ok) expect(throughBoundary.artifact.dinksterGraph?.nodes.sink)
+      .toMatchObject({ inputs: { value: { $absent: expect.anything() } } })
+  })
+
   it.each([
     ['dinkster.utilities.or_else', 'values.1', { values: { members: ['1', '2'] } }],
     ['dinkster.utilities.has_value', 'value', {}],
@@ -1254,6 +1306,41 @@ describe('dynamic interfaces', () => {
     if (!unsupported.ok) {
       expect(unsupported.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.value.decimalIntUnsupported')
     }
+  })
+
+  it('compiles saved mount names and project defaults with a concrete mount type', () => {
+    const mountSchema = dynSchemaOf('MountSink', [dynInput('mount', {
+      type: { kind: 'union', names: ['MOUNT', 'STRING'] },
+      optional: true,
+      widget: { widgetType: 'MOUNT', options: {}, default: null },
+    })])
+    const resolve = (type: string) => type === 'MountSink' ? mountSchema : dynResolve(type)
+    for (const values of [{ mount: 'archive' }, { mount: null }, {}]) {
+      const stored = dynDoc({ nodes: { save: { type: 'MountSink', values } } })
+      const document = loadDocument(JSON.parse(JSON.stringify(stored))).document!
+      const result = compile({ ...compileInput(document), resolve, graphFeatures: ['regions', 'typedLiteral'] })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) continue
+      expect(result.artifact.prompt.save?.inputs.mount).toEqual({ $typed: { type: 'MOUNT', value: values.mount ?? null } })
+      expect(result.artifact.snapshot).toEqual(document)
+    }
+    const named = dynDoc({ nodes: { save: { type: 'MountSink', values: { mount: 'archive' } } } })
+    const legacy = dynCompile(named)
+    expect(legacy.ok).toBe(true)
+    if (legacy.ok) expect(legacy.artifact.prompt.save?.inputs.mount).toBe('archive')
+    const unsupported = compile({ ...compileInput(named), resolve })
+    expect(unsupported.ok).toBe(false)
+    if (!unsupported.ok) expect(unsupported.diagnostics.map((diagnostic) => diagnostic.code)).toContain('compile.value.mountUnionUnsupported')
+    const wired = compile({
+      ...compileInput(dynDoc({
+        nodes: { source: { type: 'MountSrc' }, save: { type: 'MountSink', values: { mount: 'archive' } } },
+        links: [[['source', 'mount'], ['save', 'mount']]],
+      })),
+      resolve,
+      graphFeatures: ['regions', 'typedLiteral'],
+    })
+    expect(wired.ok, JSON.stringify(!wired.ok && wired.diagnostics)).toBe(true)
+    if (wired.ok) expect(wired.artifact.prompt.save?.inputs.mount).toEqual(['source', 0])
   })
 
   it('compiles a STRING producer into a mount widget as an ordinary link without changing dormant values', () => {
@@ -2183,6 +2270,7 @@ describe('dynamic interfaces', () => {
       class_type: 'CountSplitter',
       inputs: { count: 3 },
       outputIds: ['images.0', 'images.1', 'images.2'],
+      outputMembers: { images: ['0', '1', '2'] },
     })
     expect(result.artifact.prompt.k!.inputs).toEqual({ in: ['s', 1] })
     const restored = dynCompile(loadDocument(JSON.parse(JSON.stringify(result.artifact.snapshot))).document!)
@@ -2209,7 +2297,7 @@ describe('dynamic interfaces', () => {
     expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
     if (!result.ok) return
     expect(result.artifact.prompt.source?.outputIds).toEqual(['before', 'images.0', 'images.1', 'after', 'masks.0', 'masks.1'])
-    expect(result.artifact.prompt.source?.outputMembers).toBeUndefined()
+    expect(result.artifact.prompt.source?.outputMembers).toEqual({ images: ['0', '1'], masks: ['0', '1'] })
     expect(result.artifact.prompt.before?.inputs.in).toEqual(['source', 0])
     expect(result.artifact.prompt.image?.inputs.in).toEqual(['source', 2])
     expect(result.artifact.prompt.after?.inputs.in).toEqual(['source', 3])

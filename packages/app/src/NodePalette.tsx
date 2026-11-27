@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, on, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, on, Show, type JSX } from 'solid-js'
 import { ArrowLeft, Download, Folder, PanelTop, Wrench } from 'lucide-solid'
 import {
   defaultTokens, presentedType, typeColor, typeExprCanonicalLabel, typeIdDisplayLabel,
@@ -9,7 +9,7 @@ import {
   hintsMatchPortFilters, isDeprecated, parseSearchFilters,
   rankSearch, schemaInputTypes, schemaMatchesLinkDrop,
   schemaMatchesPortFilters, schemaOutputTypes, semanticDesignTokens, typeExprFromTypeId,
-  type NodeSchema, type PackBlueprintDescriptor, type SearchAction, type TypeExpr, type WidgetRegistry,
+  type Json, type NodeSchema, type PackBlueprintDescriptor, type SearchAction, type TypeExpr, type WidgetRegistry,
 } from '@dinkster/core'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import {
@@ -29,6 +29,7 @@ export interface PaletteAnchor {
   readonly worldX: number
   readonly worldY: number
   readonly linkDrop?: LinkDropContext
+  readonly suggestedNode?: { readonly type: string; readonly values: Readonly<Record<string, Json>> }
   readonly splice?: LinkDoubleClickContext
   readonly initialInputTypes?: readonly string[]
   readonly initialOutputTypes?: readonly string[]
@@ -79,7 +80,7 @@ export function recentFirst<T>(entries: readonly T[], typeOf: (entry: T) => stri
 
 /** Creation-time eligibility uses the fresh elaborated surface, never a catalog-only entry. */
 export function paletteEntryMatchesLinkDrop(entry: PaletteEntry, drop: LinkDropContext): boolean {
-  if (entry.install !== undefined || !hasKnownLinkDropAnchorType(drop.anchorType)) return false
+  if (entry.install !== undefined) return false
   if (entry.kind === 'utility') return true
   if (entry.schema !== undefined) return schemaMatchesLinkDrop(entry.schema, drop.anchorType, drop.seeking)
   if (entry.blueprint === undefined) return false
@@ -124,7 +125,11 @@ export function buildCategoryTree(categories: readonly string[]): { folders: Cat
   return { folders: freeze(roots), uncategorized }
 }
 
-export const typeLabelOf = (type: TypeExpr): string => productSearchTypeName(presentedType(defaultTokens, type).label)
+export const typeLabelOf = (type: TypeExpr): string => {
+  if (type.kind === 'variable' && !hasKnownLinkDropAnchorType(type)) return 'Any'
+  if (type.kind === 'list') return `${typeLabelOf(type.element)} list`
+  return productSearchTypeName(presentedType(defaultTokens, type).label)
+}
 
 /** The host owns corpus and placement; all browsing state lasts only for this open. */
 export function NodePalette(props: {
@@ -132,6 +137,7 @@ export function NodePalette(props: {
   entries: () => PaletteEntry[]
   recentTypes: () => readonly string[]
   widgetRegistry: WidgetRegistry
+  catalogRecovery?: JSX.Element
   bounds: () => { width: number; height: number }
   onCommit: (entry: PaletteEntry) => void
   onHelp?: (entry: PaletteEntry) => void
@@ -164,7 +170,8 @@ export function NodePalette(props: {
       const drop = props.anchor.linkDrop
       if (drop !== undefined && !paletteEntryMatchesLinkDrop(entry, drop)) return false
       const splice = props.anchor.splice
-      if (splice !== undefined && (entry.install !== undefined || (entry.kind !== 'utility' &&
+      if (splice !== undefined && (!hasKnownLinkDropAnchorType(splice.fromType) || !hasKnownLinkDropAnchorType(splice.toType) ||
+        entry.install !== undefined || (entry.kind !== 'utility' &&
         (entry.schema === undefined || autoConnectTarget(entry.schema, splice.fromType, 'in') === undefined ||
           autoConnectTarget(entry.schema, splice.toType, 'out') === undefined)))) return false
       if (kind() !== 'all' && entry.kind !== kind()) return false
@@ -190,14 +197,19 @@ export function NodePalette(props: {
       }
       return !typed && entry.kind === 'utility'
     })
-    return filters.text === '' ? recentFirst(pool, (entry) => entry.type, props.recentTypes(), entries().length) :
-      rankSearch(filters.text, pool, (entry) => entry.fields, { limit: 200 })
+    if (filters.text !== '') return rankSearch(filters.text, pool, (entry) => entry.fields, { limit: 200, nameOf: (entry) => entry.name })
+    const recent = recentFirst(pool, (entry) => entry.type, props.recentTypes(), entries().length)
+    const suggested = props.anchor.linkDrop === undefined ? undefined : props.anchor.suggestedNode?.type
+    return suggested === undefined ? recent : [
+      ...recent.filter((entry) => entry.type === suggested),
+      ...recent.filter((entry) => entry.type !== suggested),
+    ]
   })
   const row = (entry: PaletteEntry): ProductSearchRow => {
     const drop = props.anchor.linkDrop
     const target = drop !== undefined && entry.schema !== undefined ? autoConnectTarget(entry.schema, drop.anchorType, drop.seeking) : undefined
     const detail = entry.install !== undefined ? message('search.notInstalled') :
-      target !== undefined ? message(drop!.seeking === 'in' ? 'palette.connection.into' : 'palette.connection.from', { port: target.port }) :
+      target !== undefined ? message(drop!.seeking === 'in' ? 'palette.connection.into' : 'palette.connection.from', { port: target.label }) :
         paletteEntryIdentity(entry, duplicates()).visible ?? searchPlace(entry.category)
     return {
       key: `entry:${entry.type}`, title: entry.name, detail,
@@ -227,6 +239,7 @@ export function NodePalette(props: {
   const announcement = () => {
     const rows = groups().flatMap((group) => group.rows)
     const index = rows.findIndex((item) => item.key === selectedKey())
+    if (index < 0 && props.catalogRecovery !== undefined) return ''
     if (index < 0) return query().trim() === ''
       ? message('palette.announcement.noNodes')
       : message('palette.announcement.noMatches', { query: query() })
@@ -345,11 +358,12 @@ export function NodePalette(props: {
         status={announcement()}
         markQuery={parseSearchFilters(query()).text}
         autofocus inputRef={(input) => { searchInput = input; input.dataset.testid = 'palette-search' }}
+        notice={props.catalogRecovery}
         empty={{ title: message('palette.empty.title'), detail: message(query().trim() === '' ? 'palette.empty.filters' : 'palette.empty.query') }}
         hints={[
           { keys: ['Up', 'Down'], label: message('search.hint.move') },
           { keys: ['Enter'], label: message(selected()?.install !== undefined ? 'search.hint.install' : selectedKey()?.startsWith('category:') ? 'search.hint.open' : 'search.hint.placeNode') },
-          { keys: ['Tab'], label: message('search.hint.nextKind') },
+          ...(props.catalogRecovery === undefined ? [{ keys: ['Tab'], label: message('search.hint.nextKind') }] : []),
           { keys: ['Esc'], label: message('search.hint.close') },
         ]}
         preview={<Show when={selected()}>{(entry) => <>

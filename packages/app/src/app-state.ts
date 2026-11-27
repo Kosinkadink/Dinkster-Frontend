@@ -6,7 +6,9 @@
  */
 
 import { desktopSaveBridge } from './desktop-bridge.js'
+import { failureMessage } from './request-failure.js'
 import { createAppPageTabs } from './app-page-tabs.js'
+import { isPageTab, type PageTab } from './page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
 import {
   CORE_VIRTUAL_NODE_KINDS,
@@ -165,7 +167,10 @@ import {
   probeSupervisorStatus,
   reconcileDinksterExecutions,
   restartSupervisorEngine,
+  subscribeRequestFailures,
   type ConnectionStatus,
+  type ModelDownloadJob,
+  type ModelDownloadRequirement,
   type ExecutionState,
   type ExecutionStatus,
   type LibraryRecord,
@@ -210,6 +215,7 @@ import type { CanvasLens } from './data-lens.js'
 import { registerLocaleSetting } from './locale.js'
 import { runClock } from './execution-activity.js'
 import { registerThemeSetting } from './theme.js'
+import { ModelDownloadsController, type ModelDownloadState, type ModelDownloadTask } from './model-downloads.js'
 import {
   assetGuessCandidateToRef,
   installAssetConsent,
@@ -263,6 +269,8 @@ import {
   type PersistedExecutionResult,
 } from './execution-result-persistence.js'
 import { COLLAB_SCOPE, httpCollabTransport, stableActorId, type CollabTransport } from './collab.js'
+import { BoardWorkspace } from './board-workspace.js'
+import { installBoardPages } from './BoardPage.js'
 import { PresenceChannel } from './collab-presence.js'
 import {
   connectSharedWorkerSession,
@@ -716,10 +724,12 @@ const decodeWorkspaceExecutionEvent = (value: unknown): NormalizedEvent | undefi
         (value['origin'] !== undefined && value['origin'] !== 'stdout' && value['origin'] !== 'stderr' &&
           value['origin'] !== 'logging' && value['origin'] !== 'capture') ||
         (value['logger'] !== undefined && typeof value['logger'] !== 'string') ||
+        (value['code'] !== undefined && !workspaceString(value['code'])) ||
         (value['pythonLevel'] !== undefined && typeof value['pythonLevel'] !== 'string')) return undefined
       return {
         kind: 'log', execution, timestamp,
         level: value['level'], message: value['message'], seq: value['seq'],
+        ...(value['code'] === undefined ? {} : { code: value['code'] as string }),
         ...(value['runtimeNodeId'] === undefined ? {} : { runtimeNodeId: value['runtimeNodeId'] as string }),
         ...(value['emittedAt'] === undefined ? {} : { emittedAt: value['emittedAt'] as number }),
         ...(value['origin'] === undefined ? {} : { origin: value['origin'] as 'stdout' | 'stderr' | 'logging' | 'capture' }),
@@ -2494,7 +2504,7 @@ export interface ProjectPackInstallationReview {
 export interface ProjectNeedsReview {
   readonly backend: Backend
   readonly project: LibraryProject
-  readonly needs: ProjectNeeds
+  readonly needs: ProjectNeeds & { readonly installed: ProjectNeeds['packs'] }
   readonly enable: readonly string[]
   readonly changes: ProjectNeeds['packs']
   readonly requested?: ProjectNeeds['packs']
@@ -2652,6 +2662,7 @@ export class AppState {
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
   readonly searchCatalogRequests = createSignal(0)
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
+  readonly nodeCatalogSetupRequested = createSignal(false)
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
   readonly projectPackNotification = createSignal<{ readonly message: string } | undefined>(undefined)
   private readonly projectNeedsChecks = new WeakMap<Backend, object>()
@@ -2663,7 +2674,6 @@ export class AppState {
   readonly projectPackInstallations = new Map<Backend, 'applying' | 'uncertain'>()
   /** Unacknowledged mutations survive closing the prompt until the installed node is observed. */
   readonly nodeInstallUncertain = new Map<string, string>()
-  readonly templateGalleryOpen = createSignal(false)
   /** Node docs page requested by the canvas, palette, or F1 command. */
   readonly nodeHelpRequest = createSignal<NodeHelpRequest | undefined>(undefined)
   /**
@@ -3001,6 +3011,8 @@ export class AppState {
   readonly tabs: Signal<readonly Tab[]> = createSignal<readonly Tab[]>([])
   readonly activeTabId: Signal<string> = createSignal('')
   readonly pages: ReturnType<typeof createAppPageTabs>
+  readonly boards: BoardWorkspace
+  private readonly uninstallBoardPages: () => void
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
   /**
@@ -3017,6 +3029,87 @@ export class AppState {
   readonly frozenEditRefusal = createSignal<{ readonly tabId: string } | undefined>(undefined)
   readonly cancellingExecutions = createSignal<ReadonlySet<string>>(new Set())
   readonly assetConsent: Signal<AssetConsentRequest | undefined> = createSignal<AssetConsentRequest | undefined>(undefined)
+  private readonly modelDownloadControllers = new Map<Backend, Map<string, ModelDownloadsController>>()
+  private readonly observedModelDownloads = new Map<Backend, readonly ModelDownloadJob[]>()
+  private readonly modelDownloadsChanged = createSignal(0)
+  readonly modelDownloadTasks = createSignal<ReadonlyMap<Backend, readonly ModelDownloadTask[]>>(new Map())
+
+  modelDownloadsFor(backend: Backend, project = activeProjectId()): ModelDownloadsController {
+    let projects = this.modelDownloadControllers.get(backend)
+    if (!projects) { projects = new Map(); this.modelDownloadControllers.set(backend, projects) }
+    let controller = projects.get(project)
+    if (!controller) {
+      controller = new ModelDownloadsController(backend.connection, project, (jobs) => {
+        this.observedModelDownloads.set(backend, jobs)
+        this.publishModelDownloadTasks(backend)
+      })
+      projects.set(project, controller)
+      controller.rows.subscribe(() => this.publishModelDownloadTasks(backend))
+    }
+    return controller
+  }
+
+  /** Exact per-variant state, including transfers discovered outside this window. */
+  modelDownloadStateFor(backend: Backend, requirement: ModelDownloadRequirement, project = activeProjectId()): ReadonlySignal<ModelDownloadState | undefined> {
+    const get = (): ModelDownloadState | undefined => {
+      const row = this.modelDownloadControllers.get(backend)?.get(project)?.rows.get().find((entry) =>
+        entry.requirement.name === requirement.name && entry.requirement.kind === requirement.kind &&
+        entry.requirement.asset?.digest === requirement.asset?.digest)
+      const job = [...(this.observedModelDownloads.get(backend) ?? [])].reverse().find((entry) =>
+        entry.project === project && entry.name === requirement.name && entry.kind === requirement.kind &&
+        entry.digest === requirement.asset?.digest)
+      if (!job) return row
+      if (row && row.job?.jobId !== job.jobId && ['completed', 'cancelled', 'failed'].includes(job.status)) return row
+      if (row?.job?.jobId === job.jobId && !['completed', 'cancelled', 'failed'].includes(job.status) &&
+        (['completed', 'cancelled', 'failed'].includes(row.job.status) || row.job.received > job.received)) return row
+      return { requirement, pending: row?.pending ?? false, job }
+    }
+    return { get, subscribe: (listener) => {
+      const unsubscribe = this.modelDownloadsChanged.subscribe(() => listener(get()))
+      const stop = !this.disposed && this.backends.get().includes(backend)
+        ? this.modelDownloadsFor(backend, project).observe() : () => {}
+      return () => { unsubscribe(); stop() }
+    } }
+  }
+
+  private publishModelDownloadTasks(backend: Backend): void {
+    const tasks = new Map<string, ModelDownloadTask>()
+    const addJob = (job: ModelDownloadJob): void => {
+      if (['completed', 'cancelled', 'failed'].includes(job.status)) { tasks.delete(job.jobId); return }
+      tasks.set(job.jobId, { key: job.jobId, name: job.name, size: job.size, received: job.received, queued: false })
+    }
+    const observed = new Map((this.observedModelDownloads.get(backend) ?? []).map((job) => [job.jobId, job]))
+    for (const job of observed.values()) addJob(job)
+    for (const [project, controller] of this.modelDownloadControllers.get(backend) ?? []) {
+      for (const row of controller.rows.get()) {
+        if (row.job) {
+          const latest = observed.get(row.job.jobId)
+          if (!latest || (!['completed', 'cancelled', 'failed'].includes(latest.status) &&
+            (['completed', 'cancelled', 'failed'].includes(row.job.status) || row.job.received >= latest.received))) addJob(row.job)
+        }
+        if (row.queued && row.plan?.status === 'consent-required') {
+          const key = `queue:${JSON.stringify([project, row.requirement.name, row.requirement.kind, row.requirement.asset?.digest])}`
+          tasks.set(key, { key, name: row.requirement.name, size: row.plan.size, received: 0, queued: true })
+        }
+      }
+    }
+    this.modelDownloadTasks.update((current) => {
+      const next = new Map(current)
+      if (tasks.size) next.set(backend, [...tasks.values()]); else next.delete(backend)
+      return next
+    })
+    this.modelDownloadsChanged.update((revision) => revision + 1)
+  }
+
+  private releaseModelDownloads(backend: Backend): void {
+    for (const controller of this.modelDownloadControllers.get(backend)?.values() ?? []) {
+      if (this.assetConsent.get()?.modelDownloadController === controller) this.assetConsent.set(undefined)
+      controller.dispose()
+    }
+    this.modelDownloadControllers.delete(backend)
+    this.observedModelDownloads.delete(backend)
+    this.publishModelDownloadTasks(backend)
+  }
   readonly storageOpenRequest = createSignal<{ readonly id: string; readonly hiddenModels: boolean } | undefined>(undefined)
   private modelReview: AbortController | undefined
   readonly importAssetResolution: Signal<ImportAssetResolutionRequest | undefined> = createSignal<ImportAssetResolutionRequest | undefined>(undefined)
@@ -3031,6 +3124,7 @@ export class AppState {
   /** Problems-to-canvas handoff; CanvasHost revalidates the anchor before acting. */
   readonly diagnosticFocus: Signal<DiagnosticFocusRequest | undefined> = createSignal<DiagnosticFocusRequest | undefined>(undefined)
   readonly logs: Signal<readonly AppLogEntry[]> = createSignal<readonly AppLogEntry[]>([])
+  private readonly unsubscribeRequestFailures = subscribeRequestFailures((failure) => this.log('error', 'Requests', failure.message), true)
   /**
    * All connected backends; index 0 is the default (never removable). Most
    * users have exactly one and see none of the multi-backend chrome.
@@ -3198,6 +3292,16 @@ export class AppState {
     this.deniedExtensionPrivileges = Object.freeze([...(options?.deniedExtensionPrivileges ?? [])])
     this.collabTransport = options?.collabTransport ?? httpCollabTransport()
     this.collabActorId = stableActorId()
+    const boardProject = activeProjectId()
+    this.boards = new BoardWorkspace({
+      transport: this.collabTransport,
+      actorId: this.collabActorId,
+      project: boardProject,
+      backend: () => this.collabBackend()?.baseUrl,
+      mediaConnection: (baseUrl) => activeProjectId() === boardProject
+        ? this.backends.get().find((backend) => backend.baseUrl === baseUrl)?.connection : undefined,
+      onConflict: (id, message) => this.reportProblems(id, [diag('warning', 'collab', 'board.session.conflict', message)]),
+    })
     this.workspaceEvents = options?.workspaceEvents ?? (
       typeof globalThis.SharedWorker === 'function' && typeof globalThis.BroadcastChannel === 'function'
         ? new BroadcastChannel(scopedSharedName('dinkster-workspace-executions'))
@@ -3275,6 +3379,7 @@ export class AppState {
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.appView.enabled', get name() { return t('settings.features.appView') }, type: 'boolean', defaultValue: false })
+    this.settings.register({ id: 'features.board.enabled', get name() { return t('settings.features.board') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({
       id: 'execution.previews',
@@ -3321,6 +3426,7 @@ export class AppState {
         ({ id, placement, allowedPlacements, order })))
     this.editorSplits = new EditorSplitStore(this.settings)
     this.pages = createAppPageTabs(this)
+    this.uninstallBoardPages = installBoardPages(this)
     // Stale-modal guard (see modalPanel above): registry churn that removes
     // the open modal's panel - or moves it off 'modal' - closes the modal
     // state itself, so a later re-register can never resurrect the dialog.
@@ -3342,7 +3448,21 @@ export class AppState {
         if (execution) void this.cancelExecution(execution.ref)
       },
     })
-    register('workflow.save', 'command.workflow.save', 'Ctrl+S', () => { const tab = activeTabNow(); if (tab) void this.saveWorkflow(tab.id) }, () => {
+    register('workflow.save', 'command.workflow.save', 'Ctrl+S', () => {
+      const page = this.pages.tabs().find((tab) => tab.id === this.activeTabId.get())
+      if (page && isPageTab(page)) {
+        const descriptor = this.pages.descriptor(page.pageId)
+        if (descriptor?.dirty?.() === true) void descriptor.save?.()
+        return
+      }
+      const tab = activeTabNow()
+      if (tab) void this.saveWorkflow(tab.id)
+    }, () => {
+      const page = this.pages.tabs().find((tab) => tab.id === this.activeTabId.get())
+      if (page && isPageTab(page)) {
+        const descriptor = this.pages.descriptor(page.pageId)
+        return descriptor?.save !== undefined && descriptor.dirty?.() === true
+      }
       const tab = activeTabNow()
       return tab !== undefined && tab.execution === undefined && this.backendForTab(tab).protocol === 'dinkster'
     })
@@ -3670,7 +3790,6 @@ export class AppState {
     })
     this.activeTabId.subscribe((activeId) => {
       this.workflowOpenIntent += 1
-      this.templateGalleryOpen.set(false)
       this.selectExtensionWorld()
       const glslTarget = this.glslEditorTarget.get()
       if (glslTarget && glslTarget.tabId !== activeId) {
@@ -3728,6 +3847,14 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.unsubscribeRequestFailures()
+    this.uninstallBoardPages()
+    this.boards.dispose()
+    for (const projects of this.modelDownloadControllers.values()) for (const controller of projects.values()) controller.dispose()
+    this.modelDownloadControllers.clear()
+    this.observedModelDownloads.clear()
+    this.modelDownloadTasks.set(new Map())
+    this.modelDownloadsChanged.update((revision) => revision + 1)
     this.pages.dispose()
     for (const request of this.pendingComparisonCompiles.values()) {
       if (request.frame !== undefined) cancelAnimationFrame(request.frame)
@@ -3831,7 +3958,7 @@ export class AppState {
       this.workspaceAuthorityEnabled = false
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
         'error', 'command', 'workspace.tabs.failed',
-        `Shared tab workspace unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        failureMessage(error, 'Shared tab workspace unavailable.'),
       )])
       throw error
     }
@@ -3937,7 +4064,7 @@ export class AppState {
       (error: unknown) => {
         if (this.workspaceTabConnection === connection) this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag(
           'error', 'command', 'workspace.tabs.mutationFailed',
-          `Shared tab change failed: ${error instanceof Error ? error.message : String(error)}`,
+          failureMessage(error, 'Shared tab change failed.'),
         )])
       },
     ).finally(() => {
@@ -4090,7 +4217,7 @@ export class AppState {
       'warning',
       'command',
       'workspace.tabs.reconnecting',
-      `Shared tab workspace reconnecting: ${error.message}`,
+      failureMessage(error, 'Shared tab workspace reconnecting.'),
     )])
     this.disableWorkspaceAuthority(true)
     let delay = 250
@@ -4231,7 +4358,7 @@ export class AppState {
         'error',
         'command',
         'workspace.authority.failed',
-        `Shared workspace unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        failureMessage(error, 'Shared workspace unavailable.'),
       )])
     }
   }
@@ -4306,6 +4433,7 @@ export class AppState {
     const registry = this.registryForTab(tab)
     const document = tab.store.doc
     const occurrences = registry === undefined || backend.protocol !== 'dinkster' ? [] : workflowModelOccurrences(document, registry.resolve, lookupAnswersOf(backend.lookups))
+      .filter((occurrence) => occurrence.asset === undefined)
     const signature = JSON.stringify(occurrences)
     const status = backend.connection.status.get()
     const previous = this.workflowModelChecks.get(tab.store)
@@ -4361,26 +4489,102 @@ export class AppState {
     }).catch(unchecked)
   }
 
-  /** Open a row's model review only while that row still belongs to this document and backend. */
-  reviewModelDownload(tab: Tab, diagnostic: Diagnostic): void {
+  /** Missing model identities and their diagnostics from the current workflow checks. */
+  missingWorkflowModels(tab: Tab): { readonly models: readonly ModelDownloadRequirement[]; readonly diagnostics: readonly Diagnostic[] } | undefined {
     const check = this.workflowModelChecks.get(tab.store)
     const backend = this.backendForTab(tab)
     const current = (): boolean => !this.disposed && this.tabs.get().includes(tab) &&
       check?.document === tab.store.doc && check.backend === this.backendForTab(tab) && check.registry === this.registryForTab(tab)
-    const data = diagnostic.data
-    if (!current() || backend.protocol !== 'dinkster' || diagnostic.code !== 'model.availability.missing' ||
-        data?.['plannable'] !== true || typeof data['name'] !== 'string' || typeof data['kind'] !== 'string' ||
-        !this.problems.get().some((entry) => entry === diagnostic && entry.owner === tab.id)) return
+    if (!current() || backend.protocol !== 'dinkster') return undefined
+    const ownedProblems = this.problems.get().filter((entry) => entry.owner === tab.id)
+    const problems = ownedProblems.filter((entry) =>
+      entry.code === 'model.availability.missing' &&
+      entry.data?.['backend'] === backend.id && typeof entry.data['name'] === 'string' && typeof entry.data['kind'] === 'string')
+    const registry = this.registryForTab(tab)
+    const exactProblems = this.workflowAssetChecks.get(tab.store)?.backend === backend ? ownedProblems.filter((entry) =>
+      entry.code === 'asset.availability.missing') : []
+    const matches = (entry: Diagnostic, occurrence: WorkflowModelOccurrence): boolean => occurrence.asset !== undefined &&
+      entry.data?.['digest'] === occurrence.asset.digest && entry.data['graph'] === occurrence.graph &&
+      entry.data['node'] === occurrence.node && entry.data['input'] === occurrence.input
+    const exactOccurrences = registry === undefined ? [] : workflowModelOccurrences(tab.store.doc, registry.resolve,
+      lookupAnswersOf(backend.lookups)).filter((occurrence) => exactProblems.some((entry) => matches(entry, occurrence)))
+    const exactModels = exactOccurrences.map((occurrence): ModelDownloadRequirement => ({
+      name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset!,
+    }))
+    const keys = new Set<string>()
+    const models = [...problems.map((entry): ModelDownloadRequirement => ({
+      name: entry.data!['name'] as string, kind: entry.data!['kind'] as string,
+    })), ...exactModels].filter((requirement) => {
+      const key = JSON.stringify([requirement.name, requirement.kind, requirement.asset?.digest])
+      if (keys.has(key)) return false
+      keys.add(key)
+      return true
+    })
+    return { models, diagnostics: [...problems, ...exactProblems.filter((entry) =>
+      exactOccurrences.some((occurrence) => matches(entry, occurrence)))] }
+  }
+
+  /** Review this workflow's missing models only while its checked document and backend remain current. */
+  reviewModelDownload(tab: Tab, diagnostic?: Diagnostic): void {
+    const missing = this.missingWorkflowModels(tab)
+    if (!missing?.models.length || (diagnostic !== undefined && !missing.diagnostics.includes(diagnostic))) return
+    const registry = this.registryForTab(tab)
+    const exact = diagnostic?.code === 'asset.availability.missing' && registry !== undefined
+      ? workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(this.backendForTab(tab).lookups)).find((occurrence) =>
+        occurrence.asset?.digest === diagnostic.data?.['digest'] && occurrence.graph === diagnostic.data?.['graph'] &&
+        occurrence.node === diagnostic.data?.['node'] && occurrence.input === diagnostic.data?.['input']) : undefined
+    const focusedModel = exact ? { name: exact.name, kind: exact.kind, asset: exact.asset! } : (diagnostic && missing.models.find((model) => model.asset === undefined &&
+      model.name === diagnostic.data?.['name'] && model.kind === diagnostic.data?.['kind']))
+    this.openModelDownloads(this.backendForTab(tab), missing.models, { workflowTitle: tab.title, tab, missing: missing.models,
+      ...(focusedModel === undefined ? {} : { focusedModel }),
+    })
+  }
+
+  /** Review without submitting a run; supplied sources must come from authoritative model metadata. */
+  openModelDownloads(backend: Backend, models: readonly (ModelDownloadRequirement & { readonly source?: string })[], options: {
+    readonly workflowTitle?: string
+    readonly focusedModel?: ModelDownloadRequirement
+    readonly missing?: readonly ModelDownloadRequirement[]
+    readonly tab?: Tab
+    readonly signal?: AbortSignal
+    readonly stillCurrent?: () => boolean
+  } = {}): void {
+    if (this.disposed || backend.protocol !== 'dinkster' || !this.backends.get().includes(backend) || models.length === 0) return
+    const { tab, workflowTitle } = options
+    const document = tab?.store.doc
+    const registry = tab && this.registryForTab(tab)
+    const project = activeProjectId()
+    const current = (): boolean => !this.disposed && activeProjectId() === project && this.backends.get().includes(backend) &&
+      !options.signal?.aborted && (options.stillCurrent?.() ?? true) &&
+      (!tab || (this.tabs.get().includes(tab) && this.backendForTab(tab) === backend &&
+        tab.store.doc === document && this.registryForTab(tab) === registry))
+    if (!current()) return
     this.modelReview?.abort()
     const controller = new AbortController()
     this.modelReview = controller
-    const project = activeProjectId()
-    const invalidate = (): void => { if (!current() || activeProjectId() !== project) controller.abort() }
-    const unsubscribe = [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate), this.backendsTick.subscribe(invalidate)]
+    const transfers = this.modelDownloadsFor(backend, project)
+    transfers.ensure(models)
+    if (options.missing) transfers.ensure(options.missing, true)
+    for (const requirement of models) {
+      const row = this.modelDownloadStateFor(backend, requirement, project).get()
+      if (requirement.source !== undefined && !row?.source && !row?.plan && !row?.job)
+        transfers.setSource(requirement, requirement.source)
+    }
+    const invalidate = (): void => { if (!current()) controller.abort() }
+    const unsubscribe = [this.backendsTick.subscribe(invalidate),
+      ...(tab ? [this.tabs.subscribe(invalidate), tab.store.document.subscribe(invalidate)] : [])]
     installAssetConsent({
-      models: [{ name: data['name'], kind: data['kind'] }], slot: this.assetConsent, signal: controller.signal,
-      modelDownloads: { connection: backend.connection, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+      models, ...(workflowTitle === undefined ? {} : { workflowTitle }), slot: this.assetConsent,
+      ...(options.focusedModel === undefined ? {} : { focusedModel: options.focusedModel }),
+      signal: options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal,
+      beforeRetry: current,
+      modelDownloads: { connection: backend.connection, controller: transfers, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+      unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
+      locateModel: (requirement, status) => {
+        if (tab) this.locateModelDownload(tab, backend, requirement, status)
+        else if (status === 'destination-required' && current()) this.storageOpenRequest.set({ id: backend.id, hiddenModels: false })
+      },
       onSettled: () => {
         unsubscribe.forEach((dispose) => dispose())
         if (this.modelReview === controller) this.modelReview = undefined
@@ -4394,6 +4598,23 @@ export class AppState {
     const backend = this.backendForTab(tab)
     if (diagnostic.data?.['backend'] !== backend.id) return
     this.storageOpenRequest.set({ id: backend.id, hiddenModels: diagnostic.code === 'model.availability.model-hidden' })
+  }
+
+  private locateModelDownload(tab: Tab, backend: Backend, requirement: ModelDownloadRequirement, status: 'duplicate' | 'destination-required'): void {
+    if (this.disposed || !this.tabs.get().includes(tab) || this.backendForTab(tab) !== backend) return
+    if (status === 'destination-required') {
+      this.storageOpenRequest.set({ id: backend.id, hiddenModels: false })
+      return
+    }
+    const registry = this.registryForTab(tab)
+    const occurrence = registry && workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(backend.lookups))
+      .find((entry) => entry.name === requirement.name && entry.kind === requirement.kind &&
+        entry.asset?.digest === requirement.asset?.digest)
+    if (!occurrence) return
+    this.activeTabId.set(tab.id)
+    this.diagnosticFocus.set({ tab, openAssetInput: occurrence.input,
+      anchor: { occurrence: { instancePath: (occurrence.instancePath ?? []).map(asNodeId), node: asNodeId(occurrence.node) } },
+    })
   }
 
   private refreshWorkflowAssets(tab: Tab): void {
@@ -4431,9 +4652,12 @@ export class AppState {
     }).then(async (rows) => {
       if (signal.aborted) return unchecked()
       const missing = new Set(rows.filter((row) => row.status === 'missing').map((row) => row.digest))
+      const registry = this.registryForTab(tab)
+      const models = registry === undefined ? [] : workflowModelOccurrences(tab.store.doc, registry.resolve, lookupAnswersOf(backend.lookups))
       publish(occurrences.filter(({ asset }) => missing.has(asset.digest)).map((occurrence) => {
         const { graph, node, input, index, asset } = occurrence
         const hint = this.workflowAssetLocations.get(tab.store)?.get(asset.digest) ?? savedAssetLocation(tab.store.doc, occurrence)
+        const model = models.find((entry) => entry.graph === graph && entry.node === node && entry.input === input && entry.asset?.digest === asset.digest)
         return diag('warning', 'validation', 'asset.availability.missing',
           `${asset.name} is missing on ${backend.label}: ${graph}/${node}/${input} [${index + 1}].`, {
             refs: [{ graphId: graph, nodeId: node, valueKey: input, direction: 'input' }],
@@ -4442,6 +4666,7 @@ export class AppState {
             } }),
             data: { name: asset.name, backend: backend.label, graph, node, input,
               digest: asset.digest, virtualPath: asset.virtualPath, index,
+              ...(model === undefined ? {} : { kind: model.kind }),
               ...(hint ? { lastKnownMachine: hint.machine, lastKnownPaths: [...hint.paths] } : {}) },
           })
       }))
@@ -4780,7 +5005,7 @@ export class AppState {
         if (connection.status.get() !== 'connected') return
         reconcile().catch((e: unknown) => {
           this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-            diag('error', 'runtime', 'reconcile.failed', `[${label}] failed to reconcile executions after reconnect: ${e instanceof Error ? e.message : String(e)}`),
+            diag('error', 'runtime', 'reconcile.failed', failureMessage(e, `Executions for ${label} could not be reloaded after reconnecting.`)),
           ])
         })
       }
@@ -5021,9 +5246,9 @@ export class AppState {
               this.log('info', label, `engine not ready (${e.state}); deferring /api/nodes refresh`)
               return
             }
-            base.schemaState.set({ status: 'error', message: e instanceof Error ? e.message : String(e) })
+            base.schemaState.set({ status: 'error', message: failureMessage(e, 'Node definitions could not be loaded.') })
             this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-              diag('error', 'schema', 'schema.refreshFailed', `[${label}] failed to refresh /api/nodes after ${why}: ${e instanceof Error ? e.message : String(e)}`),
+              diag('error', 'schema', 'schema.refreshFailed', failureMessage(e, `Node definitions for ${label} could not be refreshed.`)),
             ])
           },
         )
@@ -5126,7 +5351,7 @@ export class AppState {
               'error',
               'runtime',
               'execution.artifactHydrationFailed',
-              `[${label}] failed to hydrate completed execution artifacts: ${error instanceof Error ? error.message : String(error)}`,
+              failureMessage(error, `Outputs for ${label} could not be loaded.`),
             ),
           ])
         })
@@ -5210,7 +5435,7 @@ export class AppState {
       // The live probe never throws, but an injected discovery can; keep
       // the named-problem contract instead of an unhandled rejection.
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag('error', 'schema', 'backend.discovery-failed', `'${trimmed}': discovery failed: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'schema', 'backend.discovery-failed', failureMessage(e, 'The backend could not be found.')),
       ])
       return undefined
     }
@@ -5279,6 +5504,7 @@ export class AppState {
     const list = this.backends.get()
     const entry = list.find((b) => b.id === id)
     if (!entry || entry === list[0]) return // default is not removable
+    this.releaseModelDownloads(entry)
     this.supervisorPolls.get(id)?.()
     entry.connection.disconnect()
     entry.dispose()
@@ -5298,6 +5524,7 @@ export class AppState {
 
   /** Stop transport and supervisor polling without forgetting the server or its targets. */
   disconnectBackend(backend: Backend): void {
+    this.releaseModelDownloads(backend)
     this.supervisorPolls.get(backend.id)?.()
     backend.connection.disconnect()
   }
@@ -6132,6 +6359,15 @@ export class AppState {
   }
 
   renameTab(tabId: string, title: string): void {
+    const board = this.boards.entries.get().find((entry) => `page:board:${entry.id}` === tabId)
+    if (board) {
+      title = title.trim()
+      if (!title || title === board.name) return
+      void this.boards.rename(board.id, title).catch((error: unknown) => {
+        this.reportProblems(board.id, [diag('error', 'collab', 'board.rename.refused', failureMessage(error, 'The board could not be renamed.'))])
+      })
+      return
+    }
     const tab = this.tabs.get().find((candidate) => candidate.id === tabId)
     title = title.trim()
     if (!tab || tab.execution || !title || title === tab.title ||
@@ -6154,7 +6390,7 @@ export class AppState {
     do lineage = asLineageId(`${source.store.doc.lineage}-copy-${Date.now()}-${++newWorkflowOrdinal}`)
     while (this.tabs.get().some((tab) => tab.id === lineage))
     const backend = this.backendForTab(source)
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const prepared = this.prepareDocumentOpen({ ...source.store.doc, lineage }, copyTitle, backend)
     if (!prepared.ok) return undefined
     const copy = await this.publishOpenedDocument(prepared, backend, stillWanted, backend, true,
@@ -6536,7 +6772,7 @@ export class AppState {
    */
   async openExecutionView(ref: ExecutionRef): Promise<boolean> {
     if (this.disposed) return false
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const state = this.store.get(ref)
     const artifact = state?.artifact
     if (!artifact) return false
@@ -6640,12 +6876,14 @@ export class AppState {
   // -- Collaboration (shared sessions; docs/collaboration.md) ---------------
 
   /**
-   * The backend whose collab surface shared sessions use: the active tab's
-   * backend when it speaks dinkster, else the first dinkster backend. The surface
+   * Shared Boards use their owning backend, never a fallback server. Other
+   * tabs prefer their dinkster backend, else the first dinkster backend. The surface
    * is native-only (v1 servers have no session routes), so undefined means
    * "collaboration unavailable", which the panel says in words.
    */
   collabBackend(): Backend | undefined {
+    const board = this.boards.entries.get().find((entry) => `page:board:${entry.id}` === this.activeTabId.get())
+    if (board) return this.backends.get().find((backend) => backend.baseUrl === board.baseUrl && backend.protocol === 'dinkster')
     const active = this.activeTab()
     const preferred = active !== undefined ? this.backendForTab(active) : undefined
     if (preferred?.protocol === 'dinkster') return preferred
@@ -6656,12 +6894,15 @@ export class AppState {
     return this.collabTabs.get().get(tabId)
   }
 
-  /** The collab backend's joinable sessions in the app discovery scope. */
+  /** Joinable workflows and, when enabled, this project's Boards. */
   async listCollabSessions(): Promise<readonly CollabSessionDescriptor[]> {
     const backend = this.collabBackend()
     if (backend === undefined) return []
-    return (await this.collabTransport.list(backend.baseUrl, COLLAB_SCOPE))
-      .filter((descriptor) => (descriptor.documentKind ?? 'workflow') === 'workflow')
+    const [workflows, boards] = await Promise.all([
+      this.collabTransport.list(backend.baseUrl, COLLAB_SCOPE),
+      this.settings.get<boolean>('features.board.enabled') ? this.boards.discover() : [],
+    ])
+    return [...workflows.filter((descriptor) => (descriptor.documentKind ?? 'workflow') === 'workflow'), ...boards]
   }
 
   /**
@@ -6703,7 +6944,7 @@ export class AppState {
         throw e
       }
     } catch (e) {
-      return e instanceof Error ? e.message : String(e)
+      return failureMessage(e, 'The workflow could not be shared.')
     } finally {
       this.collabPending.delete(key)
     }
@@ -6713,7 +6954,18 @@ export class AppState {
    * Join a discovered session. A tab already joined to it is focused instead
    * of joined twice (one membership per session per app).
    */
-  async joinCollabSession(sessionId: string): Promise<string | undefined> {
+  async joinCollabSession(sessionId: string, documentKind: 'workflow' | 'board' = 'workflow'): Promise<string | undefined> {
+    if (documentKind === 'board') {
+      if (!this.settings.get<boolean>('features.board.enabled')) return 'Boards are disabled'
+      const currentOpen = this.beginDocumentOpen()
+      const stillWanted = () => currentOpen() && this.settings.get<boolean>('features.board.enabled')
+      try {
+        const entry = await this.boards.join(sessionId, stillWanted)
+        if (!stillWanted()) return 'Board join was superseded'
+        this.pages.open(`board:${entry.id}`)
+        return undefined
+      } catch (error) { return failureMessage(error, 'The board session could not be joined.') }
+    }
     const existing = [...this.collabTabs.get().entries()].find(([, s]) => s.descriptor.sessionId === sessionId)
     if (existing !== undefined) {
       this.activeTabId.set(existing[0])
@@ -6730,7 +6982,7 @@ export class AppState {
       await this.adoptCollabSession(descriptor, backend.baseUrl, descriptor.documentId)
       return undefined
     } catch (e) {
-      return e instanceof Error ? e.message : String(e)
+      return failureMessage(e, 'The shared session could not be joined.')
     } finally {
       this.collabPending.delete(key)
     }
@@ -6766,7 +7018,7 @@ export class AppState {
     try {
       await this.collabTransport.end(entry.baseUrl, entry.descriptor.sessionId)
     } catch (e) {
-      return e instanceof Error ? e.message : String(e)
+      return failureMessage(e, 'The shared session could not be ended.')
     }
     // Only downgrade the membership DELETE targeted: if the tab left and
     // joined another session while the DELETE was in flight, this stale
@@ -7106,7 +7358,7 @@ export class AppState {
    * problems panel for review.
    */
   async openDocument(json: unknown, title: string, importVia?: Backend, forkOnCollision = false, originalPrompt?: JsonObject): Promise<readonly Diagnostic[]> {
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const prepared = this.prepareDocumentOpen(json, title, importVia, forkOnCollision, originalPrompt)
     if (!prepared.ok) return prepared.diagnostics
     const backend = importVia ?? this.backends.get()[0]!
@@ -7124,7 +7376,7 @@ export class AppState {
     const generation = this.workspaceAuthorityGeneration
     const project = activeProjectId()
     const backend = this.backendForTab(source)
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const prepared = this.prepareDocumentOpen(source.store.doc, title, backend, true)
     if (!prepared.ok) return false
     const recovered = await this.publishOpenedDocument(prepared, backend, stillWanted, backend)
@@ -7139,7 +7391,7 @@ export class AppState {
     return true
   }
 
-  private beginWorkflowOpen(): () => boolean {
+  beginDocumentOpen(): () => boolean {
     const intent = ++this.workflowOpenIntent
     const tabs = this.tabs.get()
     const sessions = tabs.map((tab) => ({ tab, revision: tab.store.revision, document: tab.store.doc, target: this.backendForTab(tab) }))
@@ -7246,7 +7498,6 @@ export class AppState {
       this.dropCollabFor(tab.id) // a replaced shared tab leaves its session
       this.releaseFrozenPin(tab.id) // a displaced frozen view drops its pin
       // Session-keyed caches (sourceDocCache etc.) die with the replaced Tab.
-      this.templateGalleryOpen.set(false)
       if (target !== undefined) this.tabTargets.update((targets) => new Map(targets).set(tab.id, target.id))
       batch(() => {
         if (replaceFrozen) {
@@ -7305,6 +7556,7 @@ export class AppState {
       const project = await backend.connection.getProject(projectId)
       const needs = await backend.connection.projectNeeds(projectId)
       if (!current() || !stillWanted()) return
+      if (needs.installed === undefined) throw new Error('The engine did not supply installed pack facts')
       const required = new Map<string, { pack: string; version: string | null }>()
       const add = (pack: string, version: string | null): void => { required.set(JSON.stringify([pack, version]), { pack, version }) }
       for (const pack of needs.packs) add(pack.pack, pack.version)
@@ -7332,12 +7584,12 @@ export class AppState {
       const enable = [...new Set([...required.values()].map(({ pack }) => pack))]
         .filter((pack) => !enabled.has(pack) && !changing.has(pack)).sort()
       if (enable.length === 0 && changes.length === 0 && errors.size === 0) return
-      this.projectNeedsReview.set({ backend, project, needs, enable, changes, errors: [...errors].sort(), current, owned,
+      this.projectNeedsReview.set({ backend, project, needs: { ...needs, installed: needs.installed }, enable, changes, errors: [...errors].sort(), current, owned,
         ...(requested === undefined ? {} : { requested }) })
     } catch (error) {
       if (!current()) return
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'project.needsUnavailable',
-        `Project needs unavailable: ${error instanceof Error ? error.message : String(error)}`)])
+        failureMessage(error, 'Project needs unavailable.'))])
     }
   }
 
@@ -7489,6 +7741,7 @@ export class AppState {
       const needs = await backend.connection.projectNeeds(review.project.id)
       const latest = await backend.connection.getProject(review.project.id)
       const running = await backend.connection.activeEnvironment()
+      if (needs.installed === undefined) throw new Error(t('projectNeeds.activationChanged'))
       const expected = new Map(review.needs.installed.map(({ pack, version }) => [pack, version]))
       for (const { pack, version } of review.changes) expected.set(pack, version!)
       const selected = [...new Set([...review.enable, ...review.changes.map(({ pack }) => pack)])]
@@ -7542,12 +7795,12 @@ export class AppState {
       if (!stillOwned()) return
       this.reportProblems(tab.id, [diag(
         'warning', 'validation', 'workflow.requirementsUnavailable',
-        `Workflow requirement plan unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        failureMessage(error, 'Workflow requirement plan unavailable.'),
       )])
     }
   }
 
-  private legacyAssetReferences(tab: Tab, backend: Backend): readonly ImportAssetReference[] {
+  private legacyAssetReferences(tab: Tab, backend: Backend, includeModels: boolean): readonly ImportAssetReference[] {
     const registry = backend.registry.get()
     if (!registry) return []
     const resolve = documentResolver(tab.store.doc, registry.resolve)
@@ -7557,6 +7810,7 @@ export class AppState {
       if (!schema) continue
       for (const item of inputsOf(schema)) {
         if (item.widget?.widgetType !== 'ASSET' || item.widget.selection === true) continue
+        if (!includeModels && item.widget.kind?.startsWith('model/')) continue
         const value = node.values[item.id]
         if (typeof value === 'string') refs.push({ graphId, nodeId: node.id, inputId: item.id, name: value })
       }
@@ -7568,10 +7822,11 @@ export class AppState {
     tab: Tab,
     backend: Backend & { protocol: 'dinkster' },
     digestHints: readonly ImportAssetDigestHint[],
+    includeModels = true,
   ): Promise<void> {
     const registry = backend.registry.get()
     const resolution = this.importAssetResolution.get()
-    const refs = this.legacyAssetReferences(tab, backend)
+    const refs = this.legacyAssetReferences(tab, backend, includeModels)
     const names = [...new Set(refs.map((ref) => ref.name))]
     if (names.length === 0) return
     const liveTab = (): Tab | undefined => this.tabs.get().find((candidate) =>
@@ -7642,7 +7897,7 @@ export class AppState {
     } catch (error) {
       const owner = liveTab()
       if (owner === undefined) return
-      this.reportProblems(owner.id, [diag('warning', 'import', 'import.assets.guessFailed', error instanceof Error ? error.message : String(error))])
+      this.reportProblems(owner.id, [diag('warning', 'import', 'import.assets.guessFailed', failureMessage(error))])
     }
   }
 
@@ -7723,7 +7978,7 @@ export class AppState {
    * through the schema-aware legacy translator.
    */
   async importWorkflowFile(file: Pick<File, 'name' | 'text'>, stillOwned: () => boolean = () => true, originalPrompt?: JsonObject): Promise<boolean> {
-    const current = this.beginWorkflowOpen()
+    const current = this.beginDocumentOpen()
     const destination = this.activeTab()
     const backend = destination === undefined ? this.backends.get()[0]! : this.backendForTab(destination)
     const stillWanted = () => current() && stillOwned() &&
@@ -7845,7 +8100,9 @@ export class AppState {
    */
   libraryBackend(): Extract<Backend, { protocol: 'dinkster' }> | undefined {
     const tab = this.activeTab()
-    const backend = tab ? this.backendForTab(tab) : this.backends.get()[0]
+    const board = this.boards.entries.get().find((entry) => `page:board:${entry.id}` === this.activeTabId.get())
+    const backend = board ? this.backends.get().find((candidate) => candidate.baseUrl === board.baseUrl)
+      : tab ? this.backendForTab(tab) : this.backends.get()[0]
     return backend !== undefined && backend.protocol === 'dinkster' ? backend : undefined
   }
 
@@ -8011,9 +8268,9 @@ export class AppState {
       // closed owner's entries.
       if (!this.tabs.get().includes(tab)) return false
       this.reportProblems(tab.id, [
-        diag('error', 'validation', 'library.saveFailed', `failed to save workflow: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'validation', 'library.saveFailed', failureMessage(e, 'The workflow could not be saved.')),
       ])
-      this.showTransientStatus(`Save failed on ${backend.label}: ${e instanceof Error ? e.message : String(e)}`)
+      this.showTransientStatus(failureMessage(e, `The workflow could not be saved on ${backend.label}.`))
       return false
     }
   }
@@ -8026,7 +8283,7 @@ export class AppState {
    * entry for transport/parse failures) when anything is missing.
    */
   async openFromLibrary(recordId: string, owner: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return false
     try {
@@ -8047,7 +8304,7 @@ export class AppState {
       // an ownership loss, not a transport diagnosis worth surfacing.
       if (this.ownerStillLive(backend) && stillWanted()) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag('error', 'validation', 'library.openFailed', `failed to open workflow from library: ${e instanceof Error ? e.message : String(e)}`),
+          diag('error', 'validation', 'library.openFailed', failureMessage(e, 'The library workflow could not be opened.')),
         ])
       }
       return false
@@ -8059,8 +8316,9 @@ export class AppState {
    * The template is fetched from the backend that served its descriptor
    * (owner) - pack/template ids are that backend's namespace.
    */
-  async openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
+  async openTemplate(packId: string, templateId: string, title: string, owner: string, replacePage?: PageTab): Promise<boolean> {
+    const currentIntent = this.beginDocumentOpen()
+    const stillWanted = () => currentIntent() && (replacePage === undefined || this.pages.tabs().includes(replacePage))
     const backend = this.ownedLibraryBackend(owner)
     if (!backend?.templatesEnabled.get()) return false
     try {
@@ -8076,19 +8334,21 @@ export class AppState {
         return false
       }
       if (!this.tabs.get().includes(tab)) return false
-      void this.offerImportAssetResolution(tab, backend, [])
+      if (replacePage && !this.pages.replaceWithWorkflow(replacePage, tab)) return false
+      void this.offerImportAssetResolution(tab, backend, [], false)
       return true
     } catch (e) {
       if (this.ownerStillLive(backend)) {
-        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'template.openFailed', `failed to open template: ${e instanceof Error ? e.message : String(e)}`)])
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'template.openFailed', failureMessage(e, 'The template could not be opened.'))])
       }
       return false
     }
   }
 
-  async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
-    const backend = this.libraryBackend()
+  async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string, owner: string, replacePage?: PageTab): Promise<boolean> {
+    const currentIntent = this.beginDocumentOpen()
+    const stillWanted = () => currentIntent() && (replacePage === undefined || this.pages.tabs().includes(replacePage))
+    const backend = this.ownedLibraryBackend(owner)
     if (backend?.protocol !== 'dinkster' || !backend.templatesEnabled.get()) return false
     const catalog = new RemoteTemplateCatalog(this.settings.get<string>('templates.registryUrl'))
     try {
@@ -8096,7 +8356,8 @@ export class AppState {
       if (!this.ownerStillLive(backend) || document === undefined) return false
       const tab = await this.openDocumentOnBackend(readableRegionTemplateLayout(document), title, backend, stillWanted)
       if (!tab || !this.tabs.get().includes(tab)) return false
-      void this.offerImportAssetResolution(tab, backend, [])
+      if (replacePage && !this.pages.replaceWithWorkflow(replacePage, tab)) return false
+      void this.offerImportAssetResolution(tab, backend, [], false)
       return true
     } catch (error) {
       if (this.ownerStillLive(backend)) {
@@ -8104,7 +8365,7 @@ export class AppState {
           'error',
           'validation',
           'template.openFailed',
-          `failed to open remote template: ${error instanceof Error ? error.message : String(error)}`,
+          failureMessage(error, 'The remote template could not be opened.'),
         )])
       }
       return false
@@ -8120,7 +8381,7 @@ export class AppState {
    * came from but is NOT library-linked - saving creates a fresh record.
    */
   async openRunWorkflow(runId: string, owner: string): Promise<boolean> {
-    const stillWanted = this.beginWorkflowOpen()
+    const stillWanted = this.beginDocumentOpen()
     const backend = this.ownedLibraryBackend(owner)
     if (!backend) return false
     try {
@@ -8144,7 +8405,7 @@ export class AppState {
     } catch (e) {
       if (this.ownerStillLive(backend) && stillWanted()) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag('error', 'validation', 'history.openFailed', `failed to open run workflow: ${e instanceof Error ? e.message : String(e)}`),
+          diag('error', 'validation', 'history.openFailed', failureMessage(e, 'The run workflow could not be opened.')),
         ])
       }
       return false
@@ -8199,7 +8460,7 @@ export class AppState {
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag('error', 'validation', 'history.deleteFailed', `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'validation', 'history.deleteFailed', failureMessage(e, 'The run record could not be deleted.')),
       ])
       throw e
     } finally {
@@ -8209,9 +8470,8 @@ export class AppState {
   }
 
   /**
-   * Clear the ENTIRE durable history scope. Destructive by design -
-   * callers gate this behind an explicit confirmation affordance; asset
-   * bytes and library records survive by contract.
+   * Clear finished records across the durable history scope immediately;
+   * pending runs, asset bytes and library records survive by contract.
    */
   async clearRunHistory(owner: string): Promise<number> {
     const backend = this.ownedLibraryBackend(owner)
@@ -8222,7 +8482,7 @@ export class AppState {
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'validation', 'history.clearFailed', failureMessage(e, 'Run history could not be cleared.')),
       ])
       throw e
     } finally {
@@ -8632,6 +8892,9 @@ export class AppState {
             this.retainedRegistries.set(restored.artifact, registry)
             this.store.restoreCompleted(restored)
             held = this.store.get(restored.ref)
+            // Hydrated results do not enter reconnect reconciliation; recover
+            // their coded warnings from the optional durable journal here.
+            void backend.connection.backfillRunLog(restored.jobRef, LIBRARY_SCOPE).catch(() => {})
           }
         } catch {
           // A transport failure proves nothing; retry the persisted result on a later reload.
@@ -8705,7 +8968,7 @@ export class AppState {
         if (!current()) return
         backend.workerCatalog.set({
           status: 'error',
-          message: error instanceof Error ? error.message : String(error),
+          message: failureMessage(error, 'Workers could not be loaded.'),
         })
       },
     )
@@ -8751,14 +9014,14 @@ export class AppState {
         this.log('info', backend.label, `engine not ready (${e.state}); waiting for the supervisor`)
         return
       }
-      const message = e instanceof Error ? e.message : String(e)
+      const message = failureMessage(e, 'Node definitions could not be loaded.')
       backend.schemaState.set({ status: 'error', message })
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         {
           severity: 'error',
           origin: 'schema',
           code: 'schema.fetchFailed',
-          message: `[${backend.label}] failed to fetch ${backend.protocol === 'dinkster' ? '/api/nodes' : '/object_info'}: ${message}`,
+          message: `[${backend.label}] ${message}`,
         },
       ])
     } finally {
@@ -9837,6 +10100,10 @@ export class AppState {
       return
     }
     const initialArtifact = result.artifact
+    let modelReferences = workflowModelOccurrences(initialArtifact.snapshot, registry.resolve,
+      lookupAnswersOf(this.backendForTab(tab).lookups)).flatMap((occurrence) => occurrence.asset === undefined ? [] : [{
+        name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset,
+      }])
     const missingRequired = requiredRootNodes.filter((required) =>
       !Object.values(initialArtifact.provenance.toSource).some((key) => {
         const occurrence = parseOccurrenceKey(key)
@@ -9889,6 +10156,11 @@ export class AppState {
         }
         this.replaceProblems(tab.id, result.artifact.diagnostics)
         plan = this.preparedAdvancement(tab.store, result.artifact)
+        const compiledRegistry = this.retainedRegistries.get(result.artifact)!
+        modelReferences = workflowModelOccurrences(result.artifact.snapshot, compiledRegistry.resolve,
+          lookupAnswersOf(this.backendForTab(tab).lookups)).flatMap((occurrence) => occurrence.asset === undefined ? [] : [{
+            name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset,
+          }])
       }
       if (lease.signal.aborted) return
       // The artifact records its target connection; submit() cross-checks it.
@@ -9947,6 +10219,7 @@ export class AppState {
             plan,
             scope,
             compiledDocument,
+            modelReferences,
             backend,
             sourceDocument,
             workflowName,
@@ -9979,7 +10252,7 @@ export class AppState {
           severity: 'error',
           origin: 'validation',
           code: 'submit.transportFailed',
-          message: `failed to submit prompt: ${e instanceof Error ? e.message : String(e)}`,
+          message: failureMessage(e, 'The run could not be submitted.'),
         },
       ])
       this.queueRefusal.set(tab)
@@ -10021,6 +10294,7 @@ export class AppState {
     plan: AdvancementPlan | undefined,
     scope: ExecutionScope,
     compiledDocument: WorkflowDocument,
+    modelReferences: readonly ModelDownloadRequirement[],
     backend: Backend,
     sourceDocument: Awaited<ReturnType<AppState['sourceDocumentFor']>>,
     workflowName: string,
@@ -10038,9 +10312,13 @@ export class AppState {
     // Problems instead of reopening over the newer owner's dialog.
     installAssetConsent({
       result: submitted,
+      workflowTitle: tab.title,
+      modelReferences,
       slot: this.assetConsent,
-      modelDownloads: { connection: backend.connection, providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+      modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project), providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
       enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+      unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
+      locateModel: (requirement, status) => this.locateModelDownload(tab, backend, requirement, status),
       signal: lease.signal,
       onSettled: lease.release,
       // retryWithAssets re-POSTs the body captured by the first submit. Apply
@@ -10048,7 +10326,7 @@ export class AppState {
       beforeRetry: () =>
         activeProjectId() === project && tabLive() &&
         this.backendForTab(tab) === backend && this.backends.get().includes(backend) &&
-        (submitted.assetsMissing.models === undefined || tab.store.doc === compiledDocument) &&
+        ((submitted.assetsMissing.models === undefined && modelReferences.length === 0) || tab.store.doc === compiledDocument) &&
         !this.wire15ModeChangeBlocksSubmission(tab, scope, compiledDocument),
       onSubmitted: (ok) => {
         if (this.disposed) return

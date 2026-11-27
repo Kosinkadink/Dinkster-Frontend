@@ -4,7 +4,7 @@ import type { WirePatchOp } from './session.js'
 
 export const COLLAB_PROTOCOL_VERSION = 1
 
-export type CollabDocumentKind = 'workflow' | 'image'
+export type CollabDocumentKind = 'workflow' | 'image' | 'board'
 
 export interface CollabSessionDescriptor {
   readonly protocolVersion: number
@@ -13,6 +13,8 @@ export interface CollabSessionDescriptor {
   readonly documentId: string
   /** Omitted by protocol-v1 workflow-only servers and interpreted as workflow. */
   readonly documentKind?: CollabDocumentKind
+  readonly title?: string
+  readonly canEdit?: boolean
   readonly revision: number
   readonly snapshotRevision: number
 }
@@ -68,6 +70,8 @@ export type PutSnapshotOutcome = { readonly kind: 'ok' } | { readonly kind: 'con
 
 export type CollabConnectionEvent =
   | { readonly kind: 'connected'; readonly descriptor: CollabSessionDescriptor }
+  | { readonly kind: 'session-title'; readonly title: string }
+  | { readonly kind: 'session-permissions'; readonly canEdit: boolean }
   | { readonly kind: 'disconnected' }
   | { readonly kind: 'op'; readonly op: CollabServerOp }
   | { readonly kind: 'presence'; readonly actorId: string; readonly payload?: Json }
@@ -88,6 +92,9 @@ export interface CollabConnection {
 
 export const isValidCollabRevision = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+
+export const isValidCollabTitle = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0 && Array.from(value).length <= 200
 
 const WIRE_PATCH_OPS: ReadonlySet<string> = new Set(['add', 'remove', 'replace'])
 const FORBIDDEN_SEGMENTS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
@@ -142,6 +149,8 @@ export function validateCollabDescriptor(
   }
   if (descriptor.sessionId !== sessionId) return 'descriptor: sessionId mismatch'
   if ((descriptor.documentKind ?? 'workflow') !== documentKind) return 'descriptor: documentKind mismatch'
+  if (descriptor.title !== undefined && !isValidCollabTitle(descriptor.title)) return 'descriptor: invalid title'
+  if (descriptor.canEdit !== undefined && typeof descriptor.canEdit !== 'boolean') return 'descriptor: invalid canEdit'
   if (!isValidCollabRevision(descriptor.revision)) return 'descriptor: invalid revision'
   if (!isValidCollabRevision(descriptor.snapshotRevision) || descriptor.snapshotRevision > descriptor.revision) {
     return 'descriptor: invalid snapshotRevision'

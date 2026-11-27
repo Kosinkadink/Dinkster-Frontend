@@ -1,5 +1,5 @@
 import { canvasPaintTokens } from '@dinkster/canvas'
-import { defaultRenditionOf } from '@dinkster/client'
+import { defaultRenditionOf, RequestFailure } from '@dinkster/client'
 import { asNodeId, asPortId, buildRerouteIndex, companionSourcesOf, isAssetRefValue, occurrencesForView, portRefKey } from '@dinkster/core'
 import { createSignal, onCleanup, onMount, Show, type Component } from 'solid-js'
 import { viewInstancePath } from '../app-state.js'
@@ -8,6 +8,7 @@ import { ProductButton, ProductColorInput, ProductFileInput } from '../ProductCo
 import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
 import { ProductNumberInput } from '../ProductNumberInput.js'
 import { useAppMessage } from '../locale.js'
+import { failureMessage } from '../request-failure.js'
 import { activeProjectId } from '../projects.js'
 import { UploadDestination } from '../UploadDestination.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
@@ -174,7 +175,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         await load()
       }
       ready = true
-    })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })
+    })().catch((reason: unknown) => { if (live) setError(failureMessage(reason, message('painterWidget.unavailable'))) })
       .finally(() => { if (live) setBusy(false) })
   })
   const pickFile = async (file: File): Promise<void> => {
@@ -228,7 +229,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
       requireCurrent()
       try { saveUploadDestination(String(backend.id), project, choice) } catch { /* Storage failure does not discard a successful upload. */ }
       props.commitValue(ref)
-    } catch (reason) { if (live) setError(reason instanceof Error ? reason.message : String(reason)) }
+    } catch (reason) { if (live) setError(reason instanceof RequestFailure ? failureMessage(reason, message('painterWidget.unavailable')) : reason instanceof Error ? reason.message : String(reason)) }
     finally { if (live) setBusy(false) }
   }
 

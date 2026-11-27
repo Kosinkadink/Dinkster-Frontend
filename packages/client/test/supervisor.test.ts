@@ -27,7 +27,7 @@ describe('probeSupervisorStatus', () => {
       )
       expect(probe).toEqual({
         kind: 'unreachable',
-        error: `GET /supervisor/status failed: ${status}`,
+        error: status === 401 ? 'You do not have access.' : 'The engine reported an error.',
       })
     }
   })
@@ -36,7 +36,7 @@ describe('probeSupervisorStatus', () => {
     const probe = await probeSupervisorStatus('http://test', async () => {
       throw new Error('ECONNREFUSED')
     })
-    expect(probe).toEqual({ kind: 'unreachable', error: 'ECONNREFUSED' })
+    expect(probe).toEqual({ kind: 'unreachable', error: 'The engine did not answer.' })
   })
 })
 
@@ -77,7 +77,7 @@ describe('restartSupervisorEngine', () => {
     const result = await restartSupervisorEngine('http://test', async () => {
       throw new Error('boom')
     })
-    expect(result).toEqual({ ok: false, error: 'boom' })
+    expect(result).toEqual({ ok: false, error: 'The engine did not answer.' })
   })
 })
 
@@ -101,7 +101,7 @@ describe('fetchSupervisorEngineLog', () => {
     for (const status of [403, 404, 409, 500]) {
       expect(await fetchSupervisorEngineLog('http://test', async () =>
         jsonResponse(status, { text: 'not the engine log' }),
-      )).toEqual({ ok: false, error: `GET /supervisor/engine/log failed: ${status}` })
+      )).toEqual({ ok: false, error: status === 403 ? 'You do not have access.' : status === 500 ? 'The engine reported an error.' : 'The engine log could not be loaded.' })
     }
     for (const body of [null, {}, { available: true, text: 5, truncated: false }, { available: 'yes', text: '', truncated: false }, { available: true, text: '' }]) {
       expect(await fetchSupervisorEngineLog('http://test', async () => jsonResponse(200, body)))
@@ -109,7 +109,7 @@ describe('fetchSupervisorEngineLog', () => {
     }
     expect(await fetchSupervisorEngineLog('http://test', async () => {
       throw new Error('connection refused')
-    })).toEqual({ ok: false, error: 'connection refused' })
+    })).toEqual({ ok: false, error: 'The engine did not answer.' })
   })
 })
 

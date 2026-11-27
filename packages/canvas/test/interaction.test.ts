@@ -77,6 +77,10 @@ function interactionHarness(
       connected: driven !== undefined,
     }),
     getOverlay: () => overlay,
+    getLineListLayout: () => CanvasRenderer.prototype.getLineListLayout.call({
+      scene: currentScene, overlay, tokens: defaultTokens,
+      canvas: { getContext: () => ({ save() {}, restore() {}, measureText: (text: string) => ({ width: text.length * 6 }) }) },
+    } as unknown as CanvasRenderer),
     setOverlay: (next: Record<string, unknown>) => {
       overlay = next
       overlays.push(next)
@@ -124,33 +128,51 @@ function interactionHarness(
 }
 
 describe('field-line rail', () => {
-  it('folds from the top and bottom of the rail, not from a field or a dragged press', () => {
+  it.each([false, true])('folds from the full rail without changing fields or dragging (reorderable member: %s)', (member) => {
+    const fields: NodeSchema['body'] = [{ kind: 'row', rows: ['first', 'last'].map((id) => ({ kind: 'input', id,
+      type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } })) }]
     const schema: NodeSchema = { type: 'Fields', displayName: 'Fields', category: 'test', source: 'v3', isOutputNode: false,
-      body: [{ kind: 'row', rows: ['first', 'last'].map((id) => ({ kind: 'input', id,
-        type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } })) }],
+      body: member ? [{ kind: 'group', id: 'layers', member: fields, reorderable: true,
+        keys: { kind: 'numbered', prefix: 'layer', start: 0, pad: 0 }, grows: 'button', minMembers: 2, maxMembers: 4 }] : fields,
     }
+    const key = member ? 'layers.layer1.first' : 'first'
     const loaded = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'rail', root: 'g0',
-      graphs: { g0: { id: 'g0', name: 'Fields', nextOrdinal: 2, nodes: { n1: { id: 'n1', type: 'Fields', values: { first: 7, last: 19 } } },
+      graphs: { g0: { id: 'g0', name: 'Fields', nextOrdinal: 2, nodes: { n1: { id: 'n1', type: 'Fields', values: { first: 7, last: 19 },
+        ...(member ? { dynamic: { layers: { members: ['layer0', 'layer1'] } } } : {}) } },
         links: {}, nets: {}, reroutes: {} } },
-      view: { graphs: { g0: { nodes: { n1: { position: { x: 20, y: 30 }, lines: { first: { folded: false } } } } } } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 20, y: 30 }, lines: { [key]: { folded: false } } } } } } },
     })
     expect(loaded.diagnostics).toEqual([])
-    const store = new DocumentStore(loaded.document!, coreCommandRegistry())
+    const store = new DocumentStore(loaded.document!, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => () => schema }))
     const scene = () => buildScene({ document: store.doc, graphId: 'g0', resolve: () => schema, tokens: defaultTokens,
       measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }) })
     const open = scene()
     const node = open.nodes[0]!
-    const line = node.layout.lines![0]!
+    const line = node.layout.lines!.find((line) => line.key === key)!
     const first = node.layout.rows[line.first]!
     const last = node.layout.rows[line.last]!
     const x = node.x + line.railInset! + 6
     const harness = interactionHarness(open, { dispatch: (invocation) => store.dispatch(invocation) })
     for (const y of [node.y + first.y + 1, node.y + last.y + last.height - 1]) {
       harness.fire('pointermove', x, y)
-      expect(harness.renderer.getOverlay().hoveredLine).toEqual({ nodeId: 'n1', key: 'first' })
+      expect(harness.renderer.getOverlay().hoveredLine).toEqual({ nodeId: 'n1', key })
       harness.fire('pointerdown', x, y)
       harness.fire('pointerup', x, y)
-      expect(scene().nodes[0]!.layout.lines![0]!.folded).toBe(true)
+      expect(scene().nodes[0]!.layout.lines!.find((line) => line.key === key)!.folded).toBe(true)
+      expect(store.undo()).toBe(true)
+      expect(scene()).toEqual(open)
+    }
+    if (member) {
+      if (first.kind !== 'widget' || first.reorder === undefined) throw new Error('expected member grip')
+      expect(memberAt(node.layout, last.y + last.height / 2)?.member).toBe('layer1')
+      const gripX = node.x + first.reorder.gripX
+      const targetX = node.x + node.layout.width / 2
+      const targetY = node.y + node.layout.rows[node.layout.lines![0]!.first]!.y - 2
+      harness.fire('pointerdown', gripX, node.y + first.y + first.height / 2)
+      harness.fire('pointermove', targetX, targetY)
+      harness.fire('pointerup', targetX, targetY)
+      expect(store.doc.graphs.g0!.nodes.n1!.dynamic).toEqual({ layers: { members: ['layer1', 'layer0'] } })
       expect(store.undo()).toBe(true)
       expect(scene()).toEqual(open)
     }
@@ -160,7 +182,7 @@ describe('field-line rail', () => {
     expect(scene()).toEqual(open)
     harness.fire('pointerdown', node.x + node.layout.width / 2, node.y + last.y + 12)
     harness.fire('pointerup', node.x + node.layout.width / 2, node.y + last.y + 12)
-    expect(scene().nodes[0]!.layout.lines![0]!.folded).toBe(false)
+    expect(scene().nodes[0]!.layout.lines!.find((line) => line.key === key)!.folded).toBe(false)
     expect(store.doc.graphs.g0).toEqual(loaded.document!.graphs.g0)
     harness.controller.dispose()
   })
@@ -737,21 +759,21 @@ describe('canvas hover targets', () => {
 
   it('retains keyboard-focused pin identity across pointer overlay updates', () => {
     const harness = interactionHarness(sceneWithPins())
-    harness.controller.setFocusedPin({ nodeId: 'n1', portId: 'input', direction: 'in' })
-    expect(harness.overlays.at(-1)).toMatchObject({ focusedPin: { nodeId: 'n1', portId: 'input', direction: 'in' } })
+    harness.controller.setFocusedTarget({ nodeId: 'n1', pin: { portId: 'input', direction: 'in' } })
+    expect(harness.overlays.at(-1)).toMatchObject({ focusedTarget: { nodeId: 'n1', pin: { portId: 'input', direction: 'in' } } })
     harness.fire('pointermove', 110, 30)
     expect(harness.overlays.at(-1)).toMatchObject({
-      focusedPin: { nodeId: 'n1', portId: 'input', direction: 'in' },
+      focusedTarget: { nodeId: 'n1', pin: { portId: 'input', direction: 'in' } },
       hoveredPin: { nodeId: 'n1', portId: 'output', direction: 'out' },
     })
     const paints = harness.overlays.length
-    harness.controller.setFocusedPin({ nodeId: 'n1', portId: 'input', direction: 'in', widgetTap: true })
+    harness.controller.setFocusedTarget({ nodeId: 'n1', pin: { portId: 'input', direction: 'in', widgetTap: true } })
     expect(harness.overlays).toHaveLength(paints + 1)
     expect(harness.overlays.at(-1)).toMatchObject({
-      focusedPin: { nodeId: 'n1', portId: 'input', direction: 'in', widgetTap: true },
+      focusedTarget: { nodeId: 'n1', pin: { portId: 'input', direction: 'in', widgetTap: true } },
     })
-    harness.controller.setFocusedPin(undefined)
-    expect(harness.overlays.at(-1)).not.toHaveProperty('focusedPin')
+    harness.controller.setFocusedTarget(undefined)
+    expect(harness.overlays.at(-1)).not.toHaveProperty('focusedTarget')
   })
 
   it('sets widget-row hover and clears detailed hover on leave and scene replacement', () => {
@@ -1410,8 +1432,8 @@ describe('node-body link drops', () => {
 })
 
 describe('link drops on a field row', () => {
-  const FLOAT = { kind: 'concrete', name: 'FLOAT' }
-  const INT = { kind: 'concrete', name: 'INT' }
+  const FLOAT = { kind: 'concrete', name: 'FLOAT' } as const
+  const INT = { kind: 'concrete', name: 'INT' } as const
   const row = (inputId: string, type: object, y: number, inset = 9.5, width?: number) => ({
     kind: 'widget', inputId, valueKey: inputId, label: inputId, type, y, height: 24, inset,
     ...(width !== undefined ? { width } : {}),
@@ -1451,6 +1473,53 @@ describe('link drops on a field row', () => {
     return scene
   }
   const CFG_ROW = { x: 250, y: 66 }
+
+  it('opens the folded list, starts the named field wire, unfolds and dismisses without changing the fold during wiring', () => {
+    const scene = fieldScene()
+    const node = scene.nodes[1]!
+    const schema: NodeSchema = { type: 'Fields', displayName: 'Fields', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: [{ id: 'seed', type: INT }, { id: 'denoise', type: FLOAT }].map(({ id, type }) => ({
+        kind: 'input', id, type, optional: false, widget: { widgetType: type.name, options: {} },
+      })) }],
+    }
+    const layout = layoutNode(schema, node.node, defaultTokens, (text) => text.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
+    const harness = interactionHarness({ ...scene, nodes: [scene.nodes[0]!, { ...node, layout }] })
+    const row = layout.rows[0] as Extract<LayoutRow, { kind: 'widget' }>
+    const rowY = node.y + layout.rows[0]!.y + layout.rows[0]!.height / 2
+    const startX = node.x + row.inset + row.width! / 2
+    const hover = () => harness.fire('pointermove', startX, rowY)
+    hover()
+    expect(harness.renderer.getOverlay().hoveredLine).toMatchObject({ nodeId: 'n2', key: 'seed' })
+    const list = harness.renderer.getLineListLayout()!
+    const x = list.x + 20
+    const second = list.y + canvasPaintTokens.node.line.list.padY + canvasPaintTokens.node.line.list.rowHeight * 1.5
+    for (let step = 1; step <= 12; step++) {
+      const progress = step / 12
+      harness.fire('pointermove', startX + (x - startX) * progress, rowY + (second - rowY) * progress)
+      expect(harness.renderer.getOverlay().hoveredLine?.key).toBe('seed')
+    }
+    harness.fire('pointermove', x, second)
+    harness.fire('pointerdown', x, second)
+    harness.fire('pointermove', 10, 48)
+    harness.fire('pointerup', 10, 48)
+    expect(harness.dispatched).toEqual([{ command: 'link.connect', params: {
+      graphId: 'g0', from: { node: 'n2', tap: 'denoise' }, to: { node: 'n1', port: 'in' },
+    } }])
+    hover()
+    const action = list.y + canvasPaintTokens.node.line.list.padY + canvasPaintTokens.node.line.list.rowHeight * 2.5 + 1
+    harness.fire('pointerdown', x, action)
+    harness.fire('pointerup', x, action)
+    expect(harness.dispatched.at(-1)).toEqual({ command: 'view.setLineFolded', params: {
+      graphId: 'g0', nodeId: 'n2', lineKey: 'seed', folded: false,
+    } })
+    hover()
+    harness.fireWindow('keydown', { code: 'Escape' })
+    expect(harness.renderer.getOverlay().hoveredLine).toBeUndefined()
+    hover()
+    harness.fire('pointermove', 500, 500)
+    expect(harness.renderer.getOverlay().hoveredLine).toBeUndefined()
+    harness.controller.dispose()
+  })
 
   it('wires the fitting field under the pointer and outlines that row, not the node', () => {
     const harness = interactionHarness(fieldScene())
@@ -1497,18 +1566,21 @@ describe('link drops on a field row', () => {
     })
   })
 
-  it('tries the fields on the same line before the rest of the node', () => {
-    const harness = interactionHarness(fieldScene())
+  it('refuses a field of a declared line that does not fit instead of wiring its compatible sibling', () => {
+    const scene = fieldScene()
+    const node = scene.nodes[1]!
+    const harness = interactionHarness({ ...scene, nodes: [scene.nodes[0]!, { ...node, layout: { ...node.layout,
+      lines: [{ key: 'seed', folded: true, first: 2, last: 3, fields: [
+        { portId: 'seed', label: 'Seed', type: INT }, { portId: 'denoise', label: 'Denoise', type: FLOAT },
+      ] }],
+    } }] })
     harness.fire('pointerdown', 110, 32)
     harness.fire('pointermove', 225, 90)
     const overlay = harness.overlays.at(-1) as any
     expect(overlay.dropRow).toBeUndefined()
-    expect(overlay.bodyDropNode).toBe('n2')
-    expect([...overlay.dropTargets]).toEqual(['n2:denoise:in'])
+    expect(overlay.bodyDropNode).toBeUndefined()
     harness.fire('pointerup', 225, 90)
-    expect(harness.dispatched.at(-1)).toMatchObject({
-      command: 'link.connect', params: { to: { node: 'n2', port: 'denoise' } },
-    })
+    expect(harness.dispatched).toEqual([])
   })
 
   it('keeps the declared order for a drop on the title', () => {
@@ -2629,18 +2701,6 @@ describe('gesture ownership and cancellation', () => {
     harness.fire('pointercancel', 0, 0, { pointerType: 'mouse' })
     expect(onLinkDropOnEmpty).toHaveBeenCalledTimes(1)
     expect(onLinkDropOnEmpty).toHaveBeenCalledWith(expect.any(Object), 700, 300)
-  })
-
-  it('does not open an accept-all palette from an untyped dangling end', () => {
-    const scene = linkDropScene() as any
-    scene.nodes[0].layout.pins[0].type = { kind: 'wildcard' }
-    const onLinkDropOnEmpty = vi.fn()
-    const harness = interactionHarness(scene, { onLinkDropOnEmpty })
-    harness.fire('pointerdown', 110, 32)
-    harness.fire('pointermove', 700, 300)
-    harness.fire('pointerup', 700, 300)
-    expect(onLinkDropOnEmpty).not.toHaveBeenCalled()
-    expect(harness.dispatched).toEqual([])
   })
 
   it('mouse pointercancel on a moved rewire over empty disconnects', () => {

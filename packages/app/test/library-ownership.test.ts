@@ -10,7 +10,8 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DinksterNodesPayload } from '@dinkster/core'
+import LayoutTemplate from 'lucide-solid/icons/layout-template'
+import { asLineageId, type DinksterNodesPayload, type WorkflowDocument } from '@dinkster/core'
 import { buildDinksterRegistry, type HistoryRunRecord, type LibraryRecord } from '@dinkster/client'
 import {
   AppState,
@@ -20,7 +21,7 @@ import {
   type Backend,
   type Tab,
 } from '../src/app-state.js'
-import { runsSource, templatesSource, workflowsSource } from '../src/collections.js'
+import { boardsSource, runsSource, templatesSource, workflowsSource } from '../src/collections.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
@@ -113,17 +114,17 @@ async function twoBackends(): Promise<{
 }
 
 describe('owned collection pages', () => {
-  it('a continuation cursor minted by one backend is refused against another', async () => {
+  it.each([['workflow', workflowsSource], ['board', boardsSource]] as const)('%s continuation cursors are refused against another backend', async (kind, source) => {
     const { a, b, tab } = (await twoBackends())
     const listA = vi
       .spyOn(a.connection, 'listLibrary')
       .mockResolvedValue({ records: [record()], cursor: 'pageA2' })
-    const src = workflowsSource(app)
+    const src = source(app)
 
     const page = await src.page({ query: '', limit: 24 })
     expect(page.items[0]!.owner).toBe(a.id)
     expect(page.items[0]!.subtitle).toMatch(/^Modified /)
-    expect(page.items[0]!.details).toContainEqual({ label: 'workflow id', text: 'r1' })
+    expect(page.items[0]!.details).toContainEqual({ label: `${kind} id`, text: 'r1' })
     expect(page.items[0]!.details).toContainEqual({ label: 'backend', text: 'A' })
     expect(page.cursor).toBeDefined()
 
@@ -314,6 +315,32 @@ describe('mid-flight owner loss', () => {
     const codes = app.problems.get().map((d) => d.code)
     expect(codes).toContain('library.ownerGone')
     expect(codes).not.toContain('template.openFailed')
+  })
+
+  it('replaces the Templates page in place and ignores a result after that page closes', async () => {
+    const { a, tab } = await twoBackends()
+    const template = { ...structuredClone(tab.store.doc), lineage: asLineageId('page-template') }
+    app.pages.register({ id: 'templates', title: 'Templates', icon: LayoutTemplate, component: () => undefined })
+    const page = app.pages.open('templates')!
+    const neighbour = app.createWorkflow()
+    app.activeTabId.set(page.id)
+    const before = app.pages.tabs().map((tab) => tab.id)
+    vi.spyOn(a.connection, 'fetchTemplateBody').mockResolvedValue(template)
+    expect(await app.openTemplate('core', 't1', 'Starter', a.id, page)).toBe(true)
+    const opened = app.activeTab()!
+    expect(app.backendForTab(opened)).toBe(a)
+    expect(app.pages.tabs().map((tab) => tab.id)).toEqual(before.map((id) => id === page.id ? opened.id : id))
+    expect(app.pages.tabs().some((tab) => tab.id === neighbour.id)).toBe(true)
+
+    const reopened = app.pages.open('templates')!
+    const count = app.tabs.get().length
+    let release!: (value: WorkflowDocument | undefined) => void
+    vi.mocked(a.connection.fetchTemplateBody).mockReturnValueOnce(new Promise((resolve) => { release = resolve }))
+    const pending = app.openTemplate('core', 't2', 'Late starter', a.id, reopened)
+    app.pages.close(reopened.id)
+    release({ ...template, lineage: asLineageId('late-template') })
+    expect(await pending).toBe(false)
+    expect(app.tabs.get()).toHaveLength(count)
   })
 
   it('opens region templates with a readable left-to-right layout', async () => {

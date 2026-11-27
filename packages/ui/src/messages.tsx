@@ -1,5 +1,5 @@
 import { For, Show, createUniqueId, onCleanup, onMount, type JSX } from 'solid-js'
-import { Check, CircleAlert, Info, X } from 'lucide-solid'
+import { Check, CircleAlert, Info, TriangleAlert, X } from 'lucide-solid'
 import {
   ProductButton,
   ProductIcon,
@@ -15,10 +15,26 @@ export function ProductNotice(props: {
 }) {
   return (
     <div class="dinkster-message" data-kind={props.tone ?? 'info'} role={props.tone === 'error' ? 'alert' : 'note'}>
-      <ProductIcon icon={props.tone === 'error' ? CircleAlert : Info} />
+      <ProductIcon icon={props.tone === 'error' ? CircleAlert : props.tone === 'warning' ? TriangleAlert : Info} />
       <span class="dinkster-message-copy">{props.children}</span>
     </div>
   )
+}
+
+export function ProductRecoveryNotice(props: {
+  message: string
+  action?: { readonly label: string; readonly onSelect: () => void; readonly pending?: boolean }
+  error?: string
+}) {
+  return <div class="dinkster-message" data-recovery role="note">
+    <span class="dinkster-recovery-copy"><ProductIcon icon={Info} />{props.message}</span>
+    <Show when={props.action}>{(action) =>
+      <ProductButton pending={action().pending === true} onClick={() => action().onSelect()}>{action().label}</ProductButton>
+    }</Show>
+    <Show when={props.error}>{(error) => <p class="dinkster-field-error" role="alert">
+      <ProductIcon icon={CircleAlert} />{error()}
+    </p>}</Show>
+  </div>
 }
 
 export function ProductProgress(props: { label: string; value?: number | undefined }) {
@@ -210,6 +226,8 @@ export function ProductConfirmationDialog(props: ProductConfirmationProps & {
 export function ProductDialog(props: {
   title: string
   children: JSX.Element
+  /** The footer action; the dialog owns its preceding Cancel and alignment. */
+  action?: JSX.Element
   onDismiss: () => void
   pending?: boolean
   size?: 'default' | 'wide' | 'confirmation'
@@ -289,6 +307,12 @@ export function ProductDialog(props: {
           />
         </header>
         {props.children}
+        <Show when={props.action}>{(action) => (
+          <footer class="dinkster-dialog-actions">
+            <ProductButton disabled={props.pending === true} onClick={props.onDismiss}>{strings.cancel}</ProductButton>
+            {action()}
+          </footer>
+        )}</Show>
       </div>
     </dialog>
   )

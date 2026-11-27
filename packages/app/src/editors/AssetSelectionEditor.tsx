@@ -6,6 +6,7 @@ import { ProductButton } from '../ProductControls.js'
 import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { SearchState } from '../SearchSurface.js'
+import { failureMessage } from '../request-failure.js'
 
 export function AssetSelectionEditor(props: {
   readonly connection: Pick<DinksterConnection, 'listAssetSelections'>
@@ -38,7 +39,7 @@ export function AssetSelectionEditor(props: {
         setOptions(current)
       }
     } catch (reason) {
-      if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
+      if (!abort.signal.aborted) setError(failureMessage(reason, 'Files could not be loaded.'))
     }
   }
   createEffect(() => { void refresh() })

@@ -3,7 +3,7 @@
 import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DinksterConnection } from '@dinkster/client'
+import { DinksterConnection, RequestFailure } from '@dinkster/client'
 import { asConnectionId, createSignal as createCoreSignal, setLocale, type NodeSchema } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
@@ -304,7 +304,7 @@ describe('ASSET widget modal integration', () => {
       spec: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] } },
     }
     for (const offline of [false, true]) {
-      if (offline) connection.listMounts.mockRejectedValue(new Error('Mount discovery offline'))
+      if (offline) connection.listMounts.mockRejectedValue(new RequestFailure('GET', '/api/mounts', undefined, 'Mount discovery offline'))
       const root = document.createElement('div')
       document.body.append(root)
       const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -626,7 +626,7 @@ describe('ASSET widget modal integration', () => {
 
   it('settles a failed grouped scan and lets Refresh retry successfully', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
-    mounted.connection.listMountEntries.mockRejectedValueOnce(new Error('catalog unavailable'))
+    mounted.connection.listMountEntries.mockRejectedValueOnce(new RequestFailure('GET', '/api/mounts/left/entries', 503, 'catalog unavailable'))
     await vi.waitFor(() => expect(mounted.root.textContent).toContain('catalog unavailable'))
 
     const refresh = mounted.root.querySelector<HTMLButtonElement>('[data-testid="logical-model-refresh"]')!
@@ -792,7 +792,7 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.root.querySelectorAll('[data-testid="asset-match-candidate"]')).toHaveLength(1)
     expect(row.textContent).toContain(candidate.name)
     expect(row.textContent).toContain(candidate.virtualPath)
-    expect(row.textContent).toContain(String(candidate.size))
+    expect(row.querySelector('.asset-match-candidate-size')!.textContent).toBe('121 KB')
     expect(row.textContent).toContain(candidate.digest)
     expect(mounted.dispatchTo).not.toHaveBeenCalled()
     row.click()
@@ -818,7 +818,7 @@ describe('ASSET widget modal integration', () => {
 
   it('keeps the unresolved string untouched on cancel and reports retry transport failures inline', async () => {
     const mounted = unresolvedAssetEditor()
-    mounted.connection.guessAssets.mockRejectedValue(new Error('backend unavailable'))
+    mounted.connection.guessAssets.mockRejectedValue(new RequestFailure('POST', '/api/assets/guess', 503, 'backend unavailable'))
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-retry-match"]')!.click()
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(mounted.root.querySelector('[data-testid="asset-match-error"]')!.textContent).toContain('backend unavailable')
@@ -863,7 +863,7 @@ describe('ASSET widget modal integration', () => {
     ), root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
 
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('16 MiB per file')
+    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('16 MB per file')
     const bytes = new Uint8Array([0, 1, 2, 3, 0, 255, 17])
     const file = new File([bytes], 'byte-proof.bin', { type: 'application/octet-stream' })
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
@@ -974,7 +974,7 @@ describe('ASSET widget modal integration', () => {
     const dialog = root.querySelector<HTMLDialogElement>('[data-modal="widget-asset"]')!
     expect(dialog.getAttribute('aria-label')).toBe('Edit Samples latent asset')
     expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('Single latent')
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GiB per file')
+    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GB per file')
     expect(root.querySelector('.asset-browser-section')?.getAttribute('aria-label')).toBe('Latents')
     expect(root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')?.getAttribute('aria-label')).toBe('Search latents')
     expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')?.textContent).toContain('Upload latent')
@@ -1142,7 +1142,7 @@ describe('ASSET widget modal integration', () => {
     } as unknown as AppState
     const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GiB per file')
+    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GB per file')
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
     expect(input.accept).toBe('video/*')
 
@@ -1156,7 +1156,7 @@ describe('ASSET widget modal integration', () => {
     Object.defineProperty(oversized, 'size', { configurable: true, value: 1024 * 1024 * 1024 + 1 })
     Object.defineProperty(input, 'files', { configurable: true, value: [oversized] })
     input.dispatchEvent(new Event('change', { bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('File exceeds the 1 GiB upload limit'))
+    await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('File exceeds the 1 GB upload limit'))
     expect(uploadMediaAsset).not.toHaveBeenCalled()
 
     const file = new File(['webm bytes'], 'large.webm', { type: 'video/webm' })
