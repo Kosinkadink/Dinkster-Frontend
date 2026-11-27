@@ -22,7 +22,8 @@ import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
 import { documentResolver } from '../src/compile/compile.js'
 import { loadDocument } from '../src/format/migrate.js'
-import { lifecycleSelectionFingerprint, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
+import { lifecycleCanonicalHash, lifecycleFlattenFingerprint, lifecycleSelectionFingerprint, planFlattenBoundaryRoutes } from '../src/lifecycle/planner.js'
+import { planFlattenOccurrenceTopology } from '../src/compile/effective-topology.js'
 
 /** Build a GraphDef from a plain literal (branded ids make literals noisy). */
 const asDef = (d: unknown): GraphDef => d as GraphDef
@@ -1612,6 +1613,69 @@ describe('Boundary sample acceptance compilation', () => {
         const numericReload = loadDocument(JSON.parse(JSON.stringify(numeric.doc))).document!
         expect(prompt(numericReload)[receiver]!.inputs).not.toHaveProperty('number')
         expect(prompt(numericReload)[receiverSecond]!.inputs.number).toEqual(literal ? 0.35 : ['numericSecond', 0])
+      }
+
+      for (const mode of ['active', 'muted', 'bypassed'] as const) {
+        const flat = storeFor(boundarySample(level))
+        edit(flat, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'image' } })
+        edit(flat, 'link.connect', { graphId: 'root', from: { node: 'maskB', port: 'mask' }, to: { node: 'first', port: 'mask' } })
+        if (mode !== 'active') edit(flat, 'node.setMode', { graphId: 'root', nodeIds: ['first'], mode })
+        const before = flat.doc
+        const root = before.graphs.root!
+        const occurrence = root.nodes.first!
+        const body = before.graphs[occurrence.type.slice(1)]!
+        const resolver = documentResolver(before, resolveBoundarySample)
+        const plan = planFlattenBoundaryRoutes(body, resolver, occurrence, root)
+        const topology = planFlattenOccurrenceTopology(before, resolver, { instancePath: [], node: asNodeId('first') })
+        const topologyParams = topology.plan === undefined ? {} : {
+          occurrenceTopologyPlan: topology.plan, occurrenceTopologyPlanDigest: lifecycleCanonicalHash(topology.plan),
+        }
+        const outcome = flat.dispatch({ command: 'subgraph.flatten', params: {
+          graphId: 'root', instancePath: [], nodeId: 'first', placementCenter: { x: 100, y: 100 },
+          resolvedGeometry: {
+            occurrence: { id: 'first', kind: 'node', x: 0, y: 0, width: 200, height: 200 },
+            body: Object.keys(body.nodes).map((id) => ({ id, kind: 'node', x: 0, y: 0, width: 200, height: 200 })),
+          },
+          boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaSnapshot: plan.schemaSnapshot,
+          schemaPlanDigest: plan.schemaPlanDigest, ...topologyParams,
+          selectionFingerprint: lifecycleFlattenFingerprint(before, 'root', 'first', {
+            boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest, ...topologyParams,
+          }),
+        } } as never)
+        if (mode === 'bypassed') {
+          expect(outcome.ok).toBe(false)
+          expect(outcome.diagnostics.map((entry) => entry.code)).toContain('subgraph.flatten.modeUnsupported')
+          expect(flat.doc).toBe(before)
+          expect(flat.undo()).toBe(true)
+          expect(flat.doc.graphs.root!.nodes.first!.mode).not.toBe('bypassed')
+          continue
+        }
+        expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
+        const replacement = Object.values(flat.doc.graphs.root!.nodes).find((node) =>
+          root.nodes[node.id] === undefined && node.type === (level === 1 ? 'Boundary sample' : '#detail'))!
+        expect(replacement).toBeDefined()
+        const replacementPath = level === 1 ? replacement.id : `${replacement.id}.sample`
+        const check = (doc: WorkflowDocument, firstPath: string) => {
+          const compiled = prompt(doc)
+          if (mode === 'active') {
+            expect(compiled[firstPath]!.inputs.image).toEqual(['imageA', 0])
+            expect(compiled[firstPath]!.inputs.mask).toEqual(['maskB', 0])
+          } else expect(compiled[firstPath]).toBeUndefined()
+          expect(compiled[second]!.inputs).not.toHaveProperty('image')
+          expect(compiled[second]!.inputs).not.toHaveProperty('mask')
+          expect(doc.graphs.detail).toEqual(before.graphs.detail)
+          if (level === 2) expect(doc.graphs.portrait).toEqual(before.graphs.portrait)
+        }
+        check(flat.doc, replacementPath)
+        expect(flat.undo()).toBe(true)
+        const { nextOrdinal: _beforeOrdinal, ...beforeRoot } = root
+        const { nextOrdinal: _undoneOrdinal, ...undoneRoot } = flat.doc.graphs.root!
+        expect(undoneRoot).toEqual(beforeRoot)
+        expect(flat.doc.view).toEqual(before.view)
+        check(flat.doc, path)
+        expect(flat.redo()).toBe(true)
+        check(flat.doc, replacementPath)
+        check(loadDocument(JSON.parse(JSON.stringify(flat.doc))).document!, replacementPath)
       }
     })
 
