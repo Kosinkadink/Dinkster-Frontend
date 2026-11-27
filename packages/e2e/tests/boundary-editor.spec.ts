@@ -8,7 +8,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { boundaryItems, type Boundary } from '@dinkster/core'
-import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
+import { expect, focusByTab, openRailPanel, nativeTest as test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_BOUNDARY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -432,7 +432,7 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
   const compact = page.locator('[data-region-output=image][data-role-choice=compact]')
   await compact.click()
   await expect(compact).toHaveAttribute('aria-pressed', 'true')
-  await compact.focus()
+  await focusByTab(page, compact)
   await expect(page.getByTestId('app-tooltip')).toContainText(
     'Compact output - Collect only values produced by present iterations, without gaps.',
   )

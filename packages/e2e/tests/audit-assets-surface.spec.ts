@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import { expect, test } from '../visual.js'
+import { focusByTab } from './fixtures.js'
 
 const PROOF = '/tmp/audit-assets-proof'
 const sharedDigest = `blake3:${'a'.repeat(64)}`
@@ -42,7 +43,7 @@ test('uses the configured All assets source while preserving curated per-mount b
 
   await page.goto('/')
   const assetsToggle = page.getByTestId('assets-toggle')
-  await assetsToggle.focus()
+  await focusByTab(page, assetsToggle)
   await expect(page.getByTestId('app-tooltip')).toHaveText('Assets\nBrowse assets across mounted sources')
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('app-tooltip')).toBeHidden()

@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, test as seededTest, waitForWorkspaceReady } from './fixtures.js'
+import { expect, focusByTab, nativeTest as test, test as seededTest, waitForWorkspaceReady } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => { await page.goto('/') })
 
@@ -7,6 +7,8 @@ test('opening Library dismisses its focused activity-bar tooltip', async ({ page
   if (await library.getAttribute('aria-pressed') === 'true') await library.click()
   await page.mouse.move(600, 400)
   await library.focus()
+  await expect(page.getByTestId('app-tooltip')).toBeHidden()
+  await focusByTab(page, library)
   await expect(page.getByTestId('app-tooltip')).toBeVisible()
   await page.keyboard.press('Enter')
   await expect(library).toBeFocused()
@@ -18,7 +20,7 @@ test('opening Library dismisses its focused activity-bar tooltip', async ({ page
   await expect(library).toHaveAttribute('aria-pressed', 'false')
   await page.mouse.move(600, 400)
   await library.blur()
-  await library.focus()
+  await focusByTab(page, library)
   await expect(page.getByTestId('app-tooltip')).toBeVisible()
 })
 
@@ -52,7 +54,7 @@ test('icon-only activity items show immediate name-first help on hover and focus
   await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
   await page.screenshot({ path: testInfo.outputPath('plain-item-help.png') })
   await page.mouse.move(600, 400)
-  await long.focus()
+  await focusByTab(page, long)
   await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
   await page.keyboard.press('Enter')
   await expect(long).toBeFocused()
@@ -64,20 +66,20 @@ test('icon-only activity items show immediate name-first help on hover and focus
   await page.screenshot({ path: testInfo.outputPath('selected-item-help.png') })
   await page.mouse.move(600, 400)
   await long.blur()
-  await long.focus()
+  await focusByTab(page, long)
   await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
   await page.keyboard.press('Enter')
   await expect(long).toHaveAttribute('aria-pressed', 'false')
   await page.mouse.move(600, 400)
   await long.blur()
-  await long.focus()
+  await focusByTab(page, long)
   await expect(tooltip).toHaveText(fullHelp, { timeout: 250 })
 
   await page.getByTestId('graph-canvas').focus()
   await library.hover()
   await expect(tooltip).toHaveText(libraryHelp)
   await page.mouse.move(600, 400)
-  await library.focus()
+  await focusByTab(page, library)
   await expect(tooltip).toHaveText(libraryHelp)
 })
 
@@ -102,7 +104,7 @@ test('Settings keeps immediate help, shortcut keys, and hover-out', async ({ pag
 test('top-right tooltip uses its real width and follows content changes', async ({ page }, testInfo) => {
   const target = page.getByTestId('left-panel-toggle')
   const tooltip = page.getByTestId('app-tooltip')
-  await target.focus()
+  await focusByTab(page, target)
   await expect(tooltip).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('top-right-tooltip.png') })
   const assertPlacement = async () => {
@@ -145,7 +147,7 @@ test('top-right tooltip uses its real width and follows content changes', async 
 test('bottom-edge tooltip flips above its element without overlapping it', async ({ page }, testInfo) => {
   const target = page.getByTestId('canvas-fit-view')
   const tooltip = page.getByTestId('app-tooltip')
-  await target.focus()
+  await focusByTab(page, target)
   await expect(tooltip).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('bottom-edge-tooltip.png') })
   await expect.poll(async () => {
@@ -163,7 +165,7 @@ test('activity rail tooltip stays beside its item at desktop and compact widths'
   const tooltip = page.getByTestId('app-tooltip')
   for (const width of [1440, 480]) {
     await page.setViewportSize({ width, height: 900 })
-    await target.focus()
+    await focusByTab(page, target)
     await expect(tooltip).toBeVisible()
     await expect.poll(async () => {
       const anchor = (await target.boundingBox())!
@@ -193,7 +195,7 @@ test('shell and minimap seams use product tooltips without document writes', asy
     await expect(page.getByTestId('app-tooltip')).toHaveText(wording, { timeout: 1_500 })
     await page.mouse.move(700, 500)
     await expect(page.getByTestId('app-tooltip')).toBeHidden()
-    await target.focus()
+    await focusByTab(page, target)
     await expect(target).toBeFocused()
     await expect(page.getByTestId('app-tooltip')).toHaveText(wording)
     await page.keyboard.press('Tab')
@@ -214,7 +216,7 @@ test('shell and minimap seams use product tooltips without document writes', asy
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)).toBe(revision)
 })
 
-test('stateful control tooltip re-reads its label after the click toggles state', async ({ page }) => {
+test('stateful control tooltip dismisses on click and re-reads its label on fresh hover', async ({ page }) => {
   await expect(page.getByTestId('queue-button')).toBeEnabled({ timeout: 15_000 })
   const toggle = page.getByTestId('minimap-toggle')
   await expect(toggle).toHaveAttribute('data-tooltip-label', 'Hide minimap')
@@ -222,6 +224,9 @@ test('stateful control tooltip re-reads its label after the click toggles state'
   await expect(page.getByTestId('app-tooltip')).toHaveText('Hide minimap', { timeout: 1_500 })
   await toggle.click()
   await expect(toggle).toHaveAttribute('data-tooltip-label', 'Show minimap')
+  await expect(page.getByTestId('app-tooltip')).toBeHidden()
+  await page.mouse.move(700, 500)
+  await toggle.hover()
   await expect(page.getByTestId('app-tooltip')).toHaveText('Show minimap')
 })
 
