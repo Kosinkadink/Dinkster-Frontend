@@ -2301,6 +2301,15 @@ describe('an editor on the Inputs panel', () => {
             id === 'first' && linked !== undefined ? ['Linked seed', true] : [String(seed * 2), false], ['Waiting', true], ['', false],
           ])
           expect(notes.every((row) => row.height > 0)).toBe(true)
+          if (id !== 'first' || linked === undefined) {
+            const plain = { ...current, graphs: { ...current.graphs, root: { ...current.graphs.root!, nodes: {
+              plain: { id: asNodeId('plain'), type: 'Noted', values: { 'pack.seed': seed, 'pack.other': other } },
+            }, links: {} } } }
+            const reference = buildScene({ document: plain, graphId: 'root', resolve: documentResolver(plain, native),
+              tokens: defaultTokens, measure, widgetMeasure }).nodes[0]!.layout.rows.filter((row) => row.kind === 'note')
+            expect(notes.map((row) => [row.text, row.unknown ?? false, row.height]))
+              .toEqual(reference.map((row) => [row.text, row.unknown ?? false, row.height]))
+          }
           const fields = panel.layout.rows.filter((row) => row.kind === 'widget').filter((row) => row.valueKey !== 'bundle')
           expect(fields.map((row) => [row.valueKey, row.familyOwner])).toEqual([
             ['bundle.seed', { graphId: 'root', nodeId: id, construct: 'pack.seed', valueKey: `${key}.seed` }],
@@ -2341,6 +2350,11 @@ describe('an editor on the Inputs panel', () => {
       expect(store.redo()).toBe(true)
       expect(store.doc).toEqual(edited)
       check(loadDocument(JSON.parse(JSON.stringify(edited))).document!, 31)
+      expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: 'first', values: {}, unset: [`${key}.seed`] } }).ok).toBe(true)
+      check(store.doc, depth === 1 ? 3 : 7)
+      check(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, depth === 1 ? 3 : 7)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(edited)
       for (const kind of ['literal', 'runtime'] as const) {
         const current = kind === 'literal' ? edited : { ...edited, graphs: { ...edited.graphs, root: { ...edited.graphs.root!, nodes: {
           ...edited.graphs.root!.nodes, outside: { ...edited.graphs.root!.nodes.outside!, type: 'Runtime' },
