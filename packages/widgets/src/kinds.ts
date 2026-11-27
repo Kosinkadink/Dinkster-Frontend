@@ -1068,7 +1068,7 @@ export const secretView: WidgetView<string> = {
     if (state.required === true && !set) ctx.rect(0, 0, 1, 1, { role: 'widgetProblem', severity: 'error' })
     compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '', `${value} ${status}`.trim(), state, 'widget.edit', false, {
       labelFirst: true,
-      parts: [{ text: value }, { text: ` ${status}`, look: set ? 'muted' : 'error' }],
+      parts: [{ text: value }, { text: ` ${status}`, look: state.required === true && !set ? 'error' : 'muted' }],
     })
   },
   readout: () => [],
