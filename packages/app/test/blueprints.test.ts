@@ -24,6 +24,7 @@ import {
   BlueprintBodyCache,
   blueprintFailureDiagnostic,
   insertBlueprintIntoTab,
+  listSavedBlueprints,
   type BlueprintInsertOutcome,
 } from '../src/blueprints.js'
 
@@ -54,6 +55,33 @@ const jsonResponse = (body: unknown): Response =>
 const textResponse = (text: string): Response =>
   ({ ok: true, status: 200, text: () => Promise.resolve(text) }) as unknown as Response
 const notFound = (): Response => ({ ok: false, status: 404 }) as unknown as Response
+
+describe('saved blueprint search', () => {
+  it('finds older saved blueprints beyond the first project-bound library page', async () => {
+    const records = ['recent', 'older'].map((id, index) => ({
+      id, scope: 'local', name: `${id} tools`, digest: DIGEST,
+      mediaType: 'application/x-dinkster-workflow+json', labels: ['blueprint'],
+      created: 1, modified: 10 - index, revision: 1,
+    }))
+    const connection = new DinksterConnection({
+      id: asConnectionId('saved-blueprints'), baseUrl: 'http://library', clientId: 'test',
+      fetchFn: async (input) => {
+        const url = new URL(String(input))
+        if (url.pathname === '/api/library' && url.searchParams.get('project') === 'studio' &&
+          url.searchParams.get('scope') === 'local' && url.searchParams.get('label') === 'blueprint') {
+          return Response.json(url.searchParams.get('cursor') === 'older-page'
+            ? { records: [records[1]] }
+            : { records: [records[0]], cursor: 'older-page' })
+        }
+        if (url.pathname.startsWith('/api/assets/')) return jsonResponse(validBody)
+        return notFound()
+      },
+    })
+    const saved = await listSavedBlueprints(connection, new BlueprintBodyCache(), 'local', 'blueprint', 'studio')
+    expect(saved.map(({ record }) => record.name)).toEqual(['recent tools', 'older tools'])
+    expect(saved[1]?.document?.graphs['g0']?.nodes['n0']?.type).toBe('EmptyImage')
+  })
+})
 
 describe('BlueprintBodyCache', () => {
 

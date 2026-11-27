@@ -276,8 +276,14 @@ export async function listSavedBlueprints(
   label: string,
   project: string,
 ): Promise<readonly SavedBlueprint[]> {
-  const page = await connection.listLibrary({ scope, label, project, limit: 200 })
-  return Promise.all(page.records.map(async (record) => {
+  const records: LibraryRecord[] = []
+  let cursor: string | undefined
+  do {
+    const page = await connection.listLibrary({ scope, label, project, limit: 200, ...(cursor === undefined ? {} : { cursor }) })
+    records.push(...page.records)
+    cursor = page.cursor
+  } while (cursor !== undefined)
+  return Promise.all(records.map(async (record) => {
     const document = await bodies.loadWith(record.digest, () => fetchSavedBlueprintBody(connection, record.digest))
     return document === undefined ? { record } : { record, document }
   }))
