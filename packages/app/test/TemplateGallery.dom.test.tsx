@@ -162,7 +162,7 @@ describe('TemplatesPage', () => {
     document.body.append(host)
     const dispose = render(() => {
       const [opened, setOpened] = createSignal('Nothing opened')
-      return <><TemplatesPage app={app} drawing={() => undefined}
+      return <><TemplatesPage app={app}
         onOpen={async (entry) => { setOpened(entry.title); return true }}
         onBlank={() => setOpened('Blank workflow')} onOpenStorage={() => undefined} />
         <output>{opened()}</output></>
@@ -228,7 +228,7 @@ describe('TemplatesPage', () => {
     const dispose = render(() => {
       const [action, setAction] = createSignal('')
       const [visible, setVisible] = createSignal(true)
-      return <><Show when={visible()}><TemplatesPage app={app} drawing={() => undefined} onOpen={async () => true}
+      return <><Show when={visible()}><TemplatesPage app={app} onOpen={async () => true}
         onBlank={() => setAction('Blank workflow')} onOpenStorage={() => setAction('Storage')} /></Show>
         <output>{action()}</output>
         <button onClick={() => { setVisible(false); empty = true; queueMicrotask(() => setVisible(true)) }}>Reload empty</button></>

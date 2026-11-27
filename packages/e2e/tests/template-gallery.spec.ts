@@ -80,6 +80,13 @@ test('reviews template models without opening or submitting a workflow and revok
       widget: { widgetType: 'ASSET', kind: 'model/vae', options: {} } }],
   }]))
   await page.getByRole('button', { name: 'start from a template' }).click()
+  const gallery = page.getByTestId('templates-page')
+  const drawing = gallery.locator('.dinkster-template-tile canvas')
+  await expect(drawing).toBeVisible()
+  await expect.poll(() => drawing.evaluate((canvas: HTMLCanvasElement) =>
+    canvas.width > 0 && [...canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data]
+      .some((value, index) => index % 4 === 3 && value > 0),
+  )).toBe(true)
   const count = await page.evaluate(() => window.__dinksterTest!.app.tabs.get().length)
   await expect(page.getByRole('button', { name: 'Download 1 model', exact: true })).toBeVisible()
   await captureProof(page, 'template-download-before.png')
@@ -94,7 +101,6 @@ test('reviews template models without opening or submitting a workflow and revok
   await dialog.getByRole('button', { name: 'Download 1 model', exact: true }).click()
   await expect(dialog.locator('.dinkster-model-download-row')).toHaveAttribute('data-state', 'downloading')
   await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
-  const gallery = page.getByTestId('templates-page')
   await expect(gallery).toContainText('Downloading 1 model, 41%')
   const modelState = gallery.locator('.dinkster-template-model-state')
   await expect(modelState).toHaveText('Downloading')
