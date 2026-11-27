@@ -3339,8 +3339,19 @@ export class AppState {
     this.workspaceEvents?.addEventListener('message', this.receiveWorkspaceEvent)
     this.settings.register({ id: 'canvas.grid.visible', get name() { return t('settings.canvas.grid.visible') }, type: 'boolean', defaultValue: true })
     this.settings.register({
-      id: 'canvas.detailMinPercent',
+      id: 'canvas.detailMode',
       get name() { return t('settings.canvas.detailMinPercent.name') },
+      get description() { return t('settings.canvas.detailMode.description') },
+      type: 'combo',
+      defaultValue: 'automatic',
+      get options() { return [
+        { value: 'automatic', label: t('settings.canvas.detailMode.automatic') },
+        { value: 'fixed', label: t('settings.canvas.detailMode.fixed') },
+      ] },
+    })
+    this.settings.register({
+      id: 'canvas.detailMinPercent',
+      get name() { return t('settings.canvas.detailMinPercent.fixedName') },
       get description() { return t('settings.canvas.detailMinPercent.description') },
       type: 'number',
       defaultValue: defaultTokens.detailMinScale * 100,

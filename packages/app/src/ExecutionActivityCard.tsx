@@ -1,6 +1,7 @@
 import { For, Show } from 'solid-js'
 import type { ExecutionState } from '@dinkster/client'
 import { isDinksterRegionEntry, type DinksterGraphWire } from '@dinkster/core'
+import { ProductProgress } from '@dinkster/ui'
 import { runAttributionLabel } from './run-attribution.js'
 import { t } from '@dinkster/core'
 import Snowflake from 'lucide-solid/icons/snowflake'
@@ -206,10 +207,10 @@ export function ExecutionActivityCard(props: {
         <Show when={props.relation === 'pinned'}><span class="execution-relation">Pinned to canvas</span></Show>
       </div>
       <Show when={props.entry.status === 'running' && progress() !== undefined}>
-        <label class="execution-progress">
+        <div class="execution-progress">
           <span>Workflow progress {Math.round(progress()!.value * 100)}%</span>
-          <progress max="1" value={progress()!.value} />
-        </label>
+          <ProductProgress label={`Workflow progress ${Math.round(progress()!.value * 100)}%`} value={progress()!.value} />
+        </div>
       </Show>
       <Show when={regionIterations().length > 0}>
         <div class="execution-region-iterations" aria-label="Loop iteration progress">

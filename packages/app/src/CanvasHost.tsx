@@ -1393,7 +1393,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const backendsTick = useSignal(props.app.backendsTick)
   const tabTargets = useSignal(props.app.tabTargets)
   const settingsTick = useSignal(props.app.settings.changed)
-  const detailMinScale = (): number => (settingsTick(), props.app.settings.get<number>('canvas.detailMinPercent') / 100)
+  const [detailMinScale, setDetailMinScale] = createSolidSignal(defaultTokens.detailMinScale)
   const extensionRevision = useSignal(props.app.extensionRevision)
   const selectionScopesChanged = useSignal(props.app.selectionScopesChanged)
   const comparisonCompilesChanged = useSignal(props.app.comparisonCompilesChanged)
@@ -2824,7 +2824,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           // A run saves to the project's output mount and never falls back to the machine's.
           const projectMount = settings.activeOutputMount
           renderer.setWidgetFacts({ SAVE_TARGET: {
-            ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready').map((mount) => mount.id),
+            ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready' && !mount.saveError).map((mount) => mount.id),
             ...(projectMount === undefined ? {} : { projectMount }),
           } })
         }).catch(() => { if (live) renderer.setWidgetFacts({}) })
@@ -2890,7 +2890,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     createEffect(() => {
       settingsTick()
       renderer.setGridVisible(props.app.settings.get('canvas.grid.visible'))
-      renderer.setDetailMinScale(detailMinScale())
+      renderer.setDetailMinScale(props.app.settings.get<number>('canvas.detailMinPercent') / 100)
+      renderer.setDetailMode(props.app.settings.get<'automatic' | 'fixed'>('canvas.detailMode'))
+      setDetailMinScale(renderer.getTokens().detailMinScale)
       if (!props.app.settings.get<boolean>('canvas.smoothWheelZoom')) renderer.cancelViewportAnimation()
       repaintMinimap?.()
     })
@@ -3857,6 +3859,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     setEditorViewport({ ...renderer.getViewport() })
     setCanvasClientRect(canvasEl.getBoundingClientRect())
     const unsubscribeEditorViewport = renderer.onViewportChange(() => setEditorViewport({ ...renderer.getViewport() }))
+    const unsubscribeDetailScale = renderer.onDetailMinScaleChange(setDetailMinScale)
     // A row edited in place is drawn by its field, so the canvas leaves it out.
     createEffect(() => {
       const ed = editor()
@@ -4002,6 +4005,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       typeof ResizeObserver !== 'undefined'
         ? new ResizeObserver(() => {
             setCanvasClientRect(canvasEl.getBoundingClientRect())
+            renderer.refreshDetailMinScale()
             // Synchronous: the callback runs before this frame paints, so a
             // same-frame backing-store resize + redraw never flashes the
             // stretched stale bitmap (rail/panel toggles resize the canvas).
@@ -7107,6 +7111,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       camera.dispose()
       minimap.dispose()
       unsubscribeEditorViewport()
+      unsubscribeDetailScale()
       unsubscribeTabViewport()
       flushViewport()
       unregisterViewportFlusher()
