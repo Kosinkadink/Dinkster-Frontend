@@ -3,7 +3,8 @@ import { expect, test } from '@playwright/test'
 test('Start with keeps its choice across measured-width row and shared dropdown modes', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/#projects')
-  await page.getByRole('checkbox', { name: 'Engine templates on' }).check()
+  await page.getByText('Engine templates on', { exact: true }).click()
+  await expect(page.getByRole('checkbox', { name: 'Engine templates on' })).toBeChecked()
   await page.getByRole('button', { name: 'New', exact: true }).click()
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Evening light')
   const row = page.getByRole('radiogroup', { name: 'Start with', exact: true })
