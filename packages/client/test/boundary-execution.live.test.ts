@@ -384,6 +384,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         const submitted = await connection.submit(compiled.artifact)
         expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
         if (!submitted.ok) throw new Error('Construct links were refused')
+        console.info('Boundary construct link submission', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt }))
         const expected = {
           [first]: { layers: [{ key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null },
             { key: 'layer2', strength: phase === 'disconnected' ? 0.27 : value, image: null }],
@@ -407,8 +408,9 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
               expect(text.available, JSON.stringify(text)).toBe(true)
               if (!text.available) throw new Error('Construct link text unavailable')
               const receipt = JSON.parse(new TextDecoder().decode(text.bytes))
-              expect(receipt, nodeId).toMatchObject(expected[nodeId]!)
               actual[nodeId] = receipt
+              console.info('Boundary construct link node receipt', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt, nodeId, expected: expected[nodeId], actual: receipt }))
+              expect(receipt, nodeId).toMatchObject(expected[nodeId]!)
             }
             console.info('Boundary construct link receipt', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt, expected, actual }))
             return
