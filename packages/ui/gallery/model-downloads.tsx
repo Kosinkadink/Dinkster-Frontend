@@ -1,4 +1,5 @@
 import { For, Show, createSignal } from 'solid-js'
+import { formatByteSize } from '@dinkster/core'
 import {
   ProductButton,
   ProductDialog,
@@ -321,13 +322,13 @@ function DownloadExample(props: {
         footer={
           action() ||
           (insufficient()
-            ? `${count() * 2.25} GiB to download, 20 GiB free. Untick some models or free up space.`
+            ? `${formatByteSize(count() * 2.25 * 1024 ** 3)} to download, 20 GB free. Untick some models or free up space.`
             : props.scene === 'downloading' || props.scene === 'waiting'
               ? 'You can close this. Downloads keep going and show under tasks in the status bar.'
               : allReady()
                 ? '3 models ready.'
                 : props.scene === 'ready'
-                  ? '6.8 GiB to download - 20 GiB free'
+                  ? '6.8 GB to download - 20 GB free'
                   : props.scene === 'failed'
                     ? ''
                     : 'Nothing can be downloaded yet.')
