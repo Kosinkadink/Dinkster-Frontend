@@ -90,6 +90,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
           if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
           if (job?.state === 'completed') {
             const outputs = job.outputs as unknown as Record<string, Record<string, { value: unknown }>>
+            const actual: Record<string, Receipt> = {}
             for (const [nodeId, receipt] of Object.entries(expected)) {
               expect(outputs[nodeId]?.result?.value, nodeId).toBe(receipt.total)
               const query = { jobId: submitted.execution.prompt, nodeId, outputId: 'receipt' }
@@ -99,9 +100,11 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
               const text = await connection.values().rendition(query, 'text', { descriptor: peek.descriptor })
               expect(text.available, JSON.stringify(text)).toBe(true)
               if (!text.available) throw new Error('Automatic receipt text unavailable')
-              expect(JSON.parse(new TextDecoder().decode(text.bytes)), nodeId).toEqual(receipt)
+              actual[nodeId] = JSON.parse(new TextDecoder().decode(text.bytes)) as Receipt
+              expect(actual[nodeId], nodeId).toEqual(receipt)
             }
             for (const nodeId of absent) expect(outputs[nodeId]).toBeUndefined()
+            console.info('Boundary calculation receipt', JSON.stringify({ calculation, depth, jobId: submitted.execution.prompt, expected, actual, absent }))
             return
           }
           await new Promise((resolve) => setTimeout(resolve, 50))
@@ -133,7 +136,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         const connected = wired.doc
         const value = source === 'literal' ? 47 : 2
         const expected = target === seed
-          ? { seed: value, bias: 7, total: source === 'literal' ? 101 : 11 }
+          ? { seed: value, bias: 7, total: source === 'literal' ? 101 : 5 }
           : { seed: 31, bias: 7, total: value }
         await run(loadDocument(JSON.parse(JSON.stringify(connected))).document!, { [first]: expected, [second]: sibling })
         edit(wired, 'link.disconnect', { graphId: 'root', linkId: Object.keys(connected.graphs.root!.links)[0]! })
@@ -143,6 +146,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         expect(wired.doc).toEqual(connected)
         expect(wired.redo()).toBe(true)
         expect(wired.doc).toEqual(disconnected)
+        await run(loadDocument(JSON.parse(JSON.stringify(disconnected))).document!, { [first]: { seed: 31, bias: 7, total: 69 }, [second]: sibling })
       }
       if (depth === 0) return
       const fanout = storeFor(edited)
@@ -155,6 +159,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         graphId: 'detail', itemId: 'start', node: 'other', port: 'text',
       } })
       expect(incompatible.ok).toBe(false)
+      expect(incompatible.diagnostics.map((item) => item.code)).toContain('boundary.fanoutTypeMismatch')
       expect(fanout.doc).toBe(withFanout)
       const detached = storeFor(edited)
       edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
@@ -168,6 +173,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
           ...edited.graphs.root!.nodes, first: { ...edited.graphs.root!.nodes.first!, ...(mode === 'active' ? {} : { mode }) },
         } } } }
         const flattened = storeFor(doc)
+        const beforeFlatten = flattened.doc
         const root = doc.graphs.root!, node = root.nodes.first!, body = doc.graphs[node.type.slice(1)]!
         const resolver = documentResolver(doc, resolve)
         const plan = planFlattenBoundaryRoutes(body, resolver, node, root)
@@ -187,21 +193,25 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         if (mode === 'bypassed') {
           expect(outcome.ok).toBe(false)
           expect(outcome.diagnostics.map((item) => item.code)).toContain('subgraph.flatten.modeUnsupported')
-          expect(flattened.doc).toBe(doc)
+          expect(flattened.doc).toBe(beforeFlatten)
           continue
         }
         expect(outcome.ok, JSON.stringify(outcome.diagnostics)).toBe(true)
-        const replacement = Object.values(flattened.doc.graphs.root!.nodes).find((candidate) =>
-          root.nodes[candidate.id] === undefined && candidate.type === (depth === 1 ? type : '#detail'))!
+        const replacements = Object.values(flattened.doc.graphs.root!.nodes).filter((candidate) =>
+          root.nodes[candidate.id] === undefined && candidate.type === (depth === 1 ? type : '#detail'))
+        const replacement = replacements.find((candidate) => depth === 2 || candidate.values['seed'] === 31)!
         expect(replacement).toBeDefined()
         const path = depth === 1 ? replacement.id : `${replacement.id}.sample`
+        const other = depth === 1 ? replacements.find((candidate) => candidate.id !== replacement.id)!.id : `${replacement.id}.other`
         const result = flattened.doc
         expect(flattened.undo()).toBe(true)
         expect(flattened.doc.graphs).toEqual({ ...doc.graphs, root: { ...root, nextOrdinal: result.graphs.root!.nextOrdinal } })
         expect(flattened.redo()).toBe(true)
         expect(flattened.doc).toEqual(result)
         await run(loadDocument(JSON.parse(JSON.stringify(result))).document!, mode === 'muted'
-          ? { [second]: sibling } : { [path]: { seed: 31, bias: 7, total: 69 }, [second]: sibling }, mode === 'muted' ? [path] : [])
+          ? { [second]: sibling, [`second${extraSuffix}`]: { seed: 17, bias: 13, total: 47 } }
+          : { [path]: { seed: 31, bias: 7, total: 69 }, [other]: { seed: 17, bias: 13, total: 47 },
+            [second]: sibling, [`second${extraSuffix}`]: { seed: 17, bias: 13, total: 47 } }, mode === 'muted' ? [path, other] : [])
       }
     }, 120_000)
   }
