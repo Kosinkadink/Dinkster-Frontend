@@ -401,6 +401,8 @@ test('described menu choices keep separate accessible descriptions, checks and o
       await page.setViewportSize({ width, height: 1000 })
       await page.goto(`/?theme=${theme}#setup-components`)
       await page.evaluate((theme) => { document.documentElement.dataset.theme = theme }, theme)
+      // Full-page capture must not resize the viewport while the menu is open.
+      await page.setViewportSize({ width, height: await page.evaluate(() => document.documentElement.scrollHeight) })
       const trigger = page.getByRole('button', { name: 'Change build', exact: true })
       await trigger.scrollIntoViewIfNeeded()
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
