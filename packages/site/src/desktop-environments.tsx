@@ -1,6 +1,6 @@
 import { For, Show, createSignal, onMount } from 'solid-js'
 import { render } from 'solid-js/web'
-import { formatByteSize } from '@dinkster/core'
+import { formatByteSize, uuidv4 } from '@dinkster/core'
 import {
   ProductButton,
   ProductCheckbox,
@@ -130,7 +130,7 @@ function Environments() {
     environment?: DesktopEnvironment
   }>()
   const [advanced, setAdvanced] = createSignal(false)
-  let identity = `project-${crypto.randomUUID()}`
+  let identity = `project-${uuidv4()}`
   let sandboxCheck = 0
   const field = (key: Field) => values()[key].trim()
   const bindingState = () =>
@@ -1038,7 +1038,7 @@ function Environments() {
                   await refresh(host)
                   setValues((current) => ({ ...current, selected: project.id }))
                   setBindingBaseline(bindingState())
-                  identity = `project-${crypto.randomUUID()}`
+                  identity = `project-${uuidv4()}`
                   setNotification({
                     message:
                       'Binding saved. Opening it starts the existing snapshot without installing packages.',
@@ -1101,7 +1101,7 @@ function Environments() {
                         if (saved && result.operation !== 'cleanup')
                           select(saved, field('engine'))
                         setReview({ result })
-                        identity = `project-${crypto.randomUUID()}`
+                        identity = `project-${uuidv4()}`
                         setNotification({
                           message:
                             result.operation === 'cleanup'
@@ -1174,7 +1174,7 @@ function Environments() {
             onClick={() =>
               void perform(async (host) => {
                 await host.save({
-                  id: `project-${crypto.randomUUID()}`,
+                  id: `project-${uuidv4()}`,
                   name: remote().name.trim(),
                   channel: remote().channel as 'stable' | 'nightly',
                   engines: [

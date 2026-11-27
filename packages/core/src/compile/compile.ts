@@ -90,7 +90,7 @@ import {
 import { solveGraphTypes } from '../schema/solve.js'
 import { constructsOf } from '../schema/body.js'
 import { boundaryOutputFanOutProblems, innerConstructAddress, matchBoundaryItem, outerConstructAddress, projectConstructs, projectEditableOptions } from './crossing.js'
-import { assetTypeId, canonicalTypeIdOf, effectiveAbsentPolicy, isAssetRefDestinationTypeId, isAssetSourceTypeId, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
+import { assetTypeId, canonicalTypeIdOf, effectiveAbsentPolicy, isAssetRefDestinationTypeId, isAssetSourceTypeId, isAssetWidgetInput, listTypeId, parseListTypeId, resolveWidgetRepresentation, typeExprFromTypeId, type InputSpec, selectedMember, type NodeSchema, type NodeSelectorSpec, type TypeExpr, type WidgetSpec } from '../schema/model.js'
 import { effectiveWidgetDefault, isAssetRefValue, sentSpecOf, sentWhenUnset } from '../schema/widget-defaults.js'
 import { isCanonicalUnsafeInteger } from '../schema/numeric-step.js'
 import {
@@ -1819,8 +1819,8 @@ function compileImpl(
    * the ledgered relaxation, with the server planner enforcing anyway.
    */
   const assetSourceTypeOf = (input: ElaboratedInput, value: Json): string | undefined => {
-    if (input.spec.widget?.widgetType !== 'ASSET') return undefined
-    if (input.spec.widget.selection === true && input.spec.type.kind === 'union') {
+    if (!isAssetWidgetInput(input.spec)) return undefined
+    if (input.spec.widget?.selection === true && input.spec.type.kind === 'union') {
       if (typeof value === 'string') return 'COMBO'
       if (isAssetRefValue(value)) return 'ASSET'
       return undefined
@@ -1858,8 +1858,8 @@ function compileImpl(
 
   /**
    * Lower ONE widget-held literal onto its own declared input: stamp $typed
-   * for a numeric-union widget or an asset source differing from the declared
-   * type, so the backend receives a concrete source type. Concrete numeric
+   * for a numeric or mount union widget, or an asset source differing from the
+   * declared type, so the backend receives a concrete source type. Concrete numeric
    * inputs keep their plain literals.
    * Stamping needs the typedLiteral capability; without it, REFUSE loudly
    * (error diag, input omitted - returns undefined) instead of silently
@@ -1882,6 +1882,11 @@ function compileImpl(
     sink: Diagnostic[] = diags,
   ): Json | undefined => {
     const type = input.spec.type
+    if (type.kind === 'union' && type.names.includes('MOUNT') && input.spec.widget?.widgetType === 'MOUNT') {
+      if (emitTypedLiterals) return typedLiteralWire('MOUNT', value) as Json
+      sink.push(diag('error', 'compile', 'compile.value.mountUnionUnsupported', `${fn.node.type}.${input.spec.id}: backend cannot preserve the mount widget type`, { anchor: { occurrence: fn.occ, port: { node: fn.occ.node, port: input.address.port } as PortRef } }))
+      return undefined
+    }
     if (emitRegions && type.kind === 'union' && type.names.length === 2 &&
       type.names.includes('FLOAT') && type.names.includes('INT') && input.spec.widget !== undefined) {
       if (emitTypedLiterals) return typedLiteralWire('FLOAT', value) as Json
