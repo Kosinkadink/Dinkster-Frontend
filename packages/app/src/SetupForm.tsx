@@ -144,7 +144,7 @@ export function SetupForm(props: {
       </ProductPageLoad>
       <Show when={folder() !== undefined}>
         <ProductDialog title={message('setup.chooseFolder')} pending={setup.planning()} onDismiss={() => { if (!setup.planning()) setFolder(undefined) }}
-          action={<ProductButton type="submit" form={folderForm} disabled={setup.planning() || folder() === setup.plan()?.root}>{message('setup.reviewFolder')}</ProductButton>}>
+          action={<ProductButton type="submit" form={folderForm} fill="solid" disabled={setup.planning() || folder() === setup.plan()?.root}>{message('setup.reviewFolder')}</ProductButton>}>
           <form id={folderForm} class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); void replanRoot(folder()!) }}>
             <ProductField label={message('setup.folder')} error={setup.error()?.message ?? ''}>{(attributes) => <ProductTextInput {...attributes} value={folder()} onInput={(event) => setFolder(event.currentTarget.value)} disabled={setup.planning()} required />}</ProductField>
           </form>

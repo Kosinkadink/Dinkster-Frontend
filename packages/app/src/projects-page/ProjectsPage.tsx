@@ -1056,7 +1056,7 @@ export function ProjectsView(props: {
       </form>
       <Show when={folderDraft() !== undefined}>
         <ProductDialog title={message('projects.new.changeFolder')} onDismiss={() => setFolderDraft(undefined)}
-          action={<ProductButton type="submit" form={folderForm} disabled={!folderDraft()!.trim()}>{message('projects.new.useFolder')}</ProductButton>}>
+          action={<ProductButton type="submit" form={folderForm} fill="solid" disabled={!folderDraft()!.trim()}>{message('projects.new.useFolder')}</ProductButton>}>
           <form id={folderForm} class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); if (folderDraft()!.trim()) { setFilesChoice(folderDraft()!.trim()); setFolderDraft(undefined) } }}>
             <ProductField label={message('projects.facts.filesFolder')}>{(attributes) => <ProductTextInput {...attributes} value={folderDraft()} onInput={(event) => setFolderDraft(event.currentTarget.value)} required />}</ProductField>
           </form>
