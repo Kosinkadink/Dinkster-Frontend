@@ -29,6 +29,7 @@ import type {
 import type { ImportAssetPromptReason } from './import-asset-autoresolve.js'
 import type { ModelProviderConnection } from './ModelProvider.js'
 import { ModelDownloadsController, type ModelDownloadState } from './model-downloads.js'
+import { failureMessage } from './request-failure.js'
 
 /** Minimal slot surface (a core Signal satisfies it). */
 export interface RequestSlot<T> {
@@ -47,6 +48,8 @@ export interface AssetConsentRequest {
   readonly providerBackendUrl?: string
   readonly fetchModelSettings?: () => Promise<ModelSettingsState>
   readonly models?: readonly ModelConsentState[]
+  readonly modelDownloadLocation?: string
+  readonly selectModelLocation?: (location: string) => Promise<void>
   readonly selectModelSource?: (index: number, source: string) => void
   readonly reviewModel?: (index: number) => Promise<void>
   readonly downloadModel?: (index: number) => Promise<void>
@@ -152,6 +155,7 @@ export function installAssetConsent(p: {
   let chain: AssetConsentRequest | undefined
   let inFlight = false
   let settled = false
+  let modelDownloadLocation: string | undefined
   const transfers = p.modelDownloads && (p.modelDownloads.controller ?? new ModelDownloadsController(p.modelDownloads.connection, p.modelDownloads.project))
   let unsubscribeModels: (() => void) | undefined
   let unsubscribe = (): void => {}
@@ -201,6 +205,8 @@ export function installAssetConsent(p: {
     const update = (): void => {
       if (!owned() || settled) return
       const next: AssetConsentRequest = { ...owner, models: currentModels(),
+        ...(modelDownloadLocation === undefined ? {} : { modelDownloadLocation }),
+        selectModelLocation: (location) => selectModelLocation(location, next),
         selectModelSource: (i, source) => selectModelSource(i, source, next),
         reviewModel: (i) => modelAction(i, 'review', next),
         downloadModel: (i) => modelAction(i, 'download', next),
@@ -214,6 +220,13 @@ export function installAssetConsent(p: {
       owner = next
       chain = next
       p.slot.set(next)
+    }
+    const selectModelLocation = async (location: string, expected: AssetConsentRequest): Promise<void> => {
+      if (!transfers || !owned() || settled || owner.busy || owner !== expected) return
+      if (p.beforeRetry && !p.beforeRetry()) { clearIfOwned(); return }
+      modelDownloadLocation = location
+      await transfers.setLocation(requirements, location)
+      if (owned() && p.beforeRetry && !p.beforeRetry()) clearIfOwned()
     }
     const selectModelSource = (index: number, source: string, expected: AssetConsentRequest): void => {
       const state = owner.models?.[index]
@@ -304,7 +317,7 @@ export function installAssetConsent(p: {
         }
       } catch (error) {
         clearIfOwned()
-        p.onTransportError(error instanceof Error ? error.message : String(error))
+        p.onTransportError(failureMessage(error))
       } finally {
         inFlight = false
         if (!owned()) settle()
@@ -323,6 +336,8 @@ export function installAssetConsent(p: {
       } : {}),
       ...(requirements.length ? {
         models: currentModels(),
+        ...(modelDownloadLocation === undefined ? {} : { modelDownloadLocation }),
+        selectModelLocation: (location: string) => selectModelLocation(location, request),
         selectModelSource: (index: number, source: string) => selectModelSource(index, source, request),
         reviewModel: (index: number) => modelAction(index, 'review', request),
         downloadModel: (index: number) => modelAction(index, 'download', request),

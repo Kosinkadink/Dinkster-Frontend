@@ -10,7 +10,10 @@
  * never a declared range.
  */
 import { DINKSTER_SCHEMA_WIRE_VERSION } from '@dinkster/core'
+import { requestFetch, requestFailure } from '@dinkster/client'
 import { PROJECT_URL_PARAM, validProjectId } from './projects.js'
+
+const fetchRequest = requestFetch((url, init) => fetch(url, init))
 
 export type ShellView =
   | { readonly kind: 'projects'; readonly newProject: boolean }
@@ -77,7 +80,7 @@ export function openPath(
 /** The status of the always-on process serving this page, or undefined when none does. */
 export async function readHomeStatus(): Promise<HomeStatus | undefined> {
   try {
-    const response = await fetch('/supervisor/status', { cache: 'no-store' })
+    const response = await fetchRequest('/supervisor/status', { cache: 'no-store' })
     if (!response.ok) return undefined
     const status = (await response.json()) as { role?: unknown }
     return status.role === 'home' ? (status as HomeStatus) : undefined
@@ -87,8 +90,8 @@ export async function readHomeStatus(): Promise<HomeStatus | undefined> {
 }
 
 export async function readInstallationFrontends(): Promise<ReadonlyMap<string, InstallationFrontend>> {
-  const response = await fetch('/supervisor/installations', { cache: 'no-store' })
-  if (!response.ok) throw new Error(`installations: HTTP ${response.status}`)
+  const response = await fetchRequest('/supervisor/installations', { cache: 'no-store' })
+  if (!response.ok) throw await requestFailure(response)
   const body = (await response.json()) as {
     installations: readonly { root: string; frontend: InstallationFrontend }[]
   }

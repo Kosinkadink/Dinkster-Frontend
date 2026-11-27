@@ -65,7 +65,7 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('**/api/values*', async (route) => serveValue(route))
 }
 
-async function serveValue(route: Route): Promise<void> {
+async function serveValue(route: Route, sound?: { waveform?: Buffer; failure?: boolean; batch?: boolean }): Promise<void> {
   const url = new URL(route.request().url())
   const output = url.searchParams.get('outputId') ?? ''
   if (output === 'failed') {
@@ -79,14 +79,16 @@ async function serveValue(route: Route): Promise<void> {
   }
   const rendition = url.searchParams.get('rendition')
   if (rendition !== null) {
-    const body = output === 'image' ? png : output === 'webm' ? webm : output === 'audio' ? audio : mp4
+    const waveform = output === 'audio' && rendition === 'waveform'
+    const body = waveform ? sound?.waveform ?? png : output === 'image' ? png : output === 'webm' ? webm : output === 'audio' ? sound?.failure ? Buffer.from('unplayable sound') : audio : mp4
     await route.fulfill({
       status: 200,
-      contentType: spec.mime,
+      contentType: waveform ? 'image/png' : spec.mime,
       headers: {
         'X-Dinkster-Fingerprint': `proof-${output}`,
-        'X-Dinkster-Rendition': spec.rendition,
+        'X-Dinkster-Rendition': rendition,
         'X-Dinkster-Type-Id': spec.type,
+        ...(waveform ? { 'X-Dinkster-Waveform': 'sampled-peak' } : {}),
       },
       body,
     })
@@ -98,7 +100,7 @@ async function serveValue(route: Route): Promise<void> {
     : {
         typeId: output === 'list' ? 'VIDEO' : spec.type,
         fingerprint: `proof-${output}`,
-        ...(output === 'audio' ? { meta: { duration: 1, sample_rate: 8000, channels: 1 } } : {}),
+        ...(output === 'audio' ? { meta: { duration: 1, sample_rate: 8000, channels: 1, ...(sound?.batch ? { batch: 4 } : {}) } } : {}),
       }
   await route.fulfill({ json: {
     available: true,
@@ -106,9 +108,9 @@ async function serveValue(route: Route): Promise<void> {
     renditions: element === null && output === 'list'
       ? []
       : output === 'audio'
-        ? [{
+        ? [...(sound?.waveform ? [{ kind: 'waveform', mime: 'image/png', version: 'waveform-v1', parameters: ['waveform'], limits: { width: 512, height: 128, pixels: 65536 } }] : []), {
             kind: 'window', mime: 'audio/wav', default: true, version: 'window-v1',
-            parameters: ['window'], defaults: {},
+            parameters: sound?.batch ? ['window', 'batch'] : ['window'], defaults: sound?.batch ? { batch: '0' } : {},
             limits: { durationSeconds: 3, sampleValues: 24_000 },
           }]
         : [{ kind: spec.rendition, mime: spec.mime, default: true }],
@@ -228,6 +230,140 @@ async function installMediaProof(page: Page): Promise<void> {
   await expect(page.locator('.node-media-overlay[data-media-kind="video"]')).toHaveCount(4, { timeout: 15_000 })
   await expect(page.locator('.node-media-overlay[data-media-kind="audio"]')).toHaveCount(1)
 }
+
+test('sound controls fit the node and retain playback, seeking, looping and volume without diagnostic lines', async ({ page }, testInfo) => {
+  const waveform = Buffer.from(await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 512; canvas.height = 128
+    const context = canvas.getContext('2d')!
+    context.fillStyle = 'white'
+    for (let x = 0; x < 512; x += 4) {
+      const peak = 8 + Math.abs(Math.sin(x * 0.07) * Math.cos(x * 0.019)) * 52
+      context.fillRect(x, 64 - peak, 2, peak * 2)
+    }
+    return canvas.toDataURL('image/png').split(',')[1]!
+  }), 'base64')
+  for (const state of ['waveform', 'no-waveform', 'failure', 'batch'] as const) {
+    if (state !== 'waveform') {
+      await page.reload()
+      await waitForWorkspaceReady(page)
+    }
+    await page.route('**/api/values*', (route) => serveValue(route, {
+      ...(state === 'waveform' || state === 'batch' ? { waveform } : {}),
+      failure: state === 'failure', batch: state === 'batch',
+    }))
+    await installGraph(page)
+    await page.evaluate(() => {
+      window.__dinksterTest!.renderer!.setViewport({ x: 200, y: -330, scale: 1 })
+    })
+    const preview = page.locator('.node-media-overlay[data-node-id="audio"]')
+    const play = preview.getByRole('button', { name: 'Play audio' })
+    const seek = preview.getByRole('slider', { name: 'Audio position' })
+    const volume = preview.getByRole('slider', { name: 'Preview volume' })
+    const loop = preview.getByRole('button', { name: 'Loop', exact: true })
+    const element = preview.locator('audio')
+    if (state === 'failure') {
+      await expect(preview.getByRole('status')).toHaveText('This browser cannot play this sound')
+      await expect(play).toBeDisabled()
+      await expect(seek).toHaveAttribute('aria-disabled', 'true')
+    } else {
+      await expect(play).toBeEnabled()
+      await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.readyState)).toBeGreaterThan(0)
+      await loop.click()
+      await expect(loop).toHaveAttribute('aria-pressed', 'true')
+      const loopStyle = await loop.evaluate((button) => {
+        const style = getComputedStyle(button)
+        return { color: style.color, borderColor: style.borderTopColor, borderWidth: style.borderTopWidth }
+      })
+      expect(loopStyle.borderColor).toBe(loopStyle.color)
+      expect(loopStyle.borderWidth).toBe('1px')
+      await loop.focus(); await page.keyboard.press('Space')
+      await expect(loop).toHaveAttribute('aria-pressed', 'false')
+      await volume.click({ position: { x: 2, y: 8 } })
+      await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.volume)).toBeLessThan(0.5)
+      await volume.focus(); await page.keyboard.press('End'); await page.keyboard.press('ArrowLeft')
+      await expect(element).toHaveJSProperty('volume', 0.99)
+      await seek.click({ position: { x: 10, y: 8 } })
+      await expect.poll(() => seek.getAttribute('aria-valuenow')).not.toBe('0')
+      await expect(play).toBeEnabled()
+      await seek.focus(); await page.keyboard.press('Home')
+      await expect(seek).toHaveAttribute('aria-valuenow', '0')
+      await expect(play).toBeEnabled()
+      for (const input of ['mouse', 'keyboard']) {
+        await element.evaluate((audio: HTMLAudioElement) => {
+          audio.addEventListener('playing', () => {
+            audio.dataset['played'] = 'true'
+            audio.closest('.audio-transport')!.querySelector<HTMLButtonElement>('[aria-label="Pause audio"]')!.click()
+          }, { once: true })
+          delete audio.dataset['played']
+        })
+        if (input === 'mouse') await play.click()
+        else { await play.focus(); await page.keyboard.press('Enter') }
+        await expect(element).toHaveAttribute('data-played', 'true')
+        await expect(element).toHaveJSProperty('paused', true)
+      }
+      if (state === 'batch') {
+        await preview.getByRole('button', { name: 'Next audio batch' }).click()
+        await expect(preview).toContainText('2 of 4')
+        await preview.getByRole('button', { name: 'Previous audio batch' }).focus()
+        await page.keyboard.press('Enter')
+        await expect(preview).toContainText('1 of 4')
+      }
+      await seek.focus(); await page.keyboard.press('Home')
+      await expect(play).toBeEnabled()
+    }
+    await expect(preview).not.toContainText(/Not reported|Window preview|backend|Gain/)
+    await page.evaluate(() => {
+      const layout = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'audio')!.layout
+      window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'view.setNodeSize', params: {
+        graphId: 'g0', nodeId: 'audio', size: { width: layout.minWidth, height: layout.minHeight },
+      } })
+    })
+    await expect.poll(() => page.evaluate(() => {
+      const layout = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'audio')!.layout
+      return { width: layout.width - layout.minWidth, height: layout.height - layout.minHeight }
+    })).toEqual({ width: 0, height: 0 })
+    for (const scale of [1, 0.31]) {
+      await page.evaluate((scale) => window.__dinksterTest!.renderer!.setViewport({ x: 250 - 50 * scale, y: 120 - 450 * scale, scale }), scale)
+      await expect(play).toBeVisible()
+      const overflow = await preview.evaluate((overlay) => {
+        const bounds = overlay.getBoundingClientRect()
+        return Array.from(overlay.querySelectorAll('.audio-waveform, .audio-transport-row, button, [role="slider"], .dinkster-audio-time')).filter((node) => {
+          const rect = node.getBoundingClientRect()
+          return rect.left < bounds.left - 0.5 || rect.right > bounds.right + 0.5 || rect.bottom > bounds.bottom + 0.5
+        }).map((node) => node.className)
+      })
+      expect(overflow).toEqual([])
+      const clip = await page.evaluate(() => {
+        const renderer = window.__dinksterTest!.renderer!
+        const node = renderer.getScene().nodes.find((node) => node.id === 'audio')!
+        const viewport = renderer.getViewport()
+        const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+        return { x: canvas.left + node.x * viewport.scale + viewport.x - 12,
+          y: canvas.top + node.y * viewport.scale + viewport.y - 12,
+          width: node.layout.width * viewport.scale + 24, height: node.layout.height * viewport.scale + 24 }
+      })
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await page.screenshot({ path: testInfo.outputPath(`sound-${state}-${scale}.png`), animations: 'disabled', clip })
+      if (state === 'waveform' && scale === 1) {
+        await element.evaluate((audio: HTMLAudioElement) => { audio.playbackRate = 0.0625; audio.currentTime = 0.4 })
+        await play.click()
+        const pause = preview.getByRole('button', { name: 'Pause audio' })
+        await expect(pause).toBeVisible()
+        await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(false)
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+        await page.screenshot({ path: testInfo.outputPath('sound-playing-1.png'), animations: 'disabled', clip })
+        await pause.click()
+        await loop.click()
+        await expect(loop).toHaveAttribute('aria-pressed', 'true')
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+        await page.screenshot({ path: testInfo.outputPath('sound-loop-on-1.png'), animations: 'disabled', clip })
+        await loop.click()
+        await seek.focus(); await page.keyboard.press('Home')
+      }
+    }
+  }
+})
 
 for (const previewAvailable of [true, false]) {
 test(`saved files retain original downloads with ${previewAvailable ? 'available' : 'failed'} associated images`, async ({ page }, testInfo) => {

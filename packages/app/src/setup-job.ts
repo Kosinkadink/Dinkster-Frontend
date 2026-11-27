@@ -1,5 +1,9 @@
 import { createEffect, createSignal, onCleanup } from 'solid-js'
 import { createPageLoad } from '@dinkster/ui'
+import { RequestFailure, requestFetch, requestFailure } from '@dinkster/client'
+import { failureMessage } from './request-failure.js'
+
+const fetchRequest = requestFetch((url, init) => fetch(url, init))
 
 export interface SetupProblem {
   readonly code: string
@@ -73,15 +77,15 @@ export interface SetupQuery {
   readonly variant?: string
 }
 
-class SetupRequestError extends Error {
-  constructor(readonly code: string, message: string) {
-    super(message)
+class SetupRequestError extends RequestFailure {
+  constructor(readonly code: string, failure: RequestFailure) {
+    super(failure.method, failure.path, failure.status, failure.serverMessage)
   }
 }
 
 const problem = (error: unknown): SetupProblem => ({
   code: error instanceof SetupRequestError ? error.code : 'connection-failed',
-  message: error instanceof Error ? error.message : String(error),
+  message: failureMessage(error),
 })
 
 export const setupJobActive = (job: SetupJob | null | undefined): boolean =>
@@ -90,7 +94,7 @@ export const setupJobActive = (job: SetupJob | null | undefined): boolean =>
 /** Registration can precede completion; a listed installation may still be setting up. */
 export async function setupInProgress(): Promise<boolean> {
   try {
-    const response = await fetch('/supervisor/setup/active', { cache: 'no-store' })
+    const response = await fetchRequest('/supervisor/setup/active', { cache: 'no-store' })
     return response.ok && setupJobActive((await response.json()).activeJob)
   } catch {
     return false
@@ -119,9 +123,12 @@ export function createSetupController(options: {
     const abort = new AbortController()
     requests.add(abort)
     try {
-      const response = await fetch(`/supervisor/setup${path}`, { ...init, cache: 'no-store', signal: abort.signal })
+      const response = await fetchRequest(`/supervisor/setup${path}`, { ...init, cache: 'no-store', signal: abort.signal })
+      if (!response.ok) {
+        const body = await response.clone().json().catch(() => undefined)
+        throw new SetupRequestError(body?.error ?? 'connection-failed', await requestFailure(response))
+      }
       const body = await response.json()
-      if (!response.ok) throw new SetupRequestError(body.error, body.message)
       return body as T
     } finally {
       requests.delete(abort)

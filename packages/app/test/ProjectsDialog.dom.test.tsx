@@ -2,7 +2,7 @@
 
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
-import type { LibraryProject } from '@dinkster/client'
+import { RequestFailure, type LibraryProject } from '@dinkster/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectsDialog } from '../src/ProjectsDialog.js'
 import { PROJECTS_KEY } from '../src/projects.js'
@@ -27,7 +27,7 @@ function engine(): ProjectClient & { readonly records: Map<string, LibraryProjec
     },
     renameProject: async (id, name, revision) => {
       const previous = records.get(id)!
-      if (previous.revision !== revision) throw new Error('Project changed elsewhere. Refresh before renaming.')
+      if (previous.revision !== revision) throw new RequestFailure('PATCH', `/api/projects/${id}`, 409, 'Project changed elsewhere. Refresh before renaming.')
       const project = row(id, name, revision + 1)
       records.set(id, project)
       return project
