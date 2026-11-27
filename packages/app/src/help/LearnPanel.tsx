@@ -44,7 +44,7 @@ export function LearnPanel(props: {
   readonly onOpenTemplate: (pack: string, template: string, title: string, owner: string) => void
 }) {
   const [query, setQuery] = createSignal('')
-  const [submittedQuery, setSubmittedQuery] = createSignal('')
+  const [submittedQuery, setSubmittedQuery] = createSignal('', { equals: false })
   const [listState, setListState] = createSignal<ListState>({ kind: 'loading' })
   const [selected, setSelected] = createSignal<DocsDescriptor>()
   const [guideState, setGuideState] = createSignal<GuideState>({ kind: 'loading' })
@@ -193,7 +193,9 @@ export function LearnPanel(props: {
         </form>
         <Show when={listState().kind === 'loading'}><ProductEmptyState tone="loading" title={message('learn.state.loading')} /></Show>
         <Show when={listState().kind === 'unavailable'}><ProductEmptyState tone="error" title={message('learn.state.unavailable')} /></Show>
-        <Show when={listState().kind === 'error'}><ProductEmptyState tone="error" title={(listState() as Extract<ListState, { kind: 'error' }>).message} /></Show>
+        <Show when={listState().kind === 'error'}><ProductEmptyState tone="error" title={(listState() as Extract<ListState, { kind: 'error' }>).message} action={
+          <ProductButton onClick={() => setSubmittedQuery(query().trim())}>{message('learn.action.retry')}</ProductButton>
+        } /></Show>
         <Show when={loadedList()}>{(state) => (
           <Show when={state().guides.length > 0} fallback={<ProductEmptyState title={message('learn.state.empty')} />}>
             <div class="learn-guide-list dinkster-list-rows">

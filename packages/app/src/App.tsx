@@ -1467,8 +1467,9 @@ export function App(props: {
   })
   onCleanup(unregisterStorageCommand)
   const [assetsBackendId, setAssetsBackendId] = createSolidSignal<string>()
+  const [assetsMountFocus, setAssetsMountFocus] = createSolidSignal<{ readonly mountId: string }>()
   const activeAssetsBackendId = createMemo(() => activeBackend().id)
-  createEffect(() => { activeAssetsBackendId(); setAssetsBackendId(undefined) })
+  createEffect(() => { activeAssetsBackendId(); setAssetsBackendId(undefined); setAssetsMountFocus(undefined) })
   const AssetsPanelBody = () => <Show when={backends().find((backend) => backend.id === assetsBackendId()) ?? activeBackend()} keyed>
     {(backend) => {
       return backend.protocol === 'dinkster'
@@ -1477,6 +1478,7 @@ export function App(props: {
           backendId={String(backend.id)}
           baseUrl={backend.baseUrl}
           backendLabel={backend.label}
+          mountFocus={assetsMountFocus()}
           onOpenStorage={() => openStorage(backend)}
         /></BackendMetadataState>
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
@@ -1858,8 +1860,9 @@ export function App(props: {
       get description() { return message('storagePanel.description') }, get ariaLabel() { return message('storagePanel.title') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 29,
       toggleTestId: 'storage-sidebar-toggle', component: () => <StoragePanel app={app} focusBackend={storageFocus()} activeBackend={activeBackend}
-        onOpenAssets={(backend) => {
+        onOpenAssets={(backend, mountId) => {
           setAssetsBackendId(backend.id)
+          setAssetsMountFocus(mountId === undefined ? undefined : { mountId })
           setPanelOpen(app.panels, app.dock, 'assets', 'left', true)
         }} />,
     }),
@@ -2662,7 +2665,7 @@ export function App(props: {
       .then((project) => setProjectName(project.name), () => {})
     onCleanup(() => controller.abort())
   })
-  const account = createAccountSession(() => app.connection)
+  const account = createAccountSession(() => app.connection, '')
   const [projectList, setProjectList] = createSolidSignal<readonly ProductProject[]>()
   const [projectListFailed, setProjectListFailed] = createSolidSignal(false)
   const [projectsFocusNew, setProjectsFocusNew] = createSolidSignal(false)

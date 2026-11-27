@@ -11,6 +11,8 @@ import {
   type JSX,
 } from 'solid-js'
 import { render } from 'solid-js/web'
+import { canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
+import { semanticTokensForTheme } from '@dinkster/core'
 import components from '@dinkster/branding/components' with { type: 'json' }
 import {
   Bell,
@@ -27,6 +29,7 @@ import {
   Play,
   Settings,
   SlidersHorizontal,
+  Star,
   Trash2,
   TriangleAlert,
   User,
@@ -44,6 +47,7 @@ import {
   ProductBrandMark,
   ProductCodeBlock,
   ProductCopyValue,
+  ProductCountStrip,
   ProductDisclosure,
   ProductFacts,
   ProductQrCode,
@@ -72,6 +76,7 @@ import {
   ProductProgress,
   ProductProjectMenu,
   ProductPage,
+  ProductPanel,
   ProductRadio,
   ProductSection,
   ProductSegmented,
@@ -185,8 +190,12 @@ function Gallery() {
   const [sizeLimit, setSizeLimit] = createSignal(10000000000)
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
+  const [formMount, setFormMount] = createSignal('input')
+  const [formFolder, setFormFolder] = createSignal('reference/')
+  const [formRemember, setFormRemember] = createSignal(false)
   const [serverOpen, setServerOpen] = createSignal(false)
   const [progressOpen, setProgressOpen] = createSignal(false)
+  const [storageOpen, setStorageOpen] = createSignal(false)
   const [versionSelected, setVersionSelected] = createSignal(false)
   let versionButton: HTMLButtonElement | undefined
   let navigationTimer: number | undefined
@@ -221,7 +230,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#settings', '#models', '#settings-section'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#settings', '#models', '#settings-section', '#setup-components'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -300,6 +309,45 @@ function Gallery() {
               </Section>
             </Match>
             <Match when={route() === '#setup-components'}>
+              <Section title="Filled setup blocks" components="ProductPanel, ProductFacts, ProductDisclosure">
+                <ProductPanel fill="quiet">
+                  <ProductFacts label="Installation location" items={[
+                    { label: 'Install to', value: '/home/alex/Dinkster/nightly' },
+                  ]} />
+                </ProductPanel>
+                <ProductPanel fill="quiet">
+                  <ProductFacts label="Selected build" items={[
+                    { label: 'Build', value: 'NVIDIA graphics' },
+                    { label: 'Download', value: 'About 7 GB - 212 GB free' },
+                  ]} />
+                  <ProductDisclosure title="Details">
+                    <ProductFacts label="Build versions" items={[
+                      { label: 'Python', value: '3.13.8' },
+                      { label: 'PyTorch', value: '2.14.1+cu132' },
+                      { label: 'CUDA', value: '13.2' },
+                      { label: 'Dinkster', value: '0.0.19' },
+                    ]} />
+                  </ProductDisclosure>
+                </ProductPanel>
+              </Section>
+              <Section title="Editable filled block" components="ProductPanel, ProductField, ProductSelect, ProductTextInput, ProductCheckbox">
+                <ProductPanel fill="quiet">
+                  <ProductField label="Mount" layout="inline">
+                    {(attributes) => <ProductSelect {...attributes} value={formMount()} onChange={setFormMount}
+                      options={['input', 'reference'].map((value) => ({ value, label: value }))} />}
+                  </ProductField>
+                  <ProductField label="Folder" layout="inline"
+                    {...(formFolder().startsWith('/') || formFolder().split('/').includes('..')
+                      ? { error: 'Enter a folder inside this Mount.' } : {})}>
+                    {(attributes) => <ProductTextInput {...attributes} value={formFolder()}
+                      onInput={(event) => setFormFolder(event.currentTarget.value)} />}
+                  </ProductField>
+                  <ProductField layout="self-labeled">
+                    {(attributes) => <ProductCheckbox {...attributes} label="Remember for this project" checked={formRemember()}
+                      onChange={(event) => setFormRemember(event.currentTarget.checked)} />}
+                  </ProductField>
+                </ProductPanel>
+              </Section>
               <Section title="Progress" components="ProductProgress">
                 <For each={[
                   { label: 'Not started', value: 0 },
@@ -870,6 +918,25 @@ function Gallery() {
                 )}
               </ProductForm>
             </Match>
+            <Match when={route() === '#count-strips'}>
+              <Section title="Count strips" components="ProductCountStrip">
+                <For each={['dark', 'light'] as const}>{(theme) => {
+                  const colors = canvasTypePaintForTheme(theme).typeColors
+                  return <div class="dinkster-panel dinkster-stack" data-theme={theme}>
+                    <h3 class="dinkster-heading">{theme === 'dark' ? 'Dark' : 'Light'}</h3>
+                    <ProductCountStrip label={`Model kinds, ${theme}`} segments={[
+                      { label: 'LoRAs', count: 38, kind: 'model/lora' },
+                      { label: 'Checkpoints', count: 12, kind: 'model/checkpoint' },
+                      { label: 'ControlNet', count: 9, kind: 'model/controlnet' },
+                      { label: 'Text encoders', count: 6, kind: 'model/text-encoder' },
+                      { label: 'VAEs', count: 4, kind: 'model/vae' },
+                      { label: 'Upscalers', count: 3, kind: 'model/upscaler' },
+                      { label: 'Other', count: 1, kind: 'other' },
+                    ].map((segment) => ({ ...segment, color: Object.hasOwn(modelKindColorMap, segment.kind) ? colors[modelKindColorMap[segment.kind]!]! : semanticTokensForTheme(theme).text.muted }))} />
+                  </div>
+                }}</For>
+              </Section>
+            </Match>
             <Match when={route() === '#lists'}>
               <Section title="Grouped expandable rows" components="ProductList, ProductListRow, ProductFacts, ProductMenu">
                 <ProductList label="Backend servers" variant="grouped">
@@ -908,22 +975,22 @@ function Gallery() {
                     pressed={versionSelected()} onActivate={() => setVersionSelected(!versionSelected())} />
                 </ProductList>
               </Section>
-              <Section title="Storage folders" components="ProductDisclosure, ProductMenu">
+              <Section title="Storage folders" components="ProductList, ProductListRow, ProductMenu, ProductFacts">
                 <div class="storage-folders">
-                  <div class="storage-group-heading"><h3>Models</h3><ProductButton intent="add" onClick={() => complete('Add models folder chosen')}>Add</ProductButton></div>
-                  <article class="storage-folder">
-                    <div class="storage-folder-heading">
-                      <div class="storage-folder-copy"><strong>Studio models folder with a long descriptive name</strong><code>/home/name/Dinkster/Models</code></div>
-                      <ProductMenu label="Folder actions" icon={Ellipsis} iconOnly items={[{ label: 'Edit', onSelect: () => complete('Edit folder chosen') }]} />
-                    </div>
-                    <ProductDisclosure title="Model kinds"><ProductFacts label="Model kinds" items={[{ label: 'Checkpoints', value: '12 files' }, { label: 'LoRAs', value: '48 files' }]} /></ProductDisclosure>
-                    <span class="storage-folder-mark">Downloads land here</span>
-                  </article>
-                  <article class="storage-folder">
-                    <div class="storage-folder-heading"><div class="storage-folder-copy"><strong>Renders</strong><code>/home/name/Portraits/renders</code></div></div>
-                    <div class="storage-folder-summary"><span>Images</span><span>24 files</span><ProductButton onClick={() => complete('Assets chosen')}>Open in Assets</ProductButton></div>
-                    <span class="storage-folder-mark">New saves go here</span>
-                  </article>
+                  <div class="storage-group-heading"><h3>Model folders</h3><ProductTextButton icon={Plus} onClick={() => complete('Add models folder chosen')} label="Add" /></div>
+                  <ProductList label="Storage model folders" variant="grouped">
+                    <ProductListRow title={<strong>Studio models folder with a long descriptive name</strong>} trailing="60 models" expanded={storageOpen()} onToggle={setStorageOpen}
+                      description={<span class="storage-folder-description"><code class="storage-folder-path"><span>/home/name/Dinkster</span><span>/Models</span></code><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Download} />Downloads land here</span></span>}
+                      action={<ProductMenu label="Folder actions" fill="quiet" icon={Ellipsis} iconOnly items={[{ label: 'Edit', onSelect: () => complete('Edit folder chosen') }]} />}>
+                      <ProductFacts label="Model kinds" items={[{ label: 'Checkpoints', value: 12 }, { label: 'LoRAs', value: 48 }]} />
+                      <ProductTextButton label="Show these models" onClick={() => complete('Models chosen')} />
+                    </ProductListRow>
+                  </ProductList>
+                  <div class="storage-group-heading"><h3>Mounts</h3><ProductTextButton icon={Plus} onClick={() => complete('Add mount chosen')} label="Add" /></div>
+                  <ProductList label="Storage mounts" variant="grouped">
+                    <ProductListRow title={<strong>Renders</strong>} trailing="24 files" onActivate={() => complete('Assets chosen')}
+                      description={<span class="storage-folder-description"><code class="storage-folder-path"><span>/home/name/Portraits</span><span>/renders</span></code><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Star} />New saves go here</span></span>} />
+                  </ProductList>
                 </div>
               </Section>
               <Section
@@ -1717,7 +1784,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#settings', '#models', '#settings-section'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#settings', '#models', '#settings-section', '#setup-components'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'

@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal } from 'solid-js'
+import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { Download } from 'lucide-solid'
 import { formatByteSize } from '@dinkster/core'
 import type { CanvasGalleryPage } from '../../canvas/gallery/fixtures.js'
@@ -32,6 +32,7 @@ interface MockTemplate extends ProductTemplateEntry {
   description: string
   scene: CanvasGalleryPage
   models: readonly MockModel[]
+  packId: string
   pack: string
   version: string
   from: string
@@ -67,8 +68,8 @@ const missing = (models: readonly MockModel[]) => {
   return left.length > 0 ? formatByteSize(amount * 1024 ** 3) : undefined
 }
 
-const generation = { pack: 'Generation', version: '0.4.2', from: 'Built in' }
-const loops = { pack: 'Loops', version: '0.2.0', from: 'Built in' }
+const generation = { packId: 'generation', pack: 'Generation', version: '0.4.2', from: 'Built in' }
+const loops = { packId: 'loops', pack: 'Loops', version: '0.2.0', from: 'Built in' }
 
 /** Example data only: names, pictures, sizes and counts stand in for real templates. */
 const mockTemplates: readonly MockTemplate[] = ([
@@ -232,17 +233,34 @@ const drawing = (entry: ProductTemplateEntry) => (
  * and its model family, the tiles, and the selected template explained.
  * Every name, picture, size and count is example data.
  */
-export function TemplatesGallery() {
+export function TemplatesGallery(props: {
+  onChoose?: (template: { pack: string; id: string; name: string }) => void
+  onCancel?: () => void
+  initialSelection?: string | undefined
+} = {}) {
   const [state, setState] = createSignal<keyof typeof states>('ready')
   const [group, setGroup] = createSignal('all')
   const [search, setSearch] = createSignal('')
-  const [selected, setSelected] = createSignal('inpaint-a-region')
+  const [selected, setSelected] = createSignal(props.initialSelection ?? 'inpaint-a-region')
   const [view, setView] = createSignal<'result' | 'workflow'>('result')
   // A started download's progress, or null once it is stopped.
   const [downloads, setDownloads] = createSignal<
     ReadonlyMap<string, number | null>
   >(new Map())
   const [activity, setActivity] = createSignal('No action yet')
+
+  onMount(() => {
+    if (!props.onCancel) return
+    const cancel = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (search() !== '') setSearch('')
+      else props.onCancel?.()
+    }
+    document.addEventListener('keydown', cancel)
+    onCleanup(() => document.removeEventListener('keydown', cancel))
+  })
 
   const all = (): MockTemplate[] =>
     (state() === 'empty' ? [] : mockTemplates).map((template) => {
@@ -308,16 +326,25 @@ export function TemplatesGallery() {
       visible?.find((template) => template.id === selected()) ?? visible?.[0]
     )
   }
-  const open = (id: string) =>
+  const open = (id: string) => {
+    const template = all().find((entry) => entry.id === id)
+    if (props.onChoose && template) {
+      props.onChoose({ pack: template.packId, id: template.id, name: template.name })
+      return
+    }
     setActivity(
       `Opened ${all().find((template) => template.id === id)?.name ?? id}`,
     )
+  }
 
   return (
-    <main class="dinkster-page dinkster-stack" data-testid="templates-gallery">
+    <section
+      class={props.onChoose ? 'dinkster-template-picker' : 'dinkster-page dinkster-stack'}
+      data-testid="templates-gallery"
+    >
       <div class="dinkster-templates-frame dinkster-root" data-theme="dark">
         <ProductTemplatesPage
-          title="Templates"
+          title={props.onChoose ? 'Choose a template' : 'Templates'}
           groups={state() === 'loading' ? [] : groups()}
           group={group()}
           onGroup={setGroup}
@@ -329,8 +356,8 @@ export function TemplatesGallery() {
             setSearch(value)
           }}
           leave={
-            <ProductButton onClick={() => setActivity('Blank workflow opened')}>
-              Blank workflow
+            <ProductButton onClick={() => props.onCancel ? props.onCancel() : setActivity('Blank workflow opened')}>
+              {props.onCancel ? 'Cancel' : 'Blank workflow'}
             </ProductButton>
           }
           templates={shown()}
@@ -382,7 +409,7 @@ export function TemplatesGallery() {
                   ]}
                   actions={
                     <>
-                      <Show when={template().progress}>
+                      <Show when={!props.onChoose && template().progress}>
                         {(progress) => (
                           <ProductTemplateDownload
                             label={`Downloading ${left().length} ${left().length === 1 ? 'model' : 'models'}, ${Math.round(progress() * 100)}%`}
@@ -403,7 +430,7 @@ export function TemplatesGallery() {
                           />
                         )}
                       </Show>
-                      <Show when={state() === 'no-folders' && left().length > 0}>
+                      <Show when={!props.onChoose && state() === 'no-folders' && left().length > 0}>
                         <span class="dinkster-template-folder">
                           <span class="dinkster-description">No model folder yet</span>
                           <ProductTextButton
@@ -412,7 +439,7 @@ export function TemplatesGallery() {
                           />
                         </span>
                       </Show>
-                      <Show when={state() !== 'no-folders' && template().missing}>
+                      <Show when={!props.onChoose && state() !== 'no-folders' && template().missing}>
                         {(amount) => (
                           <ProductButton
                             onClick={() => {
@@ -449,6 +476,7 @@ export function TemplatesGallery() {
           </Show>
         </ProductTemplatesPage>
       </div>
+      <Show when={!props.onChoose}>
       <section class="dinkster-stack" aria-labelledby="template-tile-states">
         <h2 id="template-tile-states" class="dinkster-heading">
           A tile, in each state
@@ -506,6 +534,7 @@ export function TemplatesGallery() {
         </ProductField>
         <p role="status">{activity()}</p>
       </ProductPage>
-    </main>
+      </Show>
+    </section>
   )
 }

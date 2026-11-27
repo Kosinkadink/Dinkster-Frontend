@@ -117,8 +117,8 @@ async function serveValue(route: Route, sound?: { waveform?: Buffer; failure?: b
   } })
 }
 
-async function installGraph(page: Page, associatedImage = false): Promise<void> {
-  await page.evaluate(async (associatedImage) => {
+async function installGraph(page: Page, associatedImage = false, soundLayout?: 'before-run' | 'default'): Promise<void> {
+  await page.evaluate(async ({ associatedImage, soundLayout }) => {
     const concrete = (name: string) => ({ kind: 'concrete', name } as const)
     const schema = (type: string, output: string, valueType: ReturnType<typeof concrete>, preview = true) => ({
       type,
@@ -155,13 +155,14 @@ async function installGraph(page: Page, associatedImage = false): Promise<void> 
     }
     const positions = Object.fromEntries(Object.keys(nodes).map((id, index) => [id, {
       position: { x: 50 + index % 3 * 430, y: 60 + Math.floor(index / 3) * 390 },
-      size: { width: 360, height: 320 },
+      ...(soundLayout === undefined || id !== 'audio' ? { size: { width: 360, height: 320 } } : {}),
     }]))
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'media-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 20 } },
       view: { graphs: { g0: { nodes: positions } } },
     } as never, 'Media Overlay Proof')
+    if (soundLayout === 'before-run') return
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const compiled = app.compileTab(tab)
@@ -211,7 +212,7 @@ async function installGraph(page: Page, associatedImage = false): Promise<void> 
     }])
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  }, associatedImage)
+  }, { associatedImage, soundLayout })
 }
 
 test.beforeEach(async ({ page }) => {
@@ -230,6 +231,43 @@ async function installMediaProof(page: Page): Promise<void> {
   await expect(page.locator('.node-media-overlay[data-media-kind="video"]')).toHaveCount(4, { timeout: 15_000 })
   await expect(page.locator('.node-media-overlay[data-media-kind="audio"]')).toHaveCount(1)
 }
+
+test('sound preview fills its default and resized height', async ({ page }, testInfo) => {
+  const silentWaveform = Buffer.from(await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 512; canvas.height = 128
+    const context = canvas.getContext('2d')!
+    context.fillStyle = '#111827'; context.fillRect(0, 0, 512, 128)
+    context.fillStyle = '#374151'; context.fillRect(0, 64, 512, 1)
+    return canvas.toDataURL('image/png').split(',')[1]!
+  }), 'base64')
+  await page.route('**/api/values*', (route) => serveValue(route, { waveform: silentWaveform }))
+  await installGraph(page, false, 'before-run')
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 200, y: -330, scale: 1 }))
+  await page.screenshot({ path: testInfo.outputPath('sound-before-run.png') })
+  await installGraph(page, false, 'default')
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 200, y: -330, scale: 1 }))
+  const preview = page.locator('.node-media-overlay[data-node-id="audio"]')
+  await expect(preview.getByRole('button', { name: 'Play audio' })).toBeEnabled()
+  const waveform = preview.locator('.audio-waveform')
+  await expect.poll(() => waveform.evaluate((element) => element.getBoundingClientRect().height)).toBe(54)
+  await expect.poll(() => preview.evaluate((overlay) => {
+    const bounds = overlay.getBoundingClientRect()
+    const waveform = overlay.querySelector('.audio-waveform')!.getBoundingClientRect()
+    const rows = overlay.querySelectorAll('.audio-transport-row')
+    const last = rows[rows.length - 1]!.getBoundingClientRect()
+    return { top: waveform.top - bounds.top, bottom: bounds.bottom - last.bottom }
+  })).toEqual({ top: 8, bottom: 8 })
+  await page.screenshot({ path: testInfo.outputPath('sound-silent-default.png') })
+  await page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'audio')!
+    window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'view.setNodeSize', params: {
+      graphId: 'g0', nodeId: 'audio', size: { width: node.layout.width, height: node.layout.height + 83 },
+    } })
+  })
+  await expect.poll(() => waveform.evaluate((element) => element.getBoundingClientRect().height)).toBe(137)
+  await page.screenshot({ path: testInfo.outputPath('sound-silent-taller.png') })
+})
 
 test('sound controls fit the node and retain playback, seeking, looping and volume without diagnostic lines', async ({ page }, testInfo) => {
   const waveform = Buffer.from(await page.evaluate(() => {
