@@ -576,6 +576,7 @@ export type ElaboratedItem = ElaboratedInput | ElaboratedOutput | ElaboratedSect
 /** A value read by another occurrence, with the lookup calls needed to know it. */
 export interface ElaboratedFormulaValue {
   readonly value?: unknown
+  readonly groupKeys?: readonly string[]
   readonly unknown?: true
   readonly linked?: true
   readonly pending?: true
@@ -1038,6 +1039,7 @@ function elaboratePass(
   /** What a formula reads for each emitted input with nothing stored, from the spec compile sends it by. */
   const unsetReads = new Map<string, unknown>()
   const formulaDefaults = new Map<string, unknown>()
+  const formulaGroups = new Map<string, readonly string[]>()
   const emittedOutputs = new Set<string>()
   // A dormant census visits every option and variant, so a row they share, or
   // a row id two variants both declare, is emitted once per visit. Only rows
@@ -1502,6 +1504,13 @@ function elaboratePass(
       const path = where.get(name)!
       const reference = fixed.get(name)
       if (reference !== undefined) {
+        if (kind === 'group') {
+          const members = readFixedValue(reference)?.groupKeys
+          if (members !== undefined) {
+            sizes.set(name, members.length)
+            keys.set(name, members)
+          }
+        }
         if (kind !== 'opaque' && kind !== 'group' && !kind.endsWith('[]')) values.setLazy(name, () => {
           const constant = readFixedValue(reference)
           return constant === undefined || constant.unknown === true || constant.linked === true || constant.pending === true ? UNKNOWN : formulaValueOf(constant.value, kind)
@@ -2235,6 +2244,9 @@ function elaboratePass(
     if (!scope.ghost && !scope.dormant && storedCount > 0) {
       outputMembers[path] = [...keys]
     }
+    if (!scope.ghost && !scope.dormant && scope.kept === undefined && typeof grows === 'string') {
+      formulaGroups.set(path, [...keys])
+    }
 
     let seq = Math.max(stateOf(path)?.seq ?? 0, ...keys.map((key) => keyPosition(row.keys, key)! + 1))
     const offered: string[] = []
@@ -2876,6 +2888,7 @@ function elaboratePass(
     }
   }
   const formulaValues: Record<string, ElaboratedFormulaValue> = Object.create(null)
+  for (const [path, members] of formulaGroups) formulaValues[path] = { groupKeys: members }
   for (const [path, fallback] of formulaDefaults) {
     const wired = linked(path)
     const stored = Object.hasOwn(node.values, path)

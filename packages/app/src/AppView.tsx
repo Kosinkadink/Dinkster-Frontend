@@ -1231,7 +1231,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       : row.spec ? comboOptions(row.spec) : []
   }
 
-  const ComboControl = (controlProps: { readonly row: Extract<ParamRow, { kind: 'live' }> }) => {
+  const ComboControl = (controlProps: { readonly row: Extract<ParamRow, { kind: 'live' }>; readonly problemId?: string | undefined }) => {
     const options = () => optionsFor(controlProps.row)
     const selected = () => options().findIndex((option) => option.value === controlProps.row.value)
     const selectOptions = (): readonly ProductSelectOption<Json>[] => [
@@ -1242,6 +1242,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       class="app-view-control"
       testId="app-view-combo"
       ariaLabel={controlProps.row.label}
+      ariaDescribedBy={controlProps.problemId}
       options={selectOptions()}
       selectedId={selected() === -1 ? 'oov' : String(selected())}
       dataAttributes={{
@@ -1762,6 +1763,16 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     const liveRow = (): Extract<ParamRow, { kind: 'live' }> => row() as Extract<ParamRow, { kind: 'live' }>
     const comboControl = (): boolean => liveRow().spec?.widgetType === 'COMBO'
     const accessibleLabelId = `app-view-control-${createUniqueId()}`
+    const optionProblemId = `app-view-option-problem-${createUniqueId()}`
+    const optionProblem = () => {
+      const current = row()
+      if (current.kind !== 'live' || current.linked || current.derived) return undefined
+      const spec = current.spec
+      if (!comboControl() || spec?.looked?.options === undefined) return undefined
+      const kind = widgetRegistry().kind(spec.widgetType)
+      if (kind === undefined || !kind.valueSchema.validate(current.value, spec)) return undefined
+      return kind.validate(current.value, spec).find((problem) => problem.code === 'widget.COMBO.unknownOption')
+    }
     const label = (): string => {
       const current = row()
       return current.kind === 'live' ? current.label : (current.entry.label ?? current.entry.inputId)
@@ -1858,7 +1869,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             />
           </Match>
           <Match when={comboControl()}>
-            <ComboControl row={liveRow()} />
+            <ComboControl row={liveRow()} problemId={optionProblem() === undefined ? undefined : optionProblemId} />
           </Match>
           <Match when={spec().widgetType === 'VIDEO_EDIT'}>
             <ProductButton type="button" aria-label={message('appView.control.editVideo', { label: liveRow().label })} onClick={() => openVideoEditor(liveRow())}>{message('appView.control.editTrimCrop')}</ProductButton>
@@ -1990,6 +2001,9 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               }
             >
               <InlineControl />
+            </Show>
+            <Show when={optionProblem()}>
+              {(problem) => <div id={optionProblemId}><ProductNotice tone="warning" testId="app-view-option-problem">{problem().message}</ProductNotice></div>}
             </Show>
             <Show when={!comboControl() && errors().get(rowKey(row().entry))}>
               {(message) => <ProductNotice tone="error" testId="app-view-error">{message()}</ProductNotice>}

@@ -2,11 +2,49 @@
 
 import { render } from 'solid-js/web'
 import { describe, expect, it, vi } from 'vitest'
-import { asPromptId, type WorkflowDocument } from '@dinkster/core'
+import { asPromptId, parseDinksterSchema, type WorkflowDocument } from '@dinkster/core'
 import { AppView } from '../src/AppView.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 describe('App View occurrence fields', () => {
+  it('marks a removed group option without resetting the stored selection and restores it with undo', async () => {
+    const { schema } = parseDinksterSchema('GroupPicker', { body: [
+      { kind: 'group', id: 'layers', grows: 'button', keys: { named: ['red', 'blue', 'gold'] },
+        value: { kind: 'input', id: 'value', type: { kind: 'concrete', types: ['INT'] }, default: 1 } },
+      { kind: 'input', id: 'pick', type: { kind: 'concrete', types: ['COMBO'] }, widget: { type: 'COMBO', options: { formula: 'keys(layers)' } } },
+    ] } as never)
+    const app = createWorkflowApp([schema!])
+    app.settings.set('features.appView.enabled', true)
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'group-option-warning', root: 'root', graphs: {
+      root: { id: 'root', name: 'Group keys', nodes: { picker: { id: 'picker', type: 'GroupPicker', values: { pick: 'blue' },
+        dynamic: { layers: { members: ['gold', 'blue', 'red'] } } } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10 },
+    }, view: { graphs: {} }, ext: { 'dinkster.exposed': [{ graphId: 'root', nodeId: 'picker', inputId: 'pick', label: 'Current layer' }] } }, 'Ordered group options')
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <AppView app={app} />, root)
+    try {
+      const warning = () => root.querySelector('[data-testid="app-view-option-problem"]')
+      expect(warning()).toBeNull()
+      const store = app.activeTab()!.store
+      expect(store.dispatch({ command: 'dynamic.removeMember', params: { graphId: 'root', nodeId: 'picker', construct: 'layers', member: 'blue' } }).ok).toBe(true)
+      await vi.waitFor(() => expect(warning()?.textContent).toContain("'blue' is not in the list"))
+      expect(store.doc.graphs.root!.nodes.picker!.values.pick).toBe('blue')
+      const combo = root.querySelector('[data-testid="app-view-combo"]')!
+      expect(document.getElementById(combo.getAttribute('aria-describedby')!)?.textContent).toContain("'blue'")
+      expect(store.undo()).toBe(true)
+      await vi.waitFor(() => expect(warning()).toBeNull())
+      expect(store.doc.graphs.root!.nodes.picker!.values.pick).toBe('blue')
+      expect(store.redo()).toBe(true)
+      await vi.waitFor(() => expect(warning()?.textContent).toContain("'blue' is not in the list"))
+      expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'picker', inputId: 'pick', value: 'red' } }).ok).toBe(true)
+      await vi.waitFor(() => expect(warning()).toBeNull())
+    } finally {
+      dispose()
+      root.remove()
+      app.dispose()
+    }
+  })
+
   it('requests a choice selector visibility dependency without requesting inactive retained fields', async () => {
     const requests: string[] = []
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
