@@ -670,7 +670,10 @@ describe('the notice of the editor\'s own fixes in a shared workflow', () => {
     const edit = (inputId: string, value: number) => ({ command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'n1', inputId, value } })
     expect((await appA.dispatchEditTo(tabA, edit('cap', 13))).ok).toBe(true)
+    expect(appA.undoAdjustments(tabA.id)).toBe(true)
     expect(await appA.shareActiveTab()).toBeUndefined()
+    expect(appA.scanTabNumberFixes(activeTab(appA)).map((fix) => fix.valueKey)).toEqual([])
+    expect(appA.redoAdjustments(tabA.id)).toBe(true)
     expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
     await sharedSession(appA, tabA.id).settle()
     const tabB = activeTab(appB)

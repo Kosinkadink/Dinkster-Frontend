@@ -4335,7 +4335,11 @@ export class AppState {
       // undo record at the swap. A differing shared document (another window
       // established the workspace first) invalidates the records, so they
       // stay behind.
-      if (sameDocument) session.adoptHistory(tab.store.historySnapshot())
+      if (sameDocument) {
+        session.adoptHistory(tab.store.historySnapshot())
+        const kept = this.keptNumberFixes.get(tab.store)
+        if (kept !== undefined) this.keptNumberFixes.set(session, new Map(kept))
+      }
       const current = live
       const backend = this.backendForTab(current)
       const replacement: Tab = { ...current, store: session }
@@ -7340,6 +7344,8 @@ export class AppState {
     const preservesHistory = expect !== undefined && JSON.stringify(session.doc) === JSON.stringify(expect.store.doc)
     if (preservesHistory) {
       session.adoptHistory(expect.store.historySnapshot())
+      const kept = this.keptNumberFixes.get(expect.store)
+      if (kept !== undefined) this.keptNumberFixes.set(session, new Map(kept))
     }
     const backend = this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')
     if (backend === undefined || this.disposed) {
