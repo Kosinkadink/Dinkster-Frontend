@@ -703,13 +703,34 @@ for (const width of [1280, 1440, 1920, 390])
       await page.route('**/fixture', (route) =>
         route.fulfill({
           contentType: 'text/html',
-          body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Authorization test</title><link rel="stylesheet" href="/assets/style.css"></head><body class="dinkster-root" data-density="site" data-theme="dark"><div id="root"></div><script type="module">import {authorizationView} from '/authorization.js'; authorizationView(document.getElementById('root'), {clientName:'Example <script> app',scopes:['api:read','api:execute'],consentToken:'test-consent-only'});</script></body></html>`,
+          body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Authorization test</title><link rel="stylesheet" href="/assets/style.css"></head><body class="dinkster-root" data-density="site" data-theme="dark"><div id="root"></div><script type="module">import {authorizationView} from '/authorization.js'; authorizationView(document.getElementById('root'), {clientName:'Example <script> app',scopes:['email','offline_access','openid','profile','projects:gateway','api:read'],consentToken:'test-consent-only'});</script></body></html>`,
         }),
       )
       await page.goto('/fixture')
       await expect(
-        page.getByRole('heading', { name: 'Authorize Example <script> app' }),
+        page.getByRole('heading', {
+          name: 'Let "Example <script> app" use your account?',
+        }),
       ).toBeVisible()
+      await expect(
+        page.getByText('It will be able to:', { exact: true }),
+      ).toHaveCount(1)
+      for (const sentence of [
+        'See your name, picture and email address.',
+        'Stay signed in between visits.',
+        "See your projects and use Dinkster's online services with your current project permissions.",
+        'api:read',
+      ])
+        await expect(page.getByText(sentence, { exact: true })).toBeVisible()
+      for (const scope of [
+        'email',
+        'offline_access',
+        'openid',
+        'profile',
+        'projects:gateway',
+      ])
+        await expect(page.getByText(scope, { exact: true })).toHaveCount(0)
+      await expect(page.locator('pre')).toHaveCount(0)
       await expect(page.locator('.dinkster-topbar')).toHaveCount(0)
       await expect(page.locator('.dinkster-auth-card')).toBeVisible()
       expect(
