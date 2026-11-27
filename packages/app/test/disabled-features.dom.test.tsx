@@ -127,7 +127,6 @@ it('does not expose obsolete environment management when an older Desktop host s
   document.body.append(host)
   const bridge = {
     locale: async () => 'en',
-    status: async () => ({ phase: 'running' as const, detail: 'Ready' }),
     info: vi.fn(),
     exportSnapshot: vi.fn(),
     importSnapshot: vi.fn(),
@@ -196,7 +195,8 @@ it('keeps the project name and Help from the stopped first frame while guide cat
   active.supervisor.set({ protocol: 1, state: 'starting', progress: { done: 2, total: 5 } })
   expect(host.querySelector('[data-testid="engine-run-control"]')?.textContent).toContain('Starting engine40%')
   active.supervisor.set({ protocol: 1, state: 'ready' })
-  expect(host.querySelector('[data-testid="engine-run-control"]')).toBeNull()
+  expect(host.querySelector('[data-testid="engine-start"]')).toBeNull()
+  expect(host.textContent).not.toContain('Starting engine')
   expect(host.querySelector('[data-testid="queue-button"]')).not.toBeNull()
   expect(toggle()).toBe(firstHelp)
   expect(host.textContent).toContain('Bookshop diorama')

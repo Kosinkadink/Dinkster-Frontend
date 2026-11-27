@@ -481,9 +481,13 @@ describe('WS frame shaping', () => {
     ws.onopen?.({})
     frame(ws, { type: 'session', ...descriptor })
     frame(ws, { type: 'op', ...serverOp })
+    frame(ws, { type: 'session_title', title: 'Shared references' })
+    frame(ws, { type: 'session_permissions', canEdit: false })
     expect(events).toEqual([
       { kind: 'connected', descriptor },
       { kind: 'op', op: serverOp },
+      { kind: 'session-title', title: 'Shared references' },
+      { kind: 'session-permissions', canEdit: false },
     ])
   })
 

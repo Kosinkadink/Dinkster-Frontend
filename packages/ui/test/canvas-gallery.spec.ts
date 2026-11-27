@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { chooseOption } from '../../e2e/choices.js'
 import {
   canvasGalleryPages,
   galleryWidgetInputs,
@@ -1265,6 +1266,12 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(dialog.getByText('Detail 9', { exact: true })).toBeVisible()
     await expect(dialog.getByText('Detail 4', { exact: true })).toHaveCount(0)
     await expect(dialog).toHaveScreenshot(`tabs-overflow-${theme}.png`)
+    await page.mouse.click(0, 0)
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
+    await expect(dialog).toHaveCount(0)
+    await canvas.click({ position: { x: 101, y: 152 } })
+    await expect(dialog).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
   })
@@ -1284,9 +1291,10 @@ for (const theme of ['dark', 'light'] as const) {
           page.getByRole('heading', { name: label, exact: true }),
         ).toBeVisible()
         if (input) {
-          await page
-            .getByRole('combobox', { name: 'Widget kind', exact: true })
-            .selectOption(input.id)
+          await chooseOption(
+            page.getByRole('combobox', { name: 'Widget kind', exact: true }),
+            input.id,
+          )
           await expect(
             page.locator('figure.dinkster-canvas-example canvas').first(),
           ).toHaveAttribute('data-ready', `${id}-${theme}`)
@@ -1344,6 +1352,14 @@ for (const theme of ['dark', 'light'] as const) {
             ])
         } else await expect(comparisons).toHaveCount(0)
         const section = page.getByRole('region', { name: label, exact: true })
+        if (id === 'problem-box') {
+          const messageBox = section.locator('figure').filter({
+            has: page.getByTestId('problem-box-run-message'),
+          })
+          const text = await messageBox.locator('.problem-box-text').boundingBox()
+          const actions = await messageBox.locator('.problem-box-actions').boundingBox()
+          expect(actions!.y).toBe(text!.y)
+        }
         await expect(section).toHaveScreenshot(
           `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}-${theme}.png`,
         )

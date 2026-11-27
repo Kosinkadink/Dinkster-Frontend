@@ -152,8 +152,8 @@ export const insertBlueprintIntoTab = async (p: {
    * commits, it just carries no widget defaults.
    */
   readonly resolveType: () => ((type: string) => NodeSchema | undefined) | undefined
-  /** Link-drop connect invocations for the new node (empty when none). */
-  readonly connect: (nodeId: string, schema: NodeSchema | undefined) => readonly CommandInvocation[]
+  /** Link-drop connections; empty for plain insertion, undefined to refuse an incompatible pick. */
+  readonly connect: (nodeId: string, schema: NodeSchema | undefined) => readonly CommandInvocation[] | undefined
   /** Owner-routed dispatch (dispatchTo the invoking tab); true on ok. */
   readonly dispatch: (invocation: CommandInvocation) => boolean | Promise<boolean>
   /** Called with the new node id after an ok commit. */
@@ -180,6 +180,8 @@ export const insertBlueprintIntoTab = async (p: {
   const resolve = resolveType ? documentResolver(body, resolveType) : () => undefined
   const schema = resolve(`#${body.root}`)
   const values = schema ? (defaultValuesOf(schema) as Record<string, Json>) : {}
+  const connect = p.connect(expectedId, schema)
+  if (connect === undefined) return 'rejected'
   const ok = await p.dispatch({
     command: 'batch',
     params: {
@@ -197,7 +199,7 @@ export const insertBlueprintIntoTab = async (p: {
             values,
           },
         },
-        ...p.connect(expectedId, schema),
+        ...connect,
       ],
     } as unknown as Json,
   })

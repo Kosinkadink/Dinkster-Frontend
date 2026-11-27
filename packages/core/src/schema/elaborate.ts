@@ -26,6 +26,7 @@
 
 import { diag, type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
 import type { DynamicPortState, GraphDef, Json, NodeData } from '../format/document.js'
+import { boundaryItems } from '../format/document.js'
 import { asPortId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, type DynamicMemberId, type NodeId } from '../ids.js'
 import { Formula, FormulaRefused, UNKNOWN, type FormulaNameKind, type FormulaScope, type FormulaValue, type FormulaValues, type Unknown } from '../mirror/formula.js'
 import {
@@ -130,6 +131,10 @@ export function buildGraphConnectivity(def: GraphDef): (node: NodeId) => Connect
       add(inputs, sink.node, portAddressKey(sink.port))
       add(inputPorts, sink.node, sink.port)
     }
+  }
+  for (const item of boundaryItems(def.boundary, 'outputs')) {
+    if (item.binds.kind === 'port') add(outputs, item.binds.node, producerKey('port', item.binds.port))
+    else if (item.binds.kind === 'widgetTap') add(outputs, item.binds.node, producerKey('tap', item.binds.tap))
   }
   const cache = new Map<NodeId, Connectivity>()
   return (node) => {
@@ -337,6 +342,8 @@ export interface ElaboratedOutput {
   readonly ancestry?: readonly DynamicAncestor[]
   /** False when this output takes no part in wiring: a member the document does not store. */
   readonly wireable?: false
+  /** A wired output outside the current interface: drawn inactive and delivers nothing. */
+  readonly kept?: string
   readonly materialize?: readonly MaterializeFrame[]
   readonly boxes?: readonly string[]
   /** Inside its member's box: the row's own label, drawn in place of the full name. */
@@ -570,7 +577,7 @@ export interface ElaboratedInterface {
   readonly chunkSafe?: Pick<NonNullable<NodeSchema['chunkSafe']>, 'inputs' | 'outputs'>
   /** Non-port values the run carries. */
   readonly submissionValues: readonly { readonly path: string; readonly apiPath: string; readonly value: Json }[]
-  /** Stored member keys of each group that is not a count group, in order: the run's member lists. */
+  /** Member keys in run order: stored groups and count-grown groups that hold outputs. */
   readonly outputMembers?: Readonly<Record<string, readonly string[]>>
   /** The key of every choice and type choice that takes part in the run, by flattened id. */
   readonly choices?: Readonly<Record<string, string>>
@@ -1620,11 +1627,11 @@ function elaboratePass(
 
   /**
    * Walk rows that are no longer part of the node for the ones a wire on
-   * their output keeps (as drawn only). The walk settles nothing and reports
+   * their output keeps. The walk settles nothing and reports
    * nothing: what it reads is not the node's.
    */
-  const keep = (walk: () => void): void => {
-    if (!view || census) return
+  const keep = (walk: () => void, duringCompile = false): void => {
+    if ((!view && !duringCompile) || census) return
     const reported = diagnostics.length
     const settledBefore = new Map(chosen)
     const constructsBefore = new Set(constructs)
@@ -1681,7 +1688,7 @@ function elaboratePass(
 
   const emitInput = (row: InputSpec, path: string, scope: Scope, label?: string, extra: Partial<ElaboratedInput> = {}): void => {
     if (scope.kept !== undefined &&
-      (emittedInputs.has(path) || !connectivity.isOutputConnected(path))) return
+      (!view || emittedInputs.has(path) || !connectivity.isOutputConnected(path))) return
     if (!claim(emittedInputs, activeInputs, path, scope)) {
       exhaust('elab.projectedNamespaceCollision', `projected input namespace collision at '${path}'`)
       return
@@ -1742,7 +1749,8 @@ function elaboratePass(
   }
 
   const emitOutput = (row: OutputSpec, path: string, scope: Scope, label?: string): void => {
-    if (scope.kept !== undefined) return
+    if (scope.kept !== undefined &&
+      (emittedOutputs.has(path) || !connectivity.isOutputConnected(path))) return
     if (!claim(emittedOutputs, activeOutputs, path, scope)) {
       exhaust('elab.projectedNamespaceCollision', `projected output namespace collision at '${path}'`)
       return
@@ -1762,6 +1770,7 @@ function elaboratePass(
       },
       ...common(scope),
       ...(scope.ghost || scope.dormant ? { wireable: false as const } : {}),
+      ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),
     })
   }
@@ -2051,9 +2060,10 @@ function elaboratePass(
         default: return false
       }
     })
-    // The run's member list gives the engine the order of a grown group's
-    // members, including one whose only stored state is a choice or an output.
-    if (typeof grows === 'string' && !scope.ghost && !scope.dormant && storedCount > 0) {
+    // Count-grown outputs also need a recorded member list: the worker
+    // projects the same output interface the host validated.
+    const countedOutputs = typeof grows === 'object' && 'count' in grows && holdsOutput
+    if (!scope.ghost && !scope.dormant && (countedOutputs || typeof grows === 'string' && storedCount > 0)) {
       outputMembers[path] = [...keys]
     }
 
@@ -2083,6 +2093,7 @@ function elaboratePass(
         required,
         ghost: scope.ghost || ghost,
         dormant: scope.dormant || dormant,
+        ...(dormant && !census ? { kept: 'Outside the current count. Its wire gives nothing.' } : {}),
         origin: { kind: 'member', construct: path, ordinal: position, key, ...(ghost ? { ghost: true } : {}) },
         ancestry: [...scope.ancestry, {
           construct: path,
@@ -2151,11 +2162,14 @@ function elaboratePass(
       if (halted) return
       if (!member(position, key, false)) allUsed = false
     }
-    // A count that shrank leaves its later members stored: the census reads
-    // them as dormant, as it reads an option that is not chosen.
-    if (census && typeof grows === 'object' && 'count' in grows) {
+    // The census reads stored later members; the interface keeps only rows
+    // whose output still has a wire. Neither changes the live member list.
+    if (typeof grows === 'object' && 'count' in grows && (census || holdsOutput)) {
       const later = new Map<number, string>()
-      for (const stored of [...Object.keys(node.values), ...Object.keys(node.dynamic ?? {})]) {
+      const addresses = census
+        ? [...Object.keys(node.values), ...Object.keys(node.dynamic ?? {})]
+        : connectivity.outputPorts?.() ?? []
+      for (const stored of addresses) {
         if (!stored.startsWith(`${path}.`)) continue
         const key = stored.slice(path.length + 1).split('.')[0]!
         const position = keyPosition(row.keys, key)
@@ -2163,7 +2177,8 @@ function elaboratePass(
       }
       for (const [position, key] of [...later.entries()].sort(([a], [b]) => a - b)) {
         if (halted) return
-        member(position, key, false, true)
+        if (census) member(position, key, false, true)
+        else keep(() => { member(position, key, false, true) }, true)
       }
     }
 

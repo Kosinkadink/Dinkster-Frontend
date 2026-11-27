@@ -14,6 +14,8 @@ import {
   canvasPaintTokens,
   executionErrorBadge,
   LAST_RUN_BADGE,
+  LOG_INFO_BADGE,
+  logWarningBadge,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
   problemBadge,
@@ -58,6 +60,7 @@ export interface ProblemBoxGalleryCard {
   readonly boxes: readonly ProblemBoxGalleryBox[]
   /** Real solver problems, shown in both the panel and the node's box. */
   readonly diagnostics?: readonly Diagnostic[]
+  readonly run?: { readonly level: 'error' | 'warning' | 'info'; readonly diagnostics: readonly Diagnostic[] }
   /** The row drawn highlighted with its line. */
   readonly highlight?: { readonly nodeId: string; readonly row: string }
   readonly width: number
@@ -440,7 +443,7 @@ export function problemBoxGallery(
     },
     {
       id: 'stops-a-run',
-      caption: 'What stops a run. A missing model offers Locate or replace; Review download replaces it when the download review can open without a run. A required input never connected reads "Image is required."; mask is optional with nothing plugged in, so it has no outline and no line. A value failing a check with no fix offers Edit field.',
+      caption: 'What stops a run. A missing model offers Download models and Locate or replace. Download models opens the review without a run. A required input never connected reads "Image is required."; mask is optional with nothing plugged in, so it has no outline and no line. A value failing a check with no fix offers Edit field.',
       scene: scene([
         { id: 'load', schema: loadModel, x: column(0) },
         { id: 'caption', schema: captionImage, x: column(1) },
@@ -449,7 +452,7 @@ export function problemBoxGallery(
       badges: { load: [errors(1)], caption: [errors(1)], resize: [errors(1)] },
       rowMarks: { load: { model: 'error' }, caption: { image: 'error' }, resize: { width: 'error' } },
       boxes: [
-        { nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', 'Model file is missing.', ['Locate or replace'])] },
+        { nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', 'Model file is missing.', ['Download models', 'Locate or replace'])] },
         { nodeId: 'caption', nodeTitle: 'Caption image', lines: [line('error', 'image', 'Image is required.')] },
         { nodeId: 'resize', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] },
       ],
@@ -511,15 +514,15 @@ export function problemBoxGallery(
     ...[
       {
         id: 'model-missing-review',
-        caption: 'A missing model with a download source to review. Review download opens consent for this model only; it does not queue the workflow. Locate or replace opens the field.',
+        caption: 'A missing model with a download source to review. Download models opens the review for this model only; it does not queue the workflow. Locate or replace opens the field.',
         message: 'sdxl_base.safetensors is not in a model folder this project uses on Local engine.',
-        actions: ['Review download', 'Locate or replace'],
+        actions: ['Download models', 'Locate or replace'],
       },
       {
         id: 'model-missing-no-source',
-        caption: 'A missing model with no download source. Only Locate or replace is offered.',
+        caption: 'A missing model with no download source. Download models opens the review to choose a source. Locate or replace opens the field.',
         message: 'sdxl_base.safetensors is not in a model folder this project uses on Local engine.',
-        actions: ['Locate or replace'],
+        actions: ['Download models', 'Locate or replace'],
       },
       {
         id: 'model-hidden',
@@ -573,5 +576,31 @@ export function problemBoxGallery(
       scale: 0.55,
       width: BOXED,
     },
+    ...[
+      { id: 'run-error', caption: 'One run error: its Error tab is the title; Log holds the details.', level: 'error', messages: ['The image could not be read.'] },
+      { id: 'run-input-error', caption: 'An error naming an input outlines that row. The input prefix leaves the message.', level: 'error', messages: ["input 'file': The image could not be read."] },
+      { id: 'run-python-error', caption: 'A Python error shows only its message here. Its traceback and input values stay in Log.', level: 'error', messages: ['The decoder could not read this image because its file is incomplete. Select another image or replace the incomplete file before running this node again.'] },
+      { id: 'run-two-errors', caption: 'Two errors on one node, one entry for each, with the shared text actions.', level: 'error', messages: ['The image could not be read.', 'The selected image format is not supported.'] },
+      { id: 'run-warning', caption: 'A run warning opens the same box under its Warning tab.', level: 'warning', messages: ['The image has no color profile.'] },
+      { id: 'run-message', caption: 'A run message opens the same box under its Message tab.', level: 'info', messages: ['The image was loaded.'] },
+    ].map(({ id, caption, level, messages }): ProblemBoxGalleryCard => ({
+      id, caption,
+      scene: scene([{ id: 'read', schema: loadImage, x: LEFT }]),
+      badges: { read: [level === 'error' ? executionErrorBadge(messages.length) : level === 'warning' ? logWarningBadge(messages.length) : LOG_INFO_BADGE] },
+      rowMarks: id === 'run-input-error' ? { read: { file: 'error' } } : {},
+      boxes: [{ nodeId: 'read', nodeTitle: 'Load image', lines: [] }],
+      run: {
+        level: level as 'error' | 'warning' | 'info',
+        diagnostics: messages.map((message) => ({
+          severity: level as 'error' | 'warning' | 'info', origin: 'runtime', code: 'runtime.ImageReadError', message,
+          ...(id === 'run-python-error' ? { runtime: {
+            exceptionType: 'ImageReadError', exceptionMessage: message,
+            traceback: ['Traceback (most recent call last):', 'ImageReadError: incomplete file'],
+            currentInputs: { file: 'incomplete.png' },
+          } } : {}),
+        })),
+      },
+      width: BOXED,
+    })),
   ]
 }

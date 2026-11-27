@@ -146,6 +146,7 @@ test('a problem outlines its row and the tab opens one box under the node', asyn
 
   // Zoomed out past the tabs, the open box is not drawn; it returns with them.
   const viewport = await page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 50))
   await page.evaluate((v) => window.__dinksterTest!.renderer!.setViewport({ ...v, scale: 0.4 }), viewport)
   await expect(box).toHaveCount(0)
   await page.evaluate((v) => window.__dinksterTest!.renderer!.setViewport(v), viewport)
@@ -228,7 +229,7 @@ test('a missing model opens only its own review and never queues a workflow', as
   const plans: unknown[] = []
   const submissions: string[] = []
   page.on('request', (request) => {
-    if (new URL(request.url()).pathname === '/api/prompt') submissions.push(request.url())
+    if (new URL(request.url()).pathname === '/api/jobs') submissions.push(request.url())
   })
   await page.route('**/api/models/presence', async (route) => {
     const { models } = route.request().postDataJSON() as { models: { name: string; kind: string }[] }
@@ -271,18 +272,20 @@ test('a missing model opens only its own review and never queues a workflow', as
   })).toBe(true)
   expect(plans).toEqual([])
   await page.screenshot({ path: process.env['DINKSTER_MODEL_BOX_CAPTURE'] ?? test.info().outputPath('missing-model-box.png') })
-  await box.getByRole('button', { name: 'Review download', exact: true }).click()
-  await expect(page.getByTestId('model-consent-row')).toHaveCount(1)
-  await expect(page.getByTestId('model-consent-row')).toContainText('missing-checkpoint.safetensors')
-  await expect(page.getByTestId('model-consent-phase')).toHaveText('Nothing downloads until you agree.')
+  await box.getByRole('button', { name: 'Download models', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Download models', exact: true })
+  const row = dialog.locator('.dinkster-model-download-row')
+  await expect(row).toHaveCount(1)
+  await expect(row).toContainText('missing-checkpoint.safetensors')
+  await expect(row).toContainText('No folder to save it in')
+  await expect(row.getByRole('button', { name: 'Choose a folder', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Run', exact: true })).toHaveCount(0)
   await expect(page.getByTestId('asset-consent-acquire')).toHaveCount(0)
-  await page.getByTestId('model-consent-row').getByRole('button', { name: 'Review source', exact: true }).click()
   await expect.poll(() => plans.length).toBe(1)
   expect(plans[0]).toMatchObject({ name: 'missing-checkpoint.safetensors', kind: 'model/checkpoint', project: 'default', scope: 'local' })
-  await expect(page.getByTestId('model-consent-phase')).toHaveText('Choose a writable model destination in settings, then review again.')
   await page.screenshot({ path: process.env['DINKSTER_MODEL_REVIEW_CAPTURE'] ?? test.info().outputPath('missing-model-review.png') })
-  await page.getByTestId('asset-consent-cancel').click()
-  await expect(page.getByTestId('model-consent-row')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
+  await expect(row).toHaveCount(0)
   expect(submissions).toEqual([])
   expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
 })

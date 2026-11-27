@@ -112,7 +112,7 @@ export function ModelsGallery() {
             setSelected([{ modelId, versionId }])
           }
           onDownload={(modelId, versionId) =>
-            setAction(`Review download: ${modelId}, ${versionId}`)
+            setAction(`Download models: ${modelId}, ${versionId}`)
           }
           onShowFolder={(modelId, versionId) =>
             setAction(`Show folder: ${modelId}, ${versionId}`)

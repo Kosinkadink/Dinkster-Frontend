@@ -561,17 +561,6 @@
   padding-left: 7px;
 }
 
-.badge-log-entry {
-  color: var(--dinkster-text-primary);
-  word-break: break-word;
-}
-
-.badge-log-time {
-  color: var(--dinkster-text-secondary);
-  font-variant-numeric: tabular-nums;
-  margin-right: 6px;
-}
-
 .app-tooltip {
   position: fixed;
   z-index: 30;
@@ -597,20 +586,6 @@
 
 .memory-stack > [data-tooltip-label]:focus-visible { outline-offset: -2px; }
 .memory-stack:focus-within { box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-border-keyboard-focus); }
-
-.badge-error {
-  margin: 6px 0;
-  padding: 6px;
-  background: var(--dinkster-danger-background);
-  border: 1px solid var(--dinkster-danger-border);
-  border-radius: 4px;
-}
-
-.badge-error-head {
-  color: var(--dinkster-danger-foreground);
-  margin-bottom: 4px;
-  word-break: break-word;
-}
 
 .workflow-tabs .context-menu-cascade,
 .dock-zone .context-menu-cascade,

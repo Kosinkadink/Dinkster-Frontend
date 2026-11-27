@@ -7,10 +7,10 @@
  * places it and sets the limit.
  */
 import { createEffect, For, Show } from 'solid-js'
-import { CircleX, TriangleAlert } from 'lucide-solid'
-import { ProductActionLabel } from './controls.js'
+import { CircleX, Info, TriangleAlert } from 'lucide-solid'
+import { ProductTextButton } from './controls.js'
 
-export type ProblemBoxKind = 'error' | 'warning'
+export type ProblemBoxKind = 'error' | 'warning' | 'info'
 
 export interface ProblemBoxViewAction {
   readonly id: string
@@ -36,6 +36,7 @@ export function ProblemBox(props: {
   /** The box's accessible name, such as "Problems of Generate image". */
   readonly label: string
   readonly lines: readonly ProblemBoxViewLine[]
+  readonly notice?: string
   /** Key of the line drawn highlighted. */
   readonly highlighted?: string
   /** Top-left corner in the positioned parent's px. */
@@ -58,7 +59,8 @@ export function ProblemBox(props: {
     element.style.minWidth = `${props.minWidth}px`
   })
   const strongest = (): ProblemBoxKind =>
-    props.lines.some((line) => line.kind === 'error') ? 'error' : 'warning'
+    props.lines.some((line) => line.kind === 'error') ? 'error'
+      : props.lines.some((line) => line.kind === 'warning') ? 'warning' : 'info'
   return (
     <div
       ref={(el) => {
@@ -73,12 +75,14 @@ export function ProblemBox(props: {
       aria-label={props.label}
       onPointerLeave={() => props.onPointLine?.(undefined)}
     >
+      <Show when={props.notice}>{(notice) => <p class="problem-box-notice">{notice()}</p>}</Show>
       <For each={props.lines}>
         {(line) => (
           <div
             class="problem-box-line"
             data-testid="problem-box-line"
             data-kind={line.kind}
+            data-run={line.actions.some((action) => action.id === 'show-log') ? 'true' : undefined}
             data-stacked-actions={line.actions.length > 1 ? 'true' : undefined}
             data-row={line.row}
             data-highlighted={props.highlighted === line.key ? 'true' : undefined}
@@ -86,7 +90,9 @@ export function ProblemBox(props: {
           >
             <Show
               when={line.kind === 'error'}
-              fallback={<TriangleAlert class="problem-box-icon" aria-hidden="true" />}
+              fallback={<Show when={line.kind === 'warning'} fallback={<Info class="problem-box-icon" aria-hidden="true" />}>
+                <TriangleAlert class="problem-box-icon" aria-hidden="true" />
+              </Show>}
             >
               <CircleX class="problem-box-icon" aria-hidden="true" />
             </Show>
@@ -100,15 +106,13 @@ export function ProblemBox(props: {
               <div class="problem-box-actions">
                 <For each={line.actions}>
                   {(action) => (
-                    <button
-                      type="button"
-                      class="problem-box-action"
+                    <ProductTextButton
+                      label={action.label}
+                      labels={action.labels}
                       data-testid={`problem-box-${action.id}`}
                       disabled={action.disabled}
                       onClick={() => props.onAction?.(line, action.id)}
-                    >
-                      <ProductActionLabel labels={action.labels}>{action.label}</ProductActionLabel>
-                    </button>
+                    />
                   )}
                 </For>
               </div>

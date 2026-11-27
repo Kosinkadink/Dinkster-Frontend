@@ -17,9 +17,7 @@ export function SettingsSectionGallery() {
       <ProductFacts label="View settings" items={[
         { label: 'Smooth wheel zoom', value: <ProductSwitch label="Smooth wheel zoom" checked={smooth()} onChange={setSmooth} /> },
         { label: 'Default zoom', value: <ProductTextInput aria-label="Default zoom" value={zoom()} onInput={(event) => setZoom(event.currentTarget.value)} /> },
-        { label: 'Color theme', value: <ProductSelect aria-label="Color theme" value={theme()} onChange={(event) => setTheme(event.currentTarget.value)}>
-          {['System', 'Dark', 'Light'].map((value) => <option value={value}>{value}</option>)}
-        </ProductSelect> },
+        { label: 'Color theme', value: <ProductSelect aria-label="Color theme" options={['System', 'Dark', 'Light'].map((value) => ({ value, label: value }))} value={theme()} onChange={setTheme} /> },
       ]} />
     </ProductSettingsSection>
     <ProductSettingsSection title="Minimap">

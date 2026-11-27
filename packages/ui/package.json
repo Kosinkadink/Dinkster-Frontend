@@ -15,12 +15,12 @@
   },
   "dependencies": {
     "@dinkster/branding": "workspace:*",
+    "@dinkster/canvas": "workspace:*",
     "@dinkster/core": "workspace:*",
     "lucide-solid": "^1.25.0",
     "solid-js": "^1.9.4"
   },
   "devDependencies": {
-    "@dinkster/canvas": "workspace:*",
     "@dinkster/widgets": "workspace:*",
     "@playwright/test": "^1.50.0",
     "axe-core": "4.14.0",

@@ -1,11 +1,11 @@
 import {
+  formatByteSize,
   localCollectionSource,
   type AssetRef,
   type CollectionEntry,
   type CollectionSource,
   type SearchField,
 } from '@dinkster/core'
-import { formatSize } from './helpers.js'
 import type { LogicalModel, LogicalModelVariant } from './logical-model.js'
 
 const shortDigest = (digest: string): string => `${digest.slice(0, 15)}...`
@@ -47,7 +47,7 @@ const logicalModelEntryRef = (entry: CollectionEntry | undefined): LogicalModelE
 const variantEntry = (model: LogicalModel, variant: LogicalModelVariant, grouped: boolean): CollectionEntry => ({
   id: `logical-model-variant:${JSON.stringify([model.logicalId, variant.variantId, variant.digest ?? null])}`,
   title: grouped ? logicalModelVariantName(variant) : model.displayName,
-  badges: [variant.availability, ...(variant.size !== undefined ? [formatSize(variant.size)] : [])],
+  badges: [variant.availability, ...(variant.size !== undefined ? [formatByteSize(variant.size)] : [])],
   ref: {
     kind: 'logical-model-variant',
     detail: { modelName: model.displayName, aliases: model.aliases, variant },
