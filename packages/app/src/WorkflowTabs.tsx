@@ -55,6 +55,8 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly onActivate: (event: MouseEvent, tab: T) => void
   readonly onClose: (tab: T) => void
   readonly onRename?: ((tab: T, title: string) => void) | undefined
+  readonly canRename?: ((tab: T) => boolean) | undefined
+  readonly renameName?: ((tab: T) => string | undefined) | undefined
   readonly onDuplicate?: ((tab: T) => void) | undefined
   readonly onCloseOthers?: ((tab: T) => void) | undefined
   readonly targets?: readonly { readonly id: string; readonly label: string }[] | undefined
@@ -89,24 +91,27 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
   const message = useAppMessage()
   const [menu, setMenu] = createSignal<{ readonly tab: T; readonly x: number; readonly y: number }>()
   const [renaming, setRenaming] = createSignal<string>()
+  const [renameValue, setRenameValue] = createSignal('')
   const documentTab = (tab: T): boolean => tab.editorKind === undefined || tab.editorKind === 'graph' || tab.editorKind === 'app'
-  const canRename = (tab: T): boolean => documentTab(tab) && !props.isFrozen(tab) && props.onRename !== undefined
+  const canRename = (tab: T): boolean => (props.canRename?.(tab) ?? documentTab(tab)) && !props.isFrozen(tab) && props.onRename !== undefined
   const startRename = (tab: T): void => {
-    if (canRename(tab)) setRenaming(tab.id)
+    if (!canRename(tab)) return
+    setRenameValue(props.renameName ? props.renameName(tab) ?? '' : tab.title)
+    setRenaming(tab.id)
   }
   const finishRename = (tab: T, title: string): void => {
     if (renaming() !== tab.id) return
     setRenaming(undefined)
-    if (title.trim()) props.onRename?.(tab, title.trim())
+    if (title.trim() && canRename(tab)) props.onRename?.(tab, title.trim())
   }
   const menuGroups = (tab: T): readonly ResolvedMenuGroup[] => [
-    ...(documentTab(tab) ? [{
+    ...(documentTab(tab) || canRename(tab) ? [{
       group: 'workflow-document',
       items: [
         ...(canRename(tab) ? [{ id: 'workflow.rename', label: message('shell.workflowTabs.rename'),
           action: { kind: 'host', action: 'workflow.rename' } } satisfies MenuActionItem] : []),
-        { id: 'workflow.duplicate', label: message('shell.workflowTabs.duplicate'),
-          action: { kind: 'host', action: 'workflow.duplicate' }, disabled: props.onDuplicate === undefined },
+        ...(documentTab(tab) ? [{ id: 'workflow.duplicate', label: message('shell.workflowTabs.duplicate'),
+          action: { kind: 'host', action: 'workflow.duplicate' }, disabled: props.onDuplicate === undefined } satisfies MenuActionItem] : []),
       ],
     } satisfies ResolvedMenuGroup] : []),
     ...(tab.editorKind !== 'page' ? [{
@@ -302,7 +307,9 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               <ProductTextInput
                 class="tab-rename"
                 aria-label={message('shell.workflowTabs.rename')}
-                value={tab.title}
+                value={renameValue()}
+                placeholder={tab.title}
+                onInput={(event) => setRenameValue(event.currentTarget.value)}
                 ref={(input) => queueMicrotask(() => { input.focus(); input.select() })}
                 onPointerDown={(event) => event.stopPropagation()}
                 onBlur={(event) => finishRename(tab, event.currentTarget.value)}
