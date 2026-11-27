@@ -685,59 +685,20 @@ export function App(props: {
     }
     if (sourceId !== 'runs' || entry.owner === undefined) return
     const runId = runIdOfEntry(entry)
-    if (actionId === 'delete' && !deletingRun()) {
-      setDeleteRunError('')
-      setPendingDeleteRun({ owner: entry.owner, id: entry.id, runId, name: entry.title })
+    if (actionId === 'delete') {
+      // AppState reports deletion failures in Problems before rejecting.
+      void app.deleteHistoryRun(runId, entry.owner).catch(() => {})
     }
     if (actionId === 'open') void app.openRunWorkflow(runId, entry.owner)
     if (actionId === 'resubmit') void app.resubmitRunWorkflow(runId, entry.owner)
   }
-  const [pendingDeleteRun, setPendingDeleteRun] = createSolidSignal<{ owner: string; id: string; runId: string; name: string }>()
-  const [deletingRun, setDeletingRun] = createSolidSignal(false)
-  const [deleteRunError, setDeleteRunError] = createSolidSignal('')
-  const confirmDeleteRun = async (): Promise<void> => {
-    const target = pendingDeleteRun()
-    if (!target || deletingRun()) return
-    setDeletingRun(true)
-    setDeleteRunError('')
-    try {
-      await app.deleteHistoryRun(target.runId, target.owner)
-      setPendingDeleteRun(undefined)
-    } catch (cause) {
-      setDeleteRunError(message('runs.delete.failed', { name: target.name, reason: cause instanceof Error ? cause.message : String(cause) }))
-    } finally { setDeletingRun(false) }
-  }
-  createEffect(() => {
-    if (!deletingRun() && pendingDeleteRun()?.owner !== activeBackend().id) setPendingDeleteRun(undefined)
-  })
-  // The confirmation keeps the committed collection page's owner, never
-  // routing a clear to a backend selected while that page is being replaced.
-  const [pendingClear, setPendingClear] = createSolidSignal<{ owner: string; name: string }>()
   const [clearing, setClearing] = createSolidSignal(false)
-  const [clearError, setClearError] = createSolidSignal('')
   const librarySourceAction = (sourceId: string, actionId: string, owner?: string): void => {
     if (sourceId !== 'runs' || actionId !== 'clear' || owner === undefined || clearing()) return
-    const backend = backends().find((candidate) => candidate.id === owner)
-    if (backend) {
-      setClearError('')
-      setPendingClear({ owner, name: backend.label })
-    }
-  }
-  const confirmClear = async (): Promise<void> => {
-    const target = pendingClear()
-    if (!target || clearing()) return
     setClearing(true)
-    setClearError('')
-    try {
-      await app.clearRunHistory(target.owner)
-      setPendingClear(undefined)
-    } catch (cause) {
-      setClearError(message('runs.clear.failed', { reason: cause instanceof Error ? cause.message : String(cause) }))
-    } finally { setClearing(false) }
+    // The committed page supplies its owner; AppState reports failures in Problems.
+    void app.clearRunHistory(owner).catch(() => {}).finally(() => setClearing(false))
   }
-  createEffect(() => {
-    if (!clearing() && pendingClear()?.owner !== activeBackend().id) setPendingClear(undefined)
-  })
   const multiBackend = () => backends().length > 1
 
   // Pending close is validated by (id, DocumentSession): a same-id
@@ -1655,7 +1616,6 @@ export function App(props: {
       onCopyJobId={() => { const jobId = record()?.jobId; if (jobId !== undefined) void navigator.clipboard?.writeText(jobId) }}
       onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
-      <Show when={pendingDeleteRun()?.owner === p.entry.owner && pendingDeleteRun()?.id === p.entry.id} fallback={<>
       <div class="run-row-line">
         <span class="run-row-thumbnail" aria-hidden="true">
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
@@ -1679,12 +1639,6 @@ export function App(props: {
         }</Show>}>
           {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />}
         </Show>
-      </Show>
-      </>}>
-        <ProductConfirmation title={message('runs.delete.title', { name: pendingDeleteRun()!.name })}
-          consequence={message('runs.delete.consequence')} actionLabel={message('runs.chosen.delete')}
-          intent="remove" surface="inherit" pending={deletingRun()} error={deleteRunError()}
-          onCancel={() => { setDeleteRunError(''); setPendingDeleteRun(undefined) }} onConfirm={() => void confirmDeleteRun()} />
       </Show>
     </div>
   }
@@ -1732,17 +1686,13 @@ export function App(props: {
       </Show>
       <Show when={shownRunScope() === 'workflow'} fallback={<>
         <h3 class="run-section-title">{message('runs.section.finished')}</h3>
-        <Show when={pendingClear()}>{(target) => <ProductConfirmation
-          title={message('runs.clear.title', { backend: target().name })} consequence={message('runs.clear.confirmation')}
-          actionLabel={message('runs.clear.action')} intent="remove" pending={clearing()} error={clearError()}
-          onCancel={() => { setClearError(''); setPendingClear(undefined) }} onConfirm={() => void confirmClear()} />}</Show>
         <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
             ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
           entryContent={(entry, selected) => <StoredRun entry={entry()} selected={selected} />}
           onAction={libraryEntryAction}
-          sourceActions={pendingClear() ? [] : [{ sourceId: 'runs', id: 'clear', label: message('runs.clear.action') }]}
+          sourceActions={[{ sourceId: 'runs', id: 'clear', label: message('runs.clear.action') }]}
           onSourceAction={librarySourceAction} />
       </>}>
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>

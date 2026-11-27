@@ -446,7 +446,7 @@ describe('delete and clear', () => {
     expect(app.store.executions.get()).toBe(executions)
   })
 
-  it('clear failures land in Problems and reject so the confirmation can stay open', async () => {
+  it('clear failures land in Problems and reject', async () => {
     const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'clearHistory').mockRejectedValue(new Error('boom'))
     await expect(app.clearRunHistory(backend.id)).rejects.toThrow('boom')
