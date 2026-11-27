@@ -347,20 +347,21 @@ documentTest('promoted fan-out advancement follows primary binding order', {
   })).toEqual({ primaryFirst: 11, secondaryFirst: 11 })
 })
 
-documentTest('remote COMBO reuses the controller chip with refresh-specific copy', async ({ page }) => {
+for (const trigger of ['after_refresh', 'after_generate'] as const) {
+documentTest(`remote COMBO keeps choice stepping labels for ${trigger}`, async ({ page }) => {
   let remoteRequests = 0
   await page.route('**/api/choices/seed-controller-options', async (route) => {
     remoteRequests += 1
     await route.fulfill({ json: ['alpha', 'beta', 'gamma'] })
   })
-  await page.evaluate(async () => {
+  await page.evaluate(async (trigger) => {
     const test = window.__dinksterTest!
     test.app.registerSchemas([{
       type: 'RefreshComboE2E', displayName: 'Refresh Combo', category: 'test', source: 'v3', isOutputNode: false,
       body: [{
         kind: 'input', id: 'choice', type: { kind: 'concrete', name: 'COMBO' }, optional: false,
         widget: {
-          widgetType: 'COMBO', options: {}, default: 'alpha', controller: 'after_refresh',
+          widgetType: 'COMBO', options: {}, default: 'alpha', controller: trigger,
           remote: { route: '/api/choices/seed-controller-options', refreshButton: true },
         },
       }],
@@ -373,14 +374,15 @@ documentTest('remote COMBO reuses the controller chip with refresh-specific copy
       view: { graphs: { g0: { nodes: { n0: { position: { x: 100, y: 100 } } } } } },
     }, 'Refresh Combo')
     test.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  })
+  }, trigger)
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
     .find((node) => node.id === 'n0')?.layout.rows
     .some((row) => row.kind === 'widget' && row.inputId === 'choice'))).toBe(true)
   const chip = await chipPoint(page, 'choice')
   await page.mouse.click(chip.x, chip.y)
-  await expect(page.getByTestId('seed-controller-menu')).toContainText('After refresh')
+  await expect(page.getByTestId('seed-controller-menu')).toContainText(trigger === 'after_refresh' ? 'After refresh' : 'After each run')
   await expect(page.getByTestId('seed-controller-increment')).toHaveText('Next')
+  await expect(page.getByTestId('seed-controller-decrement')).toHaveText('Previous')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('seed-controller-menu')).not.toBeVisible()
   const row = await widgetPoint(page, 'choice')
@@ -391,11 +393,14 @@ documentTest('remote COMBO reuses the controller chip with refresh-specific copy
   await page.getByTestId('remote-refresh').click()
   await expect.poll(() => remoteRequests).toBe(2)
   await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.choice)).toBe('beta')
-  await page.keyboard.press('Control+z')
-  await expect.poll(() => page.evaluate(() =>
-    window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.choice)).toBe('alpha')
+    window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.choice)).toBe(trigger === 'after_refresh' ? 'beta' : 'alpha')
+  if (trigger === 'after_refresh') {
+    await page.keyboard.press('Control+z')
+    await expect.poll(() => page.evaluate(() =>
+      window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.n0!.values.choice)).toBe('alpha')
+  }
 })
+}
 
 test('a completed backend run increments by step and leaves a fixed widget alone', async ({ page }) => {
   const point = await widgetPoint(page, 'width')

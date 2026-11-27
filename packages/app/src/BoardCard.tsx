@@ -1,4 +1,4 @@
-import { documentResolver, exposedKey, jsonSameValue, semanticDesignTokens, t, type BoardCardItem, type ControllerMode, type ExecutionRef, type Json, type WorkflowDocument } from '@dinkster/core'
+import { documentResolver, exposedKey, isComboWidgetInput, jsonSameValue, semanticDesignTokens, t, type BoardCardItem, type ControllerMode, type ExecutionRef, type Json, type WorkflowDocument } from '@dinkster/core'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { CanvasSeedModeIcon, ProductBoardCard, ProductButton } from '@dinkster/ui'
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup } from 'solid-js'
@@ -121,11 +121,12 @@ function BoardCardInput(props: {
         <span class="dinkster-board-controller"><ProductButton ref={(element) => { modeButton = element }} fill="quiet"
           aria-label={`After run for ${props.row.label}`} aria-haspopup="menu" aria-expanded={modeOpen()}
           onClick={() => setModeOpen((open) => !open)}>
-          <CanvasSeedModeIcon mode={mode()} trigger="after_generate" />
+          <CanvasSeedModeIcon mode={mode()} choice={isComboWidgetInput(props.row.item.spec)} />
         </ProductButton></span>
         <Show when={modeOpen()}><Portal><div class="dinkster-root dinkster-board-controller-layer"
           onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
           <ControllerModeMenu ref={(element) => { menu = element }} mode={mode()} trigger="after_generate"
+            choice={isComboWidgetInput(props.row.item.spec)}
             onMode={(next) => { if (props.onMode(props.row, next)) closeMode(true) }} />
         </div></Portal></Show>
       </Show>

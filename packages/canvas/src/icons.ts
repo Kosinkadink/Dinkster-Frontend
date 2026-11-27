@@ -218,7 +218,7 @@ export function paintToolboxIcon(
   paintIconNodes(ctx, ICONS[icon], x, y, size, color)
 }
 
-/** Paint a controller chip using the meaning of its after-run or refresh mode. */
+/** Paint a controller chip using numeric or choice stepping direction. */
 export function paintSeedControllerIcon(
   ctx: CanvasRenderingContext2D,
   mode: SeedControllerMode,
@@ -226,9 +226,9 @@ export function paintSeedControllerIcon(
   y: number,
   size: number,
   color: string,
-  trigger: 'after_generate' | 'after_refresh' = 'after_generate',
+  choice = false,
 ): void {
-  paintIconNodes(ctx, (trigger === 'after_refresh' ? CONTROLLER_ICONS : SEED_MODE_ICONS)[mode], x, y, size, color)
+  paintIconNodes(ctx, (choice ? CONTROLLER_ICONS : SEED_MODE_ICONS)[mode], x, y, size, color)
 }
 
 /** Paint a seed's after-run mode as drawn before the value of an in-row number. */

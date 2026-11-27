@@ -113,6 +113,7 @@ import {
   nodeSearchFields,
   searchVisibilityOf,
   isAssetWidgetInput,
+  isComboWidgetInput,
   isPortEndpoint,
   planOccurrenceLinkMutation,
   samePortRef,
@@ -1974,6 +1975,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly inputId: string
     readonly mode: ControllerMode
     readonly trigger: 'after_generate' | 'after_refresh'
+    readonly choice: boolean
     readonly lifetime: object
     readonly refusal: Diagnostic | undefined
   }
@@ -3508,6 +3510,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           inputId: hit.row.familyOwner?.valueKey ?? hit.row.valueKey,
           mode: hit.row.controllerMode,
           trigger: hit.row.spec.controller ?? 'after_generate',
+          choice: isComboWidgetInput({ widget: hit.row.spec }),
         })
       },
       onBadgeClick: (node, badge, rect) => {
@@ -7946,7 +7949,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               element.style.left = `${menu().x}px`
               element.style.top = `${menu().y}px`
             }}
-              mode={menu().mode} trigger={menu().trigger} pending={pendingController() === menu().lifetime}
+              mode={menu().mode} trigger={menu().trigger} choice={menu().choice} pending={pendingController() === menu().lifetime}
               refusal={menu().refusal} onMode={(mode) => { void commitControllerMode(menu(), mode) }} />
           </div>
         )}
