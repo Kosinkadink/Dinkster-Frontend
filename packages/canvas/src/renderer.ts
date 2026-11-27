@@ -1179,7 +1179,7 @@ export class CanvasRenderer {
     ctx.font = `${list.fontSize}px ${t.fontFamily}`
     ctx.textBaseline = 'middle'
     ctx.fillStyle = t.colors.nodeHeader
-    ctx.strokeStyle = t.colors.listOutline
+    ctx.strokeStyle = t.colors.nodeOutline
     ctx.lineWidth = list.stroke
     ctx.beginPath()
     ctx.roundRect(x, y, width, height, list.radius)
