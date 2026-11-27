@@ -2247,8 +2247,8 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-model-download-destination-label[data-path-below='true'] > .dinkster-model-download-destination-path { grid-row: 2; grid-column: 3 / -1; }
 .dinkster-model-download-destination-label[data-path-below='true'] > .dinkster-model-download-space { grid-row: 1; grid-column: 4; }
 .dinkster-model-download-destination-label[data-space-below='true'] { grid-template-columns: auto auto minmax(0, 1fr); }
-.dinkster-model-download-destination-label[data-space-below='true'] > .dinkster-model-download-space { grid-row: 2; grid-column: 3; white-space: normal; overflow-wrap: anywhere; }
-.dinkster-model-download-destination-label[data-space-below='true'] > .dinkster-model-download-destination-path { grid-row: 3; grid-column: 3; }
+.dinkster-model-download-destination-label[data-space-below='true'] > .dinkster-model-download-space { grid-row: 3; grid-column: 3; white-space: normal; overflow-wrap: anywhere; }
+.dinkster-model-download-destination-label[data-space-below='true'] > .dinkster-model-download-destination-path { grid-row: 2; grid-column: 3; }
 /* Dialog controls keep app sizing even inside the site's larger-control density. */
 .dinkster-dialog .dinkster-button { height: var(--dinkster-menu-row-height); min-height: 0; padding-block: 0; }
 .dinkster-dialog .dinkster-button[data-icon-only] { width: var(--dinkster-menu-row-height); max-width: var(--dinkster-menu-row-height); }

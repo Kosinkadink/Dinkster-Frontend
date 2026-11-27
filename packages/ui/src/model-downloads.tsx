@@ -251,7 +251,7 @@ function DestinationLabel(props: {
   readonly label: string
   readonly name: string
   readonly path: string | undefined
-  readonly freeSpace: string
+  readonly freeSpace: string | undefined
 }) {
   let label!: HTMLSpanElement
   let name!: HTMLElement
@@ -298,7 +298,9 @@ function DestinationLabel(props: {
         {props.name}
       </strong>
       <span ref={path} class="dinkster-model-download-destination-path">{props.path}</span>
-      <span class="dinkster-model-download-space">{props.freeSpace}</span>
+      <Show when={props.freeSpace}>
+        <span class="dinkster-model-download-space">{props.freeSpace}</span>
+      </Show>
     </span>
   )
 }
@@ -355,7 +357,7 @@ export function ProductModelDownloads(props: {
                 label={destination().label}
                 name={selected()?.name ?? destination().emptyLabel}
                 path={selected()?.path}
-                freeSpace={destination().freeSpace}
+                freeSpace={selected() ? destination().freeSpace : undefined}
               />
             )
             return (
