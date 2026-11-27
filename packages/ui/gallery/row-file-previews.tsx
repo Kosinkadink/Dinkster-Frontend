@@ -57,9 +57,10 @@ const examples: readonly FileExample[] = [
   { title: 'No mixed file chosen', value: null, accept: mixed },
   { title: 'Copying a video', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 340, copy: 'copying' },
   { title: 'Copying in a narrow node', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 184, copy: 'copying' },
-  { title: 'Waiting to publish a video', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 340, copy: 'waiting' },
-  { title: 'Waiting in a narrow node', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 184, copy: 'waiting' },
-  { title: 'Checking a video', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 340, copy: 'checking' },
+  { title: 'Waiting to publish a video', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 176, copy: 'waiting' },
+  { title: 'Waiting in a narrow node', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 140, copy: 'waiting' },
+  { title: 'Checking a video', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 176, copy: 'checking' },
+  { title: 'Checking in a narrow node', value: asset('diner_take3.mp4', 'video/mp4', 'b'), accept: ['video/*'], width: 140, copy: 'checking' },
 ]
 
 function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light'; registry: WidgetRegistry }) {
@@ -116,7 +117,7 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
     }
     const scene = buildScene({ document: loaded.document, graphId: 'gallery', tokens, measure, widgetMeasure,
       ...(copying ? { fieldStatus: { files: { files:
-        tokens.rowHeight * (example.copy === 'copying' ? 2 : 1) + canvasPaintTokens.node.editorSpace.pad * 2 } } } : {}),
+        tokens.rowHeight * 2 + canvasPaintTokens.node.editorSpace.pad * 2 } } } : {}),
       resolve: (type) => type === schema.type ? schema : source })
     const node = scene.nodes.find((item) => item.id === 'files')!
     const status = node.layout.rows.find((row) => row.kind === 'fieldStatus' && row.valueKey === 'files')

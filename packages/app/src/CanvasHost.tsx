@@ -1807,7 +1807,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     for (const [, state] of shownAssetImports()) {
       const target = state.editor.target
       if (target.kind === 'input') (heights[target.nodeId] ??= {})[target.valueKey] =
-        defaultTokens.rowHeight * (state.phase === 'copying' ? 2 : 1) + canvasPaintTokens.node.editorSpace.pad * 2
+        defaultTokens.rowHeight * (state.phase === 'refused' ? 1 : 2) + canvasPaintTokens.node.editorSpace.pad * 2
     }
     return heights
   }, undefined, { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) })

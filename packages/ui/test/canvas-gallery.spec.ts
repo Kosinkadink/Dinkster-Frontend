@@ -29,11 +29,13 @@ const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
 
 test('copy amounts and Stop stay readable without widening the node', async ({ page }) => {
   await openPage(page, 'row-file-previews')
+  let copyHeight = 0
   for (const title of ['Copying a video', 'Copying in a narrow node']) {
     const card = page.locator('figure').filter({ has: page.locator('figcaption', { hasText: title }) })
     const canvas = card.locator('canvas')
     await expect(canvas).toHaveAttribute('data-ready', /-dark$/)
     const before = await canvas.boundingBox()
+    copyHeight = (await card.getByRole('status').boundingBox())!.height
     const amount = card.getByText('210 MiB of 512 MiB', { exact: true })
     const stop = card.getByRole('button', { name: 'Stop', exact: true })
     await expect(amount).toBeVisible()
@@ -50,14 +52,34 @@ test('copy amounts and Stop stay readable without widening the node', async ({ p
     expect(after.width).toBe(before!.width)
     expect(after.height).toBeLessThan(before!.height)
   }
-  const waiting = page.locator('figure').filter({ has: page.getByText('Waiting in a narrow node', { exact: true }) })
-  const stop = waiting.getByRole('button', { name: 'Stop', exact: true })
-  await expect(stop).toBeVisible()
-  const status = (await waiting.getByRole('status').boundingBox())!
-  const stopBox = (await stop.boundingBox())!
-  expect(stopBox.x + stopBox.width).toBeLessThanOrEqual(status.x + status.width)
-  await stop.click()
-  await expect(waiting.getByRole('status')).toHaveCount(0)
+  for (const title of ['Waiting to publish a video', 'Waiting in a narrow node', 'Checking a video', 'Checking in a narrow node']) {
+    const card = page.locator('figure').filter({ has: page.getByText(title, { exact: true }) })
+    const canvas = card.locator('canvas')
+    await expect(canvas).toHaveAttribute('data-ready', /-dark$/)
+    const before = (await canvas.boundingBox())!
+    const status = (await card.getByRole('status').boundingBox())!
+    expect(status.height).toBe(copyHeight)
+    const label = card.getByText(title.startsWith('Waiting') ? 'Waiting for another file' : 'Checking the file', { exact: true })
+    const labelBox = (await label.boundingBox())!
+    const progress = (await card.getByRole('progressbar').boundingBox())!
+    expect(progress.y).toBeGreaterThanOrEqual(labelBox.y + labelBox.height)
+    const stop = card.getByRole('button', { name: 'Stop', exact: true })
+    if (title.startsWith('Checking')) {
+      await expect(stop).toHaveCount(0)
+      expect(progress.x).toBe(status.x)
+      expect(progress.width).toBe(status.width)
+    } else {
+      await expect(stop).toBeVisible()
+      const stopBox = (await stop.boundingBox())!
+      expect(stopBox.x + stopBox.width).toBeLessThanOrEqual(status.x + status.width)
+      expect(stopBox.y).toBeGreaterThanOrEqual(labelBox.y + labelBox.height)
+      await stop.click()
+      await expect(card.getByRole('status')).toHaveCount(0)
+      const after = (await canvas.boundingBox())!
+      expect(after.width).toBe(before.width)
+      expect(after.height).toBeLessThan(before.height)
+    }
+  }
 })
 
 test('choosing a fixes Review entry selects its named example on the canvas', async ({
