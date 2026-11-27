@@ -2,6 +2,8 @@ import { For, Show, createMemo, createSignal } from 'solid-js'
 import { LockKeyhole } from 'lucide-solid'
 import { captureKeydown, KeybindingRegistry, SettingsRegistry } from '../../app/src/settings.js'
 import { settingsCommandGroups } from '../../app/src/settings-search.js'
+import { AutomaticFixField, automaticFixGroups } from '../../app/src/SettingsDialog.js'
+import { automaticFixKinds, automaticFixLabel, automaticFixPreference, registerAutomaticFixSettings } from '../../app/src/automatic-fixes.js'
 import { useAppMessage } from '../../app/src/locale.js'
 import { useSignal } from '../../app/src/solid-adapter.js'
 import { ProductNumberInput } from '../../app/src/ProductNumberInput.js'
@@ -26,7 +28,7 @@ interface Setting {
 }
 
 const groups = [
-  ['general', 'General'], ['canvas', 'Canvas'], ['runs', 'Runs'], ['shortcuts', 'Shortcuts'],
+  ['general', 'General'], ['canvas', 'Canvas'], ['automaticFixes', 'Automatic fixes'], ['runs', 'Runs'], ['shortcuts', 'Shortcuts'],
   ['storage', 'Storage'], ['packs', 'Packs'], ['engine', 'This engine'],
   ['experimental', 'Experimental'], ['advanced', 'Advanced'],
 ].map(([id, label]) => ({ id: id!, label: label! }))
@@ -95,6 +97,7 @@ export function SettingsGallery() {
   const [current, setCurrent] = createSignal('')
   const [values, setValues] = createSignal<Record<string, string | number | boolean>>({ 'canvas.smoothWheelZoom': false })
   const preferences = new SettingsRegistry({ getItem: () => null, setItem: () => {} })
+  registerAutomaticFixSettings(preferences)
   const keybindings = new KeybindingRegistry(preferences)
   for (const command of commands) keybindings.register({ command: command.id, combo: command.keys })
   keybindings.set('workflow.open', 'Ctrl+Shift+O')
@@ -166,6 +169,7 @@ export function SettingsGallery() {
     if (query().trim() === '') return []
     const words = query().toLocaleLowerCase().trim().split(/\s+/)
     const matches = settings.filter((setting) => visible(setting) && words.every((word) => `${setting.label} ${setting.id} ${setting.group} ${setting.section} ${setting.description ?? ''}`.toLocaleLowerCase().includes(word)))
+    const fixMatches = automaticFixKinds.filter((kind) => words.every((word) => `${message(`automaticFixes.kind.${kind.id}`)} ${kind.setting} Automatic fixes ${automaticFixLabel(kind.id, false, message)}`.toLocaleLowerCase().includes(word)))
     const shortcuts = commands.filter((command) => words.every((word) => `${command.label} ${command.id} Shortcuts`.toLocaleLowerCase().includes(word)))
     return [{ key: 'settings', label: `${matches.length} ${matches.length === 1 ? 'setting' : 'settings'}`, rows: matches.map((setting) => {
       const path = `${groups.find((entry) => entry.id === setting.group)?.label} - ${setting.section}`
@@ -178,10 +182,15 @@ export function SettingsGallery() {
         fullWidth: typeof setting.value === 'string' && !setting.options,
         control: <><Show when={setting.group !== 'engine' && value(setting) !== setting.value}><ProductTextButton label="Reset" disabled={disabled(setting)} onClick={() => update(setting.id, setting.value)} /></Show>{control(setting, true)}</>, menu: settingMenu(setting),
       }
-    }) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, get modified() { return combo(command.id) !== keybindings.defaultCombo(command.id) }, detail: `Shortcuts - ${message(`settingsPage.commands.${command.id.split('.')[0]}`)}`, control: <><Show when={combo(command.id) !== keybindings.defaultCombo(command.id)}><ProductTextButton label="Reset" onClick={() => keybindings.reset(command.id)} /></Show>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-warning`} class="dinkster-setting-warning" role="status">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
+    }) }, { key: 'fixes', label: 'Automatic fixes', rows: fixMatches.map((kind) => ({ key: kind.setting, title: message(`automaticFixes.kind.${kind.id}`), detail: `Automatic fixes - ${message(`automaticFixes.group.${automaticFixGroups.find((group) => (group.kinds as readonly string[]).includes(kind.id))!.id}`)}`, get modified() { changed(); return automaticFixPreference(preferences, kind) !== 'apply' }, control: <AutomaticFixField kind={kind} settings={preferences} changed={changed} inline onCopyId={(id) => { void copyId(id) }} /> })) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, get modified() { return combo(command.id) !== keybindings.defaultCombo(command.id) }, detail: `Shortcuts - ${message(`settingsPage.commands.${command.id.split('.')[0]}`)}`, control: <><Show when={combo(command.id) !== keybindings.defaultCombo(command.id)}><ProductTextButton label="Reset" onClick={() => keybindings.reset(command.id)} /></Show>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-warning`} class="dinkster-setting-warning" role="status">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
   })
   const chooseGroup = (id: string) => { setGroup(id); setQuery(''); setCapture(undefined) }
   const activate = (id: string) => {
+    if (automaticFixKinds.some((kind) => kind.setting === id)) {
+      chooseGroup('automaticFixes')
+      queueMicrotask(() => document.getElementById(`setting-${id}`)?.focus())
+      return
+    }
     if (commands.some((command) => command.id === id)) {
       chooseGroup('shortcuts')
       queueMicrotask(() => document.getElementById(id)?.focus())
@@ -221,6 +230,9 @@ export function SettingsGallery() {
     <div class="dinkster-settings-example" onKeyDown={record}>
       <ProductSettingsPage title="Settings" groupsLabel="Settings groups" groups={groups} group={group()} onGroup={chooseGroup}
         search={{ label: 'Search settings', placeholder: 'Search settings', get query() { return query() }, onQuery: (next) => { setCapture(undefined); setQuery(next); setCurrent('') }, get groups() { return searchGroups() }, get current() { return current() }, onCurrent: setCurrent, onActivate: activate, onClose: () => setQuery(''), empty: { title: 'No matching settings', detail: 'Try a setting name or its ID.' } }}>
+        <Show when={group() === 'automaticFixes'}><For each={automaticFixGroups}>{(section) => <ProductSettingsSection title={message(`automaticFixes.group.${section.id}`)}>
+          <For each={section.kinds}>{(id) => <AutomaticFixField kind={automaticFixKinds.find((kind) => kind.id === id)!} settings={preferences} changed={changed} inline={false} onCopyId={(id) => { void copyId(id) }} />}</For>
+        </ProductSettingsSection>}</For></Show>
         <Show when={group() === 'storage'}>
           <p class="dinkster-settings-note">Mounts and model folders are in the Storage panel. <ProductTextButton label="Open Storage" onClick={() => setToast({ message: 'The Storage panel opens in the application.' })} /></p>
           <ProductSettingsSection title="Run files kept by this engine, all projects">

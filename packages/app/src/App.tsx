@@ -73,7 +73,8 @@ import { CollabPanel } from './CollabPanel.js'
 import { ImportAssetResolutionDialog } from './ImportAssetResolutionDialog.js'
 import { ModalSurface } from './ModalSurface.js'
 import { attachDomTooltips, resolveCanvasTooltip, TooltipController, type DomTooltipTarget } from './tooltips.js'
-import { activateProblem, ProblemsPanel } from './ProblemsPanel.js'
+import { activateProblem, ProblemsPanel, type ProblemFixActions } from './ProblemsPanel.js'
+import { problemFixIsImmediate, problemFixLabel, problemFixLabels } from './problem-fixes.js'
 import { useSelectionContext } from './selection-context.js'
 import { RegionIterationInspector } from './RegionIterationInspector.js'
 import { regionIterationInventory } from './region-iteration.js'
@@ -1782,15 +1783,70 @@ export function App(props: {
       </Show>
     </div>
   )
+  const problemFixesChanged = useSignal(app.problemFixes.changed)
   // The indicator always counts the full list, regardless of the selection filter.
   const problemDiagnostics = (): readonly Diagnostic[] => {
+    boundaryStateTick()
+    backendsTick()
+    settingsTick()
+    problemFixesChanged()
+    const tab = activeTab()
     const execution = activeExecution()
     const others = [
       ...visibleProblems(problems(), new Set([activeTabId()])),
-      ...(activeTab()?.execution ? execution?.artifact?.diagnostics ?? [] : []),
+      ...(tab?.execution ? execution?.artifact?.diagnostics ?? [] : []),
       ...(execution === undefined ? [] : executionProblemDiagnostics(execution)),
     ]
-    return [...withoutPassedOnDefaults(solveDiagnostics(), others), ...others]
+    const diagnostics = [...withoutPassedOnDefaults(solveDiagnostics(), others), ...others]
+    if (tab === undefined || tab.execution) return diagnostics
+    const managed = app.problemFixes.diagnostics(tab)
+    return [
+      ...diagnostics.filter((diagnostic) => diagnostic.code !== 'automatic.numberOutsideLimits' &&
+        !(diagnostic.code === 'node.rule.failed' && managed.some((problem) => problem.code === diagnostic.code &&
+          problem.data?.['rule'] === diagnostic.data?.['rule'] &&
+          problem.refs?.[0]?.graphId === diagnostic.refs?.[0]?.graphId &&
+          problem.refs?.[0]?.nodeId === diagnostic.refs?.[0]?.nodeId &&
+          (diagnostic.anchor?.occurrence === undefined ||
+            JSON.stringify(problem.anchor?.occurrence) === JSON.stringify(diagnostic.anchor.occurrence))))),
+      ...managed,
+    ]
+  }
+  const problemFixActions: ProblemFixActions = {
+    forProblem: (diagnostic) => {
+      problemFixesChanged()
+      settingsTick()
+      const tab = activeTab()
+      if (tab === undefined) return undefined
+      const fix = app.problemFixes.forProblem(tab, diagnostic)
+      if (fix === undefined) return undefined
+      return {
+        label: problemFixLabel(fix, message),
+        labels: problemFixLabels(fix, message),
+        disabled: fix.state === 'storing',
+        run: () => {
+          if (fix.state === 'stale') app.problemFixes.recheck(tab, fix.key)
+          else if (fix.offered.kind === 'save-targets' && !fix.offered.defaultReady) openStorage(fix.offered.backend)
+          else return app.problemFixes.apply(tab, [fix])
+        },
+      }
+    },
+    all: () => {
+      const diagnostics = problemDiagnostics()
+      const tab = activeTab()
+      if (tab === undefined || diagnostics.length === 0) return undefined
+      const fixes = diagnostics.flatMap((diagnostic) => {
+        const fix = app.problemFixes.forProblem(tab, diagnostic)
+        return fix === undefined ? [] : [fix]
+      }).sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0)
+      if (fixes.length !== diagnostics.length || fixes.some((fix) => fix.state === 'stale' || !problemFixIsImmediate(fix))) return undefined
+      const storing = fixes.some((fix) => fix.state === 'storing')
+      return {
+        label: message(storing ? 'problemFix.storing' : 'problemFix.fixAll'),
+        labels: [message('problemFix.fixAll'), message('problemFix.storing')],
+        disabled: storing,
+        run: () => app.problemFixes.apply(tab, fixes, { noWait: true }),
+      }
+    },
   }
   const importedNodes = () => {
     boundaryStateTick()
@@ -1917,7 +1973,7 @@ export function App(props: {
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
-        importedNodes={importedNodes}
+        fixes={problemFixActions} importedNodes={importedNodes}
         compatSkips={() => activeBackend().compatSkips.get()}
         packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
         selection={selectionContext} />,

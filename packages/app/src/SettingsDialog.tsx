@@ -1,6 +1,6 @@
 /**
- * Generic settings editor. Rendering switches only on the registry's public
- * type discriminator, so adding a setting never requires editing this dialog.
+ * Ordinary settings use the registry's public type discriminator; automatic
+ * fixes pair their policy with optional wire handling.
  *
  * The shell page host owns the tab and close action. The body swallows keys
  * while a keybinding capture is active or a nonempty search is cleared.
@@ -11,6 +11,7 @@ import { activeLocale, type MessageParams } from '@dinkster/core'
 import type { DinksterConnection, PackSettings } from '@dinkster/client'
 import type { AppCommand, CommandRegistry, KeybindingRegistry, SettingDefinition, SettingsRegistry } from './settings.js'
 import { captureKeydown } from './settings.js'
+import { automaticFixKinds, automaticFixLabel, automaticFixPreference, setAutomaticFixPreference, type AutomaticFixKind, type AutomaticFixPreference } from './automatic-fixes.js'
 import { buildSettingsSearchIndex, querySettingsIndex, searchableSettingsDefinitions, settingsCategoryLabel, settingsCommandGroups, type SettingsSearchItem } from './settings-search.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
@@ -97,6 +98,58 @@ function PackSettingsPanel(props: {
       </ProductSettingRow></div>
     }}</For>
   </div>}</Show>
+}
+
+export const automaticFixGroups = [
+  { id: 'lists', kinds: ['listGrows', 'listShrinks', 'listShrinksWithWires', 'itemOutsideList'] },
+  { id: 'values', kinds: ['unresolvedAutomatic', 'numberOutsideLimits'] },
+  { id: 'nodes', kinds: ['nodeReplacement', 'switchBranchRemoved', 'subgraphRowRemoved', 'boundaryFieldRemoved'] },
+] as const
+
+export function AutomaticFixField(props: {
+  readonly kind: AutomaticFixKind
+  readonly settings: SettingsRegistry
+  readonly changed: () => void
+  readonly inline: boolean
+  readonly onCopyId: (id: string) => void
+}) {
+  const message = useAppMessage()
+  const id = `setting-${props.kind.setting}`
+  const label = () => message(`automaticFixes.kind.${props.kind.id}`)
+  const preference = () => { props.changed(); return automaticFixPreference(props.settings, props.kind) }
+  const asks = () => preference().startsWith('ask')
+  const removesWire = () => preference().endsWith('remove-wire')
+  const modified = () => preference() !== 'apply'
+  const reset = () => props.settings.reset(props.kind.setting)
+  const commit = (ask: boolean, remove: boolean) => setAutomaticFixPreference(props.settings, props.kind,
+    `${ask ? 'ask' : 'apply'}${remove ? '-remove-wire' : ''}` as AutomaticFixPreference)
+  const policy = () => <ProductSelect id={id} aria-label={label()}
+    value={asks() ? 'ask' : 'apply'} options={[
+      { value: 'apply', label: message('automaticFixes.apply') },
+      { value: 'ask', label: message('automaticFixes.ask') },
+    ]} onChange={(value) => commit(value === 'ask', removesWire())} />
+  const wire = () => <ProductSelect id={`${id}-wire`} aria-label={message(`automaticFixes.wire.${props.kind.id}`)}
+    value={removesWire() ? 'remove' : 'keep'} options={[
+      { value: 'keep', label: message('automaticFixes.keepWire') },
+      { value: 'remove', label: message('automaticFixes.removeWire') },
+    ]} onChange={(value) => commit(asks(), value === 'remove')} />
+  return <Show when={!props.inline} fallback={<div data-setting-id={props.kind.setting}>
+    <Show when={modified()}><ProductTextButton label={message('settingsDialog.action.reset')} onClick={reset} /></Show>
+    {policy()}<Show when={props.kind.wire}>{wire()}</Show>
+  </div>}>
+    <ProductSettingRow id={props.kind.setting} controlId={id} label={label()}
+      description={automaticFixLabel(props.kind.id, removesWire(), message)} modified={modified()}
+      resetLabel={message('settingsDialog.action.reset')} menuLabel={message('settingsPage.actions', { name: label() })}
+      copyIdLabel={message('settingsPage.copySettingId')} onReset={reset} onCopyId={() => props.onCopyId(props.kind.setting)}>
+      {policy()}
+    </ProductSettingRow>
+    <Show when={props.kind.wire}><ProductSettingRow id={`${props.kind.setting}-wire`} controlId={`${id}-wire`}
+      label={message(`automaticFixes.wire.${props.kind.id}`)} modified={false}
+      resetLabel={message('settingsDialog.action.reset')} menuLabel={message('settingsPage.actions', { name: label() })}
+      copyIdLabel={message('settingsPage.copySettingId')} onReset={reset} onCopyId={() => props.onCopyId(props.kind.setting)}>
+      {wire()}
+    </ProductSettingRow></Show>
+  </Show>
 }
 
 function SettingField(props: {
@@ -212,9 +265,12 @@ export function SettingsDialog(props: {
   })
   const shortcutGroups = createMemo(() => settingsCommandGroups(shortcutCommands()))
   const layoutIds = new Set(['shell.layout.left.width', 'shell.layout.right.width', 'shell.layout.bottom.height', 'shell.dock.layout', 'editor.splitLayout'])
-  const groups = () => ['general', 'canvas', 'runs', 'shortcuts', 'storage', 'packs', 'engine', 'experimental', 'advanced'].map((id) => ({ id, label: message(`settingsPage.group.${id}`) }))
+  const groupLabel = (id: string) => id === 'automaticFixes' ? message('settingsDialog.category.automaticFixes') : message(`settingsPage.group.${id}`)
+  const groups = () => ['general', 'canvas', 'automaticFixes', 'runs', 'shortcuts', 'storage', 'packs', 'engine', 'experimental', 'advanced'].map((id) => ({ id, label: groupLabel(id) }))
   const location = (definition: SettingDefinition): { group: string; section: string } => {
     const id = definition.id
+    const kind = automaticFixKinds.find((kind) => kind.setting === id)
+    if (kind) return { group: 'automaticFixes', section: automaticFixGroups.find((group) => (group.kinds as readonly string[]).includes(kind.id))!.id }
     if (id.startsWith('canvas.')) return { group: 'canvas', section: id.startsWith('canvas.minimap.') ? 'minimap' : 'view' }
     if (id.startsWith('execution.')) return { group: 'runs', section: 'previews' }
     if (id.startsWith('features.')) return { group: 'experimental', section: 'features' }
@@ -225,6 +281,7 @@ export function SettingsDialog(props: {
     return { group: 'packs', section: props.settings.categoryOf(definition) }
   }
   const sectionLabel = (group: string, section: string) => {
+    if (group === 'automaticFixes') return message(`automaticFixes.group.${section}`)
     if (group === 'packs') return settingsCategoryLabel(section, message)
     if (group === 'shortcuts') {
       const key = `settingsPage.commands.${section}`
@@ -278,7 +335,7 @@ export function SettingsDialog(props: {
       locale()
       return buildSettingsSearchIndex(definitions(), (d) => props.settings.categoryOf(d), props.commands.list()).map((item) => {
         const place = item.source === 'setting' ? location(item.definition) : { group: 'shortcuts', section: item.id.split('.')[0]! }
-        return { ...item, keywords: [...item.keywords, message(`settingsPage.group.${place.group}`), sectionLabel(place.group, place.section)] }
+        return { ...item, keywords: [...item.keywords, groupLabel(place.group), sectionLabel(place.group, place.section)] }
       })
     },
     undefined,
@@ -286,7 +343,7 @@ export function SettingsDialog(props: {
   )
   const matches = createMemo(() => querySettingsIndex(index(), query()).flatMap((entry) => entry.matches).flatMap((match) => {
     const place = match.source === 'setting' ? location(match.definition) : { group: 'shortcuts', section: match.id.split('.')[0]! }
-    let detail = `${message(`settingsPage.group.${place.group}`)} - ${sectionLabel(place.group, place.section)}`
+    let detail = `${groupLabel(place.group)} - ${sectionLabel(place.group, place.section)}`
     const titleMatches = productSearchMarks(match.name, query()).length > 0
     const description = match.source === 'setting' ? match.definition.description ?? '' : ''
     const first = productSearchMarks(description, query())[0]
@@ -302,7 +359,9 @@ export function SettingsDialog(props: {
     }
     return [{ ...match, detail, note }]
   }))
-  const visible = () => definitions().filter((d) => location(d).group === group() && d.id !== 'editor.splitLayout')
+  const visible = () => group() === 'automaticFixes'
+    ? automaticFixGroups.flatMap((group) => group.kinds.flatMap((id) => definitions().filter((d) => automaticFixKinds.find((kind) => kind.id === id)?.setting === d.id)))
+    : definitions().filter((d) => location(d).group === group() && d.id !== 'editor.splitLayout')
   const sections = () => [...new Set(visible().map((d) => location(d).section))]
   const conflicts = () => { changed(); return props.keybindings.conflicts() }
   const selectGroup = (next: string): void => {
@@ -314,7 +373,11 @@ export function SettingsDialog(props: {
     setQuery('')
     searchInput.focus()
   }
-  const settingRow = (d: SettingDefinition, inline = false) => <SettingField definition={d} settings={props.settings} changed={changed} locale={locale} inline={inline} onCopyId={(id) => { void copyId(id) }} />
+  const settingRow = (d: SettingDefinition, inline = false) => {
+    const kind = automaticFixKinds.find((kind) => kind.setting === d.id)
+    return kind ? <AutomaticFixField kind={kind} settings={props.settings} changed={changed} inline={inline} onCopyId={(id) => { void copyId(id) }} />
+      : <SettingField definition={d} settings={props.settings} changed={changed} locale={locale} inline={inline} onCopyId={(id) => { void copyId(id) }} />
+  }
   const keybindingRow = (command: AppCommand, inline = false) => {
     const controlId = `keybinding-${command.id}`
     const commandLabel = () => { locale(); return command.label }
@@ -360,7 +423,7 @@ export function SettingsDialog(props: {
   const activate = (key: string) => {
     const match = matches().find((entry) => `${entry.source}:${entry.id}` === key)
     if (!match) return
-    if (match.source === 'setting' && match.definition.type === 'boolean') props.settings.set(match.id, !props.settings.get<boolean>(match.id))
+    if (match.source === 'setting' && match.definition.type === 'boolean' && !automaticFixKinds.some((kind) => kind.setting === match.id)) props.settings.set(match.id, !props.settings.get<boolean>(match.id))
     else {
       selectGroup(match.source === 'setting' ? location(match.definition).group : 'shortcuts')
       focus(match.id)

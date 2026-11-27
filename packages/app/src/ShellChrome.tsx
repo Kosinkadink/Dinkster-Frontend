@@ -146,6 +146,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
         <For each={displayed().lines}>{(line, index) => <div>
           {line}<Show when={index() === 0 && !displayed().title && displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
         </div>}</For>
+        <Show when={displayed().note}>{(note) => <div class="app-tooltip-note">{note()}</div>}</Show>
         <Show when={props.tip.detailed}><For each={displayed().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
       </div>
     </aside>

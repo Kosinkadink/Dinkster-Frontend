@@ -1,10 +1,12 @@
 import { defaultTokens, presentedType, typeIdDisplayLabel } from '@dinkster/canvas'
-import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, t as translate } from '@dinkster/core'
+import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, isIntegerWidgetValue, t as translate } from '@dinkster/core'
+import { storedNumberNote } from './widget-commit.js'
 import type { InputSpec, Json, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr, WidgetSpec } from '@dinkster/core'
 
 export interface TooltipContent {
   readonly title?: string
   readonly lines: readonly string[]
+  readonly note?: string
   readonly detail?: readonly string[]
   readonly shortcut?: string
   /** Refit whole readout items using the rendered width and available height. */
@@ -371,8 +373,11 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ...['min', 'max', 'step'].filter((key) => options[key] !== undefined).map((key) => `${key}: ${options[key]}`),
       ...(!saveTarget && input?.tooltip ? [input.tooltip] : []),
     ]
+    const note = t.keptNumberNote === undefined ? undefined
+      : isIntegerWidgetValue(value) ? storedNumberNote(row.spec, value) ?? t.keptNumberNote : t.keptNumberNote
     const measure = context.measureLine ?? (() => 1)
     const room = (context.tooltipLines ?? Infinity) - measure(row.name ?? row.label) -
+      (note === undefined ? 0 : measure(note)) -
       (opts.detailed ? detail.reduce((sum, line) => sum + measure(line), 0) : 0)
     const state = t.companion?.state ?? (t.companion?.stale ? 'stale' : t.companion ? 'expected' : undefined)
     const absence = state === 'nothing' ? 'Nothing: the node feeding this wire was skipped'
@@ -405,6 +410,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ? widgetValueLines(storedReadout, context, room - incoming.reduce((sum, line) => sum + measure(line), 0), storedPrefix) : []
     return {
       title: row.name ?? row.label,
+      ...(note === undefined ? {} : { note }),
       lines: [...incoming, ...stored, ...(!t.connected && saveTarget ? [
         ...(input?.tooltip ? [input.tooltip] : []),
         translate('saveTargetWidget.naming', { suffix: typeof options['suffix'] === 'string' ? options['suffix'] : '' }),

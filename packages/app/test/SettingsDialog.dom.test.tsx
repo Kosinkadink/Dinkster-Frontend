@@ -9,6 +9,7 @@ import '../src/locale.js'
 import { SettingsDialog } from '../src/SettingsDialog.js'
 import { LibraryStorageSettings } from '../src/LibraryStorageSettings.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY } from '../src/settings.js'
+import { registerAutomaticFixSettings } from '../src/automatic-fixes.js'
 
 const isolatedSettings = (): SettingsRegistry => new SettingsRegistry({ getItem: () => null, setItem: () => {} })
 
@@ -60,6 +61,46 @@ afterEach(() => {
 })
 
 describe('SettingsDialog search', () => {
+  it('persists personal fix choices independently and keeps the existing upgrade preference', async () => {
+    const data = new Map([[SETTINGS_STORAGE_KEY, JSON.stringify({ v: 1, values: { 'execution.reviewUpgrades': true } })]])
+    const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) } }
+    const settings = new SettingsRegistry(storage)
+    registerAutomaticFixSettings(settings)
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()}
+      keybindings={new KeybindingRegistry(settings)} request={{ category: 'automaticFixes', id: 'automaticFixes.numberOutsideLimits' }} />, root)
+    const row = (id: string) => root.querySelector<HTMLElement>(`[data-setting-id="${id}"]`)!
+    const choose = async (id: string, text: string, wire = false) => {
+      root.querySelector<HTMLButtonElement>(`[id="setting-${id}${wire ? '-wire' : ''}"]`)!.click()
+      await Promise.resolve()
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === text)!
+      expect(option).toBeDefined()
+      option.click()
+    }
+    const reset = (id: string) => [...row(id).querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Reset')
+    expect(row('execution.reviewUpgrades').textContent).toContain('Ask me')
+    expect(reset('execution.reviewUpgrades')).toBeDefined()
+    expect(reset('automaticFixes.numberOutsideLimits')).toBeUndefined()
+    await choose('automaticFixes.numberOutsideLimits', 'Ask me')
+    await choose('automaticFixes.subgraphRowRemoved', 'Remove the wire', true)
+    await choose('automaticFixes.subgraphRowRemoved', 'Ask me')
+    expect(reset('automaticFixes.numberOutsideLimits')).toBeDefined()
+    expect(reset('automaticFixes.listGrows')).toBeUndefined()
+    const restored = new SettingsRegistry(storage, 'another-project')
+    registerAutomaticFixSettings(restored)
+    expect(restored.get('automaticFixes.numberOutsideLimits')).toBe('ask')
+    expect(restored.get('automaticFixes.subgraphRowRemoved')).toBe('ask-remove-wire')
+    expect(restored.get('automaticFixes.listGrows')).toBe('apply')
+    expect(restored.get('execution.reviewUpgrades')).toBe(true)
+    searchFor(root, 'Number outside limits')
+    expect(root.querySelector('.dinkster-search-row')?.textContent).toContain('Automatic fixes - Values')
+    reset('automaticFixes.numberOutsideLimits')!.click()
+    expect(reset('automaticFixes.numberOutsideLimits')).toBeUndefined()
+    expect(settings.get('automaticFixes.subgraphRowRemoved')).toBe('ask-remove-wire')
+    unmount()
+  })
+
   it('keeps the fixed zoom saved but uneditable in Automatic, including search', () => {
     const settings = isolatedSettings()
     settings.register({ id: 'canvas.detailMode', name: 'Hide node details', type: 'combo', defaultValue: 'automatic', options: [{ value: 'automatic', label: 'Automatic' }, { value: 'fixed', label: 'Below a fixed zoom' }] })
