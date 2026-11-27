@@ -53,7 +53,7 @@ import type {
 } from '@dinkster/core'
 import type { FetchLike } from './connection-contract.js'
 import { credentialFetch, type CollabCredentials } from './credentials.js'
-import { requestFetch, requestFailure, requestFailureReason } from './request-failure.js'
+import { RequestFailure, requestFetch, requestFailure, requestFailureReason } from './request-failure.js'
 import {
   ReconnectingSocket,
   type CancelFn,
@@ -83,9 +83,9 @@ async function requiresUserSession(response: Response): Promise<boolean> {
   return body?.error === 'user-session-required'
 }
 
-async function authorizationBody(response: Response): Promise<{ error?: unknown; delegationId?: unknown } | null> {
+async function authorizationBody(response: Response): Promise<{ error?: unknown; message?: unknown; delegationId?: unknown } | null> {
   if (response.status !== 401 && response.status !== 403) return null
-  return await response.clone().json().catch(() => null) as { error?: unknown; delegationId?: unknown } | null
+  return await response.clone().json().catch(() => null) as { error?: unknown; message?: unknown; delegationId?: unknown } | null
 }
 
 function userSessionDiagnostic(context: Pick<CollabDenial, 'sessionId' | 'actorId' | 'operation'>): CollabDenial {
@@ -98,14 +98,16 @@ function userSessionDiagnostic(context: Pick<CollabDenial, 'sessionId' | 'actorI
 
 function authorizationDiagnostic(
   status: number,
-  body: { error?: unknown; delegationId?: unknown } | null,
+  body: { error?: unknown; message?: unknown; delegationId?: unknown } | null,
   context: Pick<CollabDenial, 'sessionId' | 'actorId' | 'operation'>,
 ): CollabDenial {
   const code = typeof body?.error === 'string' ? body.error : 'forbidden'
   const delegationId = typeof body?.delegationId === 'string' ? body.delegationId : undefined
   return {
     version: 1, type: 'collab.denial', code, status,
-    message: delegationId === undefined ? `HTTP ${status}: ${code}` : `Delegation ${delegationId}: ${code}`,
+    message: typeof body?.message === 'string' ? body.message : delegationId === undefined
+      ? requestFailureReason(new RequestFailure('', '', status)) ?? 'The request could not be completed.'
+      : `Delegation ${delegationId}: ${code}`,
     ...context,
     ...(delegationId !== undefined && { delegationId }),
   }
@@ -549,6 +551,9 @@ export class CollabHttpConnection implements CollabConnection {
         : []
       return { kind: 'protocol-unsupported', supported }
     }
+    const message = requestFailureReason(new RequestFailure('POST', this.op('/ops'), res.status,
+      typeof body?.message === 'string' ? body.message : typeof body?.error === 'string' ? body.error : undefined,
+    )) ?? 'The change could not be saved.'
     if (res.status === 401 || res.status === 403 || res.status === 429 || (res.status === 409 && body?.error === 'actor-principal-mismatch')) {
       const kind = res.status === 429 ? 'rate-limited' : res.status === 409 ? 'actor-principal-mismatch' : 'forbidden'
       const code = typeof body?.error === 'string' ? body.error : kind
@@ -556,14 +561,13 @@ export class CollabHttpConnection implements CollabConnection {
         kind,
         diagnostic: {
           version: 1, type: 'collab.denial', code, status: res.status,
-          message: `HTTP ${res.status}: ${code}`, sessionId: this.sessionId,
+          message, sessionId: this.sessionId,
           actorId: op.actorId, opId: op.opId,
           ...(typeof body?.retryAfterMs === 'number' ? { retryAfterMs: body.retryAfterMs } : {}),
         },
       }
     }
-    const detail = typeof body?.error === 'string' ? `: ${body.error}` : ''
-    return { kind: 'error', message: `HTTP ${res.status}${detail}` }
+    return { kind: 'error', message }
   }
 
   async fetchSnapshot(): Promise<{ readonly revision: number; readonly document: unknown }> {
