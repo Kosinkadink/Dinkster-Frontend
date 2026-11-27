@@ -1,6 +1,8 @@
 import { Show, createEffect, createSignal, on, onCleanup } from 'solid-js'
 import type { NodePreview } from '@dinkster/canvas'
 import { desktopSaveBridge } from './desktop-bridge.js'
+import { requestFetch, requestFailure } from '@dinkster/client'
+import { failureMessage } from './request-failure.js'
 
 export function PreviewDownload(props: {
   readonly download: NonNullable<NodePreview['download']>
@@ -31,8 +33,8 @@ export function PreviewDownload(props: {
     setBusy(true); setError('')
     try {
       const blob = download.load ? await download.load(controller.signal) : await (async () => {
-        const response = await fetch(download.src, { signal: controller.signal })
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const response = await requestFetch(fetch)(download.src, { signal: controller.signal })
+        if (!response.ok) throw await requestFailure(response)
         return response.blob()
       })()
       if (controller.signal.aborted) return
@@ -47,7 +49,7 @@ export function PreviewDownload(props: {
       document.body.append(link)
       link.click(); link.remove()
     } catch (cause) {
-      if (!controller.signal.aborted) setError(`Download failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+      if (!controller.signal.aborted) setError(failureMessage(cause, 'The download could not be completed.'))
     } finally {
       if (!controller.signal.aborted) setBusy(false)
     }

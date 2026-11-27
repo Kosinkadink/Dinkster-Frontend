@@ -17,7 +17,7 @@
  */
 import { createSignal, onCleanup, onMount, Show, type Accessor, type JSX } from 'solid-js'
 import { asConnectionId } from '@dinkster/core'
-import { DinksterConnection } from '@dinkster/client'
+import { DinksterConnection, RequestFailure, requestFetch, requestFailure, requestFailureReason } from '@dinkster/client'
 import { activeProjectId } from './projects.js'
 import {
   openPath,
@@ -77,14 +77,16 @@ const nameOf = (installation: ShellInstallation): string =>
   installation.name ?? installation.root.split(/[\\/]/).filter(Boolean).pop() ?? installation.root
 const sameInstallation = (a: ProjectInstallation | undefined, b: ProjectInstallation): boolean =>
   a?.root === b.root && a.engine === b.engine
-const detailOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+const detailOf = (error: unknown): string => requestFailureReason(error) ?? ''
+const fetchRequest = requestFetch((url, init) => fetch(url, init))
 /** Records that a project opened; a failure never touches the open. Survives leaving the page. */
 const recordOpened = (projectId: string): void => {
   void fetch(`/api/projects/${encodeURIComponent(projectId)}/opened`, { method: 'POST', keepalive: true }).catch(() => undefined)
 }
 
 async function postJson(path: string, body: unknown): Promise<HomeStatus & { message?: string; error?: string }> {
-  const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const response = await fetchRequest(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!response.ok) throw await requestFailure(response)
   return (await response.json()) as HomeStatus & { message?: string; error?: string }
 }
 
@@ -235,7 +237,7 @@ export function Shell(props: {
 
   const failedOpening = (opening: ProjectOpening, installation: ShellInstallation, error: unknown): ProjectOpening => {
     const detail = detailOf(error)
-    const unanswered = error instanceof TypeError
+    const unanswered = error instanceof RequestFailure && error.status === undefined
     return {
       ...opening, ...(detail ? { reason: detail } : {}), showLog: !unanswered,
       failed: unanswered ? message('shell.opening.notAnswering') : message('shell.opening.didNotStart', { installation: nameOf(installation) }),
@@ -245,7 +247,7 @@ export function Shell(props: {
   const openInstallationEngine = async (installation: ProjectInstallation): Promise<void> => {
     if (sameInstallation(openInstallation, installation)) return
     const answer = await postJson('/supervisor/engine', installation)
-    if (answer.error !== undefined) throw new Error(answer.message ?? answer.error)
+    if (answer.error !== undefined) throw new RequestFailure('POST', '/supervisor/engine', 200, answer.message ?? answer.error)
     openInstallation = installation
   }
 
@@ -265,8 +267,8 @@ export function Shell(props: {
       let status: HomeStatus | undefined
       while (run === attempt) {
         status = await readHomeStatus()
-        if (status === undefined) throw new TypeError('Dinkster did not answer')
-        if (status?.state === 'failed') throw new Error(status.detail ?? '')
+        if (status === undefined) throw new RequestFailure('GET', '/supervisor/status')
+        if (status?.state === 'failed') throw new RequestFailure('GET', '/supervisor/status', 200, status.detail)
         if (status?.state === 'ready' && status.installationFrontend !== undefined) {
           // Any answer will do; a page of another origin is opaque here.
           const answered = await fetch(status.installationFrontend + '/', { mode: 'no-cors', cache: 'no-store' }).then(() => true, () => false)

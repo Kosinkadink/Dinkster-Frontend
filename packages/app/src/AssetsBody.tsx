@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { failureMessage } from './request-failure.js'
 import type { DinksterConnection, MountDescriptor } from '@dinkster/client'
 import { formatByteSize, type CollectionSource, type MessageParams } from '@dinkster/core'
 import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js'
@@ -28,7 +29,7 @@ interface MountPresentation {
   readonly sectionKey: SourceSectionKey
 }
 
-const errorText = (reason: unknown): string => reason instanceof Error ? reason.message : String(reason)
+const errorText = (reason: unknown): string => failureMessage(reason, 'Files could not be loaded.')
 const MOUNT_SCAN_POLL_MS = 1000
 
 const mountDetail = (mount: MountDescriptor, message: AssetMessage): string => {

@@ -21,6 +21,7 @@ import { ProductEmptyState } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 import { RemoteTemplateCatalog } from './template-catalog.js'
 import { workflowModelOccurrences } from './workflow-asset-locations.js'
+import { failureMessage } from './request-failure.js'
 
 const makes = ['image', 'video', 'audio', '3d', 'tool'] as const
 
@@ -41,7 +42,7 @@ export function TemplatesPage(props: {
   const [entries, setEntries] = createSignal<readonly CollectionEntry[]>([])
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal('')
-  const [loadFailed, setLoadFailed] = createSignal(false)
+  const [loadFailed, setLoadFailed] = createSignal('')
   const [refresh, setRefresh] = createSignal(0)
   const [group, setGroup] = createSignal('all')
   const [search, setSearch] = createSignal('')
@@ -109,7 +110,7 @@ export function TemplatesPage(props: {
       await transfers.refresh()
       if (live && backend() === owner && (results.some((result) => result.status === 'rejected') ||
         targets.some((row) => props.app.modelDownloadStateFor(owner, row.requirement, project).get()?.error !== undefined))) {
-        setLoadFailed(false)
+        setLoadFailed('')
         setError(message('templatesPage.stopError'))
       }
     } finally {
@@ -130,7 +131,7 @@ export function TemplatesPage(props: {
     setLoading(true)
     setNoFolders(undefined)
     setError('')
-    setLoadFailed(false)
+    setLoadFailed('')
     if (!owner?.templatesEnabled.get()) {
       setLoading(false)
       return
@@ -141,15 +142,15 @@ export function TemplatesPage(props: {
       if (!live) return
       setEntries(page.items)
       setLoading(false)
-    }).catch(() => {
+    }).catch((reason: unknown) => {
       if (!live) return
-      setLoadFailed(true)
+      setLoadFailed(failureMessage(reason, message('templatesPage.loadFailed')))
       setLoading(false)
     })
     void owner.connection.fetchModelSettings().then((settings) => {
       if (live) setNoFolders(settings.locations.length === 0)
-    }).catch(() => {
-      if (live) setLoadFailed(true)
+    }).catch((reason: unknown) => {
+      if (live) setLoadFailed(failureMessage(reason, message('templatesPage.loadFailed')))
     })
   })
 
@@ -297,7 +298,7 @@ export function TemplatesPage(props: {
     reviewCurrent = current
     setOpening(true)
     setError('')
-    setLoadFailed(false)
+    setLoadFailed('')
     try {
       const requirements = await modelRequirements(entry, owner)
       if (!current()) return
@@ -322,7 +323,7 @@ export function TemplatesPage(props: {
     if (opening() || !entry || !owner || entry.owner !== owner.id || !available()) return
     setOpening(true)
     setError('')
-    setLoadFailed(false)
+    setLoadFailed('')
     try {
       const opened = await props.onOpen(entry)
       if (live && !opened) setError(message('templateGallery.openError', { name: entry.title }))
@@ -352,7 +353,7 @@ export function TemplatesPage(props: {
       }}
       leave={<ProductButton disabled={opening()} onClick={props.onBlank}>{message('templatesPage.blank')}</ProductButton>}
       templates={loadFailed() ? [] : loading() ? undefined : shown().map(tile)}
-      error={loadFailed() ? <ProductEmptyState tone="error" title={message('templatesPage.loadFailed')} action={
+      error={loadFailed() ? <ProductEmptyState tone="error" title={loadFailed()} action={
         <ProductButton onClick={() => setRefresh((value) => value + 1)}>{message('templateGallery.retry')}</ProductButton>
       } /> : undefined}
       selected={current()?.id}

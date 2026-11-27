@@ -15,8 +15,9 @@ export async function requestWithDeadline<T>(read: (signal: AbortSignal) => Prom
       }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          reject(new Error(timeoutMessage))
-          controller.abort()
+          const error = new DOMException(timeoutMessage, 'TimeoutError')
+          reject(error)
+          controller.abort(error)
         }, 30_000)
       }),
     ])

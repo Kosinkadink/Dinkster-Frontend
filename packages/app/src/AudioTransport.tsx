@@ -5,6 +5,7 @@ import { ProductAudioWaveform, ProductIcon, ProductIconButton } from '@dinkster/
 import { ProductSlider } from './ProductSlider.js'
 import { audioNumber } from './audio-preview.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 
 /** Shared Canvas/App transport. Its gain, loop and playhead are never graph values. */
 export function AudioTransport(props: {
@@ -66,7 +67,7 @@ export function AudioTransport(props: {
       resume = false
       setSrc(undefined)
       setBusy(false)
-      setFailure('audioPreview.loadFailed')
+      setFailure(failureMessage(new DOMException('Audio request timed out', 'TimeoutError'), message('audioPreview.loadFailed')))
     }, 10_000)
     request.signal.addEventListener('abort', () => clearTimeout(deadline), { once: true })
     try {
@@ -77,9 +78,9 @@ export function AudioTransport(props: {
       span = result.duration
       setSrc(result.window ? blobUrl(result.window, 'audio/wav') : undefined)
       setWaveform(result.waveform ? blobUrl(result.waveform, 'image/png') : undefined)
-      if (!result.window) setFailure('audioPreview.unavailable')
-    } catch {
-      if (!request.signal.aborted) { setSrc(undefined); setFailure('audioPreview.loadFailed') }
+      if (!result.window) setFailure(result.diagnostics.join('; ') || message('audioPreview.unavailable'))
+    } catch (error) {
+      if (!request.signal.aborted) { setSrc(undefined); setFailure(failureMessage(error, message('audioPreview.loadFailed'))) }
     } finally {
       clearTimeout(deadline)
       if (!request.signal.aborted) setBusy(false)
@@ -124,14 +125,14 @@ export function AudioTransport(props: {
           setBusy(false)
         })
       }
-      void consume().catch(() => {
-        if (current) { setFailure('audioPreview.loadFailed'); setBusy(false) }
+      void consume().catch((error: unknown) => {
+        if (current) { setFailure(failureMessage(error, message('audioPreview.loadFailed'))); setBusy(false) }
       })
     }
   }))
   const play = async () => {
     try { await element?.play() }
-    catch { setFailure('audioPreview.cannotPlay') }
+    catch { setFailure(message('audioPreview.cannotPlay')) }
   }
   const ended = () => {
     setPlaying(false); active()
@@ -149,13 +150,13 @@ export function AudioTransport(props: {
     onFocusIn={() => { focused = true; active() }}
     onFocusOut={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { focused = false; active() } }}>
     <div class="audio-waveform">
-      <Show when={!failure()} fallback={<div class="audio-preview-failure" role="status">{message(failure())}</div>}>
+      <Show when={!failure()} fallback={<div class="audio-preview-failure" role="status">{failure()}</div>}>
         <ProductAudioWaveform image={waveform()} value={time()} duration={duration()} ariaLabel={message('audioPreview.waveform')}
           showTime={false} interactive={false} onImageError={() => setWaveform(undefined)} onSeek={seek} />
       </Show>
     </div>
     <audio ref={element} src={src()} preload="metadata" onError={() => {
-      if (src()) setFailure('audioPreview.cannotPlay')
+      if (src()) setFailure(message('audioPreview.cannotPlay'))
     }}
       onLoadedMetadata={() => { setNativeDuration(Number.isFinite(element?.duration) ? element!.duration : 0); if (element) element.volume = gain(); if (resume) { resume = false; void play() } }}
       onTimeUpdate={() => { if (!busy()) setTime(start + (element?.currentTime ?? 0)) }}
