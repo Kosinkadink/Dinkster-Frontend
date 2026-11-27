@@ -84,6 +84,8 @@ export interface BoardCardItem {
   /** Card-owned overrides keyed by exposedKey, not values written into the source. */
   readonly values: JsonObject
   readonly controllers?: Readonly<Record<string, ControllerMode>>
+  /** Only new, never manually resized cards may refit when their controls change. */
+  readonly autoSize?: boolean
 }
 
 export type BoardItem = (BoardMediaItem | BoardNoteItem | BoardSectionItem | BoardCardItem) & {
@@ -229,7 +231,7 @@ export function readBoardItem(id: string, value: Json | undefined): BoardItem | 
   if (sectionId !== undefined && (typeof sectionId !== 'string' || !ITEM_ID.test(sectionId))) return fail('item.section', `${where}: sectionId must be an item id`)
   const membership = sectionId === undefined ? {} : { sectionId: sectionId as string }
   const kind = value['kind']
-  const content = kind === 'workflow' || kind === 'blueprint' ? ['name', 'source', 'values', 'controllers'] : [kind === 'note' ? 'text' : kind === 'section' ? 'name' : 'asset']
+  const content = kind === 'workflow' || kind === 'blueprint' ? ['name', 'source', 'values', 'controllers', 'autoSize'] : [kind === 'note' ? 'text' : kind === 'section' ? 'name' : 'asset']
   if (Object.keys(value).some((key) => !['id', 'kind', 'rect', 'sectionId', ...content].includes(key))) return fail('item.invalid', `${where}: item contains unsupported fields`)
   const rect = readRect(value['rect'], where)
   if ('severity' in rect) return rect
@@ -240,12 +242,15 @@ export function readBoardItem(id: string, value: Json | undefined): BoardItem | 
     if ('severity' in source) return source
     const values = value['values']
     if (!isObject(values)) return fail('item.invalid', `${where}: card values must be an object`)
+    const autoSize = value['autoSize']
+    if (autoSize !== undefined && typeof autoSize !== 'boolean') return fail('item.invalid', `${where}: card autoSize must be a boolean`)
     const controllers = value['controllers']
     if (controllers !== undefined && (!isObject(controllers) || Object.values(controllers).some((mode) =>
       typeof mode !== 'string' || !['fixed', 'increment', 'decrement', 'randomize'].includes(mode)))) {
       return fail('item.invalid', `${where}: card controller modes are invalid`)
     }
     return { id, kind, rect, name, source, values, ...membership,
+      ...(autoSize === undefined ? {} : { autoSize }),
       ...(controllers === undefined ? {} : { controllers: controllers as Readonly<Record<string, ControllerMode>> }) }
   }
   if (typeof kind === 'string' && isBoardMediaKind(kind)) {

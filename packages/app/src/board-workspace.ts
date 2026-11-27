@@ -283,7 +283,7 @@ export class BoardWorkspace {
     }
     const result = entry.session.dispatch({ command: 'board.item.add', params: { items: [{
       kind: selection.kind, name: (loaded.name ?? selection.name).slice(0, BOARD_MAX_NAME),
-      source: selection.source, values: {}, rect: { x, y, width: 340, height: 188 },
+      source: selection.source, values: {}, autoSize: true, rect: { x, y, width: 340, height: 188 },
     }] } })
     if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
     return result.created[0]!

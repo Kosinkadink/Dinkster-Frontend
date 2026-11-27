@@ -224,6 +224,10 @@ export function BoardCard(props: {
     error={error() ?? projection().error ?? latest()?.errors[0]?.message}
     onRun={() => void run()} onStop={() => void props.app.stopBoardCard(props.entry, props.card.id)}
     onOpenLastRun={latest() ? () => void props.app.openExecutionView(latest()!.ref) : undefined}
+    onContentHeight={(height) => {
+      if (source() && !projection().error && props.card.autoSize === true)
+        props.entry.session.dispatch({ command: 'board.card.fit', params: { id: props.card.id, height } })
+    }}
     onOpen={props.onOpen} onChooseInputs={props.onChooseInputs} onRemove={props.onRemove}>
     <For each={[...rows().keys()]}>{(key) => {
       const row = () => rows().get(key)!

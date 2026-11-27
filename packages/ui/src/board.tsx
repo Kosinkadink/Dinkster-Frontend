@@ -6,6 +6,7 @@ import {
   createSignal,
   createUniqueId,
   onCleanup,
+  onMount,
   type Accessor,
   type JSX,
 } from 'solid-js'
@@ -70,10 +71,43 @@ export function ProductBoardCard(props: {
   readonly onOpen?: (() => void) | undefined
   readonly onChooseInputs?: (() => void) | undefined
   readonly onOpenLastRun?: (() => void) | undefined
+  readonly onContentHeight?: ((height: number) => void) | undefined
   readonly onRemove: () => void
 }) {
+  let card!: HTMLDivElement
+  let fields!: HTMLDivElement
+  onMount(() => {
+    if (!props.onContentHeight) return
+    let frame = 0
+    const measure = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const inputs = fields.parentElement!
+        if (card.offsetWidth === 0) return
+        const style = getComputedStyle(card)
+        const children = [...card.children] as HTMLElement[]
+        const height = children.reduce(
+          (total, child) => total + (child === inputs ? fields.offsetHeight : child.offsetHeight),
+          0,
+        ) + parseFloat(style.rowGap) * (children.length - 1)
+          + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+          + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
+        props.onContentHeight?.(height)
+      })
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(fields)
+    observer.observe(card.querySelector('header')!)
+    observer.observe(card.querySelector('footer')!)
+    measure()
+    onCleanup(() => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+    })
+  })
   return (
     <div
+      ref={card}
       class="dinkster-board-card"
       onDblClick={(event) => {
         if (
@@ -138,7 +172,11 @@ export function ProductBoardCard(props: {
           ]}
         />
       </header>
-      <div class="dinkster-board-card-inputs">{props.children}</div>
+      <div class="dinkster-board-card-inputs">
+        <div ref={fields} class="dinkster-board-card-fields">
+          {props.children}
+        </div>
+      </div>
       <Show when={props.error}>
         {(error) => (
           <p class="dinkster-board-card-error" role="alert">
@@ -811,7 +849,7 @@ export function ProductBoard(props: ProductBoardProps) {
         props.onDropMedia?.(event, point(event.clientX, event.clientY))
       }}
       onWheel={(event) => {
-        if ((event.target as Element).closest('textarea, input')) return
+        if ((event.target as Element).closest('textarea, input, .dinkster-board-card-inputs')) return
         event.preventDefault()
         const bounds = surface.getBoundingClientRect()
         setCamera(

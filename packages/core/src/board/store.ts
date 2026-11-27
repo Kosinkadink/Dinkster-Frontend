@@ -37,6 +37,7 @@ export type BoardCommandInvocation =
     } }
   | { readonly command: 'board.item.move'; readonly params: { readonly moves: readonly { readonly id: string; readonly x: number; readonly y: number }[] } }
   | { readonly command: 'board.item.resize'; readonly params: { readonly id: string; readonly rect: BoardRect } }
+  | { readonly command: 'board.card.fit'; readonly params: { readonly id: string; readonly height: number } }
   | { readonly command: 'board.item.remove'; readonly params: { readonly ids: readonly string[] } }
   | { readonly command: 'board.note.edit'; readonly params: { readonly id: string; readonly text: string } }
   | { readonly command: 'board.section.rename'; readonly params: { readonly id: string; readonly name: string } }
@@ -177,11 +178,28 @@ export function planBoardCommand(
       }
       return { ok: true, forward: ops, created: [] }
     }
+    case 'board.card.fit': {
+      const item = board.items[invocation.params.id]
+      if (item === undefined) return missing(invocation.params.id)
+      if ((item.kind !== 'workflow' && item.kind !== 'blueprint') || item.autoSize !== true)
+        return refuse('fit.manual', 'only automatically sized cards can refit')
+      const height = Math.min(480, Math.ceil(invocation.params.height))
+      if (height === item.rect.height) return refuse('edit.none', 'the card already fits its controls')
+      const rect = { ...item.rect, height }
+      if (Object.values(board.items).some((other) => other.id !== item.id && other.kind !== 'section' &&
+        rect.x < other.rect.x + other.rect.width && rect.x + rect.width > other.rect.x &&
+        rect.y < other.rect.y + other.rect.height && rect.y + rect.height > other.rect.y))
+        return refuse('fit.occupied', 'the fitted card would overlap another Board item')
+      return { ok: true, created: [], forward: [{ op: 'replace', path: ['items', item.id, 'rect'], value: owned(rect), oldValue: item.rect as unknown as Json }] }
+    }
     case 'board.item.resize': {
       const item = board.items[invocation.params.id]
       if (item === undefined) return missing(invocation.params.id)
       const rect = owned(invocation.params.rect)
-      return { ok: true, created: [], forward: [{ op: 'replace', path: ['items', item.id, 'rect'], value: rect, oldValue: item.rect as unknown as Json }] }
+      const forward: PatchOp[] = [{ op: 'replace', path: ['items', item.id, 'rect'], value: rect, oldValue: item.rect as unknown as Json }]
+      if ((item.kind === 'workflow' || item.kind === 'blueprint') && item.autoSize === true)
+        forward.push({ op: 'replace', path: ['items', item.id, 'autoSize'], value: false, oldValue: true })
+      return { ok: true, created: [], forward }
     }
     case 'board.item.remove': {
       const ids = new Set(invocation.params.ids)

@@ -12,6 +12,34 @@ const everyKind: readonly BoardItemInput[] = [
 ]
 
 describe('board document', () => {
+  it('refits untouched cards without overlap and retains a manual resize across save and undo', () => {
+    const store = new BoardStore(emptyBoard())
+    expect(store.dispatch({ command: 'board.item.add', params: { items: [
+      { id: 'card', kind: 'workflow', name: 'Rain', source: { kind: 'library', recordId: 'rain' },
+        values: {}, autoSize: true, rect: { x: 40, y: 60, width: 340, height: 100 } },
+      { id: 'note', kind: 'note', text: 'Keep here', rect: { x: 50, y: 320, width: 200, height: 80 } },
+    ] } }).ok).toBe(true)
+    expect(store.dispatch({ command: 'board.card.fit', params: { id: 'card', height: 260 } }).ok).toBe(true)
+    const touching = store.doc
+    expect(store.doc.items['card']!.rect).toEqual({ x: 40, y: 60, width: 340, height: 260 })
+    expect(store.dispatch({ command: 'board.card.fit', params: { id: 'card', height: 261 } }).ok).toBe(false)
+    expect(store.doc).toEqual(touching)
+    expect(store.dispatch({ command: 'board.item.move', params: { moves: [{ id: 'note', x: 600, y: 320 }] } }).ok).toBe(true)
+    expect(store.dispatch({ command: 'board.card.fit', params: { id: 'card', height: 800 } }).ok).toBe(true)
+    expect(store.doc.items['card']!.rect).toEqual({ x: 40, y: 60, width: 340, height: 480 })
+    const fitted = store.doc
+    const manual = { x: 40, y: 60, width: 380, height: 210 }
+    expect(store.dispatch({ command: 'board.item.resize', params: { id: 'card', rect: manual } }).ok).toBe(true)
+    const reopened = new BoardStore(JSON.parse(JSON.stringify(store.doc)))
+    expect(reopened.dispatch({ command: 'board.card.fit', params: { id: 'card', height: 300 } }).ok).toBe(false)
+    expect(reopened.doc.items['card']!.rect).toEqual(manual)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(fitted)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(reopened.doc)
+    expect(store.doc.items['note']).toEqual(fitted.items['note'])
+  })
+
   it('keeps each card input independent through editing, save, reopen and undo', () => {
     const input = { graphId: 'graph/one', nodeId: 'node', inputId: 'value' }
     const otherInput = { graphId: 'graph', nodeId: 'one/node', inputId: 'value' }
