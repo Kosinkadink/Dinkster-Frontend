@@ -11,7 +11,7 @@ import { AppState } from '../src/app-state.js'
 const disposers: (() => void)[] = []
 afterEach(() => { for (const dispose of disposers.splice(0)) dispose(); document.body.replaceChildren(); vi.restoreAllMocks() })
 
-it('keeps failed folders visible with their actual reasons and retries only the selected grant', async () => {
+it('keeps plain folder failures visible, records their detail and retries only the selected grant', async () => {
   let mounts = [
     { id: 'archive', path: '/offline/archive', mode: 'read' as const, state: 'failed', error: 'asset library root is not a directory: /offline/archive' },
     { id: 'restricted', path: '/restricted', mode: 'read' as const, state: 'failed', error: 'Permission denied: /restricted' },
@@ -26,19 +26,27 @@ it('keeps failed folders visible with their actual reasons and retries only the 
     retryMount: async (id: string) => { mounts = mounts.map((row) => row.id === id ? { ...row, state: 'ready', error: '' } : row) },
   } as unknown as DinksterConnection
   const root = document.createElement('div'); document.body.append(root)
-  disposers.push(render(() => <StorageFolders connection={connection} backendUrl="" onOpenAssets={() => {}} />, root))
-  await vi.waitFor(() => expect(root.textContent).toContain('asset library root is not a directory: /offline/archive'))
-  expect(root.querySelector('[data-mount-id="restricted"]')?.textContent).toContain('Permission denied: /restricted')
-  expect(root.querySelector('[data-model-location="models"]')?.textContent).toContain('model root unavailable')
+  const app = new AppState()
+  const backend = app.backends.get()[0]!
+  if (backend.protocol !== 'dinkster') throw new Error('Native backend missing')
+  Object.assign(backend.connection, connection)
+  const unmount = render(() => <StoragePanel app={app} focusBackend={undefined} activeBackend={() => backend} onOpenAssets={() => {}} />, root)
+  disposers.push(() => { unmount(); app.dispose(); localStorage.clear() })
+  await vi.waitFor(() => expect(root.textContent).toContain('This is not a folder.'))
+  expect(root.querySelector('[data-mount-id="restricted"]')?.textContent).toContain('Dinkster is not allowed to read this folder.')
+  expect(root.querySelector('[data-model-location="models"]')?.textContent).toContain('This folder cannot be reached.')
+  expect(app.logs.get().filter((entry) => entry.source === 'Storage').map((entry) => entry.message)).toEqual(mounts.map((mount) => mount.error))
+  expect(root.textContent).not.toContain('Permission denied:')
+  expect(root.textContent).not.toContain('model root unavailable')
   const retry = (row: Element) => [...row.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Try again')!.click()
   retry(root.querySelector('[data-mount-id="archive"]')!)
-  await vi.waitFor(() => expect(root.textContent).not.toContain('asset library root is not a directory'))
+  await vi.waitFor(() => expect(root.textContent).not.toContain('This is not a folder.'))
   expect(root.querySelector('[data-mount-id="archive"]')).not.toBeNull()
-  expect(root.textContent).toContain('Permission denied: /restricted')
-  expect(root.textContent).toContain('model root unavailable')
+  expect(root.textContent).toContain('Dinkster is not allowed to read this folder.')
+  expect(root.textContent).toContain('This folder cannot be reached.')
   retry(root.querySelector('[data-model-location="models"]')!)
-  await vi.waitFor(() => expect(root.textContent).not.toContain('model root unavailable'))
-  expect(root.textContent).toContain('Permission denied: /restricted')
+  await vi.waitFor(() => expect(root.textContent).not.toContain('This folder cannot be reached.'))
+  expect(root.textContent).toContain('Dinkster is not allowed to read this folder.')
 })
 
 it.each([true, false])('adds a model folder with download destination enabled: %s', async (download) => {
@@ -75,7 +83,7 @@ it.each([true, false])('adds a model folder with download destination enabled: %
   expect(toggle.getAttribute('aria-checked')).toBe('false')
   if (download) toggle.click()
   root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-  await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('Folder is unavailable'))
+  await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('This folder cannot be reached.'))
   expect(folder.value).toBe('/archive/models')
   expect(usedBy.textContent).toContain('Opt in - projects must enable')
   expect(toggle.getAttribute('aria-checked')).toBe(String(download))
@@ -109,15 +117,14 @@ it.each([true, false])('keeps a refused mount form and adds with saving allowed:
   const field = (label: string) => root.querySelector<HTMLInputElement>(`#${[...root.querySelectorAll('label')].find((row) => row.textContent === label)!.htmlFor}`)!
   const folder = field('Folder'); folder.value = '/archive/plates'; folder.dispatchEvent(new Event('input', { bubbles: true }))
   const name = field('Name'); name.value = 'footage'; name.dispatchEvent(new Event('input', { bubbles: true }))
-  const saving = root.querySelector<HTMLInputElement>('input[type="checkbox"]')!
-  expect(saving.checked).toBe(true)
-  expect(saving.closest('label')?.textContent).toBe('Allow saving to this folder')
+  const saving = root.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Allow saving to this folder"]')!
+  expect(saving.getAttribute('aria-checked')).toBe('true')
   if (!writable) saving.click()
   root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-  await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('Folder cannot be written to'))
+  await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('This folder cannot be reached.'))
   expect(folder.value).toBe('/archive/plates')
   expect(name.value).toBe('footage')
-  expect(saving.checked).toBe(writable)
+  expect(saving.getAttribute('aria-checked')).toBe(String(writable))
   refused = false
   root.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   await vi.waitFor(() => expect(root.querySelector('[data-mount-id="footage"]')).not.toBeNull())
@@ -173,7 +180,7 @@ it('repeats a backend jump after a manual folder-server choice without retargeti
   const picker = root.querySelector<HTMLButtonElement>('[role="combobox"]')!
   for (let repeat = 0; repeat < 2; repeat++) {
     picker.click()
-    document.querySelector<HTMLElement>(`[role="option"][data-option-id="${remote.id}"]`)!.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Studio')!.click()
     expect(picker.textContent).toContain('Studio')
     setFocus({ id: local.id })
     await vi.waitFor(() => expect(picker.textContent).toContain('Local'))
@@ -242,7 +249,7 @@ it('groups model grants under one folder and switches project membership without
   const use = [...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Use in this project')!
   use.click()
   await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"] button:not([aria-haspopup])')).not.toBeNull())
-  expect(root.textContent).toContain('3 folders used by this project')
+  expect(root.textContent).not.toContain('folders used by this project')
   root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] button:not([aria-haspopup])')!.click()
   expect(assetsOpened).toEqual(['renders', 'plates'])
   root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] [aria-haspopup="menu"]')!.click()
@@ -250,14 +257,12 @@ it('groups model grants under one folder and switches project membership without
   expect(root.textContent).toContain('No files are deleted')
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
   expect(root.querySelector('[data-model-location="models"]')?.textContent).toContain('Checkpoints3')
-  ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using this folder')!.click()
-  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"]')?.textContent).toContain('Folder changes are temporarily unavailable.'))
-  expect(root.querySelector('[data-mount-id="plates"]')?.textContent).toContain('"plates" is still used by this project.')
-  expect(root.textContent).toContain('3 folders used by this project')
+  ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using')!.click()
+  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"]')?.textContent).toContain('Could not stop using "plates". The engine reported an error.'))
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
   refuseRemoval = false
-  ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using this folder')!.click()
-  await vi.waitFor(() => expect(root.textContent).toContain('2 folders used by this project'))
+  ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using')!.click()
+  await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"] button:not([aria-haspopup])')).toBeNull())
   expect(root.querySelector('[data-mount-id="plates"] button:not([aria-haspopup])')).toBeNull()
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
 })
@@ -360,7 +365,7 @@ it('keeps a pending folder removal visible when edit controls are activated', as
   await vi.waitFor(() => expect(root.querySelector('[data-mount-id="plates"]')).not.toBeNull())
   root.querySelector<HTMLButtonElement>('[data-mount-id="plates"] [aria-haspopup="menu"]')!.click()
   ;[...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === 'Stop using')!.click()
-  ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using this folder')!.click()
+  ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Stop using')!.click()
   try {
     for (const control of [...root.querySelectorAll<HTMLButtonElement>('button')].filter((button) => button.textContent === 'Default save folder' || button.textContent === 'Add').reverse()) {
       control.click()

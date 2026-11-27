@@ -1,13 +1,13 @@
 import { createEffect, createMemo, createSignal, on, onCleanup, Show } from 'solid-js'
 import type { MountDescriptor, MountGrantOptions } from '@dinkster/client'
-import { ProductButton as SharedButton, ProductCheckbox as SharedCheckbox, ProductField as SharedField, ProductTextButton, ProductTextInput as SharedInput } from '@dinkster/ui'
+import { ProductButton as SharedButton, ProductSwitch, ProductField as SharedField, ProductTextButton, ProductTextInput as SharedInput } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { ProductButton, ProductCheckbox, ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductField } from './ProductForm.js'
 import { activeProjectId } from './projects.js'
-import { failureMessage } from './request-failure.js'
+import { failureMessage, folderFailureMessage } from './request-failure.js'
 
 export interface MountFolderConnection {
   addMount(id: string, path: string, mode: 'read' | 'readwrite', options?: MountGrantOptions): Promise<MountDescriptor>
@@ -26,6 +26,7 @@ export function MountFolderForm(props: {
   readonly onGranted?: () => void
   readonly variant?: 'storage'
   readonly onCancel?: () => void
+  readonly onFailure?: ((detail: string) => void) | undefined
 }) {
   const message = useAppMessage()
   const connection = createMemo(() => props.connection)
@@ -94,7 +95,8 @@ export function MountFolderForm(props: {
       setStatus({ key: 'desktopManagement.folders.granted' })
       props.onGranted?.()
     } catch (error) {
-      if (request === generation) setStatus({ raw: failureMessage(error, message('request.folderGrantFailed')) })
+      if (request === generation) setStatus({ raw: props.variant === 'storage'
+        ? folderFailureMessage(error, props.onFailure) : failureMessage(error, message('request.folderGrantFailed')) })
     } finally {
       if (request === generation) setBusy(false)
     }
@@ -155,11 +157,11 @@ export function MountFolderForm(props: {
         <SharedField label={message('storagePanel.mountName')}>
           {(attributes) => <SharedInput {...attributes} value={mountId()} disabled={busy()} required onInput={(event) => setMountId(event.currentTarget.value)} />}
         </SharedField>
-        <SharedCheckbox label={message('storagePanel.allowSaving')} checked={mode() === 'readwrite'} disabled={busy()}
-          onChange={(event) => setMode(event.currentTarget.checked ? 'readwrite' : 'read')} />
-        <div class="dinkster-actions">
+        <div class="dinkster-actions"><ProductSwitch label={message('storagePanel.allowSaving')} checked={mode() === 'readwrite'} disabled={busy()}
+          onChange={(checked) => setMode(checked ? 'readwrite' : 'read')} /><span>{message('storagePanel.allowSaving')}</span></div>
+        <div class="dinkster-dialog-actions">
+          <Show when={props.onCancel}><SharedButton disabled={busy()} onClick={() => props.onCancel?.()}>{message('projectFolders.cancel')}</SharedButton></Show>
           <SharedButton type="submit" intent="add" fill="solid" pending={busy()} disabled={!mountId().trim() || !mountPath().trim()}>{message('storagePanel.addMount')}</SharedButton>
-          <Show when={props.onCancel}><ProductTextButton label={message('projectFolders.cancel')} disabled={busy()} onClick={() => props.onCancel?.()} /></Show>
         </div>
       </form>
     </Show>

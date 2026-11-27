@@ -1,6 +1,6 @@
 import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
 
-test('Storage keeps unavailable folders and shows the engine reason until retry succeeds', async ({ page }, testInfo) => {
+test('Storage keeps plain folder problems and logs the detail until retry succeeds', async ({ page }, testInfo) => {
   await page.goto('/')
   await waitForWorkspaceReady(page)
   await page.evaluate(() => {
@@ -22,20 +22,23 @@ test('Storage keeps unavailable folders and shows the engine reason until retry 
   const archive = panel.locator('[data-mount-id="archive"]')
   const restricted = panel.locator('[data-mount-id="restricted"]')
   const model = panel.locator('[data-model-location="models"]')
-  await expect(model).toContainText('model root unavailable')
-  await expect(archive).toContainText('asset library root is not a directory: /offline/archive')
-  await expect(restricted).toContainText('Permission denied: /restricted')
+  await expect(model).toContainText('This folder cannot be reached.')
+  await expect(archive).toContainText('This is not a folder.')
+  await expect(restricted).toContainText('Dinkster is not allowed to read this folder.')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.logs.get().filter((entry) => entry.source === 'Storage').map((entry) => entry.message))).toEqual([
+    'asset library root is not a directory: /offline/archive', 'Permission denied: /restricted', 'model root unavailable',
+  ])
   await panel.screenshot({ path: testInfo.outputPath('storage-unavailable-dark.png') })
   await archive.getByRole('button', { name: 'Try again', exact: true }).click()
-  await expect(archive).not.toContainText('not a directory')
+  await expect(archive).not.toContainText('This is not a folder.')
   await expect(archive.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
-  await expect(restricted).toContainText('Permission denied: /restricted')
-  await expect(model).toContainText('model root unavailable')
+  await expect(restricted).toContainText('Dinkster is not allowed to read this folder.')
+  await expect(model).toContainText('This folder cannot be reached.')
   await panel.screenshot({ path: testInfo.outputPath('storage-retried-dark.png') })
   await model.getByRole('button', { name: 'Try again', exact: true }).click()
-  await expect(model).not.toContainText('model root unavailable')
+  await expect(model).not.toContainText('This folder cannot be reached.')
   await expect(model).toBeVisible()
-  await expect(restricted).toContainText('Permission denied: /restricted')
+  await expect(restricted).toContainText('Dinkster is not allowed to read this folder.')
   await panel.screenshot({ path: testInfo.outputPath('storage-model-retried-dark.png') })
 })
 
@@ -54,11 +57,12 @@ test('Storage shows engine file and byte reading progress on model folders and m
         { kind: 'upscaler', entryCount: 3 }, { kind: 'future', entryCount: 1 },
       ].map(({ kind, entryCount }) => ({ id: `models-${kind}`, path: `/home/kosin/ComfyUI/models/${kind}`, mode: 'read' as const, state: 'ready', source: 'shared-models', kind: `model/${kind}`, entryCount })),
       { id: 'input', path: '/home/kosin/Dinkster/Portraits/input', mode: 'readwrite' as const, state: 'scanning', scanProgress: { filesDone: 7, filesTotal: 10, bytesDone: 8 * 1024 ** 2, bytesTotal: 32 * 1024 ** 2, elapsedSeconds: 2 } },
+      { id: 'renders', path: '/home/kosin/Dinkster/Portraits/renders', mode: 'readwrite' as const, state: 'ready', entryCount: 24 },
     ]
     const location = { id: 'ComfyUI', path: '/home/kosin/ComfyUI/models', mode: 'read' as const, visibility: 'default-on' as const }
     const unused = { id: 'shared', path: '/network/projects/shared-models', mode: 'read' as const, visibility: 'opt-in' as const }
-    backend.connection.fetchMountSettings = async () => ({ mounts, mountChangesAllowed: true })
-    backend.connection.fetchMountLocations = async () => ({ mounts: [...mounts, { id: 'archive', path: '/network/retained-project-footage/archive', mode: 'read', state: 'ready', entryCount: 37 }], importMount: 'input' })
+    backend.connection.fetchMountSettings = async () => ({ mounts, outputMount: 'renders', mountChangesAllowed: true })
+    backend.connection.fetchMountLocations = async () => ({ mounts: [...mounts, { id: 'archive', path: '/home/kosin/comfy-vibe-station/lanes/retained-projects/source-footage/from-last-month/archive', mode: 'read', state: 'ready', entryCount: 37 }], importMount: 'input' })
     backend.connection.fetchModelSettings = async () => ({ settings: { version: 1, locations: [location, unused], downloadLocation: null },
       locations: [{ ...location, enabled: true, active: true, mounts: mounts.filter((row) => row.source === 'shared-models').map((row) => row.id) }, { ...unused, enabled: false, active: true, mounts: [] }], revision: 'reading-fixture', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
   })
@@ -112,11 +116,34 @@ test('Storage shows engine file and byte reading progress on model folders and m
   await page.setViewportSize({ width: 1280, height: 900 })
   await toggle.click()
   await expect(model.getByRole('progressbar')).toBeVisible()
+  const renders = panel.locator('[data-mount-id="renders"]')
+  await renders.getByRole('button', { name: 'Actions for renders' }).click()
+  await page.screenshot({ path: testInfo.outputPath('storage-mount-menu-dark.png') })
+  await page.getByRole('menuitem', { name: 'Stop using', exact: true }).click()
+  const stop = renders.getByRole('button', { name: 'Stop using', exact: true })
+  await expect(stop).toBeDisabled()
+  const replacement = renders.getByRole('combobox', { name: 'New saves go to' })
+  await expect(replacement).toBeVisible()
+  await panel.screenshot({ path: testInfo.outputPath('storage-stop-using-dark.png') })
+  await replacement.click()
+  await page.getByRole('option', { name: 'input', exact: true }).click()
+  await expect(stop).toBeEnabled()
+  await page.route('**/api/mounts/projects/*', async (route) => {
+    expect(route.request().method()).toBe('PUT')
+    expect(route.request().postDataJSON()).toMatchObject({ outputMount: 'input' })
+    await route.fulfill({ status: 503, json: { message: 'Unable to write config at /private/project' } })
+  })
+  await stop.click()
+  await expect(renders.getByRole('alert')).toHaveText('Could not stop using "renders". The engine reported an error.')
+  await expect(replacement).toHaveText('input')
+  await panel.screenshot({ path: testInfo.outputPath('storage-stop-refused-dark.png') })
+  await renders.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(renders).toContainText('New saves go here')
   await panel.locator('.storage-group-heading').last().getByRole('button', { name: 'Add', exact: true }).click()
   await expect(panel.getByRole('heading', { name: 'Add a mount', exact: true })).toBeVisible()
   const folder = panel.getByRole('textbox', { name: 'Folder', exact: true })
   const name = panel.getByRole('textbox', { name: 'Name', exact: true })
-  const saving = panel.getByRole('checkbox', { name: 'Allow saving to this folder' })
+  const saving = panel.getByRole('switch', { name: 'Allow saving to this folder' })
   await folder.fill('/archive/source-footage')
   await name.fill('footage')
   await expect(saving).toBeChecked()
@@ -127,7 +154,7 @@ test('Storage shows engine file and byte reading progress on model folders and m
     await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'not a directory: /archive/source-footage' }) })
   })
   await panel.getByRole('button', { name: 'Add a mount', exact: true }).click()
-  await expect(panel.getByRole('alert')).toContainText('not a directory: /archive/source-footage')
+  await expect(panel.getByRole('alert')).toContainText('This is not a folder.')
   await expect(folder).toHaveValue('/archive/source-footage')
   await expect(name).toHaveValue('footage')
   await expect(saving).toBeChecked()
@@ -154,7 +181,7 @@ test('Storage shows engine file and byte reading progress on model folders and m
     await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Folder is unavailable' }) })
   })
   await panel.getByRole('button', { name: 'Add folder', exact: true }).click()
-  await expect(panel.getByRole('alert')).toContainText('Folder is unavailable')
+  await expect(panel.getByRole('alert')).toContainText('This folder cannot be reached.')
   await expect(modelFolder).toHaveValue('/mnt/big/models')
   await expect(download).toBeChecked()
   await panel.screenshot({ path: testInfo.outputPath('storage-model-refusal-dark.png') })
@@ -180,7 +207,7 @@ test('Storage shows engine file and byte reading progress on model folders and m
   await expect(source).toHaveAttribute('data-selected-id', 'mount:input')
   await expect(assets.getByTestId('collection-entry')).toContainText('input-note.txt')
   const targetBefore = await page.evaluate(() => [...window.__dinksterTest!.app.tabTargets.get()])
-  const studioId = await page.evaluate(() => {
+  await page.evaluate(() => {
     const backend = window.__dinksterTest!.app.addBackend('http://studio.test:8188', 'Studio', false, 'dinkster', false)!
     backend.connection.fetchMountSettings = async () => ({ mounts: [], mountChangesAllowed: true })
     backend.connection.fetchMountLocations = async () => ({ mounts: [] })
@@ -192,9 +219,10 @@ test('Storage shows engine file and byte reading progress on model folders and m
   await expect(backendPicker).toBeVisible()
   await panel.screenshot({ path: testInfo.outputPath('storage-multiple-backends-dark.png') })
   await backendPicker.click()
-  await page.getByRole('option').and(page.locator(`[data-option-id="${studioId}"]`)).click()
+  await page.screenshot({ path: testInfo.outputPath('storage-backend-picker-open-dark.png') })
+  await page.getByRole('option', { name: 'Studio', exact: true }).click()
   await expect(panel).toContainText('No model folders used by this project.')
-  await expect(panel).toContainText('No other folders used by this project.')
+  await expect(panel).toContainText('No mounts used by this project.')
   expect(await page.evaluate(() => [...window.__dinksterTest!.app.tabTargets.get()])).toEqual(targetBefore)
   await panel.screenshot({ path: testInfo.outputPath('storage-empty-backend-dark.png') })
 })

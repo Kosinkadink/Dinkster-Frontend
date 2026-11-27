@@ -519,6 +519,7 @@ interface DinksterTestBridge {
       }>
     }
     tabTargets: { get(): ReadonlyMap<string, string> }
+    logs: { get(): readonly { source: string; message: string }[] }
     setTabTarget(tabId: string, id: string): void
     removeBackend(id: string): void
     viewUrlForExecution(ref: DinksterBridgeExecutionRef, file: { filename: string }): string

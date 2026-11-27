@@ -7,7 +7,7 @@ import { useAppMessage } from './locale.js'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { ModelProvider, type ModelProviderConnection } from './ModelProvider.js'
 import { ProductButton as SharedButton, ProductErrorBanner, ProductField as SharedField, ProductLoading, ProductSelect as SharedSelect, ProductSwitch, ProductTextButton, ProductTextInput as SharedInput } from '@dinkster/ui'
-import { failureMessage } from './request-failure.js'
+import { failureMessage, folderFailureMessage } from './request-failure.js'
 
 export function ModelSettings(props: {
   readonly connection: Pick<DinksterConnection, 'fetchModelSettings' | 'updateModelSettings' | 'setModelLocationEnabled' | 'onMountsChanged'>
@@ -20,6 +20,7 @@ export function ModelSettings(props: {
   readonly focusHiddenModels?: boolean
   readonly variant?: 'storage-add'
   readonly onCancel?: () => void
+  readonly onFailure?: ((detail: string) => void) | undefined
 }) {
   const message = useAppMessage()
   const [state, setState] = createSignal<ModelSettingsState>()
@@ -98,7 +99,7 @@ export function ModelSettings(props: {
       props.onChanged?.()
       return true
     } catch (cause) {
-      if (owner === generation) setError(failureMessage(cause))
+      if (owner === generation) setError(props.variant === 'storage-add' ? folderFailureMessage(cause, props.onFailure) : failureMessage(cause))
       return false
     } finally { if (owner === generation) setBusy(false) }
   }
@@ -277,9 +278,9 @@ export function ModelSettings(props: {
       <div class="dinkster-actions"><ProductSwitch checked={writable()} label={message('storagePanel.downloadInto')} disabled={disabled()} onChange={setWritable} /><span>{message('storagePanel.downloadInto')}</span></div>
       <p class="dinkster-description">{message('storagePanel.downloadHint')}</p>
       <Show when={!current().changesAllowed}><ProductNotice tone="info">{message('projectFolders.disabled')}</ProductNotice></Show>
-      <div class="dinkster-actions">
+      <div class="dinkster-dialog-actions">
+        <SharedButton disabled={busy()} onClick={() => props.onCancel?.()}>{message('projectFolders.cancel')}</SharedButton>
         <SharedButton type="submit" intent="add" fill="solid" pending={busy()} disabled={disabled() || !path().trim()}>{message('storagePanel.addFolder')}</SharedButton>
-        <ProductTextButton label={message('projectFolders.cancel')} disabled={busy()} onClick={() => props.onCancel?.()} />
       </div>
       <p class="dinkster-description">{message('storagePanel.restartHint')}</p>
     </form>}</Show>
