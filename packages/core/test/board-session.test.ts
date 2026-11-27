@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   connectSharedBoardSession, createLocalBoardSession, emptyBoard, loadBoard,
   type BoardSession, type CollabClientOp, type CollabConnection,
@@ -93,6 +93,49 @@ async function pair(server: Server) {
 }
 
 describe('Board sessions', () => {
+  it('creates and edits notes without randomUUID, retaining identities through undo and shared replay', async () => {
+    const crypto = globalThis.crypto
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
+    try {
+      const local = createLocalBoardSession(emptyBoard())
+      const first = note(local, 'First')
+      const second = note(local, 'Second')
+      expect(second).not.toBe(first)
+      expect(local.dispatch({ command: 'board.note.edit', params: { id: first, text: 'Edited locally' } }).ok).toBe(true)
+      expect(local.doc.items[first]).toMatchObject({ id: first, text: 'Edited locally' })
+      expect(local.undo()).toBe(true)
+      expect(local.doc.items[first]).toMatchObject({ id: first, text: 'First' })
+      expect(local.redo()).toBe(true)
+      expect(local.doc.items[first]).toMatchObject({ id: first, text: 'Edited locally' })
+
+      const server = new Server()
+      const a = await connectSharedBoardSession(server.connect().connection, server.descriptor(), { retryDelay: async () => {} })
+      const b = await connectSharedBoardSession(server.connect().connection, server.descriptor(), { retryDelay: async () => {} })
+      try {
+        expect(a.actorId).not.toBe(b.actorId)
+        server.loseReply = true
+        const left = note(a, 'Left')
+        const right = note(b, 'Right')
+        await Promise.all([a.settle(), b.settle()])
+        expect(left).not.toBe(right)
+        expect(new Set(server.document.order)).toEqual(new Set([left, right]))
+        expect(server.document.items[left]).toMatchObject({ id: left, text: 'Left' })
+        expect(server.document.items[right]).toMatchObject({ id: right, text: 'Right' })
+        expect(a.dispatch({ command: 'board.note.edit', params: { id: left, text: 'Shared edit' } }).ok).toBe(true)
+        await a.settle()
+        expect(b.doc.items[left]).toMatchObject({ id: left, text: 'Shared edit' })
+        expect(a.undo()).toBe(true)
+        await a.settle()
+        expect(b.doc.items[left]).toMatchObject({ id: left, text: 'Left' })
+        expect(a.redo()).toBe(true)
+        await a.settle()
+        expect(a.doc).toEqual(server.document)
+        expect(b.doc).toEqual(server.document)
+        expect(server.document.items[left]).toMatchObject({ id: left, text: 'Shared edit' })
+      } finally { a.close(); b.close() }
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it('allocates non-recycled item identities locally', () => {
     const session = createLocalBoardSession(emptyBoard())
     const first = note(session, 'First')
