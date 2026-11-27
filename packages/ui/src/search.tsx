@@ -244,6 +244,8 @@ export function ProductSearch(props: {
   onClose?: () => void
   /** Words to mark in titles; the query when absent. */
   markQuery?: string
+  /** Recovery for the whole catalog, above any usable rows. Suppresses no-match copy. */
+  notice?: JSX.Element
   /** Shown in the list's place while it has no rows. */
   empty?: { title: string; detail?: string }
   hints?: readonly ProductSearchHint[]
@@ -279,7 +281,7 @@ export function ProductSearch(props: {
     const row = currentRow()
     const count = rows().filter((item) => (item.kind ?? 'result') === 'result').length
     return row === undefined
-      ? props.empty?.title ?? ''
+      ? props.notice === undefined ? props.empty?.title ?? '' : ''
       : `${count} results. ${row.title}.`
   }
   const stepKind = (step: 1 | -1): boolean => {
@@ -304,7 +306,7 @@ export function ProductSearch(props: {
       const key = current()
       if (key !== undefined) props.onActivate(key)
     } else if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) {
-      if (stepKind(event.shiftKey ? -1 : 1)) event.preventDefault()
+      if (props.notice === undefined && stepKind(event.shiftKey ? -1 : 1)) event.preventDefault()
     } else if (event.key === 'Escape' && props.onClose !== undefined) {
       event.preventDefault()
       event.stopPropagation()
@@ -515,6 +517,8 @@ export function ProductSearch(props: {
           </div>
         </Show>
         <div class="dinkster-search-body">
+          <div class="dinkster-search-results">
+          <Show when={props.notice}>{(notice) => <div class="dinkster-search-notice">{notice()}</div>}</Show>
           <div
             ref={list}
             id={listId}
@@ -551,7 +555,7 @@ export function ProductSearch(props: {
               }}
             </For>
           </div>
-          <Show when={keys().length === 0 && props.empty}>
+          <Show when={keys().length === 0 && props.notice === undefined && props.empty}>
             {(empty) => (
               <div class="dinkster-search-empty">
                 <p class="dinkster-search-empty-title">{empty().title}</p>
@@ -561,6 +565,7 @@ export function ProductSearch(props: {
               </div>
             )}
           </Show>
+          </div>
           <Show when={props.preview !== undefined && props.previewPlace !== 'floating'}>
             <aside class="dinkster-search-preview" data-testid="search-preview">
               {props.preview}
