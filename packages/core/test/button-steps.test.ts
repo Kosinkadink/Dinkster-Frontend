@@ -16,6 +16,7 @@ import { createLocalSession, type DocumentSession } from '../src/commands/sessio
 import { compile, documentResolver } from '../src/compile/compile.js'
 import { effectiveOccurrenceTopology } from '../src/compile/effective-topology.js'
 import { diag } from '../src/diagnostics.js'
+import { replayHistoryOps, type HistorySnapshotRecord } from '../src/commands/store.js'
 import type { GraphDef, Json, NodeData, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNodeId, asPortId, isPortEndpoint } from '../src/ids.js'
 import { parseDinksterSchema, type DinksterWireSchema } from '../src/schema/dinkster-wire.js'
@@ -133,7 +134,14 @@ describe('one press is one undo step, or nothing', () => {
     const original = session.doc
     const host = hostOf()
     const fixes = storedNumberFixes(session.doc, at('unused'), host)
-    expect(await applyStoredNumberFixes(session, fixes, host)).toMatchObject({ kind: 'done' })
+    let stored: HistorySnapshotRecord | undefined
+    let storedDocument: WorkflowDocument | undefined
+    expect(await applyStoredNumberFixes(session, fixes, host, { onStored: (record, document) => {
+      stored = record
+      storedDocument = document
+    } })).toMatchObject({ kind: 'done' })
+    expect(replayHistoryOps(storedDocument!, stored!.inverse).doc).toEqual(original)
+    expect(replayHistoryOps(original, stored!.forward).doc).toEqual(storedDocument)
     expect(valuesOf(session)).toEqual({ whole: 12, wired: 99, special: -1, large: '9007199254740997', decimal: 7.53, clamped: 10, late: 29 })
     expect(storedNumberFixes(session.doc, at('unused'), host)).toEqual([])
     expect(session.undo()).toBe(true)

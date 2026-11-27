@@ -151,6 +151,126 @@ describe('native open-time replacement', () => {
     expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
   })
 
+  it('stores numeric fixes atomically, keeps later field edits on notice Undo, and does not repeat undone causes', async () => {
+    const backend = app.backends.get()[0]!
+    const numericPayload = { ...payload, nodes: { Current: { displayName: 'Numbers', category: 'test', body: [
+      { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } },
+      { kind: 'input', id: 'other', type: { kind: 'concrete', types: ['FLOAT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: 10, step: 0.1 } },
+    ] } } }
+    backend.registry.set(buildDinksterRegistry(backend.id, numericPayload))
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    const source = document()
+    await app.openDocument({ ...source, graphs: { g0: { ...source.graphs.g0, links: {}, nodes: {
+      first: { id: 'first', type: 'Current', values: { amount: 14, other: 12.5 } },
+      second: { id: 'second', type: 'Current', values: { amount: 29, other: 7.53 } },
+    } } } }, 'Numbers')
+    const tab = app.activeTab()!
+    const values = () => Object.values(tab.store.doc.graphs.g0!.nodes).map((node) => node.values)
+    const offered = app.scanTabNumberFixes(tab)
+    expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: 'amount', value: 18 } }).ok).toBe(true)
+    expect(await app.applyNumberFixes(tab, offered)).toMatchObject({ kind: 'failed', message: 'Could not apply this fix. The workflow changed.' })
+    expect(values()).toEqual([{ amount: 18, other: 12.5 }, { amount: 29, other: 7.53 }])
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
+    const stop = tab.store.onOp((op) => {
+      if (op.origin !== 'batch') return
+      stop()
+      tab.store.dispatch({ command: 'node.move', params: { graphId: 'g0', positions: { first: { x: 280, y: 190 } } } })
+    })
+    expect(await app.applyNumberFixes(tab, app.scanTabNumberFixes(tab), true)).toMatchObject({ kind: 'done' })
+    expect(values()).toEqual([{ amount: 16, other: 10 }, { amount: 20, other: 7.53 }])
+    expect(app.adjustmentNotices.get().get(tab.id)!.adjustments.map((change) => change.details)).toEqual([
+      ['amount: 18 to 16'], ['other: 12.5 to 10'], ['amount: 29 to 20'],
+    ])
+    // Editing one corrected field keeps only that field, not the whole node.
+    expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: 'amount', value: 8 } }).ok).toBe(true)
+    expect(app.undoAdjustments(tab.id)).toBe(true)
+    expect(values()).toEqual([{ amount: 8, other: 12.5 }, { amount: 29, other: 7.53 }])
+    expect(tab.store.doc.view.graphs.g0!.nodes.first!.position).toEqual({ x: 280, y: 190 })
+    expect(app.adjustmentNotices.get().get(tab.id)!.undone!.kept).toBe(1)
+    expect(app.scanTabNumberFixes(tab)).toEqual([])
+    expect(app.redoAdjustments(tab.id)).toBe(true)
+    expect(values()).toEqual([{ amount: 8, other: 10 }, { amount: 20, other: 7.53 }])
+    expect(app.undoAdjustments(tab.id)).toBe(true)
+    app.clearAdjustmentNotice(tab.id)
+    expect(app.scanTabNumberFixes(tab)).toEqual([])
+    // A newer declaration is a different cause, even if it chooses the same endpoint.
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...numericPayload, nodes: { Current: {
+      ...numericPayload.nodes.Current, body: numericPayload.nodes.Current.body.map((row) => row.id === 'amount'
+        ? { ...row, widget: { ...row.widget, max: 16 } } : row),
+    } } }))
+    expect(app.scanTabNumberFixes(tab).map((fix) => [fix.owner.nodeId, fix.before, fix.after])).toEqual([['second', 29, 16]])
+    expect(await app.applyNumberFixes(tab, app.scanTabNumberFixes(tab))).toMatchObject({ kind: 'done' })
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
+    expect(tab.store.undo()).toBe(true)
+    expect(values()[1]!.amount).toBe(29)
+    expect(await app.applyNumberFixes(tab, app.scanTabNumberFixes(tab), true)).toMatchObject({ kind: 'done' })
+    tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'second', inputId: 'amount', value: 25 } })
+    expect(await app.applyNumberFixes(tab, app.scanTabNumberFixes(tab), true)).toMatchObject({ kind: 'done' })
+    expect(app.undoAdjustments(tab.id)).toBe(true)
+    expect(values()[1]!.amount).toBe(25)
+
+    const nested = { ...source, lineage: 'nested-numbers', graphs: {
+      g0: { ...source.graphs.g0, links: {}, nodes: {
+        first: { id: 'first', type: '#g1', values: { shown: 14 } },
+        second: { id: 'second', type: '#g1', values: { shown: 18 } },
+      } },
+      g1: { ...source.graphs.g0, id: 'g1', links: {}, nodes: {
+        inner: { id: 'inner', type: 'Current', values: { amount: 8, other: 7.53 } },
+      }, boundary: { body: [{ kind: 'input', id: 'shown',
+        binds: { kind: 'port', node: 'inner', port: 'amount' }, promoted: true }] } },
+    } }
+    await app.openDocument(nested, 'Two uses')
+    const nestedTab = app.activeTab()!
+    const nestedFixes = app.scanTabNumberFixes(nestedTab)
+    expect(await app.applyNumberFixes(nestedTab, nestedFixes, true)).toMatchObject({ kind: 'done' })
+    expect(Object.values(nestedTab.store.doc.graphs.g0!.nodes).map((node) => node.values)).toEqual([{ shown: 12 }, { shown: 16 }])
+    expect(nestedTab.store.doc.graphs.g1!.nodes.inner!.values).toEqual({ amount: 8, other: 7.53 })
+    expect(app.undoAdjustments(nestedTab.id)).toBe(true)
+    expect(nestedTab.store.doc.graphs).toEqual(nested.graphs)
+    expect(app.scanTabNumberFixes(nestedTab)).toEqual([])
+    await app.openDocument({ ...nested, lineage: 'inherited-numbers', graphs: {
+      ...nested.graphs, g0: { ...nested.graphs.g0, nodes: {
+        first: { id: 'first', type: '#g1', values: {} },
+        second: { id: 'second', type: '#g1', values: {} },
+      } }, g1: { ...nested.graphs.g1, nodes: {
+        inner: { id: 'inner', type: 'Current', values: { amount: 14, other: 7.53 } },
+      } },
+    } }, 'Inherited numbers')
+    const inheritedTab = app.activeTab()!
+    expect(await app.applyNumberFixes(inheritedTab, app.scanTabNumberFixes(inheritedTab), true)).toMatchObject({ kind: 'done' })
+    expect(Object.values(inheritedTab.store.doc.graphs.g0!.nodes).map((node) => node.values)).toEqual([{}, {}])
+    expect(inheritedTab.store.doc.graphs.g1!.nodes.inner!.values.amount).toBe(12)
+    expect(app.adjustmentNotices.get().get(inheritedTab.id)!.adjustments).toHaveLength(1)
+    expect(app.undoAdjustments(inheritedTab.id)).toBe(true)
+    expect(inheritedTab.store.doc.graphs.g1!.nodes.inner!.values.amount).toBe(14)
+    expect(app.scanTabNumberFixes(inheritedTab)).toEqual([])
+
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...numericPayload, nodes: { Current: {
+      displayName: 'Numbers', category: 'test', body: [
+        { kind: 'input', id: 'limit', type: { kind: 'concrete', types: ['INT'] }, default: 20, widget: { type: 'NUMBER', min: 0 } },
+        { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: { formula: 'limit' }, step: 4 } },
+      ],
+    } } }))
+    await app.openDocument({ ...nested, lineage: 'shared-limits', graphs: {
+      g0: { ...nested.graphs.g0, nodes: {
+        first: { id: 'first', type: '#g1', values: { cap: 20 } },
+        second: { id: 'second', type: '#g1', values: { cap: 20 } },
+      } }, g1: { ...nested.graphs.g1, nodes: {
+        inner: { id: 'inner', type: 'Current', values: { amount: 29, limit: 20 } },
+      }, boundary: { body: [{ kind: 'input', id: 'cap',
+        binds: { kind: 'port', node: 'inner', port: 'limit' }, promoted: true }] } },
+    } }, 'Shared limits')
+    const sharedTab = app.activeTab()!
+    const sharedOffers = app.scanTabNumberFixes(sharedTab)
+    sharedTab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'second', inputId: 'cap', value: 16 } })
+    expect(await app.applyNumberFixes(sharedTab, sharedOffers)).toMatchObject({ kind: 'failed', message: 'Could not apply this fix. The workflow changed.' })
+    expect(await app.applyNumberFixes(sharedTab, app.scanTabNumberFixes(sharedTab))).toMatchObject({ kind: 'failed' })
+    expect(sharedTab.store.doc.graphs.g1!.nodes.inner!.values.amount).toBe(29)
+  })
+
   it('holds migrations only in opt-in review and applies through the existing command', async () => {
     loadSchemas(app)
     app.settings.set('execution.reviewUpgrades', true)

@@ -98,8 +98,12 @@ const targetOf = (place: ButtonPlace): PressTarget => ({
 const NO_HOST_EDITOR = new Set(['COMPOSITOR', 'CURVE', 'PAINTER', 'MASK', 'IMAGE_COMPARE'])
 
 /** The shared editor host for declared buttons and stored-value fixes. */
-export function createActionHost(app: AppState, surfaces: ButtonSurfaces, place: ButtonPlace): ActionHost {
+export function createActionHost(app: AppState, surfaces: ButtonSurfaces | undefined, place: ButtonPlace): ActionHost {
   const resolverOf = (tab: Tab) => app.registryForTab(tab)?.resolve ?? (() => undefined)
+  const surfacesOf = (): ButtonSurfaces => {
+    if (surfaces === undefined) throw new Error('This fix cannot ask a question or open an editor.')
+    return surfaces
+  }
 
   const lookupCall = (request: LookupRequest): LookupCall => ({
     nodeType: request.nodeType,
@@ -118,10 +122,10 @@ export function createActionHost(app: AppState, surfaces: ButtonSurfaces, place:
     const resolve = resolverOf(tab)
     const editorFor = (field: ElaboratedInput) => {
       const spec = field.spec.widget
-      if (spec === undefined || NO_HOST_EDITOR.has(spec.widgetType) || isAssetWidgetInput(field.spec)) return undefined
+      if (surfaces === undefined || spec === undefined || NO_HOST_EDITOR.has(spec.widgetType) || isAssetWidgetInput(field.spec)) return undefined
       if (app.widgetRegistryForTab(tab).kind(spec.widgetType) === undefined) return undefined
       return (signal: AbortSignal, initial: Json | undefined) =>
-        surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial }, signal)
+        surfacesOf().edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial }, signal)
     }
     return {
       schemaOf: (doc, graphId, node) => documentNodeResolver(doc, resolve)(graphId, node, place.instancePath as readonly NodeId[] | undefined),
@@ -150,7 +154,7 @@ export function createActionHost(app: AppState, surfaces: ButtonSurfaces, place:
             owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }, plannerAvailable: true,
           } }),
         })
-        const scene = surfaces.projectScene?.(place, measured) ?? measured
+        const scene = surfaces?.projectScene?.(place, measured) ?? measured
         const destination = scene.nodes.find((item) => item.id === target.nodeId)!
         const layout = scene.nodes.find((item) => item.id === node.id)!.layout
         const gap = defaultTokens.rowHeight * 2
@@ -192,11 +196,11 @@ export function createActionHost(app: AppState, surfaces: ButtonSurfaces, place:
       },
       call: (request, progress, signal) => backend.connection.callPackFunction(request, progress, signal),
       pick: (request, signal) => pick(place, request, signal),
-      ask: (request, signal) => surfaces.ask(place, request, signal),
+      ask: (request, signal) => surfacesOf().ask(place, request, signal),
       openPicker: (field, signal) => {
         const spec = field.spec.widget
         if (spec === undefined) return Promise.reject(new Error(`${field.spec.id} has no picker.`))
-        return surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial: undefined }, signal)
+        return surfacesOf().edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial: undefined }, signal)
       },
       async pasteImage(field, signal) {
         const spec = field.spec.widget
@@ -204,7 +208,7 @@ export function createActionHost(app: AppState, surfaces: ButtonSurfaces, place:
         const image = await readClipboardImage(() => navigator.clipboard.read())
         if (image === undefined) throw new Error('The clipboard holds no image.')
         const stagedFile = new File([image.blob], pastedImageName(image.mediaType), { type: image.mediaType })
-        const value = await surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial: undefined, stagedFile }, signal)
+        const value = await surfacesOf().edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial: undefined, stagedFile }, signal)
         if (value === undefined) throw new Error('The image was not stored.')
         return value
       },
@@ -252,7 +256,7 @@ export function createActionHost(app: AppState, surfaces: ButtonSurfaces, place:
           throw new Error(`${url} is not a web address.`)
         }
         if (address.protocol !== 'https:' && address.protocol !== 'http:') throw new Error('Only web addresses open in a new tab.')
-        if (confirm && !await surfaces.confirmLink(place, address.href, signal)) throw new Error('The link was not opened.')
+        if (confirm && !await surfacesOf().confirmLink(place, address.href, signal)) throw new Error('The link was not opened.')
         // A blank same-origin tab gives an observable refusal. Sever its opener
         // before navigating, and suppress the referrer on that navigation.
         const opened = window.open('about:blank', '_blank')
@@ -291,7 +295,7 @@ export function createActionHost(app: AppState, surfaces: ButtonSurfaces, place:
           return open(list, entry.state === 'ready' || entry.state === 'stale' || entry.state === 'paused' ? entry.state : 'failed')
         })()
       }
-      const shown = surfaces.edit({
+      const shown = surfacesOf().edit({
         place,
         label: place.label ?? 'Pick',
         spec: { widgetType: 'COMBO', options: { options: options as unknown as Json[] } },

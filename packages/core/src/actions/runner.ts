@@ -25,7 +25,7 @@ import type { CommandDefinition, CommandExecutionContext, CommandInvocation } fr
 import { predictAllocatedId } from '../commands/alloc.js'
 import { coreCommandRegistry } from '../commands/core-commands.js'
 import type { DocumentSession } from '../commands/session.js'
-import { DocumentStore } from '../commands/store.js'
+import { DocumentStore, type HistorySnapshotRecord } from '../commands/store.js'
 import { planOccurrenceLinkCommand } from '../commands/occurrence-link-commands.js'
 import { planOccurrenceLinkMutation } from '../commands/occurrence-planner.js'
 import { documentNodeResolver } from '../compile/compile.js'
@@ -204,6 +204,8 @@ export interface PressOptions {
   readonly noWait?: boolean
   /** Commands staged first and stored with the run as its one undo step, such as the user's own edit that led to it. */
   readonly lead?: readonly CommandInvocation[]
+  /** The exact stored batch and its document, before any outside steps run; absent for no change or refusal. */
+  readonly onStored?: (record: HistorySnapshotRecord, document: WorkflowDocument) => void
 }
 
 export interface PressOutcome {
@@ -524,6 +526,7 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
 export interface StoredNumberFix {
   readonly part: StepPart
   readonly valueKey: string
+  readonly owner: ValueOwner
   readonly label: string
   readonly before: IntegerWidgetValue
   readonly after: IntegerWidgetValue
@@ -550,9 +553,10 @@ export function storedNumberFixes(doc: WorkflowDocument, target: StepPlace, host
       const name = [...context.paths].find(([, key]) => key === path)?.[0]
       if (name === undefined) continue
       const value = widget.widgetType === 'INT' ? BigInt(after) : after
-      return [{ valueKey: path, label: field.spec.displayName ?? field.spec.id, before, after,
-        stamp: JSON.stringify([view.node.type, widget, view.valueOwners.get(path) ??
-          { graphId: target.graphId, nodeId: target.nodeId, instancePath: target.instancePath ?? [] }]),
+      const owner = view.valueOwners.get(path) ?? { graphId: target.graphId, nodeId: target.nodeId, valueKey: path }
+      if (doc.graphs[owner.graphId]?.nodes[owner.nodeId]?.values[owner.valueKey] !== before) return []
+      return [{ valueKey: path, owner, label: field.spec.displayName ?? field.spec.id, before, after,
+        stamp: JSON.stringify([view.node.type, widget, owner]),
         part: { ...target, prefix, steps: [{ step: 'set', field: name, value: { kind: 'literal', value } }] } }]
     }
     return []
@@ -1729,6 +1733,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
   const actor = session.allocationActor
   const lead = options.lead ?? []
   const presses: Press[] = []
+  let stored: { readonly record: HistorySnapshotRecord; readonly document: WorkflowDocument } | undefined
   let changed = 0
   try {
     const scratch = scratchOf(session.doc, host)
@@ -1768,6 +1773,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
     if (invocations.length > 0) {
       const outcome = session.dispatch(batch(invocations))
       if (!outcome.ok) refuse(outcome.diagnostics.find((item) => item.severity === 'error')?.message ?? 'The change could not be made.')
+      else if (outcome.forward.length > 0) stored = { record: { forward: outcome.forward, inverse: outcome.inverse }, document: outcome.doc }
     }
   } catch (error) {
     stop()
@@ -1777,6 +1783,8 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
     if (error instanceof Refusal) return failedOutcome(error.message, notes, error.own)
     return failedOutcome(error instanceof Error && error.message !== '' ? error.message : 'The button could not finish.', notes)
   }
+
+  if (stored !== undefined) options.onStored?.(stored.record, stored.document)
 
   // The outside steps read the committed document.
   const outsideFailures: string[] = []
