@@ -11345,8 +11345,9 @@ export class AppState {
   tabTitleFor(ref: ExecutionRef): string {
     const state = this.store.executions.get().get(executionKey(ref))
     const snapshot = state?.artifact?.snapshot
-    return (snapshot && this.liveTabFor(snapshot.lineage)?.title) ?? state?.workflowName ??
-      (snapshot && snapshot.graphs[snapshot.root]?.name) ?? 'Untitled'
+    if (snapshot?.ext?.['dinkster.boardCard'] !== undefined)
+      return state?.workflowName ?? snapshot.graphs[snapshot.root]?.name ?? 'Untitled'
+    return (snapshot && this.liveTabFor(snapshot.lineage)?.title) ?? '(external)'
   }
 }
 
