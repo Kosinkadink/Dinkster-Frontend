@@ -40,6 +40,8 @@ const settings: readonly Setting[] = [
   { id: 'shell.layout.right.width', label: 'Right panel size', group: 'general', section: 'Workspace', value: 380, unit: 'px' },
   { id: 'shell.layout.bottom.height', label: 'Bottom panel size', group: 'general', section: 'Workspace', value: 240, unit: 'px' },
   { id: 'canvas.grid.visible', label: 'Show dot grid', group: 'canvas', section: 'View', value: true },
+  { id: 'canvas.detailMode', label: 'Hide node details', group: 'canvas', section: 'View', value: 'Automatic', options: ['Automatic', 'Below a fixed zoom'], description: 'Automatic keeps details longer when fewer nodes are on screen.' },
+  { id: 'canvas.detailMinPercent', label: 'Fixed zoom (%)', group: 'canvas', section: 'View', value: 30, description: '10 to 75. Details stay visible at this zoom and above.' },
   { id: 'canvas.smoothWheelZoom', label: 'Smooth wheel zoom', group: 'canvas', section: 'View', value: true, description: 'Glide briefly between wheel zoom steps.' },
   { id: 'canvas.scrollBehavior', label: 'Canvas scroll behavior', group: 'canvas', section: 'View', value: 'Zoom', options: ['Zoom', 'Pan'], description: 'Zoom makes wheel and two-finger scroll zoom about the pointer. Pan makes ordinary scrolling move the canvas while `Ctrl+wheel` or trackpad pinch zooms.' },
   { id: 'canvas.bookmarkTransitions', label: 'Animate bookmark jumps', group: 'canvas', section: 'View', value: true },
@@ -107,6 +109,7 @@ export function SettingsGallery() {
   const [confirmClear, setConfirmClear] = createSignal(false)
   const [cleared, setCleared] = createSignal(false)
   const value = (setting: Setting) => values()[setting.id] ?? setting.value
+  const disabled = (setting: Setting) => setting.id === 'canvas.detailMinPercent' && (values()['canvas.detailMode'] ?? 'Automatic') === 'Automatic'
   const update = (id: string, next: string | number | boolean) => setValues((old) => ({ ...old, [id]: next }))
   const copyId = async (id: string) => {
     try {
@@ -130,7 +133,7 @@ export function SettingsGallery() {
       <Show when={setting.list} fallback={<>
       <Show when={typeof setting.value === 'boolean'}><ProductSwitch id={setting.id} label={setting.label} checked={value(setting) as boolean} onChange={(next) => update(setting.id, next)} /></Show>
       <Show when={setting.options}><ProductSelect {...attributes()} options={(setting.options ?? []).map((value) => ({ value, label: value }))} value={String(value(setting))} onChange={(next) => update(setting.id, next)} /></Show>
-      <Show when={typeof setting.value === 'number'}><Show when={setting.unit === 'GB'} fallback={<ProductNumberInput id={setting.id} ariaLabel={setting.label} ariaInvalid={error(setting) !== undefined} ariaDescribedBy={attributes()['aria-describedby']} value={value(setting) as number} min={0} max={5000} unit={setting.unit} onCommit={(raw) => update(setting.id, Number(raw))} />}><ProductByteSizeInput {...attributes()} value={value(setting) as number} minimum={1} onCommit={(bytes) => update(setting.id, bytes)} /></Show></Show>
+      <Show when={typeof setting.value === 'number'}><Show when={setting.unit === 'GB'} fallback={<ProductNumberInput id={setting.id} ariaLabel={setting.label} ariaInvalid={error(setting) !== undefined} ariaDescribedBy={attributes()['aria-describedby']} value={value(setting) as number} min={setting.id === 'canvas.detailMinPercent' ? 10 : 0} max={setting.id === 'canvas.detailMinPercent' ? 75 : 5000} disabled={disabled(setting)} unit={setting.unit} onCommit={(raw) => update(setting.id, Number(raw))} />}><ProductByteSizeInput {...attributes()} value={value(setting) as number} minimum={1} onCommit={(bytes) => update(setting.id, bytes)} /></Show></Show>
       <Show when={typeof setting.value === 'string' && !setting.options && !setting.multiline}><ProductTextInput {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} /></Show>
       <Show when={setting.multiline}><ProductTextArea {...attributes()} value={String(value(setting))} onInput={(event) => update(setting.id, event.currentTarget.value)} /></Show>
       </>}>
@@ -173,7 +176,7 @@ export function SettingsGallery() {
         ...(!nameMatches && descriptionMatches ? { note: setting.description! } : {}),
         get modified() { return setting.group !== 'engine' && value(setting) !== setting.value },
         fullWidth: typeof setting.value === 'string' && !setting.options,
-        control: <><Show when={setting.group !== 'engine' && value(setting) !== setting.value}><ProductTextButton label="Reset" onClick={() => update(setting.id, setting.value)} /></Show>{control(setting, true)}</>, menu: settingMenu(setting),
+        control: <><Show when={setting.group !== 'engine' && value(setting) !== setting.value}><ProductTextButton label="Reset" disabled={disabled(setting)} onClick={() => update(setting.id, setting.value)} /></Show>{control(setting, true)}</>, menu: settingMenu(setting),
       }
     }) }, { key: 'shortcuts', label: 'Shortcuts', rows: shortcuts.map((command) => ({ key: command.id, title: command.label, get modified() { return combo(command.id) !== keybindings.defaultCombo(command.id) }, detail: `Shortcuts - ${message(`settingsPage.commands.${command.id.split('.')[0]}`)}`, control: <><Show when={combo(command.id) !== keybindings.defaultCombo(command.id)}><ProductTextButton label="Reset" onClick={() => keybindings.reset(command.id)} /></Show>{shortcutControl(command)}<Show when={shortcutError(command.id)}>{(message) => <p id={`${command.id}-warning`} class="dinkster-setting-warning" role="status">{message()}</p>}</Show></>, menu: shortcutMenu(command) })) }].filter((group) => group.rows.length > 0)
   })
@@ -194,7 +197,7 @@ export function SettingsGallery() {
     }
   }
   const row = (setting: Setting) => {
-    return <ProductSettingRow id={setting.id} label={setting.label} description={setting.description ? <ProductShortcutText text={setting.description} /> : undefined} error={error(setting)}
+    return <ProductSettingRow id={setting.id} label={setting.label} description={setting.description ? <ProductShortcutText text={setting.description} /> : undefined} error={error(setting)} disabled={disabled(setting)}
       fullWidth={!setting.locked && (setting.list ? editingList() === setting.id : typeof setting.value === 'string' && !setting.options)} modified={setting.group !== 'engine' && value(setting) !== setting.value} resetLabel="Reset" menuLabel={`Actions for ${setting.label}`}
       copyIdLabel="Copy setting ID"
       menuItems={settingMenu(setting).items}

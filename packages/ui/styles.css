@@ -2330,6 +2330,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-settings-facts dd { display: flex; align-items: center; gap: var(--dinkster-space-12); margin: 0; }
 .dinkster-setting-locked { color: var(--dinkster-text-secondary); }
 .dinkster-setting-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: first baseline; gap: var(--dinkster-space-12); min-height: var(--dinkster-input-primary-height); padding-block: var(--dinkster-space-8); }
+.dinkster-setting-row[aria-disabled='true'], .dinkster-settings .dinkster-search-row:has(.product-number-field:disabled) { opacity: var(--dinkster-interaction-disabled-opacity); }
 .dinkster-setting-copy { min-width: 0; }
 .dinkster-setting-copy > label { color: var(--dinkster-text-primary); }
 .dinkster-setting-copy > p { margin: var(--dinkster-space-4) 0 0; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }

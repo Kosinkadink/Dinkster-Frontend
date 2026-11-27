@@ -85,6 +85,7 @@ export function ProductSettingRow(props: {
   error?: string | undefined
   warning?: string | undefined
   fullWidth?: boolean
+  disabled?: boolean
   modified: boolean
   resetLabel: string
   menuLabel: string
@@ -97,7 +98,7 @@ export function ProductSettingRow(props: {
   const controlId = () => props.controlId ?? props.id
   return <ProductContextMenu label={props.menuLabel} items={props.menuItems ?? [
     { label: props.copyIdLabel, description: props.id, onSelect: props.onCopyId },
-  ]}><div class="dinkster-setting-row" data-setting-id={props.id} data-modified={props.modified} data-full-width={props.fullWidth}>
+  ]}><div class="dinkster-setting-row" data-setting-id={props.id} data-modified={props.modified} data-full-width={props.fullWidth} aria-disabled={props.disabled || undefined}>
     <div class="dinkster-setting-copy">
       <label for={controlId()} id={`${controlId()}-label`}>{props.label}</label>
       <Show when={props.description}><p id={`${controlId()}-description`}>{props.description}</p></Show>
@@ -105,7 +106,7 @@ export function ProductSettingRow(props: {
       <Show when={props.warning}><p id={`${controlId()}-warning`} class="dinkster-setting-warning" role="status">{props.warning}</p></Show>
     </div>
     <div class="dinkster-setting-control">
-      <Show when={props.modified}><ProductTextButton label={props.resetLabel} onClick={props.onReset} /></Show>
+      <Show when={props.modified}><ProductTextButton label={props.resetLabel} disabled={props.disabled} onClick={props.onReset} /></Show>
       {props.children}
     </div>
   </div></ProductContextMenu>

@@ -123,6 +123,7 @@ function SettingField(props: {
   const describedBy = () => [props.inline || description() === undefined ? undefined : ids.description, validation() === undefined ? undefined : `${controlId}-error`].filter(Boolean).join(' ') || undefined
   const value = () => { props.changed(); return props.settings.get(definition.id) }
   const modified = () => !Object.is(value(), definition.defaultValue)
+  const disabled = () => { props.changed(); return definition.id === 'canvas.detailMinPercent' && props.settings.get('canvas.detailMode') === 'automatic' }
   const setValue = (next: unknown): void => {
     setValidation(undefined)
     props.settings.set(definition.id, next)
@@ -150,7 +151,7 @@ function SettingField(props: {
   }
   const control = () => <>
       <Show when={definition.type === 'boolean'}><ProductSwitch id={controlId} label={name()} aria-describedby={describedBy()} checked={value() as boolean} onChange={setValue} /></Show>
-      <Show when={definition.type === 'number'}><ProductNumberInput id={controlId} ariaLabel={name()} {...(props.inline ? {} : { ariaLabelledBy: ids.label })} ariaDescribedBy={describedBy()} ariaInvalid={validation() !== undefined} value={String(value())} min={definition.min} max={definition.max} step={definition.step} unit={definition.id === 'tooltips.delayMs' ? 'ms' : ['shell.layout.left.width', 'shell.layout.right.width', 'shell.layout.bottom.height'].includes(definition.id) ? 'px' : undefined} onCommit={commitNumber} onRevert={() => setValidation(undefined)} /></Show>
+      <Show when={definition.type === 'number'}><ProductNumberInput id={controlId} ariaLabel={name()} {...(props.inline ? {} : { ariaLabelledBy: ids.label })} ariaDescribedBy={describedBy()} ariaInvalid={validation() !== undefined} value={String(value())} min={definition.min} max={definition.max} step={definition.step} disabled={disabled()} unit={definition.id === 'tooltips.delayMs' ? 'ms' : ['shell.layout.left.width', 'shell.layout.right.width', 'shell.layout.bottom.height'].includes(definition.id) ? 'px' : undefined} onCommit={commitNumber} onRevert={() => setValidation(undefined)} /></Show>
       <Show when={definition.type === 'string'}><ProductTextInput
         id={controlId}
         aria-label={props.inline ? name() : undefined}
@@ -172,13 +173,13 @@ function SettingField(props: {
       <Show when={definition.type === 'combo'}><ProductSelect id={controlId} aria-label={props.inline ? name() : undefined} aria-labelledby={props.inline ? undefined : ids.label} aria-describedby={describedBy()} options={options()} value={String(value())} onChange={setValue} /></Show>
     </>
   return <Show when={!props.inline} fallback={<div data-setting-id={definition.id}>
-    <Show when={modified()}><ProductTextButton label={messageText('settingsDialog.action.reset')} onClick={resetValue} /></Show>
+    <Show when={modified()}><ProductTextButton label={messageText('settingsDialog.action.reset')} disabled={disabled()} onClick={resetValue} /></Show>
     {control()}
     <Show when={validationMessage()}>{(text) => <p id={`${controlId}-error`} class="dinkster-field-error" role="alert">{text()}</p>}</Show>
   </div>}>
     <ProductSettingRow id={definition.id} controlId={controlId} label={name()}
       description={description() === undefined ? undefined : <ProductShortcutText text={description()!} />}
-      error={validationMessage()} fullWidth={definition.type === 'string'} modified={modified()}
+      error={validationMessage()} fullWidth={definition.type === 'string'} modified={modified()} disabled={disabled()}
       resetLabel={messageText('settingsDialog.action.reset')} menuLabel={messageText('settingsPage.actions', { name: name() })}
       copyIdLabel={messageText('settingsPage.copySettingId')}
       onReset={resetValue} onCopyId={() => props.onCopyId(definition.id)}>{control()}</ProductSettingRow>

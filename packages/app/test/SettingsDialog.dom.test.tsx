@@ -60,6 +60,36 @@ afterEach(() => {
 })
 
 describe('SettingsDialog search', () => {
+  it('keeps the fixed zoom saved but uneditable in Automatic, including search', () => {
+    const settings = isolatedSettings()
+    settings.register({ id: 'canvas.detailMode', name: 'Hide node details', type: 'combo', defaultValue: 'automatic', options: [{ value: 'automatic', label: 'Automatic' }, { value: 'fixed', label: 'Below a fixed zoom' }] })
+    settings.register({ id: 'canvas.detailMinPercent', name: 'Fixed zoom (%)', type: 'number', defaultValue: 30, min: 10, max: 75 })
+    settings.set('canvas.detailMinPercent', 42)
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} />, root)
+    root.querySelector<HTMLAnchorElement>('a[href="#canvas"]')!.click()
+    const field = () => root.querySelector<HTMLInputElement>('[role="spinbutton"]')!
+    expect(field().disabled).toBe(true)
+    expect(field().value).toBe('42')
+    root.querySelector<HTMLButtonElement>('[role="combobox"][id="setting-canvas.detailMode"]')!.click()
+    ;[...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((option) => option.textContent?.includes('Below a fixed zoom'))!.click()
+    expect(field().disabled).toBe(false)
+    field().value = '37'
+    field().dispatchEvent(new InputEvent('input', { bubbles: true }))
+    field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(settings.get('canvas.detailMinPercent')).toBe(37)
+    settings.set('canvas.detailMode', 'automatic')
+    expect(field().disabled).toBe(true)
+    expect(field().value).toBe('37')
+    searchFor(root, 'Fixed zoom')
+    expect(field().disabled).toBe(true)
+    expect(field().value).toBe('37')
+    expect([...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Reset')!.disabled).toBe(true)
+    expect(settings.get('canvas.detailMinPercent')).toBe(37)
+    unmount()
+  })
+
   it('groups shortcuts by area and searches their translated group names', () => {
     const settings = isolatedSettings()
     const commands = new CommandRegistry()
