@@ -1310,6 +1310,7 @@
   "learn.action.back": "返回指南",
   "learn.action.loadMore": "加载更多",
   "learn.action.openTemplate": "打开模板",
+  "learn.action.retry": "重试",
   "learn.action.search": "搜索",
   "learn.panel.ariaLabel": "学习指南",
   "learn.panel.description": "浏览当前后端提供的指南",

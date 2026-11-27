@@ -1885,22 +1885,35 @@ export class CanvasRenderer {
       const folded = previewFoldedOf(node)
       const preview = previews[node.id]
       const outputText = outputTexts[node.id]
+      const audio = preview?.kind === 'audio' || node.audioPreview === true ? canvasPaintTokens.node.audioPreview : undefined
+      const tokens = audio === undefined ? this.tokens : { ...this.tokens, previewMinHeight: audio.minHeight, previewDefaultHeight: audio.minHeight }
       if (node.layout.minimized === true) {
         const content = minimizedStripContent(preview, outputText)
         return content === 'picture'
-          ? { ...node, layout: folded ? withFoldedPreviewRegion(node.layout, this.tokens) : withPreviewRegion(node.layout, this.tokens) }
+          ? { ...node, layout: folded ? withFoldedPreviewRegion(node.layout, tokens) : withPreviewRegion(node.layout, tokens) }
           : content === 'text'
             ? { ...node, layout: withTextOutputRegion(node.layout, this.tokens, this.outputTextLineCount(node.layout, outputText!.text), folded) }
             : node
       }
       // Only the caption row: before a picture, while it loads or failed, and folded.
       const panel = preview !== undefined && previewHasPanel(preview) && !folded
-      const baseLayout = node.previewCapable === true || (preview !== undefined && !panel)
-        ? withCompactPreviewRegion(node.layout, this.tokens)
+      let baseLayout = node.previewCapable === true || (preview !== undefined && !panel)
+        ? withCompactPreviewRegion(node.layout, tokens)
         : node.layout
+      if (!panel && node.audioPreview === true && baseLayout.preview?.compact === true) {
+        const ctx = this.canvas.getContext('2d')!
+        const caption = canvasPaintTokens.preview.caption
+        ctx.save()
+        ctx.font = `${tokens.fontSize}px ${tokens.fontFamily}`
+        const labelWidth = measureWidth(ctx, 'Preview')
+        ctx.font = `${Math.max(canvasPaintTokens.type.smallMinSize, tokens.fontSize - canvasPaintTokens.type.smallReduction)}px ${tokens.fontFamily}`
+        const detailWidth = measureWidth(ctx, 'no sound yet')
+        ctx.restore()
+        const minWidth = Math.max(baseLayout.minWidth, Math.ceil(tokens.padX * 2 + caption.padLeft + labelWidth + caption.gap + Math.ceil(detailWidth) + caption.padRight))
+        baseLayout = { ...projectNodeLayoutWidth(baseLayout, Math.max(baseLayout.width, minWidth)), minWidth }
+      }
       if (panel) {
-        const audio = preview.kind === 'audio' ? canvasPaintTokens.node.audioPreview : undefined
-        let layout = withPreviewRegion(baseLayout, audio === undefined ? this.tokens : { ...this.tokens, previewMinHeight: audio.minHeight })
+        let layout = withPreviewRegion(baseLayout, tokens)
         if (audio !== undefined) {
           const minWidth = Math.max(layout.minWidth, audio.minWidth)
           layout = { ...projectNodeLayoutWidth(layout, Math.max(layout.width, minWidth)), minWidth }
@@ -4478,7 +4491,7 @@ export class CanvasRenderer {
         y: node.y + l.preview.y,
         width: l.preview.width,
         height: l.preview.height,
-      }, { label: 'Preview', detail: 'no picture yet', detailColor: t.colors.valueMark, detailFont: smallFont, hovered: false })
+      }, { label: 'Preview', detail: node.audioPreview === true ? 'no sound yet' : 'no picture yet', detailColor: t.colors.valueMark, detailFont: smallFont, hovered: false })
     }
     if (previewEdgeShown(node) && contentDetail) {
       // The text box's bar, inside the node just above its bottom edge: it

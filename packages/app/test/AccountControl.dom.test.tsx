@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { BroadcastChannel } from 'node:worker_threads'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AccountStatus } from '@dinkster/client'
@@ -10,7 +11,7 @@ const signedOut: AccountStatus = {
   signedIn: false, profile: null, signIn: 'idle',
 }
 
-function mount(initial: AccountStatus) {
+function mount(initial: AccountStatus, baseUrl = 'http://engine.test') {
   let current = initial
   const connection = {
     accountStatus: vi.fn(async () => current),
@@ -24,7 +25,7 @@ function mount(initial: AccountStatus) {
   const root = document.createElement('div')
   document.body.append(root)
   const dispose = render(() => {
-    const session = createAccountSession(() => connection)
+    const session = createAccountSession(() => connection, baseUrl)
     return <AccountControl session={session} />
   }, root)
   return {
@@ -39,6 +40,7 @@ describe('account control', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     document.body.replaceChildren()
   })
 
@@ -73,6 +75,50 @@ describe('account control', () => {
     expect(view.connection.signOutAccount).toHaveBeenCalledOnce()
     expect(view.root.querySelector('button[aria-label="Sign in"]')).not.toBeNull()
     view.dispose()
+  })
+
+  it('keeps sign-out visible when an earlier account poll finishes late', async () => {
+    vi.useFakeTimers()
+    const signedIn: AccountStatus = { ...signedOut, signedIn: true,
+      profile: { displayName: 'Alex Rivers', email: null } }
+    const view = mount(signedIn)
+    await settle()
+    let release!: (value: AccountStatus) => void
+    view.connection.accountStatus.mockImplementationOnce(() => new Promise((resolve) => { release = resolve }))
+    await vi.advanceTimersByTimeAsync(30_000)
+    view.root.querySelector<HTMLButtonElement>('button[aria-label="Account menu: Alex Rivers"]')!.click()
+    await settle()
+    document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click()
+    await settle()
+    expect(view.root.querySelector('button[aria-label="Sign in"]')).not.toBeNull()
+    release(signedIn)
+    await settle()
+    expect(view.root.querySelector('button[aria-label="Sign in"]')).not.toBeNull()
+    expect(view.root.querySelector('button[aria-label="Account menu: Alex Rivers"]')).toBeNull()
+    view.dispose()
+  })
+
+  it('retires another window on sign-out without waiting for focus or its account poll', async () => {
+    vi.stubGlobal('BroadcastChannel', BroadcastChannel)
+    const signedIn: AccountStatus = { ...signedOut, signedIn: true,
+      profile: { displayName: 'Alex Rivers', email: null } }
+    const first = mount(signedIn)
+    const second = mount(signedIn)
+    const unrelated = mount(signedIn, 'http://another-engine.test')
+    try {
+      await vi.waitFor(() => expect(second.root.querySelector('button[aria-label="Account menu: Alex Rivers"]')).not.toBeNull())
+      second.become(signedOut)
+      unrelated.become(signedOut)
+      first.root.querySelector<HTMLButtonElement>('button[aria-label="Account menu: Alex Rivers"]')!.click()
+      await vi.waitFor(() => expect(document.querySelector('[role="menuitem"]')).not.toBeNull())
+      document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click()
+      await vi.waitFor(() => expect(second.root.querySelector('button[aria-label="Sign in"]')).not.toBeNull())
+      expect(unrelated.root.querySelector('button[aria-label="Account menu: Alex Rivers"]')).not.toBeNull()
+    } finally {
+      first.dispose()
+      second.dispose()
+      unrelated.dispose()
+    }
   })
 
   it('explains that sign-in starts on the engine machine instead of starting it', async () => {

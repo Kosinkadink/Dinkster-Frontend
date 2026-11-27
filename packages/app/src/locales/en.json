@@ -1301,6 +1301,7 @@
   "learn.action.back": "Back to guides",
   "learn.action.loadMore": "Load more",
   "learn.action.openTemplate": "Open template",
+  "learn.action.retry": "Retry",
   "learn.action.search": "Search",
   "learn.panel.ariaLabel": "Learning guides",
   "learn.panel.description": "Browse guides from the active backend",

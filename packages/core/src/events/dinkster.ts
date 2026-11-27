@@ -179,6 +179,12 @@ export class DinksterNormalizer implements EventNormalizer {
     private readonly extensionSnapshot?: (digest: string) => EffectiveExtensionSnapshot | undefined,
   ) {}
 
+  /** Account changes retire correlations learned under the previous principal. */
+  reset(): void {
+    this.jobOfRun.clear()
+    this.terminalJobs.clear()
+  }
+
   private exec(jobId: string): ExecutionRef {
     return { connection: this.connection, prompt: asPromptId(jobId) }
   }

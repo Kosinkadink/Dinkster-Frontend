@@ -2667,7 +2667,7 @@ export function App(props: {
       .then((project) => setProjectName(project.name), () => {})
     onCleanup(() => controller.abort())
   })
-  const account = createAccountSession(() => app.connection)
+  const account = createAccountSession(() => app.connection, '')
   const [projectList, setProjectList] = createSolidSignal<readonly ProductProject[]>()
   const [projectListFailed, setProjectListFailed] = createSolidSignal(false)
   const [projectsFocusNew, setProjectsFocusNew] = createSolidSignal(false)
