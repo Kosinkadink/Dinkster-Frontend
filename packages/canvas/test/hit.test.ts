@@ -70,7 +70,7 @@ describe('hitTest', () => {
       { connectedPorts: new Set(['in:first', 'in:last', 'out:first', 'out:last']) })
     const node = { ...n0, layout }
     const folded = { ...scene, nodes: [node] }
-    const pins = layout.pins.filter((pin) => pin.direction === 'in')
+    const pins = layout.pins.filter((pin) => pin.direction === 'in' && !pin.lineHidden)
     const firstY = node.y + pins[0]!.y
     const lastY = node.y + pins[1]!.y
     for (const [y, portId] of [[firstY, 'first'], [lastY, 'last'], [(firstY + lastY) / 2, 'first'], [(firstY + lastY) / 2 + 0.1, 'last']] as const) {
@@ -143,10 +143,11 @@ describe('hitTest', () => {
         expect(hit).toMatchObject({ kind: 'widget', row: { inputId: row.inputId } })
       }
       for (const pin of layout.pins) {
+        if (pin.lineHidden) continue
         const position = pinPosition(node, pin.portId, pin.direction, pin.widgetTap === true)!
         expect(position.x).toBe(pin.direction === 'in' ? node.x : node.x + layout.width)
         for (const sibling of layout.pins) {
-          if (sibling !== pin && sibling.direction === pin.direction)
+          if (sibling !== pin && !sibling.lineHidden && sibling.direction === pin.direction)
             expect(Math.abs(sibling.y - pin.y)).toBeGreaterThan(PIN_HIT_RADIUS * 2)
         }
         const hit = hitTest(pairedScene, position.x, position.y, { widgetTaps: new Set(layout.pins.filter((pin) => pin.widgetTap).map((pin) => `${node.id}:${pin.portId}:out:tap`)) })

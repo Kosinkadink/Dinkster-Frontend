@@ -99,6 +99,7 @@ import {
   FloatingPanelHost,
   IconBar,
   PanelIndicatorBadge,
+  positionResizeGrip,
   ShellRegionIcon,
   ShellResizeHandle,
   ShellTooltip,
@@ -117,6 +118,7 @@ import {
   panelDragReleaseAction,
   rollbackPanelDragModel,
   type PanelDragModel,
+  type PanelDragTabFit,
   type PanelDragRect,
   type PanelDragSectionGeometry,
   type PanelDragVisibleZoneGeometry,
@@ -685,59 +687,20 @@ export function App(props: {
     }
     if (sourceId !== 'runs' || entry.owner === undefined) return
     const runId = runIdOfEntry(entry)
-    if (actionId === 'delete' && !deletingRun()) {
-      setDeleteRunError('')
-      setPendingDeleteRun({ owner: entry.owner, id: entry.id, runId, name: entry.title })
+    if (actionId === 'delete') {
+      // AppState reports deletion failures in Problems before rejecting.
+      void app.deleteHistoryRun(runId, entry.owner).catch(() => {})
     }
     if (actionId === 'open') void app.openRunWorkflow(runId, entry.owner)
     if (actionId === 'resubmit') void app.resubmitRunWorkflow(runId, entry.owner)
   }
-  const [pendingDeleteRun, setPendingDeleteRun] = createSolidSignal<{ owner: string; id: string; runId: string; name: string }>()
-  const [deletingRun, setDeletingRun] = createSolidSignal(false)
-  const [deleteRunError, setDeleteRunError] = createSolidSignal('')
-  const confirmDeleteRun = async (): Promise<void> => {
-    const target = pendingDeleteRun()
-    if (!target || deletingRun()) return
-    setDeletingRun(true)
-    setDeleteRunError('')
-    try {
-      await app.deleteHistoryRun(target.runId, target.owner)
-      setPendingDeleteRun(undefined)
-    } catch (cause) {
-      setDeleteRunError(message('runs.delete.failed', { name: target.name, reason: cause instanceof Error ? cause.message : String(cause) }))
-    } finally { setDeletingRun(false) }
-  }
-  createEffect(() => {
-    if (!deletingRun() && pendingDeleteRun()?.owner !== activeBackend().id) setPendingDeleteRun(undefined)
-  })
-  // The confirmation keeps the committed collection page's owner, never
-  // routing a clear to a backend selected while that page is being replaced.
-  const [pendingClear, setPendingClear] = createSolidSignal<{ owner: string; name: string }>()
   const [clearing, setClearing] = createSolidSignal(false)
-  const [clearError, setClearError] = createSolidSignal('')
   const librarySourceAction = (sourceId: string, actionId: string, owner?: string): void => {
     if (sourceId !== 'runs' || actionId !== 'clear' || owner === undefined || clearing()) return
-    const backend = backends().find((candidate) => candidate.id === owner)
-    if (backend) {
-      setClearError('')
-      setPendingClear({ owner, name: backend.label })
-    }
-  }
-  const confirmClear = async (): Promise<void> => {
-    const target = pendingClear()
-    if (!target || clearing()) return
     setClearing(true)
-    setClearError('')
-    try {
-      await app.clearRunHistory(target.owner)
-      setPendingClear(undefined)
-    } catch (cause) {
-      setClearError(message('runs.clear.failed', { reason: cause instanceof Error ? cause.message : String(cause) }))
-    } finally { setClearing(false) }
+    // The committed page supplies its owner; AppState reports failures in Problems.
+    void app.clearRunHistory(owner).catch(() => {}).finally(() => setClearing(false))
   }
-  createEffect(() => {
-    if (!clearing() && pendingClear()?.owner !== activeBackend().id) setPendingClear(undefined)
-  })
   const multiBackend = () => backends().length > 1
 
   // Pending close is validated by (id, DocumentSession): a same-id
@@ -911,6 +874,7 @@ export function App(props: {
     readonly sourceGroupId: string
     readonly x: number
     readonly y: number
+    readonly width: number
     /** Reorder preview; set only while the pointer rides the source strip. */
     readonly order: readonly string[] | undefined
     readonly insertionIndex: number | undefined
@@ -918,6 +882,7 @@ export function App(props: {
     readonly dropTarget: SplitDropTarget | undefined
     /** Another group's strip the pointer is over. */
     readonly targetStripId: string | undefined
+    readonly targetStripIndex: number | undefined
     /** True when releasing here would do nothing (refused split, pop-out unavailable). */
     readonly refused: boolean
   } | undefined>(undefined)
@@ -1005,9 +970,11 @@ export function App(props: {
     paneEntriesPrev = next
     return next
   })
-  const beginDividerDrag = (divider: SplitDividerRect, down: PointerEvent): void => {
+  const beginDividerDrag = (divider: SplitDividerRect, down: PointerEvent & { currentTarget: HTMLDivElement }): void => {
     if (down.button !== 0 || regionElement === undefined) return
     down.preventDefault()
+    positionResizeGrip(down)
+    down.currentTarget.setPointerCapture(down.pointerId)
     const region = regionElement.getBoundingClientRect()
     // The divider's area (its split node's box) is fixed for the whole
     // drag: only this split's own ratio changes.
@@ -1046,6 +1013,7 @@ export function App(props: {
   }
   const beginTabDrag = (tab: AppTab, down: PointerEvent, groupId: string): void => {
     if (down.button !== 0) return
+    tooltips.hide()
     const strip = stripElements.get(groupId)
     if (strip === undefined) return
     const pointerId = down.pointerId
@@ -1055,6 +1023,24 @@ export function App(props: {
       return
     }
     if ((down.target as Element | null)?.closest('.tab-close')) return
+    // Feedback parts the row. Hit-testing uses the unshifted centers, adjusted
+    // for scrolling, rather than measuring its own insertion gap.
+    const stripSlots = new Map([...stripElements.values()].map((element) => {
+      const row = element.querySelector<HTMLElement>('.workflow-tablist')!
+      const left = element.getBoundingClientRect().left
+      const slots = [...element.querySelectorAll<HTMLElement>('.tab')].map((item) => {
+        const rect = item.getBoundingClientRect()
+        return { id: item.dataset['tabId']!, left: rect.left - left + row.scrollLeft, right: rect.right - left + row.scrollLeft }
+      })
+      return [element, { row, slots }] as const
+    }))
+    const sourceSlot = stripSlots.get(strip)!.slots.find((slot) => slot.id === tab.id)!
+    const width = sourceSlot.right - sourceSlot.left
+    const slotsFor = (element: HTMLElement): readonly TabDragSlot[] => {
+      const snapshot = stripSlots.get(element)!
+      const offset = element.getBoundingClientRect().left - snapshot.row.scrollLeft
+      return snapshot.slots.map((slot) => ({ id: slot.id, left: slot.left + offset, right: slot.right + offset }))
+    }
     tabDragPointerId = pointerId
     let drag = beginTabDragModel(pointerId, tab.id, down.clientX)
     let captured = false
@@ -1065,10 +1051,7 @@ export function App(props: {
     const within = (rect: DOMRect, x: number, y: number, pad = 0): boolean =>
       x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad
     const stripInsertionIndex = (element: HTMLElement, clientX: number): number =>
-      Array.from(element.querySelectorAll<HTMLElement>('.tab')).filter((el) => {
-        const rect = el.getBoundingClientRect()
-        return clientX >= (rect.left + rect.right) / 2
-      }).length
+      slotsFor(element).filter((slot) => clientX >= (slot.left + slot.right) / 2).length
     const dispose = (): void => {
       if (disposed) return
       disposed = true
@@ -1085,11 +1068,7 @@ export function App(props: {
       const wasStarted = drag.started
       const elements = Array.from(strip.querySelectorAll<HTMLElement>('.tab'))
       const currentOrder = elements.map((element) => element.dataset['tabId']!)
-      const slots: readonly TabDragSlot[] = elements.map((element) => {
-        const rect = element.getBoundingClientRect()
-        return { id: element.dataset['tabId']!, left: rect.left, right: rect.right }
-      })
-      drag = moveTabDragModel(drag, event.pointerId, event.clientX, currentOrder, slots)
+      drag = moveTabDragModel(drag, event.pointerId, event.clientX, currentOrder, slotsFor(strip))
       if (!drag.started) return
       if (!wasStarted && !captured) {
         try {
@@ -1111,7 +1090,7 @@ export function App(props: {
       overSourceStrip = within(strip.getBoundingClientRect(), event.clientX, event.clientY, 24)
       if (!overSourceStrip) {
         for (const [gid, element] of stripElements) {
-          if (gid === groupId || !element.isConnected) continue
+          if (gid === groupId || !element.isConnected || !stripSlots.has(element)) continue
           if (within(element.getBoundingClientRect(), event.clientX, event.clientY, 8)) {
             stripTarget = { groupId: gid, index: stripInsertionIndex(element, event.clientX) }
             break
@@ -1140,10 +1119,12 @@ export function App(props: {
         sourceGroupId: groupId,
         x: event.clientX,
         y: event.clientY,
+        width,
         order: overSourceStrip ? preview.order : undefined,
         insertionIndex: overSourceStrip ? preview.insertionIndex : undefined,
         dropTarget: paneTarget,
         targetStripId: stripTarget?.groupId,
+        targetStripIndex: stripTarget?.index,
         refused,
       }))
     }
@@ -1655,7 +1636,6 @@ export function App(props: {
       onCopyJobId={() => { const jobId = record()?.jobId; if (jobId !== undefined) void navigator.clipboard?.writeText(jobId) }}
       onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
-      <Show when={pendingDeleteRun()?.owner === p.entry.owner && pendingDeleteRun()?.id === p.entry.id} fallback={<>
       <div class="run-row-line">
         <span class="run-row-thumbnail" aria-hidden="true">
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
@@ -1679,12 +1659,6 @@ export function App(props: {
         }</Show>}>
           {(execution) => <Outputs app={app} execution={execution()} details={<Facts />} chosen={chosen()} inspectOpen={inspectOpen()} />}
         </Show>
-      </Show>
-      </>}>
-        <ProductConfirmation title={message('runs.delete.title', { name: pendingDeleteRun()!.name })}
-          consequence={message('runs.delete.consequence')} actionLabel={message('runs.chosen.delete')}
-          intent="remove" surface="inherit" pending={deletingRun()} error={deleteRunError()}
-          onCancel={() => { setDeleteRunError(''); setPendingDeleteRun(undefined) }} onConfirm={() => void confirmDeleteRun()} />
       </Show>
     </div>
   }
@@ -1732,17 +1706,13 @@ export function App(props: {
       </Show>
       <Show when={shownRunScope() === 'workflow'} fallback={<>
         <h3 class="run-section-title">{message('runs.section.finished')}</h3>
-        <Show when={pendingClear()}>{(target) => <ProductConfirmation
-          title={message('runs.clear.title', { backend: target().name })} consequence={message('runs.clear.confirmation')}
-          actionLabel={message('runs.clear.action')} intent="remove" pending={clearing()} error={clearError()}
-          onCancel={() => { setClearError(''); setPendingClear(undefined) }} onConfirm={() => void confirmClear()} />}</Show>
         <CollectionPanel sources={[activeBackend().protocol === 'dinkster' ? storedRuns : browserHistory]}
           listOnly refreshTick={libraryTick} searchLabel={message('runs.search')}
           renderState={(state) => state.kind === 'empty' && activeBackend().protocol === 'dinkster'
             ? <ProductEmptyState title={message('runs.stored.empty')} /> : undefined}
           entryContent={(entry, selected) => <StoredRun entry={entry()} selected={selected} />}
           onAction={libraryEntryAction}
-          sourceActions={pendingClear() ? [] : [{ sourceId: 'runs', id: 'clear', label: message('runs.clear.action') }]}
+          sourceActions={[{ sourceId: 'runs', id: 'clear', label: message('runs.clear.action') }]}
           onSourceAction={librarySourceAction} />
       </>}>
       <Show when={workflowExecutions().length > 0} fallback={<ProductEmptyState title={message('runs.empty')} />}>
@@ -2235,11 +2205,17 @@ export function App(props: {
     }
   })
   const [panelDrag, setPanelDrag] = createSolidSignal<PanelDragModel>()
+  let panelDragWidth = 0
   let panelDragPointerId: number | undefined
   let disposePanelDrag: (() => void) | undefined
+  let updatePanelDragTabFit: ((fit: PanelDragTabFit | undefined) => void) | undefined
   const publishPanelDrag = (drag: PanelDragModel | undefined): void => {
-    setPanelDrag(drag)
     const active = drag?.started === true && !drag.rolledBack
+    if (active) {
+      tooltips.hide()
+      bodyElement.style.setProperty('--tab-drag-width', `${panelDragWidth}px`)
+    } else bodyElement.style.removeProperty('--tab-drag-width')
+    setPanelDrag(drag)
     document.body.classList.toggle('panel-drag-active', active)
     document.body.classList.toggle('panel-drag-not-allowed', active && drag.preview?.allowed === false)
   }
@@ -2314,6 +2290,18 @@ export function App(props: {
     if (panelId === undefined || originZone === undefined || descriptor === undefined || snapshot === undefined) return
 
     disposePanelDrag?.()
+    const tab = target.matches('[data-panel-title]')
+      ? target.closest('.dock-zone-section')!.querySelector<HTMLElement>(`.product-tab[data-tab-id="${CSS.escape(panelId)}"]`)!
+      : target
+    const tablist = tab.closest<HTMLElement>('.product-tablist')!
+    const display = tablist.style.display
+    const tabDisplay = tab.style.display
+    // Title-only headers stretch, but their mounted tab has the landing-row size.
+    tablist.style.display = 'flex'
+    tab.style.display = 'block'
+    panelDragWidth = tab.getBoundingClientRect().width
+    tab.style.display = tabDisplay
+    tablist.style.display = display
     panelDragPointerId = pointerId
     let drag = beginPanelDragModel(
       pointerId,
@@ -2325,6 +2313,11 @@ export function App(props: {
         floating: descriptor.allowedPlacements.includes('floating'),
       },
     )
+    updatePanelDragTabFit = (tabFit) => {
+      if (panelDrag() === undefined || drag.rolledBack) return
+      drag = movePanelDragModel({ ...drag, tabFit }, pointerId, drag.point)
+      publishPanelDrag(drag)
+    }
     let captured = false
     let disposed = false
     let clickCleanupTimer: ReturnType<typeof setTimeout> | undefined
@@ -2355,6 +2348,7 @@ export function App(props: {
       target.removeEventListener('lostpointercapture', lostCapture)
       if (captured && target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
       if (panelDragPointerId === pointerId) panelDragPointerId = undefined
+      updatePanelDragTabFit = undefined
       if (disposePanelDrag === dispose) disposePanelDrag = undefined
     }
     const rollback = (): void => {
@@ -2420,6 +2414,8 @@ export function App(props: {
     }
     const finish = (event: PointerEvent): void => {
       if (event.pointerId !== pointerId) return
+      // Restore the unshifted row before the release-time geometry check.
+      publishPanelDrag(undefined)
       const currentSnapshot = drag.started ? capturePanelDragSnapshot() : undefined
       const action = panelDragReleaseAction(drag, currentSnapshot === undefined ? undefined : {
         snapshot: currentSnapshot,
@@ -2819,7 +2815,10 @@ export function App(props: {
         data-testid="editor-group"
         data-group-id={p.groupId}
         data-focused={paneFocused() ? 'true' : 'false'}
-        style={paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }}
+        style={{
+          ...(paneRect() !== undefined ? rectStyle(paneRect()!) : { display: 'none' }),
+          '--tab-drag-width': tabDrag() !== undefined ? `${tabDrag()!.width}px` : undefined,
+        }}
         onFocusIn={focusPane}
         ref={sectionElement}
       >
@@ -2830,6 +2829,7 @@ export function App(props: {
             activeId={group().activeTabId}
             draggedId={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.tabId : undefined}
             insertionIndex={tabDrag()?.sourceGroupId === p.groupId ? tabDrag()?.insertionIndex : undefined}
+            dropIndex={tabDrag()?.targetStripId === p.groupId ? tabDrag()?.targetStripIndex : undefined}
             runState={(tab) => {
               executions()
               tabResultClears()
@@ -3292,6 +3292,8 @@ export function App(props: {
           >
             <DockZoneHost
               zone="left"
+              drag={panelDrag()}
+              onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
               titleOnly={activityBarVisible()}
               ariaLabel={message('shell.primaryDockPanels')}
               sections={zoneSections('left')}
@@ -3329,7 +3331,7 @@ export function App(props: {
             <Index each={regionRects().dividers}>
               {(divider) => (
                 <div
-                  class="editor-split-divider"
+                  class="editor-split-divider panel-resize-handle"
                   data-testid="editor-split-divider"
                   role="separator"
                   tabindex="0"
@@ -3340,6 +3342,7 @@ export function App(props: {
                   aria-valuenow={Math.round(divider().ratio * 100)}
                   data-direction={divider().direction}
                   style={rectStyle(divider().rect)}
+                  onPointerMove={positionResizeGrip}
                   onPointerDown={(event) => beginDividerDrag(divider(), event)}
                   onKeyDown={(event) => onDividerKeyDown(divider(), event)}
                 />
@@ -3370,6 +3373,8 @@ export function App(props: {
               />
               <DockZoneHost
                 zone="bottom"
+                drag={panelDrag()}
+                onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
                 ariaLabel={message('shell.bottomPanels')}
                 sections={zoneSections('bottom')}
                 split={zoneSplit('bottom')}
@@ -3399,6 +3404,8 @@ export function App(props: {
               must not reopen the zone. */}
           <DockZoneHost
             zone="right"
+            drag={panelDrag()}
+            onDragTabFit={(fit) => updatePanelDragTabFit?.(fit)}
             ariaLabel={message('shell.inspectorPanels')}
             sections={zoneSections('right')}
             split={zoneSplit('right')}
@@ -3418,14 +3425,16 @@ export function App(props: {
             drag={drag()}
             ghostTitle={descriptor()?.title ?? drag().panelId}
             ghostIcon={descriptor()?.icon}
+            ghostActive={DOCK_ZONE_IDS.some((zone) => zoneSections(zone).some((section) => section.activeId === drag().panelId))}
           />
         )
       }}</Show>
       <Show when={tabDrag()}>{(drag) => (
-        <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused} />
+        <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused}
+          active={findGroup(displayLayout(), drag().sourceGroupId)?.activeTabId === drag().tabId} />
       )}</Show>
 
-      <Show when={tooltip()}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
+      <Show when={!panelDrag()?.started && tabDrag() === undefined ? tooltip() : undefined}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
       <Show when={queueRefusal() !== undefined && queueRefusal() === activeTab() && problemsIndicator()}>{(summary) => (
         <ProductEmptyState
           class="queue-refusal-toast"

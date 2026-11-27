@@ -1515,7 +1515,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   })
   let semanticTargetSelected: (target: CanvasSemanticTarget) => boolean = () => false
   let activateSemanticTarget: (target: CanvasSemanticTarget) => void = () => {}
-  let focusSemanticPin: (item: CanvasSemanticItem | undefined) => void = () => {}
+  let focusSemanticTarget: (item: CanvasSemanticItem | undefined) => void = () => {}
   let semanticPinPoint: (item: CanvasSemanticItem) => { x: number; y: number } | undefined = () => undefined
   let focusCanvas = (): void => {}
   const [editorViewport, setEditorViewport] = createSolidSignal({ x: 0, y: 0, scale: 1 })
@@ -1548,11 +1548,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     })
   }
   let editorPictureHeights: Pick<InteractionController, 'previewPictureHeight' | 'commitPictureHeight'> | undefined
-  const editorSpaceByKey = createMemo(() => new Map(editorSpaces().map((item) => [item.key, item])))
+  const [resizingNode, setResizingNode] = createSolidSignal<SceneNode>()
+  const liveEditorSpaces = createMemo(() => editorSpaces().map((item) => {
+    const node = resizingNode()
+    if (node?.id !== item.nodeId) return item
+    const row = node.layout.rows.find((row) => row.kind === 'editorSpace' && row.valueKey === item.row.valueKey)
+    if (row?.kind !== 'editorSpace') return item
+    return {
+      ...item, row,
+      node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
+      space: { x: row.inset, y: row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height - defaultTokens.rowGeometry.fieldInsetY },
+    }
+  }))
+  const editorSpaceByKey = createMemo(() => new Map(liveEditorSpaces().map((item) => [item.key, item])))
   /** Every node's box in the order the canvas draws them, so a later one is drawn in front. */
   const [nodeBoxes, setNodeBoxes] = createSolidSignal<readonly { readonly id: string; readonly box: EditorWorldRect }[]>([])
   const [nodeDrag, setNodeDrag] = createSolidSignal<ReadonlyMap<string, { readonly dx: number; readonly dy: number }>>()
   const dragged = (box: EditorWorldRect, nodeId: string): EditorWorldRect => {
+    const resized = resizingNode()
+    if (resized?.id === nodeId) box = { x: resized.x, y: resized.y, width: resized.layout.width, height: resized.layout.height }
     const offset = nodeDrag()?.get(nodeId)
     return offset === undefined ? box : { ...box, x: box.x + offset.dx, y: box.y + offset.dy }
   }
@@ -1576,7 +1590,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     if (!editorSpaceInteractive(viewport.scale)) return []
     const canvas = canvasClientRect()
     return boundedVisibleOverlayKeys(
-      editorSpaces(),
+      liveEditorSpaces(),
       (item) => item.key,
       (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
       (item) => selectedNodeIds().has(item.nodeId),
@@ -1617,7 +1631,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     activeTabId()
     setActiveCanvasMedia(new Set<string>())
   })
-  const mediaPreviewById = createMemo(() => new Map(mediaPreviews().map((item) => [item.id, item])))
+  const livePreview = <T extends { readonly id: string; readonly node: EditorWorldRect; readonly preview: EditorWorldRect }>(item: T): T => {
+    const node = resizingNode()
+    const preview = node?.layout.preview
+    return node?.id !== item.id || preview === undefined ? item : {
+      ...item,
+      node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
+      preview: splitPreviewRect(preview, defaultTokens.previewCaptionHeight).media,
+    }
+  }
+  const mediaPreviewById = createMemo(() => new Map(mediaPreviews().map((item) => [item.id, livePreview(item)])))
   const [outputPages, setOutputPages] = createSolidSignal<ReadonlyMap<string, number>>(new Map())
   const [outputImagePreviews, setOutputImagePreviews] = createSolidSignal<readonly {
     readonly id: string
@@ -1636,7 +1659,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     ])
     setActiveCanvasMedia((current) => retainActiveOverlayKeys(current, live))
   })
-  const outputImagePreviewByKey = createMemo(() => new Map(outputImagePreviews().map((item) => [item.output.key, item])))
+  const outputImagePreviewByKey = createMemo(() => new Map(outputImagePreviews().map((item) => [item.output.key, livePreview(item)])))
   const outputImagePreviewFor = (key: string) => outputImagePreviewByKey().get(key)
   const [outputViewerKey, setOutputViewerKey] = createSolidSignal<string>()
   const visibleMediaPreviewIds = (): readonly string[] => {
@@ -3390,6 +3413,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setNodeDrag(offsets)
         publishPresence()
       },
+      onNodeResize: setResizingNode,
       onLinkDragPresence: (origin) => {
         linkOrigin = origin
         publishPresence()
@@ -3862,16 +3886,35 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     canvasEl.addEventListener('wheel', camera.cancel, { capture: true })
     onCleanup(() => canvasEl.removeEventListener('wheel', camera.cancel, { capture: true }))
     focusCanvas = () => canvasEl.focus()
-    focusSemanticPin = (item): void => controller.setFocusedPin(
-      item?.target.kind === 'port'
-        ? {
-          nodeId: item.target.nodeId,
-          portId: item.target.id,
-          direction: item.target.direction,
-          ...(item.target.widgetTap === true ? { widgetTap: true as const } : {}),
-        }
-        : undefined,
-    )
+    focusSemanticTarget = (item): void => {
+      const target = item?.target
+      const focused = target?.kind === 'port'
+        ? { nodeId: target.nodeId, pin: { portId: target.id, direction: target.direction,
+          ...(target.widgetTap === true ? { widgetTap: true as const } : {}) } }
+        : target?.kind === 'node' || target?.kind === 'boundary' ? { nodeId: target.id } : undefined
+      controller.setFocusedTarget(focused)
+      if (focused === undefined) return
+      const scene = renderer.getScene()
+      const node = scene.nodes.find((node) => node.id === focused.nodeId) ??
+        scene.boundaryNodes.find((node) => boundarySceneId(node.side) === focused.nodeId)
+      if (node === undefined) return
+      let rect = { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height }
+      if (focused.pin !== undefined) {
+        const pin = node.layout.pins.find((pin) => pin.portId === focused.pin!.portId &&
+          pin.direction === focused.pin!.direction && (pin.widgetTap === true) === (focused.pin!.widgetTap === true))
+        if (pin === undefined) return
+        rect = { x: node.x + (pin.direction === 'in' ? 0 : node.layout.width), y: node.y + pin.y, width: 0, height: 0 }
+      }
+      const viewport = renderer.getViewport()
+      const left = viewport.x + rect.x * viewport.scale
+      const top = viewport.y + rect.y * viewport.scale
+      if (left < 0 || top < 0 || left + rect.width * viewport.scale > canvasEl.clientWidth ||
+          top + rect.height * viewport.scale > canvasEl.clientHeight) {
+        camera.cancel()
+        renderer.setViewport(viewportCenteredOnNode(viewport, rect,
+          { width: canvasEl.clientWidth, height: canvasEl.clientHeight }))
+      }
+    }
     semanticPinPoint = (item) => {
       const target = item.target
       if (target.kind !== 'port') return undefined
@@ -7079,7 +7122,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setOutputViewerKey(undefined)
       semanticTargetSelected = () => false
       activateSemanticTarget = () => {}
-      focusSemanticPin = () => {}
+      focusSemanticTarget = () => {}
       semanticPinPoint = () => undefined
       focusCanvas = () => {}
     })
@@ -7215,7 +7258,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           onActivate={(item) => activateSemanticTarget(item.target)}
           onExit={() => focusCanvas()}
           onFocusChange={(focused) => setSemanticFocused(focused)}
-          onActiveChange={(item) => focusSemanticPin(item)}
+          onActiveChange={(item) => focusSemanticTarget(item)}
           activePoint={(item) => { void editorViewport(); return semanticPinPoint(item) }}
         />
       </Show>
@@ -7600,6 +7643,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               </Show>
               <Show when={webcam()}>
                 {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
+                  measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}
                   wired={item()?.wired === true} readOnly={readOnly()} carried={item()?.carried} covered={covered()} />}
               </Show>
               <Show when={curve()}>
@@ -7633,6 +7677,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               </Show>
               <Show when={load3d()}>
                 {(at) => <Load3dSpace value={item()?.value} wired={item()?.wired === true} readOnly={readOnly()}
+                  measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}
                   sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
                   live={liveModelViews().has(key) && !covered()}
                   onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}

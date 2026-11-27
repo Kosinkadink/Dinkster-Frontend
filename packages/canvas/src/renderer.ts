@@ -25,7 +25,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutLine, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectNodeLayoutWidth, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutLine, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -687,12 +687,14 @@ export interface OverlayState {
     readonly direction: 'in' | 'out'
     readonly widgetTap?: true
   }
-  /** Keyboard-focused semantic pin. */
-  readonly focusedPin?: {
+  /** Keyboard-list location, independent of selection and pointer hover. */
+  readonly focusedTarget?: {
     readonly nodeId: string
-    readonly portId: string
-    readonly direction: 'in' | 'out'
-    readonly widgetTap?: true
+    readonly pin?: {
+      readonly portId: string
+      readonly direction: 'in' | 'out'
+      readonly widgetTap?: true
+    }
   }
   /** One widget row under the idle pointer. */
   readonly hoveredWidget?: { readonly nodeId: string; readonly valueKey: string }
@@ -1179,7 +1181,7 @@ export class CanvasRenderer {
     ctx.font = `${list.fontSize}px ${t.fontFamily}`
     ctx.textBaseline = 'middle'
     ctx.fillStyle = t.colors.nodeHeader
-    ctx.strokeStyle = t.colors.listOutline
+    ctx.strokeStyle = t.colors.nodeOutline
     ctx.lineWidth = list.stroke
     ctx.beginPath()
     ctx.roundRect(x, y, width, height, list.radius)
@@ -1238,7 +1240,7 @@ export class CanvasRenderer {
     const nodes = new Set<string>()
     const local = new Set<keyof OverlayState>([
       'selection', 'dragOffsets', 'resizePreview', 'bodyDropNode', 'dropRow', 'hoveredNode',
-      'hoveredPin', 'focusedPin', 'hoveredWidget', 'hoveredBox', 'hoveredButton', 'pressedButton', 'hoveredGrip', 'memberDrag', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'pictureHeight', 'textBoxEdge', 'hoveredPreviewCaption',
+      'hoveredPin', 'hoveredWidget', 'hoveredBox', 'hoveredButton', 'pressedButton', 'hoveredGrip', 'memberDrag', 'hoveredBadge', 'hoveredMinimize', 'textBoxLines', 'pictureHeight', 'textBoxEdge', 'hoveredPreviewCaption',
       'previewEdge',
     ])
     const keys = new Set([...Object.keys(previous), ...Object.keys(overlay)] as (keyof OverlayState)[])
@@ -1246,6 +1248,8 @@ export class CanvasRenderer {
       const before = previous[key]
       const after = overlay[key]
       if (before === after) continue
+      // The keyboard ring is painted above retained imagery, not into node tiles.
+      if (key === 'focusedTarget') continue
       if (key === 'selection' || key === 'linkSelection' || key === 'rerouteSelection' ||
           key === 'groupSelection' ||
           key === 'netViewSelection' || key === 'dropTargets' || key === 'hiddenLinkIds') {
@@ -2426,6 +2430,7 @@ export class CanvasRenderer {
     const tl = this.getToolboxLayout()
     if (tl) this.drawToolbox(ctx, tl)
     this.drawTypeAdornments(ctx, view)
+    this.drawKeyboardFocus(ctx, scale)
     this.drawPresence(ctx, scale)
     this.drawCanvasLayers('foreground', ctx, view, scale)
     ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -3129,6 +3134,49 @@ export class CanvasRenderer {
     }
   }
 
+  private drawKeyboardFocus(ctx: CanvasRenderingContext2D, scale: number): void {
+    const target = this.overlay.focusedTarget
+    if (target === undefined) return
+    const node = this.scene.nodes.find((node) => node.id === target.nodeId) ??
+      this.scene.boundaryNodes.find((node) => boundarySceneId(node.side) === target.nodeId)
+    if (node === undefined) return
+    const paint = canvasPaintTokens.keyboardFocus
+    const offset = this.overlay.dragOffsets?.get(target.nodeId) ?? ZERO_OFFSET
+    const x = node.x + offset.dx
+    const y = node.y + offset.dy
+    const outset = paint.outset / scale
+    const densityX = this.canvas.width / this.canvas.clientWidth
+    const densityY = this.canvas.height / this.canvas.clientHeight
+    const originX = Math.round(this.viewport.x * densityX)
+    const originY = Math.round(this.viewport.y * densityY)
+    // Align the stroke's edges, not its center, to backing pixels.
+    const snapX = (value: number): number =>
+      (Math.round(value * scale * densityX + originX - paint.stroke * densityX / 2) + paint.stroke * densityX / 2 - originX) / (scale * densityX)
+    const snapY = (value: number): number =>
+      (Math.round(value * scale * densityY + originY - paint.stroke * densityY / 2) + paint.stroke * densityY / 2 - originY) / (scale * densityY)
+    ctx.save()
+    ctx.strokeStyle = this.tokens.colors.keyboardFocus
+    ctx.lineWidth = paint.stroke / scale
+    ctx.beginPath()
+    if (target.pin === undefined) {
+      const left = snapX(x - outset)
+      const top = snapY(y - outset)
+      ctx.roundRect(left, top, snapX(x + node.layout.width + outset) - left,
+        snapY(y + node.layout.height + outset) - top, this.tokens.cornerRadius + outset)
+    } else {
+      const pin = node.layout.pins.find((pin) => pin.portId === target.pin!.portId &&
+        pin.direction === target.pin!.direction && (pin.widgetTap === true) === (target.pin!.widgetTap === true))
+      if (pin === undefined) { ctx.restore(); return }
+      const point = edgePinPoint(this.tokens, pin.direction, pin.direction === 'in' ? x : x + node.layout.width, y + pin.y)
+      const radius = detailRadius(this.tokens.pinRadius, scale, this.getDetailLevel()) + outset
+      ctx.ellipse(snapX(point.x), snapY(point.y),
+        Math.round(radius * scale * densityX) / (scale * densityX),
+        Math.round(radius * scale * densityY) / (scale * densityY), 0, 0, Math.PI * 2)
+    }
+    ctx.stroke()
+    ctx.restore()
+  }
+
   /**
    * Remote participants: selection tints, then cursors on the very top.
    * Selection rings sit OUTSIDE the local halo (-3/+6) and the scope ring
@@ -3490,8 +3538,8 @@ export class CanvasRenderer {
     }
   }
 
-  /** Paint-only projection for an in-flight resize; scene and hit geometry stay committed. */
-  private nodeForPaint(node: SceneNode): SceneNode {
+  /** Live geometry shared by canvas paint and host overlays; scene and hit geometry stay committed. */
+  nodeForPaint(node: SceneNode): SceneNode {
     const lines = this.overlay.textBoxLines
     if (lines?.nodeId === node.id) {
       return { ...node, layout: projectTextBoxLines(node.layout, lines.valueKey, lines.lines, this.tokens) }
@@ -3505,16 +3553,7 @@ export class CanvasRenderer {
       ...node,
       x: preview.x,
       y: preview.y,
-      layout: {
-        ...layout,
-        width: preview.width,
-        ...(layout.preview === undefined ? {} : {
-          preview: { ...layout.preview, width: Math.max(0, preview.width - this.tokens.padX * 2) },
-        }),
-        ...(layout.textOutput === undefined ? {} : {
-          textOutput: { ...layout.textOutput, width: Math.max(0, preview.width - this.tokens.padX * 2) },
-        }),
-      },
+      layout: projectNodeLayoutWidth(layout, preview.width),
     }
   }
 
@@ -3797,17 +3836,17 @@ export class CanvasRenderer {
     this.drawMinimizeArrow(ctx, node)
     if (!contentDetail) {
       ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
+      ctx.fillStyle = t.colors.title
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'left'
+      paintCenteredText(ctx, fitText(ctx, title, l.width - TITLE_START - t.padX), node.x + TITLE_START, node.y + l.headerHeight / 2, t.titleFontSize)
       if (measureWidth(ctx, title) <= l.width - TITLE_START - t.padX) {
-        ctx.fillStyle = t.colors.title
-        ctx.textBaseline = 'middle'
-        ctx.textAlign = 'left'
-        paintCenteredText(ctx, title, node.x + TITLE_START, node.y + l.headerHeight / 2, t.titleFontSize)
         this.drawTitleSuffix(ctx, suffix, node.x + TITLE_START + measureWidth(ctx, title), node.x + l.width - t.padX, node.y + l.headerHeight / 2, false)
       }
     }
 
     // Detailed text and chips are omitted in the overview tier; structural
-    // state, fitting titles, and typed connectivity remain visible.
+    // state, fitted titles, and typed connectivity remain visible.
     if (contentDetail) {
       // Title fitting respects the space left by header marks.
       ctx.fillStyle = t.colors.title
@@ -4477,7 +4516,7 @@ export class CanvasRenderer {
     // affordance must be discoverable by pointing at the node, not only by
     // selecting it first.
     const nodeHovered = this.overlay.hoveredNode === node.id
-    const matchVariableAt = (target: OverlayState['hoveredPin'] | OverlayState['focusedPin']): string | undefined => {
+    const matchVariableAt = (target: OverlayState['hoveredPin']): string | undefined => {
       if (target === undefined) return undefined
       return l.pins.find((pin) =>
         pin.portId === target.portId &&
@@ -4487,9 +4526,6 @@ export class CanvasRenderer {
     }
     const hoveredMatchVariable = this.overlay.hoveredPin?.nodeId === node.id
       ? matchVariableAt(this.overlay.hoveredPin)
-      : undefined
-    const focusedMatchVariable = this.overlay.focusedPin?.nodeId === node.id
-      ? matchVariableAt(this.overlay.focusedPin)
       : undefined
     if (l.minimized) {
       const isConnected = (pin: PinLayout): boolean => {
@@ -4525,7 +4561,7 @@ export class CanvasRenderer {
       return
     }
     for (const pin of l.pins) {
-      if (pin.stacked === true) continue
+      if (pin.stacked === true || pin.lineHidden === true) continue
       const { x: px, y: py } = edgePinPoint(t, pin.direction, pin.direction === 'in' ? node.x : node.x + l.width, node.y + pin.y)
       const targetKey = dropTargetKey(node.id, pin.portId, pin.direction, pin.widgetTap === true)
       const isLegalTarget = this.overlay.dropTargets?.has(targetKey) ?? false
@@ -4536,14 +4572,9 @@ export class CanvasRenderer {
         this.overlay.hoveredPin.portId === pin.portId &&
         this.overlay.hoveredPin.direction === pin.direction &&
         (pin.widgetTap === true) === (this.overlay.hoveredPin.widgetTap === true)
-      const focused =
-        this.overlay.focusedPin?.nodeId === node.id &&
-        this.overlay.focusedPin.portId === pin.portId &&
-        this.overlay.focusedPin.direction === pin.direction &&
-        (pin.widgetTap === true) === (this.overlay.focusedPin.widgetTap === true)
       const associated = pin.matchVariable !== undefined &&
-        (pin.matchVariable === hoveredMatchVariable || pin.matchVariable === focusedMatchVariable)
-      const radius = hovered || focused || associated ? pinRadius + PIN_HOVER_GROWTH : pinRadius
+        pin.matchVariable === hoveredMatchVariable
+      const radius = hovered || associated ? pinRadius + PIN_HOVER_GROWTH : pinRadius
       // A field's output pin shares its input's annotations but sends one value.
       const acceptsList = pin.direction === 'in' && pin.acceptsList === true
       const shape = pinShapeOf(pin.type, pin.direction, acceptsList)

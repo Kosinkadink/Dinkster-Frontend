@@ -490,6 +490,8 @@ export interface InteractionHost {
    * ends (commit or cancel). Fires only on change; presence egress rides it.
    */
   onDragOffsets?(offsets: ReadonlyMap<string, { readonly dx: number; readonly dy: number }> | undefined): void
+  /** Live node geometry for DOM editors and media, cleared on resize commit or cancel. */
+  onNodeResize?(node: SceneNode | undefined): void
   /** Semantic fixed endpoint of an active link drag, or undefined on end. */
   onLinkDragPresence?(origin: LinkDragPresenceOrigin | undefined): void
   /**
@@ -866,10 +868,7 @@ export class InteractionController {
   private hoveredPinPort: string | undefined
   private hoveredPinDirection: 'in' | 'out' | undefined
   private hoveredPinWidgetTap: true | undefined
-  private focusedPinNode: string | undefined
-  private focusedPinPort: string | undefined
-  private focusedPinDirection: 'in' | 'out' | undefined
-  private focusedPinWidgetTap: true | undefined
+  private focusedTarget: OverlayState['focusedTarget']
   private hoveredWidgetNode: string | undefined
   private hoveredWidgetValue: string | undefined
   /** Text box edge under the idle pointer, and the one arrow keys size. */
@@ -886,7 +885,9 @@ export class InteractionController {
   private hoveredBadge: { readonly nodeId: string; readonly badgeId: string } | undefined
   private hoveredBoxNode: string | undefined
   private hoveredBoxId: string | undefined
-  private hoveredLine: { readonly nodeId: string; readonly key: string } | undefined
+  private hoveredLine: { readonly nodeId: string; readonly key: string; readonly listRow?: number } | undefined
+  private lineListDirection: 'in' | 'out' = 'out'
+  private lineDrop: Extract<Gesture, { kind: 'link' }> | undefined
   private hoveredGrip: { readonly nodeId: string; readonly construct: string; readonly member: string } | undefined
   private hoveredButton: { readonly nodeId: string; readonly key: string } | undefined
   private hoveredToolboxButton: string | undefined
@@ -902,6 +903,7 @@ export class InteractionController {
   private lastDragOffsets:
     | ReadonlyMap<string, { readonly dx: number; readonly dy: number }>
     | undefined
+  private lastResizePreview: OverlayState['resizePreview']
   private lastLinkDragPresence: LinkDragPresenceOrigin | undefined
   private readonly pointerTrace = new PointerTrace()
   private readonly detach: () => void
@@ -1154,6 +1156,7 @@ export class InteractionController {
     // sets, widget/section/growth presses holding old rows) cancel instead of
     // committing stale captures, as does everything on a graph change.
     const detachScene = renderer.onSceneReplaced((scene) => {
+      this.lineDrop = undefined
       // Hover ids are overlay state keyed to the OLD scene: a hovered node or
       // reroute that left must not keep pins or ghost sockets revealed, and a
       // GRAPH change stales both ids outright - an id in another graph may
@@ -1302,6 +1305,9 @@ export class InteractionController {
    * replacement, disposal) in any order.
    */
   cancelGesture(reason: PointerTraceReason = 'pointercancel-cancel'): void {
+    this.lineDrop = undefined
+    this.hoveredLine = undefined
+    this.canvas.style.cursor = ''
     const pointerId = this.activePointerId
     const kind = this.gesture.kind
     this.activePointerId = undefined
@@ -1310,7 +1316,10 @@ export class InteractionController {
     this.gestureGraphId = undefined
     this.lastGesturePoint = undefined
     this.releasePointer(pointerId)
-    if (kind === 'idle') return
+    if (kind === 'idle') {
+      this.pushOverlay()
+      return
+    }
     if (kind === 'number-drag') this.renderer.setRowDrag(undefined)
     this.pointerTrace.recordGesture(kind, 'cancel', reason)
     this.gesture = { kind: 'idle' }
@@ -1513,21 +1522,13 @@ export class InteractionController {
     this.pushOverlay()
   }
 
-  /** Set or clear the keyboard-focused semantic pin. */
-  setFocusedPin(pin: {
-    readonly nodeId: string
-    readonly portId: string
-    readonly direction: 'in' | 'out'
-    readonly widgetTap?: true
-  } | undefined): void {
-    if (pin?.nodeId === this.focusedPinNode &&
-        pin?.portId === this.focusedPinPort &&
-        pin?.direction === this.focusedPinDirection &&
-        pin?.widgetTap === this.focusedPinWidgetTap) return
-    this.focusedPinNode = pin?.nodeId
-    this.focusedPinPort = pin?.portId
-    this.focusedPinDirection = pin?.direction
-    this.focusedPinWidgetTap = pin?.widgetTap
+  /** Set or clear the paint-only keyboard-list location. */
+  setFocusedTarget(target: OverlayState['focusedTarget']): void {
+    if (target?.nodeId === this.focusedTarget?.nodeId &&
+        target?.pin?.portId === this.focusedTarget?.pin?.portId &&
+        target?.pin?.direction === this.focusedTarget?.pin?.direction &&
+        target?.pin?.widgetTap === this.focusedTarget?.pin?.widgetTap) return
+    this.focusedTarget = target
     this.pushOverlay()
   }
 
@@ -1693,6 +1694,32 @@ export class InteractionController {
     const w = this.renderer.toWorld(sx, sy)
     const scene = this.renderer.getScene()
 
+    const list = this.lineListAt(w)
+    if (list !== undefined && list.row !== undefined) {
+      e.preventDefault()
+      this.capturePointer(e)
+      if (list.row === list.line.fields.length) {
+        this.lineDrop = undefined
+        this.gesture = { kind: 'line', hit: { kind: 'line', node: list.node, line: list.line }, moved: false }
+      } else {
+        const pin = this.lineListPin(list, this.lineDrop?.seeking ?? this.lineListDirection)
+        if (pin !== undefined && this.lineDrop !== undefined) {
+          const pending = this.lineDrop
+          this.lineDrop = undefined
+          this.hoveredLine = undefined
+          this.completeLink(pending, scene, w, true, false, pin)
+          this.pushOverlay()
+        } else if (pin !== undefined) {
+          this.beginPinGesture(scene, pin, e.shiftKey, e.altKey)
+          this.hoveredLine = undefined
+          this.pushOverlay()
+        }
+      }
+      return
+    }
+    this.lineDrop = undefined
+    this.hoveredLine = undefined
+
     // Space+drag pans from anywhere (the ComfyUI hand tool): it outranks
     // every hit so a crowded canvas stays navigable.
     if (this.spaceDown) {
@@ -1772,6 +1799,7 @@ export class InteractionController {
     const hit: Hit = rawHit.kind === 'widget' && rawHit.row.kept !== undefined && rawHit.bnode === undefined
       ? { kind: 'body', node: rawHit.node }
       : rawHit
+    if (e.pointerType === 'touch' && (hit.kind === 'pin' || hit.kind === 'widgetTap') && this.showFoldedLine(hit)) return
     this.capturePointer(e)
     if (hit.kind !== 'text-box-edge') this.setFocusedTextEdge(undefined)
     this.setFocusedPreviewEdge(hit.kind === 'resize' && hit.handle === 's' ? hit.node.id : undefined)
@@ -2745,11 +2773,11 @@ export class InteractionController {
         pin.collapsedSection === undefined && legal(pin),
       )
       g.bodyCandidate = own && hitOf(own)
-      if (g.bodyCandidate) return g.bodyCandidate
+      if (g.bodyCandidate || node.layout.lines?.some((line) => line.fields.some((field) => field.portId === row.inputId))) return g.bodyCandidate
     }
     // Widget taps are excluded from the ranking: a body drop away from a
     // field lands on real ports only.
-    const pins = node.layout.pins.filter((pin) => pin.direction === g.seeking && pin.widgetTap !== true)
+    const pins = node.layout.pins.filter((pin) => pin.direction === g.seeking && pin.widgetTap !== true && !pin.lineHidden)
     // Links hidden by the gesture (the grabbed rewire or net delivery) do
     // not occupy their sink: the drag is moving them off it.
     const isOccupied = (pin: PinLayout): boolean =>
@@ -2768,6 +2796,51 @@ export class InteractionController {
       if (g.bodyCandidate) break
     }
     return g.bodyCandidate
+  }
+
+  private showFoldedLine(hit: Hit): boolean {
+    if (!('node' in hit) || this.host.frozen?.()) return false
+    if ((hit.kind === 'pin' || hit.kind === 'widgetTap') && !hit.pin.pressed) return false
+    const port = hit.kind === 'widget' ? hit.row.inputId
+      : hit.kind === 'pin' ? hit.portId : hit.kind === 'widgetTap' ? hit.input : undefined
+    const line = hit.node.layout.lines?.find((candidate) => candidate.folded && candidate.fields.some((field) => field.portId === port))
+    if (line === undefined) return false
+    this.hoveredLine = { nodeId: hit.node.id, key: line.key }
+    this.lineListDirection = hit.kind === 'pin' ? hit.direction : 'out'
+    this.pushOverlay()
+    return true
+  }
+
+  private lineListAt(w: { x: number; y: number }, bridge = false) {
+    if (this.hoveredLine === undefined) return undefined
+    const layout = this.renderer.getLineListLayout()
+    if (layout === undefined) return undefined
+    if (bridge && w.x >= layout.node.x && w.x < layout.x) {
+      const row = layout.node.layout.rows[layout.line.first]!
+      const progress = (w.x - layout.node.x) / (layout.x - layout.node.x)
+      const top = layout.node.y + row.y
+      const bottom = top + row.height
+      if (w.y >= top + (layout.y - top) * progress &&
+          w.y <= bottom + (layout.y + layout.height - bottom) * progress) return { ...layout, row: undefined }
+    }
+    if (w.x <= layout.node.x + layout.node.layout.width - this.renderer.getDesignTokens().rowGeometry.fieldInsetX ||
+        w.x > layout.x + layout.width || w.y < layout.y || w.y > layout.y + layout.height) return undefined
+    const t = canvasPaintTokens.node.line.list
+    const index = Math.floor((w.y - layout.y - t.padY) / t.rowHeight)
+    const row = w.x >= layout.x && index >= 0 && index <= layout.line.fields.length ? index : undefined
+    return { ...layout, ...(row !== undefined ? { row } : {}) }
+  }
+
+  private lineListPin(list: NonNullable<ReturnType<InteractionController['lineListAt']>>, direction: 'in' | 'out'): PinHit | undefined {
+    const field = list.row !== undefined ? list.line.fields[list.row] : undefined
+    const pin = field && list.node.layout.pins.find((candidate) => candidate.portId === field.portId && candidate.direction === direction &&
+      (candidate.widgetTap === true) === (direction === 'out'))
+    if (pin === undefined) return undefined
+    const x = list.x + canvasPaintTokens.node.line.list.padX + canvasPaintTokens.node.line.list.pinSize / 2
+    const y = list.y + canvasPaintTokens.node.line.list.padY + (list.row! + 0.5) * canvasPaintTokens.node.line.list.rowHeight
+    return pin.widgetTap === true
+      ? { kind: 'widgetTap', node: list.node, input: pin.address.port as string, pin, x, y, type: pin.type }
+      : { kind: 'pin', node: list.node, portId: pin.portId, direction, pin, x, y, type: pin.type }
   }
 
   /**
@@ -2836,6 +2909,7 @@ export class InteractionController {
         if (
           pin.direction === direction &&
           pin.widgetTap !== true &&
+          !pin.lineHidden &&
           pinRevealed(node, pin)
         ) {
           minY = Math.min(minY, pin.y)
@@ -3073,6 +3147,13 @@ export class InteractionController {
     const rect = this.canvas.getBoundingClientRect()
     const w = this.renderer.toWorld(clientX - rect.left, clientY - rect.top)
     const scene = this.renderer.getScene()
+    const list = this.lineListAt(w, true)
+    if (list !== undefined) {
+      this.hoveredLine = { nodeId: list.node.id, key: list.line.key, ...(list.row !== undefined ? { listRow: list.row } : {}) }
+      this.canvas.style.cursor = list.row !== undefined ? 'pointer' : ''
+      this.pushOverlay()
+      return
+    }
     const toolbox = this.renderer.getToolboxLayout()
     const toolboxButton = toolbox ? hitTestToolbox(toolbox, w.x, w.y) : undefined
     const toolboxInside = toolbox !== undefined && insideToolbox(toolbox, w.x, w.y)
@@ -3104,6 +3185,7 @@ export class InteractionController {
       ...(hit?.kind === 'header' && this.minimizeArrowContains(hit, w.x, w.y) ? { minimize: hit.node.id } : {}),
       ...(badge !== undefined ? { badge: { nodeId: badge.node.id, badgeId: badge.badge.id } } : {}),
     })
+    if (hit !== undefined && this.renderer.getDetailLevel() !== 'overview') this.showFoldedLine(hit)
     this.setLinkMidpointHover(hit?.kind === 'link' && hit.midpoint ? hit.link.id : undefined)
     this.setHoveredTextEdge(hit?.kind === 'text-box-edge' ? { nodeId: hit.node.id, valueKey: hit.row.valueKey } : undefined)
     this.setHoveredPreviewCaption(hit?.kind === 'preview-caption' ? hit.node.id : undefined)
@@ -3256,10 +3338,14 @@ export class InteractionController {
         }
         // The same hit test as the drop, so a field's output pin under the
         // pointer takes the wire's end at its center like any output pin.
-        const hit = hitTest(scene, w.x, w.y, this.hitOptions({
+        const list = this.lineListAt(w)
+        const hit = (list !== undefined ? this.lineListPin(list, g.seeking) : undefined) ?? hitTest(scene, w.x, w.y, this.hitOptions({
           widgetTaps: this.widgetTapHits(scene, g.dropTargets),
           pinRevealed: this.pinRevealed(scene, g.dropTargets),
         }))
+        if (list !== undefined) this.hoveredLine = { nodeId: list.node.id, key: list.line.key, ...(list.row !== undefined ? { listRow: list.row } : {}) }
+        else if (hit.kind === 'pin' || hit.kind === 'widgetTap') this.showFoldedLine(hit)
+        else this.hoveredLine = undefined
         const explicitPin = hit.kind === 'pin' && hit.direction === g.seeking &&
           g.dropTargets.has(dropTargetKey(hit.node.id, hit.portId, hit.direction))
           ? hit
@@ -3276,6 +3362,7 @@ export class InteractionController {
         const nodeCandidate = explicitPin ?? closedBox ?? (bodyNode ? this.bodyDropCandidate(g, scene, bodyNode, fieldRow) : undefined)
         const candidate = nodeCandidate ?? boundaryCandidate
         const dropRow = nodeCandidate && !explicitPin && landsOnRow(nodeCandidate, fieldRow) ? fieldRow : undefined
+        this.canvas.style.cursor = fieldRow !== undefined && candidate === undefined ? 'not-allowed' : ''
         if (!bodyNode) {
           g.bodyCandidateNode = undefined
           g.bodyCandidateRow = undefined
@@ -3623,10 +3710,11 @@ export class InteractionController {
         }
         return
       case 'line':
+        this.hoveredLine = undefined
         this.pushOverlay()
         if (!g.moved) this.host.dispatch({
           command: 'view.setLineFolded',
-          params: { graphId: scene.graphId, nodeId: g.hit.node.id, lineKey: g.hit.line.key, folded: true },
+          params: { graphId: scene.graphId, nodeId: g.hit.node.id, lineKey: g.hit.line.key, folded: !g.hit.line.folded },
         })
         return
       case 'grip':
@@ -3925,14 +4013,24 @@ export class InteractionController {
     w: { x: number; y: number },
     requireLegalTarget = false,
     allowEmptyMoveSourceDisconnect = false,
+    selectedPin?: PinHit,
   ): false | void {
     // ONE hitTest resolves the drop with the SAME priority as hover (pins
     // and node bodies beat reroute dots): a junction hidden behind a node
     // can never silently steal a drop aimed at the visible surface.
-    const rawHit = hitTest(scene, w.x, w.y, this.hitOptions({
+    const list = this.lineListAt(w)
+    const rawHit = selectedPin ?? (list !== undefined ? this.lineListPin(list, g.seeking) : undefined) ?? hitTest(scene, w.x, w.y, this.hitOptions({
       widgetTaps: this.widgetTapHits(scene, g.dropTargets),
       pinRevealed: this.pinRevealed(scene, g.dropTargets),
     }))
+    if (selectedPin === undefined && list?.row === undefined &&
+        ((rawHit.kind === 'pin' && rawHit.direction === g.seeking) || (rawHit.kind === 'widgetTap' && g.seeking === 'out')) &&
+        this.showFoldedLine(rawHit)) {
+      this.lineDrop = g
+      return
+    }
+    this.hoveredLine = undefined
+    this.canvas.style.cursor = ''
     // Explicit pin hit-testing always wins. Only otherwise may a regular
     // node surface resolve to its cached ranked slot. Boundary pseudo-nodes
     // retain their specialized explicit-pin behavior.
@@ -4780,14 +4878,7 @@ export class InteractionController {
           ...(this.hoveredPinWidgetTap === true ? { widgetTap: true as const } : {}),
         },
       } : {}),
-      ...(this.focusedPinNode !== undefined ? {
-        focusedPin: {
-          nodeId: this.focusedPinNode,
-          portId: this.focusedPinPort!,
-          direction: this.focusedPinDirection!,
-          ...(this.focusedPinWidgetTap === true ? { widgetTap: true as const } : {}),
-        },
-      } : {}),
+      ...(this.focusedTarget !== undefined ? { focusedTarget: this.focusedTarget } : {}),
       ...(this.hoveredWidgetNode !== undefined ? {
         hoveredWidget: { nodeId: this.hoveredWidgetNode, valueKey: this.hoveredWidgetValue! },
       } : {}),
@@ -4814,6 +4905,11 @@ export class InteractionController {
     if (extra.dragOffsets !== this.lastDragOffsets) {
       this.lastDragOffsets = extra.dragOffsets
       this.host.onDragOffsets?.(extra.dragOffsets)
+    }
+    if (extra.resizePreview !== this.lastResizePreview) {
+      this.lastResizePreview = extra.resizePreview
+      const node = this.renderer.getScene().nodes.find((node) => node.id === extra.resizePreview?.nodeId)
+      this.host.onNodeResize?.(node === undefined ? undefined : this.renderer.nodeForPaint(node))
     }
     const linkPresence = this.gesture.kind === 'link' ? this.gesture.presenceOrigin : undefined
     const sameLinkPresence =

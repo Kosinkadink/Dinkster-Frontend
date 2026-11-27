@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ButtonSpec, InputSpec, NodeData, NodeSchema, NoteSpec, OutputSpec } from '@dinkster/core'
 import { asNodeId, elaborateInterface, EMPTY_CONNECTIVITY } from '@dinkster/core'
-import { layoutNode, rowSideEdges, TITLE_START, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
+import { layoutNode, rowSideEdges, TITLE_START, projectNodeLayoutHeight, projectNodeLayoutWidth, projectPictureHeight, projectTextBoxLines, withCompactPreviewRegion, withPreviewRegion, withTextOutputRegion, type TextMeasurer, type WidgetMeasure } from '../src/layout.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 
 const measure: TextMeasurer = (text) => text.length * 6
@@ -42,6 +42,36 @@ const doLayout = (items: NodeSchema['body'], displayName?: string) =>
   layoutNode(schemaOf(items, displayName), nodeData, defaultTokens, measure, widgetMeasure)
 
 describe('pairing', () => {
+  it('keeps live resized boxes, editors and shared fields identical to the released layout', () => {
+    const curve = widget('curve', { widget: { widgetType: 'CURVE', options: {} } })
+    const fields = [widget('short'), widget('longer')]
+    const schemas = [
+      schemaOf([{
+        kind: 'group', id: 'curves', displayName: 'Curves', member: [curve],
+        keys: { kind: 'numbered', prefix: '', start: 1, pad: 0 }, grows: 'button', minMembers: 2, maxMembers: 4,
+      }, output('text')]),
+      schemaOf([{ kind: 'row', rows: fields }]),
+      schemaOf([{ kind: 'row', rows: [fields[0]!, { kind: 'button', id: 'run', label: 'Run', icon: 'play', steps: [] }, fields[1]!] }]),
+    ]
+    const wm: WidgetMeasure = (spec) => spec.widgetType === 'CURVE' ? { viewId: 'core.curve', rows: 2 } : widgetMeasure(spec)
+    for (const schema of schemas) {
+      for (const folded of [true, false]) {
+        const options = { editorUnfolded: { 'curves.1.curve': true }, lineFolds: { short: folded } }
+        const initial = layoutNode(schema, nodeData, defaultTokens, measure, wm, { ...options, size: { width: 850, height: 0 } })
+        for (const width of [610, 980]) {
+          const live = projectNodeLayoutWidth(initial, width)
+          const released = layoutNode(schema, nodeData, defaultTokens, measure, wm, { ...options, size: { width, height: 0 } })
+          expect(live.width).toBe(released.width)
+          expect(live.boxes).toEqual(released.boxes)
+          expect(live.rows).toEqual(released.rows)
+          expect(live.pins).toEqual(released.pins)
+          const preview = projectNodeLayoutWidth(withPreviewRegion(initial, defaultTokens), width)
+          expect(preview.preview).toEqual(withPreviewRegion(released, defaultTokens).preview)
+        }
+      }
+    }
+  })
+
   it('carries resolved field access without changing row geometry or pins', () => {
     const plain = [widget('radius'), widget('mix')]
     const blocked = [widget('radius', { readOnly: true }), widget('mix', { disabled: true, disabledReason: 'Preset controls mix' })]
@@ -158,7 +188,7 @@ describe('pairing', () => {
       expect(after!.y).toBe(on!.y + on!.height)
       const center = on!.y + defaultTokens.rowHeight / 2
       const pitch = canvasPaintTokens.node.box.clusterPitch
-      const own = l.pins.filter((pin) => pin.portId !== 'after').map((pin) => [pin.portId, pin.direction, pin.y])
+      const own = l.pins.filter((pin) => pin.portId !== 'after' && !pin.lineHidden).map((pin) => [pin.portId, pin.direction, pin.y])
       expect(own).toEqual([
         ['on', 'in', center - pitch.two / 2],
         ['strength', 'in', center + pitch.two / 2],

@@ -50,6 +50,7 @@ test('sub-threshold movement remains an activating click', async ({ page }) => {
 
 test('drag reorders on release, preserves focus and active tab, and persists', async ({ page }) => {
   const draggedSelect = tab(page, 'Subgraph').locator('.tab-select')
+  const draggedWidth = (await tab(page, 'Subgraph').boundingBox())!.width
   const from = await center(draggedSelect)
   const to = await center(tab(page, 'Basic').locator('.tab-select'))
 
@@ -66,13 +67,16 @@ test('drag reorders on release, preserves focus and active tab, and persists', a
   await expect.poll(() => titles(page)).toEqual(['Subgraph', 'Basic'])
   await expect(tab(page, 'Subgraph')).toHaveClass(/dragging/)
   await expect(tab(page, 'Subgraph')).toHaveAttribute('data-drop-index', '0')
-  const marker = await tab(page, 'Subgraph').evaluate((element) => {
-    const style = getComputedStyle(element, '::before')
-    return { content: style.content, left: Number.parseFloat(style.left), width: Number.parseFloat(style.width) }
-  })
-  expect(marker.content).not.toBe('none')
-  expect(marker.left).toBeGreaterThanOrEqual(0)
-  expect(marker.left + marker.width).toBeLessThanOrEqual((await tab(page, 'Subgraph').boundingBox())!.width)
+  const slot = await tab(page, 'Subgraph').evaluate((element) => ({
+    opacity: getComputedStyle(element).opacity,
+    width: element.getBoundingClientRect().width,
+  }))
+  expect(slot.opacity).toBe('0')
+  expect(slot.width).toBeCloseTo(draggedWidth, 1)
+  for (let step = 0; step < 3; step++) {
+    await page.mouse.move(to.x - 20, to.y)
+    expect(await titles(page)).toEqual(['Subgraph', 'Basic'])
+  }
   expect(await appTitles(page)).toEqual(['Basic', 'Subgraph'])
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
   await expect(draggedSelect).toBeFocused()

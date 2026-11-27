@@ -372,7 +372,7 @@ const nodeCompactDynamic: MenuContribution = {
     }))
     return [{
       id: 'core.node.compactDynamic',
-      label: nodeIds.length > 1 ? `Remove unused dynamic inputs from ${nodeIds.length} nodes` : 'Remove unused dynamic inputs',
+      label: nodeIds.length > 1 ? t('node.clearUnusedSlots.multiple', { count: nodeIds.length }) : t('node.clearUnusedSlots'),
       action: {
         kind: 'command',
         invocation: invocations.length === 1
