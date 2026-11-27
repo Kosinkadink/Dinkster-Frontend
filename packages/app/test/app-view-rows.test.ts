@@ -623,6 +623,43 @@ describe('buildParamRows', () => {
         expect(wired.redo()).toBe(true)
         expect(wired.doc).toEqual(disconnected)
         check(loadDocument(JSON.parse(JSON.stringify(disconnected))).document!, 31)
+
+        const fixedWithSource: WorkflowDocument = { ...fixed, graphs: { ...fixed.graphs, root: { ...fixed.graphs.root!,
+          nodes: { ...fixed.graphs.root!.nodes, outside: before.graphs.root!.nodes.outside! },
+        } } }
+        const resultWire = new DocumentStore(fixedWithSource, coreCommandRegistry(), 200, undefined, () => ({
+          kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveAutomatic),
+        }))
+        expect(resultWire.dispatch({ command: 'link.connect', params: { graphId: 'root',
+          from: port('outside', literal ? 'value' : 'number'), to: port('first', steps),
+        } }).ok).toBe(true)
+        const linkedResult = resultWire.doc
+        for (const current of [linkedResult, loadDocument(JSON.parse(JSON.stringify(linkedResult))).document!]) {
+          checkMetadata(current, 31)
+          const rows = buildParamRows(current, resolveAutomatic, lookupAnswers).map(live)
+          expect(rows.map((row) => [row.value, row.linked])).toEqual([[19, true], [26, false]])
+          expect(current.graphs.root!.nodes.first!.values).toEqual({ [seed]: 31, [steps]: 19 })
+          const compiled = compile({ document: current, revision: 1, resolve: resolveAutomatic, scope: { kind: 'full' },
+            connection: 'automatic-result-wire' as never, schemaHash: 'automatic-result-wire', lookupAnswers })
+          expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+          if (!compiled.ok) throw new Error('linked automatic result did not compile')
+          const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
+          expect(compiled.artifact.prompt[`first${suffix}`]!.inputs).toEqual({ seed: 31, steps: literal ? 47 : ['outside', 0] })
+          expect(compiled.artifact.prompt[`second${suffix}`]!.inputs).toEqual({ seed: 13 })
+          expect(compiled.artifact.automaticCalls ?? []).toEqual(calculation === 'formula' ? [] : [
+            { runtimeNodeId: `second${suffix}`, inputId: 'steps', lookup: 'steps_for', args: [13] },
+          ])
+        }
+        expect(resultWire.dispatch({ command: 'link.disconnect', params: {
+          graphId: 'root', linkId: Object.keys(linkedResult.graphs.root!.links)[0]!,
+        } }).ok).toBe(true)
+        const dormant = resultWire.doc
+        expect(buildParamRows(dormant, resolveAutomatic, lookupAnswers).map((row) => [live(row).value, live(row).linked])).toEqual([[19, false], [26, false]])
+        expect(resultWire.undo()).toBe(true)
+        expect(resultWire.doc).toEqual(linkedResult)
+        expect(resultWire.redo()).toBe(true)
+        expect(resultWire.doc).toEqual(dormant)
+        expect(buildParamRows(loadDocument(JSON.parse(JSON.stringify(dormant))).document!, resolveAutomatic, lookupAnswers).map((row) => live(row).value)).toEqual([19, 26])
       }
     }
   })

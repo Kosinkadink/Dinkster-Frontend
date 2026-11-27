@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { render } from 'solid-js/web'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { WorkflowDocument } from '@dinkster/core'
 import { AppView } from '../src/AppView.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -56,6 +56,28 @@ describe('App View occurrence fields', () => {
       expect(rows()[2]!.querySelector('input')).toBeNull()
       expect(rows()[2]!.textContent).toContain('Seed 8')
       const store = app.activeTab()!.store
+      expect(store.doc).toEqual(document)
+      const editable = rows()[0]!.querySelector('input')!
+      editable.value = '19'
+      editable.dispatchEvent(new Event('input', { bubbles: true }))
+      editable.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await vi.waitFor(() => expect(store.doc.graphs.root!.nodes.first!.values).toEqual({ [seed]: 21, [total]: 19 }))
+      expect(store.doc.graphs.root!.nodes.second!.values).toEqual({ [seed]: 13 })
+      expect(store.doc.graphs.detail).toEqual(document.graphs.detail)
+      expect(store.doc.graphs.portrait).toEqual(document.graphs.portrait)
+      expect(store.undo()).toBe(true)
+      await Promise.resolve()
+      expect(store.doc).toEqual(document)
+      const draft = rows()[0]!.querySelector('input')!
+      draft.value = '99'
+      draft.dispatchEvent(new Event('input', { bubbles: true }))
+      expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: seed, value: 13 } }).ok).toBe(true)
+      draft.dispatchEvent(new Event('change', { bubbles: true }))
+      draft.dispatchEvent(new Event('blur'))
+      await Promise.resolve()
+      expect(rows()[0]!.querySelector('input')).toBeNull()
+      expect(store.doc.graphs.root!.nodes.first!.values).toEqual({ [seed]: 13 })
+      expect(store.undo()).toBe(true)
       expect(store.doc).toEqual(document)
       expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'second', inputId: seed, value: 18 } }).ok).toBe(true)
       await Promise.resolve()
