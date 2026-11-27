@@ -59,9 +59,11 @@ function SecretRows() {
   onCleanup(() => { disposed = true; renderer?.dispose() })
   return <ProductSection title="Secret rows">
     <p class="dinkster-description">A set credential, a required missing credential, and an optional missing credential. These rows hold names only.</p>
-    <figure class="dinkster-canvas-example">
-      <canvas ref={canvas} role="img" aria-label="Secret rows" />
-    </figure>
+    <div class="dinkster-canvas-examples">
+      <figure class="dinkster-canvas-example">
+        <canvas ref={canvas} role="img" aria-label="Secret rows" />
+      </figure>
+    </div>
   </ProductSection>
 }
 
