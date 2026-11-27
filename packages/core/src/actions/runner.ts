@@ -604,7 +604,7 @@ export function applyStoredProblemFixes(
   return runSteps(session, fixes.map((fix) => fix.part), host, {
     ...options,
     strict: true,
-    noWait: true,
+    noWait: options.noWait ?? true,
     unchanged: (doc) => {
       if (options.unchanged?.(doc) === false) return false
       let candidate = doc

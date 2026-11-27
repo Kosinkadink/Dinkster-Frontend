@@ -160,6 +160,23 @@ describe('one press is one undo step, or nothing', () => {
     expect(await applyStoredProblemFixes(session, fresh, host, { staleMessage: stale }))
       .toMatchObject({ kind: 'failed', message: stale })
     expect(session.doc).toEqual(changed)
+
+    SCHEMAS.set(type, { ...schema, validate: [{ ...schema.validate![0]!,
+      fix: [{ step: 'set', field: 'width', value: { lookup: 'pack.width', args: [] } }],
+    }] })
+    const waiting = later<LookupResult>()
+    const lookupHost = hostOf({ lookup: () => waiting.promise })
+    const lookedUp = storedRuleFixes(session.doc, target, lookupHost)
+    expect(await applyStoredProblemFixes(session, lookedUp, lookupHost)).toMatchObject({ kind: 'failed' })
+    expect(session.doc).toEqual(changed)
+    const pending = applyStoredProblemFixes(session, lookedUp, lookupHost, { noWait: false, staleMessage: stale })
+    await Promise.resolve()
+    expect(session.dispatch({ command: 'node.setValue', params: { ...target, inputId: 'cap', value: 6 } }).ok).toBe(true)
+    const meanwhile = session.doc
+    waiting.settle({ state: 'ready', value: 5n })
+    expect(await pending).toMatchObject({ kind: 'failed', message: stale })
+    expect(session.doc).toEqual(meanwhile)
+    expect(valuesOf(session)).toEqual({ width: 17, cap: 6, amount: 14 })
   })
 
   it('corrects stored numbers through steps in one undo, leaving wired values, specials and decimals alone', async () => {
