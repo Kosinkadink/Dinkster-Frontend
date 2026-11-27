@@ -1701,7 +1701,7 @@
 .dinkster-board-section-name { position: absolute; top: var(--dinkster-space-8); left: var(--dinkster-space-12); max-width: calc(100% - var(--dinkster-space-24)); color: var(--dinkster-text-secondary); white-space: nowrap; }
 .dinkster-board-section-name > input { field-sizing: content; width: auto; max-width: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; font: inherit; color: inherit; background: transparent; }
 .dinkster-board-item[data-kind='note'] { padding: var(--dinkster-space-12); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); }
-.dinkster-root .dinkster-board-item[data-kind='note'] > textarea { width: 100%; height: 100%; min-height: 0; padding: 0; resize: none; border: none; border-radius: 0; outline: none; font: inherit; line-height: inherit; background: transparent; }
+.dinkster-board .dinkster-board-item[data-kind='note'] > textarea { width: 100%; height: 100%; min-height: 0; padding: 0; resize: none; border: none; border-radius: 0; outline: none; font: inherit; line-height: inherit; background: transparent; }
 .dinkster-board-note-text { width: 100%; height: 100%; white-space: pre-wrap; overflow: hidden; user-select: none; }
 .dinkster-board-caption { position: absolute; top: calc(100% + var(--dinkster-space-4)); left: 0; right: 0; display: flex; justify-content: center; gap: var(--dinkster-space-8); white-space: nowrap; color: var(--dinkster-text-primary); font-size: var(--dinkster-type-metadata-size); }
 .dinkster-board-caption > span { color: var(--dinkster-text-muted); }

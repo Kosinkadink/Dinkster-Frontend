@@ -353,6 +353,8 @@ describe('Board workspace collaboration', () => {
     }] } }).ok).toBe(true)
     const shared = await a.boards.share(document.lineage)
     const sessionId = shared.shared!.descriptor.sessionId
+    expect(b.settings.get('features.board.enabled')).toBe(true)
+    b.settings.set('features.board.enabled', false)
     expect(await b.listCollabSessions()).toEqual([])
     expect(await b.joinCollabSession(sessionId, 'board')).toBe('Boards are disabled')
     expect(b.boards.entries.get()).toEqual([])

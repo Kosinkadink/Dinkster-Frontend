@@ -871,7 +871,7 @@ export function ProductBoard(props: ProductBoardProps) {
                         </div>
                       )}
                     </Show>
-                    <Show when={selected() === id && editingNote() !== id}>
+                    <Show when={selected() === id}>
                       <Show when={((item) => 'asset' in item && item)(item())}>
                         {(media) => (
                           <div class="dinkster-board-caption">
@@ -978,7 +978,12 @@ export function ProductBoard(props: ProductBoardProps) {
             icon={Plus}
             onClick={() => {
               const bounds = surface.getBoundingClientRect()
-              props.onAddMedia?.(point(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2))
+              props.onAddMedia?.(
+                point(
+                  bounds.left + bounds.width / 2,
+                  bounds.top + bounds.height / 2,
+                ),
+              )
             }}
           />
         </Show>

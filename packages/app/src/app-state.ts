@@ -3133,7 +3133,7 @@ export class AppState {
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.appView.enabled', get name() { return t('settings.features.appView') }, type: 'boolean', defaultValue: false })
-    this.settings.register({ id: 'features.board.enabled', get name() { return t('settings.features.board') }, type: 'boolean', defaultValue: false })
+    this.settings.register({ id: 'features.board.enabled', get name() { return t('settings.features.board') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'tooltips.delayMs', get name() { return t('settings.tooltips.delayMs') }, type: 'number', defaultValue: 500, min: 0, max: 5000, step: 50 })
     this.settings.register({
       id: 'execution.previews',
