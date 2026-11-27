@@ -188,11 +188,39 @@ test('the split survives reload and repairs itself when a tab closes', async ({ 
   // Closing the second group's only tab needs no split-aware code: the
   // read-boundary repair prunes the emptied group and collapses the split.
   await tabIn(groupById(page, 'group-2'), 'Subgraph').click({ button: 'middle' })
-  await page.getByRole('dialog', { name: 'Close "Subgraph" and discard unsaved changes?' })
+  await page.getByRole('dialog', { name: 'Close "Subgraph"?' })
     .getByRole('button', { name: 'Close and discard' }).click()
   await expect(groups(page)).toHaveCount(1)
   expect(await stripTitles(groups(page))).toEqual(['Basic'])
   await expect(page.getByTestId('editor-split-divider')).toHaveCount(0)
+})
+
+test('a cross-group tab opens a stable full-width slot and commits that position', async ({ page }) => {
+  await contextMenuAction(groups(page), 'Subgraph', 'workflow.splitRight')
+  const first = groupById(page, 'group-1')
+  const second = groupById(page, 'group-2')
+  await second.getByTestId('new-tab').click()
+  const source = tabIn(second, 'Untitled')
+  const sourceBox = (await source.boundingBox())!
+  const destination = (await tabIn(first, 'Basic').boundingBox())!
+  const point = { x: destination.x + destination.width * 0.75, y: destination.y + destination.height / 2 }
+  const from = await center(page, `[id=${JSON.stringify(await source.locator('.tab-select').getAttribute('id'))}]`)
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(from.x + 8, from.y)
+  await page.mouse.move(point.x, point.y, { steps: 4 })
+  const slot = first.locator('.tab-drop-slot')
+  await expect(slot).toBeVisible()
+  expect((await slot.boundingBox())!.width).toBeCloseTo(sourceBox.width, 1)
+  for (let step = 0; step < 3; step++) {
+    await page.mouse.move(point.x, point.y)
+    expect((await slot.boundingBox())!.x).toBeGreaterThan(destination.x)
+  }
+  expect(await stripTitles(first)).toEqual(['Basic'])
+  await page.mouse.up()
+  await expect(slot).toHaveCount(0)
+  expect(await stripTitles(first)).toEqual(['Basic', 'Untitled'])
+  expect(await stripTitles(second)).toEqual(['Subgraph'])
 })
 
 test('per-group activation moves focus and F6 cycles between groups', async ({ page }) => {

@@ -475,6 +475,16 @@ export interface CurveHistogramPin extends DynamicAnnotations {
 /** A port inside a closed box: a pin once a wire reaches it. */
 export type HiddenPort = Omit<PinLayout, 'y'>
 
+/** A shared field line and the rail beside its unfolded rows. */
+export interface LayoutLine {
+  readonly key: string
+  readonly folded: boolean
+  readonly first: number
+  readonly last: number
+  readonly railInset?: number
+  readonly fields: readonly { readonly portId: string; readonly label: string; readonly type: TypeExpr }[]
+}
+
 export interface PinLayout extends DynamicAnnotations {
   readonly portId: string
   /** Human-readable port label retained when rows are hidden. */
@@ -504,6 +514,8 @@ export interface PinLayout extends DynamicAnnotations {
   readonly collapsedSection?: string
   /** Pin in a shared field line's compact cluster. */
   readonly pressed?: true
+  /** Unwired folded-line pin: available to its field and list, not on the node edge. */
+  readonly lineHidden?: true
   /** A wire's end under the last drawn pin of a full closed-box cluster: not drawn and not grabbed. */
   readonly stacked?: true
   /** Pin belongs to a minimized node and is represented by an aggregate side proxy. */
@@ -558,6 +570,7 @@ export interface NodeLayout {
   readonly openPreviewHeight?: number
   /** Boxes drawn around rows, outer boxes before the boxes inside them. */
   readonly boxes?: readonly LayoutBox[]
+  readonly lines?: readonly LayoutLine[]
   /**
    * Optional imagery area appended inside the node body after all rows: the
    * "Preview" caption row on top, then the picture.
@@ -604,17 +617,19 @@ export function memberSpans(layout: NodeLayout, construct: string): MemberSpan[]
   for (const row of layout.rows) {
     if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.reorder?.construct !== construct) continue
     const own = row.kind === 'member' ? layout.boxes?.find((candidate) => candidate.id === row.memberId) : undefined
+    const line = layout.lines?.find((line) => !line.folded && layout.rows[line.first] === row)
+    const lastRow = line === undefined ? row : layout.rows[line.last]!
     const x = own?.x ?? (row.kind === 'widget' ? row.inset : (group?.x ?? 0) + box.stroke + box.fieldGap)
     // One span per member, however many rows it draws.
     const last = spans.at(-1)
     if (last?.member === row.reorder.member) {
-      spans[spans.length - 1] = { ...last, bottom: own === undefined ? row.y + row.height : own.y + own.height }
+      spans[spans.length - 1] = { ...last, bottom: own === undefined ? lastRow.y + lastRow.height : own.y + own.height }
       continue
     }
     spans.push({
       member: row.reorder.member,
       top: own?.y ?? row.y,
-      bottom: own === undefined ? row.y + row.height : own.y + own.height,
+      bottom: own === undefined ? lastRow.y + lastRow.height : own.y + own.height,
       x,
       width: own?.width ?? layout.width - x * 2,
     })
@@ -1094,6 +1109,10 @@ export interface LayoutOptions {
   readonly minimized?: true
   /** Per-section collapse overrides from view state (view.setSectionCollapsed). */
   readonly sectionOverrides?: Readonly<Record<string, boolean>>
+  /** Fold state per line of fields, keyed by its first field's flattened id; absent lines are folded. */
+  readonly lineFolds?: Readonly<Record<string, boolean>>
+  /** Boundary-driven inputs whose wires and pins are not drawn. */
+  readonly wirelessInputs?: ReadonlySet<string>
   /** Client-owned named widget representation selections by value key. */
   readonly widgetRepresentations?: Readonly<Record<string, string>>
   /** Height in lines of each text box the user sized, by value key (view.setTextBoxLines). */
@@ -1762,6 +1781,20 @@ export function layoutNode(
   for (const row of pending) emit(row)
   pending.splice(0, pending.length, ...positioned)
 
+  const foldable: { key: string; line: PendingRow[]; folded: boolean }[] = []
+  const unfolded = new Set<PendingRow>()
+  for (const line of new Set(lines.values())) {
+    const key = line.length > 1 ? line.find((row) => row.widget !== undefined)?.widget!.inputId : undefined
+    if (key === undefined) continue
+    const folded = options.lineFolds?.[key] ?? true
+    foldable.push({ key, line, folded })
+    if (folded) continue
+    for (const row of line) {
+      lines.set(row, [row])
+      unfolded.add(row)
+    }
+  }
+
   // An unfolded editor takes its space under the whole line of its row. A
   // declaration may start it unfolded; a growing group's members start folded.
   const space = canvasPaintTokens.node.editorSpace
@@ -2019,7 +2052,7 @@ export function layoutNode(
       } else if (row.kind === 'note' || row.kind === 'button') {
         const line = lines.get(row)!
         const height = rowBaseHeight(row)
-        const inset = fieldInset(depth)
+        const inset = fieldInset(depth) + (unfolded.has(row) ? canvasPaintTokens.node.line.railReserve : 0)
         const member = row.kind === 'button' && line.at(-1) === row
           ? line.find((cell) => cell.removable)
           : undefined
@@ -2062,7 +2095,8 @@ export function layoutNode(
         // Keep the capsule and its edge controls clear of sockets on either
         // border. The symmetric side also reserves space for output widgets.
         // A choice's dropdown reaches the outline of its option box instead.
-        const inset = w.lead ? outlineX(depth + 1) : fieldInset(depth)
+        const inset = w.lead ? outlineX(depth + 1)
+          : fieldInset(depth) + (unfolded.has(row) ? canvasPaintTokens.node.line.railReserve : 0)
         rowIndex.set(row, rows.length)
         // A member drawn as one line of fields has its grip once, before the
         // line, and its cross once, after it.
@@ -2269,9 +2303,10 @@ export function layoutNode(
     const center = rows[rowIndex.get(line[0]!)!]!.y + tokens.rowHeight / 2
     for (const direction of ['in', 'out'] as const) {
       const own = (pin: PinLayout): boolean => fields.has(pin.portId) && pin.direction === direction &&
-        (direction === 'in' ? pin.widgetBacked === true : pin.widgetTap === true)
+        (direction === 'in' ? pin.widgetBacked === true && !options.wirelessInputs?.has(pin.portId) : pin.widgetTap === true)
       const wired = pins.filter((pin) => own(pin) && isConnected(direction, pin.portId))
-      pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...wired.map((pin, index) => {
+      const unwired = pins.filter((pin) => own(pin) && !isConnected(direction, pin.portId))
+      pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...unwired.map((pin) => ({ ...pin, y: center, lineHidden: true as const })), ...wired.map((pin, index) => {
         const { dy, stacked } = pressed(index, wired.length)
         return { ...pin, y: center + dy, pressed: true as const, ...(stacked ? { stacked: true as const } : {}) }
       }))
@@ -2300,6 +2335,29 @@ export function layoutNode(
       ? row.inset + (row.width ?? width - row.inset * 2)
       : width - row.crossInset - box.cross.size - gap
     rows[index] = { ...row, inset: row.inset + gripRoom, width: right - row.inset - gripRoom, ...reorder }
+  }
+  for (const row of unfolded) {
+    const index = rowIndex.get(row)!
+    const placedRow = rows[index]!
+    if (placedRow.kind === 'widget' || placedRow.kind === 'note' || placedRow.kind === 'button') {
+      rows[index] = {
+        ...placedRow,
+        ...(placedRow.width === undefined ? { width: width - placedRow.inset * 2 + canvasPaintTokens.node.line.railReserve } : {}),
+        ...(placedRow.kind === 'widget' && placedRow.reorder !== undefined ? {
+          reorder: { ...placedRow.reorder, gripX: placedRow.reorder.gripX - canvasPaintTokens.node.line.railReserve },
+        } : {}),
+      }
+    }
+  }
+  for (const { line, folded } of foldable) {
+    if (folded) continue
+    for (const row of line.slice(1)) {
+      const index = rowIndex.get(row)!
+      const placedRow = rows[index]!
+      if (placedRow.kind !== 'widget') continue
+      const { reorder: _reorder, remove: _remove, ...field } = placedRow
+      rows[index] = field
+    }
   }
   // An unfolded editor and its row are one box: the space takes the row's
   // place and width, so a member's grip and cross stay beside both.
@@ -2342,6 +2400,19 @@ export function layoutNode(
     }
   }
 
+  const layoutLines: LayoutLine[] = foldable.map(({ key, line, folded }) => {
+    const indexes = line.map((row) => rowIndex.get(row)!)
+    const first = rows[indexes[0]!]!
+    return {
+      key, folded, first: Math.min(...indexes), last: Math.max(...indexes),
+      ...(!folded && 'inset' in first
+        ? { railInset: first.inset - canvasPaintTokens.node.line.railReserve - canvasPaintTokens.node.line.railOverhang }
+        : {}),
+      fields: line.flatMap((row) => row.widget
+        ? [{ portId: row.widget.inputId, label: row.widget.label, type: row.widget.type }]
+        : []),
+    }
+  })
   // Outer boxes first, so a box inside a box draws over it.
   const boxes = placed.boxes
     .map((b) => ({ ...b, width: width - b.x * 2 }))
@@ -2360,6 +2431,7 @@ export function layoutNode(
     pins,
     ...(placed.trailingNoticeHeight > 0 ? { trailingButtonNoticeHeight: placed.trailingNoticeHeight } : {}),
     ...(boxes.length > 0 ? { boxes } : {}),
+    ...(layoutLines.length > 0 ? { lines: layoutLines } : {}),
   }
 }
 

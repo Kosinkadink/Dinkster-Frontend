@@ -34,6 +34,31 @@ it.each([false, true])('commits arithmetic in a local in-row editor on Tab (reve
   } finally { dispose() }
 })
 
+it('keeps the Save mount filter query while narrowing choices and clears it when reopened', async () => {
+  const dispose = render(() => <SaveTargetSpace value={{ mount: 'output', prefix: 'renders/first' }} wired={false}
+    fetchMounts={async () => ({ activeOutputMount: 'output', mountChangesAllowed: false, mounts: [
+      { id: 'output', mode: 'readwrite', state: 'ready' }, { id: 'alternate', mode: 'readwrite', state: 'ready' },
+    ] })} commit={async () => true} queue={() => {}} />, document.body)
+  try {
+    const mount = document.querySelector<HTMLButtonElement>('button')!
+    await vi.waitFor(() => expect(mount.textContent).toContain('output'))
+    mount.click()
+    const filter = document.querySelector<HTMLInputElement>('input[role="combobox"]')!
+    for (const character of 'tern') {
+      filter.value += character
+      filter.dispatchEvent(new Event('input', { bubbles: true }))
+      await Promise.resolve()
+    }
+    expect(filter.value).toBe('tern')
+    expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual(['alternate'])
+    filter.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    expect(document.querySelector('input[role="combobox"]')).toBeNull()
+    mount.click()
+    expect(document.querySelector<HTMLInputElement>('input[role="combobox"]')!.value).toBe('')
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(3)
+  } finally { dispose() }
+})
+
 it('edits only unwired mapped Save parts and discards a draft when that part becomes blocked', async () => {
   const [mode, setMode] = createSolidSignal<'name-wired' | 'mount-unknown' | 'readOnly' | 'disabled'>('name-wired')
   const changes: Json[] = []

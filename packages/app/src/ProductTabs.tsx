@@ -1,4 +1,4 @@
-import { children, createRenderEffect, createSignal, createUniqueId, For, type JSX } from 'solid-js'
+import { children, createRenderEffect, createSignal, createUniqueId, For, Show, type JSX } from 'solid-js'
 
 export interface ProductTab {
   readonly id: string
@@ -14,6 +14,9 @@ interface ProductTabsBaseProps {
   readonly class?: string
   /** Actions rendered in the tab row, after the tablist (e.g. host chrome). */
   readonly trailing?: JSX.Element
+  readonly draggedId?: string | undefined
+  readonly hiddenIds?: ReadonlySet<string> | undefined
+  readonly dropSlot?: { readonly beforeId: string | undefined } | undefined
 }
 
 type ProductTabsAccessibleName =
@@ -157,12 +160,17 @@ export function ProductTabs(props: ProductTabsProps) {
       aria-orientation={props.orientation ?? 'horizontal'}
     >
         <For each={tabIds()}>
-          {(id) => (
+          {(id) => (<>
+            <Show when={props.dropSlot !== undefined && props.dropSlot.beforeId === id}>
+              <div class="panel-tab-drop-slot" aria-hidden="true" />
+            </Show>
             <button
               id={tabId(id)}
               type="button"
               class="product-tab"
               data-tab-id={id}
+              data-dragged={props.draggedId === id ? 'true' : undefined}
+              hidden={props.hiddenIds?.has(id)}
               role="tab"
               aria-selected={resolvedSelected() === id}
               aria-controls={panelId(id)}
@@ -194,8 +202,11 @@ export function ProductTabs(props: ProductTabsProps) {
             >
               {tabOf(id).label}
             </button>
-          )}
+          </>)}
         </For>
+        <Show when={props.dropSlot !== undefined && props.dropSlot.beforeId === undefined}>
+          <div class="panel-tab-drop-slot" aria-hidden="true" />
+        </Show>
       </div>
   )
   // JSX getters can create another tree on each read, overwriting action refs.

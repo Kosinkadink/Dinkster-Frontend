@@ -185,6 +185,26 @@ function paintLabelMarks(args: WidgetPaintArgs, companion: boolean, numeric: boo
  * Cached: see text-fit.ts (memoized measure + binary-search truncation). */
 export const ellipsize = fitText
 
+function paintWidgetProblem(args: WidgetPaintArgs, severity: 'error' | 'warning'): void {
+  const { ctx, row, x, y, width, rowHeight, tokens } = args
+  if (row.unfolded) return
+  const chrome = widgetChromeRect(x, y, width, row.height, tokens.rowGeometry.fieldInsetY)
+  const color = severity === 'error' ? tokens.colors.error : tokens.colors.warningMark
+  ctx.save()
+  ctx.strokeStyle = color
+  ctx.lineWidth = paint.diagnosticStroke
+  ctx.beginPath()
+  ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
+  ctx.stroke()
+  const size = paint.opener.iconSize
+  const left = x + paint.opener.iconInset
+  const top = y + rowHeight / 2 - size / 2
+  ctx.fillStyle = tokens.colors.widgetRaised
+  ctx.fillRect(left, top, size, size)
+  paintToolboxIcon(ctx, 'triangle-alert', left, top, size, color)
+  ctx.restore()
+}
+
 export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
   const painter: WidgetPainter = (args) => {
     const { ctx, row, value, x, y, width, rowHeight, tokens } = args
@@ -242,6 +262,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       paintCenteredText(ctx, fitText(ctx, row.label, Math.max(0, companionZone - lead - paint.labelClipPadding)), x + field.left + lead + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset), y + rowHeight / 2, tokens.fontSize)
       paintLabelMarks(args, true, numeric)
       paintCompanionValue(args, summary, field)
+      if (args.editorSummary?.problem !== undefined) paintWidgetProblem(args, args.editorSummary.problem)
       return
     }
     // A field with nothing stored that declares automatic shows the value it
@@ -395,21 +416,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
         rect: (rx, ry, rw, rh, style) => {
           if (style['role'] === 'widgetBackground') return // chrome already drawn
           if (style['role'] === 'widgetProblem') {
-            if (row.unfolded) return
-            const color = style['severity'] === 'error' ? tokens.colors.error : tokens.colors.warningMark
-            ctx.save()
-            ctx.strokeStyle = color
-            ctx.lineWidth = paint.diagnosticStroke
-            ctx.beginPath()
-            ctx.roundRect(chrome.x, chrome.y, chrome.width, chrome.height, chrome.radius)
-            ctx.stroke()
-            const size = paint.opener.iconSize
-            const left = x + paint.opener.iconInset
-            const top = y + rowHeight / 2 - size / 2
-            ctx.fillStyle = tokens.colors.widgetRaised
-            ctx.fillRect(left, top, size, size)
-            paintToolboxIcon(ctx, 'triangle-alert', left, top, size, color)
-            ctx.restore()
+            paintWidgetProblem(args, style['severity'] === 'error' ? 'error' : 'warning')
             return
           }
           if (style['role'] === 'numericRangeFill') {
@@ -667,6 +674,7 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
       row.spec,
       { focused: false, connected: args.connected, readonly: true, ...(args.facts === undefined ? {} : { hostFacts: args.facts }) },
     )
+    if (args.editorSummary?.problem !== undefined) paintWidgetProblem(args, args.editorSummary.problem)
     if (declaredSlider) paintLabel()
     const visibleHeight = Math.max(0, multilineBottom - multilineTop - multilinePadding * 2)
     const contentHeight = multilineVisualRows * multilineHeight

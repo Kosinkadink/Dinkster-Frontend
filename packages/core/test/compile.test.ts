@@ -21,6 +21,7 @@ import { DINKSTER_GRAPH_FEATURE_ABSENT_INPUT, DINKSTER_GRAPH_FEATURE_DECIMAL_INT
 import { coreVirtualNodeKind } from '../src/virtual-node.js'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
+import { companionSourcesOf } from '../src/companion.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(root, rel), 'utf8'))
@@ -1040,6 +1041,78 @@ const dynDoc = (parts: {
 
 const dynCompile = (doc: WorkflowDocument, scope: ExecutionScope = { kind: 'full' }) =>
   compile({ ...compileInput(doc, scope), resolve: dynResolve })
+
+describe('small flow nodes', () => {
+  const flowSchemas = new Map(Object.entries(readJson('test/fixtures/flow_schemas.json') as Record<string, DinksterWireSchema>)
+    .map(([type, wire]) => [type, parseDinksterSchema(type, wire).schema!]))
+  const resolve = (type: string) => flowSchemas.get(type) ?? backendResolve(type)
+  const run = (document: WorkflowDocument, target: string) => compile({
+    ...compileInput(document, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId(target) }] }),
+    resolve,
+    graphFeatures: ['regions', 'typedLiteral'],
+  })
+
+  it.each([
+    ['dinkster.utilities.or_else', 'values.1', { values: { members: ['1', '2'] } }],
+    ['dinkster.utilities.has_value', 'value', {}],
+    ['dinkster.utilities.only_if', 'value', {}],
+  ] as const)('treats a muted producer as no wire for %s', (type, port, dynamic) => {
+    const document = (linked: boolean) => dynDoc({
+      nodes: { source: { type: 'EmptyImage', mode: 'muted' }, flow: { type, dynamic } },
+      links: linked ? [[['source', 'out0'], ['flow', port]]] : [],
+    })
+    const linked = run(document(true), 'flow')
+    const unplugged = run(document(false), 'flow')
+    expect(linked.ok, JSON.stringify(!linked.ok && linked.diagnostics)).toBe(true)
+    expect(unplugged.ok, JSON.stringify(!unplugged.ok && unplugged.diagnostics)).toBe(true)
+    if (!linked.ok || !unplugged.ok) return
+    expect(linked.artifact.prompt).toEqual(unplugged.artifact.prompt)
+    expect(linked.artifact.prompt.flow!.inputs).not.toHaveProperty(port)
+    expect(linked.artifact.prompt.source).toBeUndefined()
+  })
+
+  it('changes Or else priority through the row move command without changing wire identities', () => {
+    const document = dynDoc({
+      nodes: {
+        first: { type: 'EmptyImage' }, next: { type: 'EmptyImage' },
+        flow: { type: 'dinkster.utilities.or_else', dynamic: { values: { members: ['1', '2', '3'], seq: 3 } } },
+      },
+      links: [[['first', 'out0'], ['flow', 'values.1']], [['next', 'out0'], ['flow', 'values.3']]],
+    })
+    const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const before = run(store.doc, 'flow')
+    expect(before.ok).toBe(true)
+    if (!before.ok) return
+    expect(before.artifact.prompt.flow!.outputMembers).toEqual({ values: ['1', '2', '3'] })
+    expect(store.dispatch({ command: 'dynamic.moveMember', params: {
+      graphId: 'g0', nodeId: 'flow', construct: 'values', member: '3', index: 0,
+    } }).ok).toBe(true)
+    const after = run(store.doc, 'flow')
+    expect(after.ok, JSON.stringify(!after.ok && after.diagnostics)).toBe(true)
+    if (!after.ok) return
+    expect(after.artifact.prompt.flow!.outputMembers).toEqual({ values: ['3', '1', '2'] })
+    expect(after.artifact.prompt.flow!.inputs).toEqual({ 'values.1': ['first', 0], 'values.3': ['next', 0] })
+    expect(store.doc.graphs.g0!.links).toEqual(document.graphs.g0!.links)
+    store.undo()
+    expect(run(store.doc, 'flow')).toEqual(before)
+  })
+
+  it.each([
+    ['dinkster.utilities.or_else', 'value', { values: { members: ['1', '2'] } }, { 'values.1': 0, 'values.2': 9 }],
+    ['dinkster.utilities.has_value', 'has_value', {}, { value: 0 }],
+    ['dinkster.utilities.only_if', 'value', {}, { condition: false, value: 7 }],
+  ] as const)('keeps %s output runtime-only even with stored inputs', (type, output, dynamic, values) => {
+    const boolean = type === 'dinkster.utilities.has_value'
+    const port = boolean ? 'condition' : 'value'
+    const document = dynDoc({
+      nodes: { flow: { type, dynamic, values }, sink: { type: 'dinkster.utilities.only_if' } },
+      links: [[['flow', output], ['sink', port]]],
+    })
+    expect(companionSourcesOf(document.graphs.g0!, undefined, undefined, resolve).get('sink')?.get(port))
+      .toEqual({ kind: 'producer', node: 'flow', output })
+  })
+})
 
 describe('dynamic interfaces', () => {
   it('keeps blocked-field wires and promoted execution identity when representation choices are saved and reopened', () => {
