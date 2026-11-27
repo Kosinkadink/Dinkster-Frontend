@@ -1586,7 +1586,7 @@ button.dinkster-row-main { cursor: pointer; }
 .canvas-corner-bar .canvas-chrome-button[aria-pressed='false'] { color: var(--dinkster-text-muted); }
 .canvas-corner-split { display: inline-flex; border-radius: var(--dinkster-radius-control); }
 .canvas-corner-split[data-open='true'] { background: var(--dinkster-interaction-pressed); }
-.canvas-corner-bar .canvas-corner-split .canvas-chrome-button[aria-expanded='true'] { background: transparent; }
+.canvas-corner-bar .canvas-corner-split .canvas-chrome-button.product-button[aria-expanded='true'] { background: transparent; }
 .canvas-corner-bar .canvas-corner-more { min-width: 14px; width: 14px; margin-left: -3px; }
 .canvas-corner-bar .canvas-zoom-level { padding: 0 4px 0 6px; }
 /* Menus of the canvas chrome. The corner's open straight above the bar under the minimap, over the minimap, their right edge on the bar's; the host caps their height to the stage. */
