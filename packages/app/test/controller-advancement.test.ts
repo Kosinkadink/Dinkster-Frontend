@@ -375,7 +375,11 @@ describe('compiled occurrence controller ownership', () => {
     expect(compileControllers(reopened).prompt).toEqual(prompt(firstNext, [29, 39, 49]))
   })
 
-  it.each([1, 2])('advances whole-construct fan-out once with shifted member keys through %s boundaries', async (depth) => {
+  it.each([1, 2].flatMap((depth) => [
+    { depth, storedMember: true, childDriven: false }, { depth, storedMember: false, childDriven: false },
+    { depth, storedMember: true, childDriven: true },
+  ]))(
+    'advances shifted fan-out through $depth boundaries with stored member $storedMember and child wire $childDriven', async ({ depth, storedMember, childDriven }) => {
     const [choice, slot, groupId] = depth === 1 ? ['pick', 'typed', 'members'] : ['option', 'variant', 'list']
     const keys = [`${choice}.seed`, `${slot}.seed`, `${groupId}.item1`]
     const whole = (id: string, port: string) => ({
@@ -384,7 +388,8 @@ describe('compiled occurrence controller ownership', () => {
     })
     const instance = (id: string, values: number[], mode: string) => ({
       id, type: depth === 1 ? '#sub' : '#wrapper',
-      values: Object.fromEntries(keys.map((key, index) => [key, values[index]])),
+      values: Object.fromEntries(keys.filter((_, index) => id !== 'first' || storedMember || index !== 2)
+        .map((key, index) => [key, values[index]])),
       dynamic: { [choice]: { selected: 'a' }, [groupId]: { members: ['item1'] } },
       controllers: Object.fromEntries(keys.map((key) => [key, mode])),
     })
@@ -396,10 +401,13 @@ describe('compiled occurrence controller ownership', () => {
       }, Object.fromEntries(['first', 'second'].map((node) => [`${node}Wire`, {
         id: `${node}Wire`, from: { node: 'src', port: 'out' }, to: { node, port: slot },
       }]))),
-      sub: graph('sub', Object.fromEntries([['secondary', 20], ['primary', 10]].map(([id, value]) => [id, {
+      sub: graph('sub', { ...Object.fromEntries([['secondary', 20], ['primary', 10]].map(([id, value]) => [id, {
         id, type: dynamicSchema.type, values: { 'items.item1': value },
         dynamic: { items: { members: ['item1'] } }, controllers: { 'items.item1': 'fixed' },
-      }])), {}, { body: [whole('pick', 'mode'), whole('typed', 'slot'), whole('members', 'items')] }),
+      }])), ...(childDriven ? { internal: { id: 'internal', type: sourceSchema.type, values: {} } } : {}) },
+      childDriven ? Object.fromEntries(['mode.seed', 'slot.seed'].map((port, index) => [`childWire${index}`, {
+        id: `childWire${index}`, from: { node: 'internal', port: 'out' }, to: { node: 'primary', port },
+      }])) : {}, { body: [whole('pick', 'mode'), whole('typed', 'slot'), whole('members', 'items')] }),
       ...(depth === 2 ? { wrapper: graph('wrapper', {
         inner: { id: 'inner', type: '#sub', values: { 'members.item1': 15 },
           dynamic: { members: { members: ['item1'] } }, controllers: { 'members.item1': 'fixed' } },
@@ -416,29 +424,35 @@ describe('compiled occurrence controller ownership', () => {
         ([['primary', 10], ['secondary', 20]] as const).map(([leaf, prefix]) => [
           `${id}.${depth === 1 ? '' : 'inner.'}${leaf}`, {
             class_type: dynamicSchema.type,
-            inputs: { 'mode.seed': values[0], slot: ['src', 0], 'slot.seed': values[1],
+            inputs: { 'mode.seed': childDriven && leaf === 'primary' ? [`${id}.${depth === 1 ? '' : 'inner.'}internal`, 0] : values[0],
+              slot: ['src', 0], 'slot.seed': childDriven && leaf === 'primary' ? [`${id}.${depth === 1 ? '' : 'inner.'}internal`, 0] : values[1],
               'items.item1': prefix, ...(depth === 2 ? { 'items.item2': 15 } : {}),
               [depth === 1 ? 'items.item2' : 'items.item3']: values[2] },
             outputIds: ['out'], outputMembers: { items: depth === 1 ? ['item1', 'item2'] : ['item1', 'item2', 'item3'] },
             slotVariants: { mode: 'a' },
           },
         ]))),
+      ...(childDriven ? Object.fromEntries(['first', 'second'].map((id) => [
+        `${id}.${depth === 1 ? '' : 'inner.'}internal`, { class_type: sourceSchema.type, inputs: {}, outputIds: ['out'] },
+      ])) : {}),
     })
     const artifact = compileControllers(tab.store.doc)
-    expect(artifact.prompt).toEqual(prompt([3, 4, 5], [30, 40, 50]))
+    const firstUsed = [3, 4, storedMember ? 5 : 1]
+    const firstNext = [4, 5, storedMember ? 6 : 2]
+    expect(artifact.prompt).toEqual(prompt(firstUsed, [30, 40, 50]))
     const ref = { connection: asConnectionId('local'), prompt: asPromptId(`dynamic-fanout-${depth}`) }
     app.registerRun(tab, ref, artifact, 1)
     expect(await app.openExecutionView(ref)).toBe(true)
     const frozen = app.tabs.get().find((item) => item.execution)!
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
     await expect.poll(() => tab.store.doc.graphs.g0!.nodes.first!.values[keys[0]!]).toBe(4)
-    expect(tab.store.doc.graphs.g0!.nodes.first!.values).toEqual(Object.fromEntries(keys.map((key, index) => [key, [4, 5, 6][index]])))
+    expect(tab.store.doc.graphs.g0!.nodes.first!.values).toEqual(Object.fromEntries(keys.map((key, index) => [key, firstNext[index]])))
     expect(tab.store.doc.graphs.g0!.nodes.second!.values).toEqual(Object.fromEntries(keys.map((key, index) => [key, [29, 39, 49][index]])))
-    expect(compileControllers(tab.store.doc).prompt).toEqual(prompt([4, 5, 6], [29, 39, 49]))
+    expect(compileControllers(tab.store.doc).prompt).toEqual(prompt(firstNext, [29, 39, 49]))
     expect(tab.store.doc.graphs.sub).toEqual(doc.graphs.sub)
     expect(tab.store.doc.graphs.wrapper).toEqual(doc.graphs.wrapper)
     expect(frozen.store.doc).toEqual(doc)
-    expect(artifact.prompt).toEqual(prompt([3, 4, 5], [30, 40, 50]))
+    expect(artifact.prompt).toEqual(prompt(firstUsed, [30, 40, 50]))
     const advanced = tab.store.doc
     app.store.apply({ kind: 'completed', execution: ref, timestamp: 3 })
     expect(tab.store.doc).toBe(advanced)
@@ -448,7 +462,7 @@ describe('compiled occurrence controller ownership', () => {
     expect(tab.store.doc).toEqual(advanced)
     const reopened = loadDocument(JSON.parse(JSON.stringify(advanced))).document!
     expect(reopened).toEqual(advanced)
-    expect(compileControllers(reopened).prompt).toEqual(prompt([4, 5, 6], [29, 39, 49]))
+    expect(compileControllers(reopened).prompt).toEqual(prompt(firstNext, [29, 39, 49]))
   })
 
   it.each([1, 2])('inherits whole-construct fan-out values and modes independently through %s boundaries', async (depth) => {
@@ -457,6 +471,7 @@ describe('compiled occurrence controller ownership', () => {
     const keys = [`${choice}.seed`, `${slot}.seed`]
     for (const scenario of [
       { outer: [23, 24], outerMode: 'decrement', middle: [11, 12], middleMode: 'increment', leaf: [7, 8], used: [23, 24], next: [22, 23] },
+      { outer: [23, 24], outerMode: undefined, middle: [11, 12], middleMode: 'decrement', leaf: [7, 8], used: [23, 24], next: depth === 2 ? [22, 23] : [24, 25] },
       { outer: undefined, outerMode: 'decrement', middle: [11, 12], middleMode: 'increment', leaf: [7, 8], used: depth === 2 ? [11, 12] : [7, 8], next: depth === 2 ? [10, 11] : [6, 7] },
       { outer: undefined, outerMode: undefined, middle: [11, 12], middleMode: 'decrement', leaf: [7, 8], used: depth === 2 ? [11, 12] : [7, 8], next: depth === 2 ? [10, 11] : [8, 9] },
       { outer: undefined, outerMode: undefined, middle: undefined, middleMode: 'decrement', leaf: [7, 8], used: [7, 8], next: depth === 2 ? [6, 7] : [8, 9] },
@@ -484,7 +499,7 @@ describe('compiled occurrence controller ownership', () => {
         sub: graph('sub', Object.fromEntries(['secondary', 'primary'].map((id) => [id, {
           id, type: dynamicSchema.type,
           values: values(['mode.seed', 'slot.seed'], id === 'primary' ? scenario.leaf : [17, 18]),
-          controllers: modes(['mode.seed', 'slot.seed'], 'increment'),
+          controllers: modes(['mode.seed', 'slot.seed'], id === 'primary' ? 'increment' : 'decrement'),
         }])), {}, { body: [whole('pick', 'primary', 'mode', true), whole('typed', 'primary', 'slot', true)] }),
         ...(depth === 2 ? { wrapper: graph('wrapper', {
           inner: { id: 'inner', type: '#sub', values: values(['pick.seed', 'typed.seed'], scenario.middle),
