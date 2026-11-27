@@ -30,6 +30,7 @@ test('byte sizes use base 1024 with one decimal below 100 and whole numbers abov
     [100.4 * 1024, '100 KB'],
     [100.6 * 1024, '101 KB'],
     [319.5 * 1048576, '320 MB'],
+    [335000000, '319 MB'],
     [123456789, '118 MB'],
     [-99.4 * 1024, '-99.4 KB'],
     [-100.6 * 1024, '-101 KB'],
