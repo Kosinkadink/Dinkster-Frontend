@@ -1,6 +1,7 @@
 import { createResource, createSignal, Show } from 'solid-js'
 import { SetupForm, type SetupStatus } from './SetupForm.js'
 import { setupInProgress } from './setup-job.js'
+import { readHomeStatus } from './shell-route.js'
 
 /** Offer local setup only for a confirmed first run or a job already in progress. */
 export function EditorFirstRunSetup(props: {
@@ -12,14 +13,12 @@ export function EditorFirstRunSetup(props: {
     const url = new URL(backendUrl || '/', location.href)
     if (url.origin !== location.origin || url.pathname.replace(/\/$/, '') !== '') return false
     try {
-      const [status, installations] = await Promise.all([
-        fetch('/supervisor/status', { cache: 'no-store' }),
-        fetch('/supervisor/installations', { cache: 'no-store' }),
-      ])
-      if (!status.ok || !installations.ok) return false
-      const state = await status.json()
+      const state = await readHomeStatus()
+      if (state === undefined || state.open) return false
+      const installations = await fetch('/supervisor/installations', { cache: 'no-store' })
+      if (!installations.ok) return false
       const rows = await installations.json()
-      if (state.open || !Array.isArray(rows.installations)) return false
+      if (!Array.isArray(rows.installations)) return false
       return rows.installations.length === 0 || await setupInProgress()
     } catch {
       return false

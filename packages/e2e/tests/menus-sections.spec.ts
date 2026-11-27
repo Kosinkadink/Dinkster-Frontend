@@ -79,11 +79,11 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   }
   await page.goto('/')
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
-  await waitForWorkspaceReady(page)
   await identityViewport(page)
 })
 

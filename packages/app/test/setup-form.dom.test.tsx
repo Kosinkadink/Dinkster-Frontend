@@ -217,11 +217,13 @@ it('delays the first loading sign and keeps it for the minimum before revealing 
   expect(document.body.textContent).toContain('NVIDIA graphics card build')
 })
 
-it.each(['unavailable', 'installed', 'remote', 'unknown'] as const)('does not offer local setup for an %s editor backend', async (state) => {
+it.each(['unavailable', 'installed', 'remote', 'unknown', 'standalone'] as const)('does not offer local setup for an %s editor backend', async (state) => {
   vi.useFakeTimers()
-  const fetch = vi.fn(async (url: string) => answer(url.includes('installations')
-    ? state === 'unknown' ? {} : { installations: [{ root: '/existing' }] }
-    : { state: 'ready' }, state === 'unavailable' ? 404 : 200))
+  const fetch = vi.fn(async (url: string) => answer(url.startsWith('/supervisor/setup')
+    ? { plan, activeJob: null }
+    : url.includes('installations')
+    ? state === 'unknown' ? {} : { installations: state === 'standalone' ? [] : [{ root: '/existing' }] }
+    : { state: 'ready', ...(state === 'standalone' ? {} : { role: 'home' }) }, state === 'unavailable' ? 404 : 200))
   vi.stubGlobal('fetch', fetch)
   dispose = render(() => <EditorFirstRunSetup backendUrl={state === 'remote' ? 'https://elsewhere.invalid/' : ''} />, document.body)
   await vi.advanceTimersByTimeAsync(1000)
@@ -234,7 +236,7 @@ it.each(['running', 'cancelling'] as const)('rediscovers a %s job after its inst
   const current = { ...job, state }
   const fetch = vi.fn(async (url: string) => {
     if (url.startsWith('/supervisor/setup')) return answer({ plan, activeJob: current })
-    return answer(url.includes('installations') ? { installations: [{ root: job.root }] } : { state: 'stopped' })
+    return answer(url.includes('installations') ? { installations: [{ root: job.root }] } : { role: 'home', state: 'stopped' })
   })
   vi.stubGlobal('fetch', fetch)
   dispose = render(() => <EditorFirstRunSetup backendUrl="" />, document.body)
@@ -252,7 +254,7 @@ it('offers the editor form only after a confirmed empty supervisor and leaves it
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'POST') return answer(completed, 202)
     if (url.startsWith('/supervisor/setup')) return answer({ plan, activeJob: null })
-    return answer(url.includes('installations') ? { installations: [] } : { state: 'stopped' })
+    return answer(url.includes('installations') ? { installations: [] } : { role: 'home', state: 'stopped' })
   }))
   dispose = render(() => <EditorFirstRunSetup backendUrl="" />, document.body)
   await vi.advanceTimersByTimeAsync(0)
