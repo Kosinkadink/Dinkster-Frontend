@@ -1412,6 +1412,7 @@ button.dinkster-row-main { cursor: pointer; }
 .problem-box-line[data-stacked-actions='true']:not([data-run='true']) { flex-wrap: nowrap; }
 .problem-box-actions { display: flex; flex: none; flex-direction: column; align-items: flex-end; margin-left: auto; max-width: 100%; }
 .problem-box-line[data-run='true'] .problem-box-actions { flex-direction: row; flex-wrap: wrap; gap: var(--dinkster-space-12); align-items: center; }
+.problem-box-line[data-run='true'] .problem-box-text { flex-basis: min-content; }
 .problem-box-actions > .dinkster-text-button { padding: calc((var(--dinkster-input-canvas-height) - var(--dinkster-type-canvas-line)) / 2) 0; color: var(--dinkster-text-primary); font: inherit; }
 .problem-box-notice { margin: 0; padding: var(--dinkster-space-4); color: var(--dinkster-text-secondary); }
 .problem-box-line + .problem-box-line { border-top: var(--dinkster-border-width) solid var(--dinkster-border-faint); }
