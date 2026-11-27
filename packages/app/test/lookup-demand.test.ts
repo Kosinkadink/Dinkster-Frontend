@@ -49,10 +49,10 @@ describe('recorded run answers', () => {
         const call = JSON.parse(String(init?.body)) as { nodeType: string; function: string; args: string[] }
         expect(call.nodeType).toBe('Picker')
         expect(call.function).toBe('pack.loras')
-        return new Promise<Response>((resolve, reject) => {
+        return new Promise<Response>((resolve) => {
           const request = { args: call.args, aborted: false, answer: (status: number, body: unknown) =>
             resolve(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) }
-          init?.signal?.addEventListener('abort', () => { request.aborted = true; reject(new DOMException('aborted', 'AbortError')) })
+          init?.signal?.addEventListener('abort', () => { request.aborted = true })
           pending.push(request)
         })
       } })
@@ -98,11 +98,13 @@ describe('recorded run answers', () => {
         await settle()
         expect(draw()[1]).toEqual({ node: 'second', value: 'kept-second', state: 'ready', options: ['sdxl-only'] })
         expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: category, value: 'broken' } }).ok).toBe(true)
+        const edited = store.doc
         draw()
         await settle()
         expect(oldFirst.aborted).toBe(true)
-        const broken = pending.find((request) => request.args[0] === 'broken')!
         oldFirst.answer(200, { answer: ['late-old-sd'] })
+        await settle()
+        const broken = pending.find((request) => request.args[0] === 'broken')!
         broken.answer(504, { error: 'lookup-timeout' })
         await settle()
         expect(draw()).toEqual([
@@ -133,8 +135,11 @@ describe('recorded run answers', () => {
         expect(pending.filter((request) => request.args[0] === 'sdxl')).toHaveLength(1)
         checkPrompt()
         expect(store.redo()).toBe(true)
+        expect(store.doc).toEqual(edited)
         const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
-        expect(reopened).toEqual(store.doc)
+        expect(reopened).toEqual(edited)
+        expect(reopened.graphs.root!.nodes.first!.values).toEqual({ [category]: 'broken', [selection]: 'kept-first' })
+        expect(reopened.graphs.root!.nodes.second!.values).toEqual({ [category]: 'sdxl', [selection]: 'kept-second' })
         checkPrompt(reopened)
         expect(store.doc.graphs.detail).toEqual(doc.graphs.detail)
         expect(store.doc.graphs.portrait).toEqual(doc.graphs.portrait)
