@@ -263,6 +263,8 @@ export function schemaMatchesLinkDrop(
 export interface AutoConnectTarget {
   /** link.connect endpoint port: the row's flattened id. */
   readonly port: string
+  /** The displayed pin name from the same elaborated row. */
+  readonly label: string
   /** dynamic.materialize frames the connect must batch with, when the target is synthetic. */
   readonly materialize?: readonly MaterializeFrame[]
 }
@@ -294,6 +296,7 @@ export function autoConnectTarget(
     const frames = materializeFramesOf(items, item)
     const target: AutoConnectTarget = {
       port: item.address.port,
+      label: item.spec.displayName ?? item.spec.id,
       ...(frames !== undefined ? { materialize: frames } : {}),
     }
     if (!knownAnchor || hasKnownLinkDropAnchorType(item.spec.type)) return target
