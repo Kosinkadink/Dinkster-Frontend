@@ -263,8 +263,8 @@
 .dinkster-button[data-cancel]:not(:disabled, [aria-disabled='true']):hover { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); }
 .dinkster-button:is(:disabled, [aria-disabled='true']), :is(.dinkster-root, .dinkster-dialog) :is(button, input, select, textarea):disabled, :is(.dinkster-root, .dinkster-dialog) [aria-disabled='true'] { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .dinkster-field { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
-.dinkster-input { width: 100%; min-width: 0; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-4) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); color: var(--dinkster-text-primary); }
-.dinkster-input[data-density='panel'] { height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-8); }
+.dinkster-input { width: 100%; min-width: 0; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-4) var(--dinkster-space-12) var(--dinkster-space-4) var(--dinkster-field-value-padding-start); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); color: var(--dinkster-text-primary); }
+.dinkster-input[data-density='panel'] { height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-8) 0 var(--dinkster-field-value-padding-start); }
 .dinkster-input:where(:not(:disabled):hover) { border-color: var(--dinkster-border-hover); }
 .dinkster-input:focus { border-color: var(--dinkster-border-subtle); }
 :where(:root[data-field-focus='pointer']) .dinkster-input:focus { border-color: var(--dinkster-border-focus); }
@@ -274,6 +274,30 @@
 .dinkster-root .dinkster-input[data-density='canvas'] { height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-4); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); font-weight: var(--dinkster-type-canvas-weight); }
 .dinkster-input::placeholder { color: var(--dinkster-text-muted); opacity: 1; }
 .dinkster-input[aria-invalid='true'] { border-color: var(--dinkster-danger-border); }
+.product-number {
+  display: inline-flex;
+  min-width: 0;
+  min-height: var(--dinkster-input-primary-height);
+  border: 1px solid var(--dinkster-border-subtle);
+  border-radius: var(--dinkster-radius-control);
+  overflow: hidden;
+  background: var(--dinkster-surface-inset);
+}
+.product-number:where(:hover:not(:has(:disabled))) { border-color: var(--dinkster-border-hover); }
+.product-number:focus-within { border-color: var(--dinkster-border-subtle); }
+:where(:root[data-field-focus='pointer']) .product-number:focus-within { border-color: var(--dinkster-border-focus); }
+.product-number:has(:focus-visible) { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
+:root[data-field-focus='pointer'] .product-number:has(:focus-visible) { outline: 0; }
+.product-number:not(:where(.settings-editor *)):has(.product-number-field:focus) { border-color: var(--dinkster-text-secondary); outline: 0; }
+.product-number:not(:where(.settings-editor *)):has(.product-number-field[aria-invalid='true']:focus) { border-color: var(--dinkster-danger-border); }
+.product-number-field { appearance: none; min-width: 0; width: 100%; padding: var(--dinkster-space-4) var(--dinkster-space-8) var(--dinkster-space-4) var(--dinkster-field-value-padding-start); border: 0; outline: 0; color: var(--dinkster-text-primary); background: transparent; font: inherit; }
+.product-number .product-number-field:focus-visible { outline: 0; }
+.product-number-field:disabled { color: var(--dinkster-text-disabled); }
+.product-number-steppers { display: flex; flex: none; border-left: 1px solid var(--dinkster-border-subtle); }
+.product-number-steppers button { min-width: var(--dinkster-control-compact-height); min-height: calc(var(--dinkster-control-compact-height) - 2 * var(--dinkster-border-width)); padding: 0; border: 0; color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); line-height: 1; cursor: pointer; }
+.product-number-steppers button + button { border-left: 1px solid var(--dinkster-border-subtle); }
+.product-number-steppers button:hover:not(:disabled) { background: var(--dinkster-interaction-hover); color: var(--dinkster-text-primary); }
+.product-number-steppers button:disabled { color: var(--dinkster-text-disabled); }
 .dinkster-field-error { display: flex; align-items: start; gap: var(--dinkster-space-4); margin: 0; color: var(--dinkster-danger-foreground); }
 .dinkster-list { list-style: none; margin: 0; padding: 0; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); overflow: hidden; }
 /* The list row: at rest only its text; under the pointer and when selected the raised fill; the selected row adds the icon bar's accent mark on its own left edge. Nothing is drawn outside the row. */
@@ -792,13 +816,14 @@ button.dinkster-row-main { cursor: pointer; }
 [data-density='site'] .dinkster-menu-trigger[data-account]:is(:hover, [aria-expanded='true']) { background: var(--dinkster-surface-raised); }
 [data-density='site'] .dinkster-menu-trigger[data-account] > :is(.dinkster-menu-label, .dinkster-icon), [data-density='site'] .dinkster-menu[data-account] .dinkster-icon { display: none; }
 [data-density='site'] .dinkster-avatar { width: var(--dinkster-site-avatar-size); height: var(--dinkster-site-avatar-size); background: var(--dinkster-interaction-hover); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
-.dinkster-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8); text-align: left; font: inherit; cursor: pointer; user-select: none; }
+.dinkster-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8) var(--dinkster-space-4) var(--dinkster-field-value-padding-start); text-align: left; font: inherit; cursor: pointer; user-select: none; }
 .dinkster-select-trigger > .dinkster-canvas-list-label { min-width: 0; }
 .dinkster-select-trigger > .dinkster-icon { flex: none; color: var(--dinkster-text-secondary); }
 .dinkster-select-trigger:disabled { color: var(--dinkster-text-disabled); cursor: default; }
 .floating-surface.dinkster-select-list { position: fixed; z-index: 1002; overflow-y: auto; padding: var(--dinkster-space-4) 0; background: var(--dinkster-surface-panel); border-radius: var(--dinkster-radius-small); }
 .dinkster-select-list > .dinkster-canvas-list-option { padding-inline: var(--dinkster-space-8); }
-[data-density='site'] .dinkster-select-trigger, .dinkster-select-list[data-density='site'] > .dinkster-canvas-list-option { padding-inline: var(--dinkster-space-12); }
+[data-density='site'] .dinkster-select-trigger { padding-right: var(--dinkster-space-12); }
+.dinkster-select-list[data-density='site'] > .dinkster-canvas-list-option { padding-inline: var(--dinkster-space-12); }
 [data-density='site'] .dinkster-disclosure > summary { display: flex; align-items: center; gap: var(--dinkster-space-8); list-style: none; }
 [data-density='site'] .dinkster-disclosure > summary::-webkit-details-marker { display: none; }
 [data-density='site'] .dinkster-disclosure > summary > .dinkster-icon { display: block; }
@@ -2278,5 +2303,4 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-settings-section { padding: var(--dinkster-space-16); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-quiet); }
 .dinkster-settings-section > h2 { margin: 0 0 var(--dinkster-space-8); color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); font-weight: var(--dinkster-weight-regular); }
 .dinkster-settings-section .dinkster-fact { align-items: first baseline; }
-.dinkster-settings-section .dinkster-select-trigger { padding-left: var(--dinkster-space-12); }
 .dinkster-settings-section .dinkster-switch { vertical-align: middle; }

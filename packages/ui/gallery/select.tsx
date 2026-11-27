@@ -1,11 +1,15 @@
 import { createSignal } from 'solid-js'
+import { ProductNumberInput } from '../../app/src/ProductNumberInput.js'
+import { ProductSelect as AppSelect } from '../../app/src/ProductSelect.js'
 import {
   ProductButton,
   ProductDialog,
   ProductField,
   ProductForm,
+  ProductLink,
   ProductSelect,
   ProductSection,
+  ProductTextInput,
 } from '../src/index.js'
 
 const options = [
@@ -72,6 +76,7 @@ export function SelectGallery() {
         <ProductButton onClick={() => setDialog(true)}>
           Open dropdown dialog
         </ProductButton>
+        <ProductLink href="#field-alignment">Compare field alignment</ProductLink>
       </ProductSection>
       {dialog() && (
         <ProductDialog
@@ -104,5 +109,37 @@ export function SelectGallery() {
         </ProductDialog>
       )}
     </>
+  )
+}
+
+export function FieldAlignmentGallery() {
+  const [choice, setChoice] = createSignal('models')
+  const [number, setNumber] = createSignal<number | string>(128)
+  const choices = [
+    { value: 'models', label: 'Models' },
+    { value: 'renders', label: 'Renders' },
+  ]
+  return (
+    <ProductSection title="Field alignment" description="Form values share one left inset; arrows and number buttons keep their own space at the right.">
+      <ProductField label="Dropdown">
+        {(attributes) => <ProductSelect {...attributes} value={choice()} options={choices} onChange={setChoice} />}
+      </ProductField>
+      <ProductField label="Editor dropdown">
+        {(attributes) => <AppSelect id={attributes.id} selectedId={choice()} options={choices.map((option) => ({ ...option, id: option.value }))} onSelect={(option) => setChoice(option.id)} />}
+      </ProductField>
+      <ProductField label="Text field">
+        {(attributes) => <ProductTextInput {...attributes} value="Models" />}
+      </ProductField>
+      <ProductField label="Password field">
+        {(attributes) => <ProductTextInput {...attributes} type="password" value="Models" />}
+      </ProductField>
+      <ProductField label="Number field">
+        {(attributes) => <ProductNumberInput id={attributes.id} value={number()} min={0} max={1024} integer onInput={setNumber} />}
+      </ProductField>
+      <div class="dinkster-actions">
+        <ProductLink href="#field-alignment">App density</ProductLink>
+        <ProductLink href="#site-field-alignment">Site density</ProductLink>
+      </div>
+    </ProductSection>
   )
 }

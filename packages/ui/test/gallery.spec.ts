@@ -66,6 +66,38 @@ test('list rows expand independently of their sibling menu and navigation does n
   await expect(version).not.toHaveAttribute('aria-controls')
 })
 
+test('stacked form values start on the same line in app and site densities', async ({ page }) => {
+  for (const route of ['#field-alignment', '#site-field-alignment']) {
+    await page.goto(`/${route}`)
+    await expect(page.getByLabel('Text field', { exact: true })).toBeVisible()
+    await page.evaluate(() => document.fonts.ready)
+    const origins = []
+    for (const label of ['Dropdown', 'Editor dropdown', 'Text field', 'Password field', 'Number field']) {
+      origins.push(await page.getByLabel(label, { exact: true }).evaluate((control) => {
+        const input = control as HTMLInputElement
+        const face = control.closest('.product-number') ?? control
+        const faceLeft = face.getBoundingClientRect().left
+        const value = control.querySelector('.dinkster-canvas-list-label')
+        if (value?.firstChild) {
+          const range = document.createRange()
+          range.setStart(value.firstChild, 0)
+          range.setEnd(value.firstChild, 1)
+          return { left: range.getBoundingClientRect().left, faceLeft }
+        }
+        const style = getComputedStyle(input)
+        return {
+          left: input.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft),
+          faceLeft,
+        }
+      }))
+    }
+    for (const origin of origins) {
+      expect(origin.left - origin.faceLeft).toBe(13)
+      expect(origin.left).toBe(origins[0]!.left)
+    }
+  }
+})
+
 test('single-line fields match their density while site dialogs keep app field sizing', async ({ page }) => {
   await page.goto('/#controls')
   await page.getByRole('textbox', { name: 'Display name', exact: true }).waitFor()

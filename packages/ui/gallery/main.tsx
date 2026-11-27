@@ -117,7 +117,7 @@ import { BoardGallery } from './board.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
 import { SettingsSectionGallery } from './settings-section.js'
-import { SelectGallery } from './select.js'
+import { FieldAlignmentGallery, SelectGallery } from './select.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -225,7 +225,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models', '#settings-section', '#setup-components'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -242,6 +242,8 @@ function Gallery() {
             ? 'Settings groups'
             : route() === '#dropdowns'
             ? 'Dropdowns'
+            : route().endsWith('field-alignment')
+            ? 'Field alignment'
             : route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
@@ -531,6 +533,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#dropdowns'}>
               <SelectGallery />
+            </Match>
+            <Match when={route() === '#field-alignment' || route() === '#site-field-alignment'}>
+              <FieldAlignmentGallery />
             </Match>
             <Match when={route() === '#controls'}>
               <Section
