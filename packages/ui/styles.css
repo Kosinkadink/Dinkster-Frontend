@@ -330,7 +330,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--dinkster-space-8); }
 .dinkster-dialog-secondary-action { flex-shrink: 0; margin-inline-end: auto; }
 .dinkster-dialog-primary-actions { display: flex; flex-shrink: 0; align-items: center; gap: var(--dinkster-space-8); }
-.dinkster-button[data-remove-on-hover] { position: relative; color: var(--dinkster-text-secondary); }
+.dinkster-button[data-remove-on-hover] { position: relative; }
 .dinkster-button[data-remove-on-hover]:not(:disabled, [aria-disabled='true']):is(:hover, :focus-visible) { color: var(--dinkster-danger-foreground); background: transparent; }
 .dinkster-button[data-remove-on-hover]:not(:disabled, [aria-disabled='true']):is(:hover, :focus-visible)::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--dinkster-danger-foreground); opacity: .12; pointer-events: none; }
 .dinkster-confirmation { display: grid; gap: var(--dinkster-space-8); min-width: 0; }

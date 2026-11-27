@@ -89,7 +89,7 @@ export function ProductSecretDialog(props: {
   return (
     <ProductDialog title={(removing() ? strings.removeSecretTitle : strings.setSecretTitle).replace('{name}', props.name)} onDismiss={cancel} pending={pending()} size="confirmation"
       secondaryAction={removing() || props.onRemove === undefined || scope() !== 'account' ? undefined :
-        <ProductButton intent="remove" fill="quiet" data-remove-on-hover disabled={pending()} onClick={() => {
+        <ProductButton data-remove-on-hover disabled={pending()} onClick={() => {
           clear()
           setFailure(undefined)
           setRemoving(true)
