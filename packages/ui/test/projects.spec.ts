@@ -1,5 +1,46 @@
 import { expect, test } from '@playwright/test'
 
+test('Start with keeps its choice across measured-width row and shared dropdown modes', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/#projects')
+  await page.getByText('Engine templates on', { exact: true }).click()
+  await expect(page.getByRole('checkbox', { name: 'Engine templates on' })).toBeChecked()
+  await page.getByRole('button', { name: 'New', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Evening light')
+  const row = page.getByRole('radiogroup', { name: 'Start with', exact: true })
+  const dropdown = page.getByRole('combobox', { name: 'Start with', exact: true })
+  await expect(row).toBeVisible()
+  await row.getByRole('radio', { name: 'Empty', exact: true }).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(row.getByRole('radio', { name: 'Template', exact: true })).toBeChecked()
+  await page.setViewportSize({ width: 900, height: 900 })
+  await expect(row).toBeVisible()
+  await expect(dropdown).toHaveCount(0)
+
+  // The same viewport can need the dropdown when its form has less room.
+  const form = page.getByRole('textbox', { name: 'Name', exact: true }).locator('xpath=ancestor::form')
+  await form.evaluate((element) => { element.style.maxWidth = '260px' })
+  await expect(dropdown).toBeVisible()
+  await expect(dropdown).toHaveText('Template')
+  await form.evaluate((element) => { element.style.maxWidth = '' })
+  await expect(row.getByRole('radio', { name: 'Template', exact: true })).toBeChecked()
+
+  await page.setViewportSize({ width: 390, height: 900 })
+  await expect(dropdown).toBeVisible()
+  await dropdown.click()
+  const options = page.getByRole('listbox', { name: 'Start with', exact: true })
+  await expect(options.getByRole('option', { name: 'Template', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Home')
+  await page.keyboard.press('Enter')
+  await expect(options).toHaveCount(0)
+  await expect(dropdown).toHaveText('Empty')
+  await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Evening light')
+  await page.setViewportSize({ width: 900, height: 900 })
+  await expect(row.getByRole('radio', { name: 'Empty', exact: true })).toBeChecked()
+  await page.getByRole('button', { name: 'Create', exact: true }).click()
+  await expect(page.getByRole('status').last()).toHaveText('Created Evening light')
+})
+
 test('a form dialog tabs from Cancel to its action and Cancel dismisses it', async ({ page }) => {
   await page.goto('/#projects')
   await page.getByRole('button', { name: 'Project actions' }).click()
