@@ -1,3 +1,4 @@
+import { formatByteSize } from '@dinkster/core'
 import {
   For,
   Match,
@@ -47,6 +48,7 @@ import {
   ProductQrCode,
   ProductResourceUsage,
   ProductButton,
+  ProductByteSizeInput,
   ProductCheckbox,
   ProductConfirmation,
   ProductConfirmationDialog,
@@ -176,6 +178,7 @@ function Gallery() {
   const [refuseName, setRefuseName] = createSignal(false)
   const [nameTaken, setNameTaken] = createSignal(false)
   const [activity, setActivity] = createSignal('No action yet')
+  const [sizeLimit, setSizeLimit] = createSignal(10000000000)
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
   const [serverOpen, setServerOpen] = createSignal(false)
@@ -342,7 +345,7 @@ function Gallery() {
                       ]}
                       now={120_000}
                       limit={22}
-                      format={(value) => `${value.toFixed(1)} GB`}
+                      format={(value) => formatByteSize(value * 1024 ** 3)}
                       historyLabel="Last 2 minutes"
                       limitLabel="Limit"
                       compact={compact}
@@ -375,7 +378,7 @@ function Gallery() {
                   segments={[{ label: 'Used', value: 5, tone: 'other' }]}
                   samples={[]}
                   now={120_000}
-                  format={(value) => `${value.toFixed(1)} GB`}
+                  format={(value) => formatByteSize(value * 1024 ** 3)}
                   historyLabel="Last 2 minutes"
                   limitLabel="Limit"
                 />
@@ -633,6 +636,12 @@ function Gallery() {
                       placeholder="Enter a name"
                     />
                   )}
+                </ProductField>
+                <ProductField label="Keep at most">
+                  {(attributes) => <ProductByteSizeInput {...attributes} value={sizeLimit()} minimum={1} onCommit={setSizeLimit} />}
+                </ProductField>
+                <ProductField label="Unavailable size limit">
+                  {(attributes) => <ProductByteSizeInput {...attributes} value={4097} disabled onCommit={() => {}} />}
                 </ProductField>
                 <ProductField
                   label="Email address"

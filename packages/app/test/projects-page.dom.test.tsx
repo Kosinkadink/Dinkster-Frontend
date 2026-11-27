@@ -199,7 +199,7 @@ it('keeps the first painted elements unchanged as detail arrives, and keeps old 
   render(() => <ProjectsView shell={shell()} source={{
     ...source(projects), listProjects: async () => projects.map((project) => ({ ...project })),
     listWorkflows: (id) => id === 'p-film' ? film.promise : valley.promise,
-    usage: async (id) => ({ outputs: 12, bytes: id === 'p-film' ? 0 : 512 }),
+    usage: async (id) => ({ outputs: 12, bytes: id === 'p-film' ? 0 : 1536 }),
   }} />, document.body)
   await settle()
   expect(document.querySelector('.dinkster-skeleton')).toBeNull()
@@ -228,7 +228,7 @@ it('keeps the first painted elements unchanged as detail arrives, and keeps old 
   valley.resolve([])
   await settle()
   expect(document.querySelector('h2')?.textContent).toBe('Valley matte paintings')
-  expect(detail.textContent).toContain('512 B')
+  expect(detail.textContent).toContain('1.5 KB')
   expect(document.querySelector('[aria-label="valley.png"]')).not.toBeNull()
 })
 

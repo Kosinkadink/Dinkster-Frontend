@@ -1062,7 +1062,7 @@ export function createPreviewLoader(deps: {
                     ...(batch.rendition.version !== undefined ? { rendererVersion: batch.rendition.version } : {}),
                   })
                   if (result.available && (result.mime !== 'image/png' || result.bytes.byteLength > 64 * 1024 * 1024)) {
-                    return { available: false, status: 406, reason: 'preview-budget', error: 'Expected a PNG preview no larger than 64 MiB' }
+                    return { available: false, status: 406, reason: 'preview-budget', error: 'Expected a PNG preview no larger than 64 MB' }
                   }
                   return result
                 },

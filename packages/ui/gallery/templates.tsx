@@ -1,5 +1,6 @@
 import { For, Show, createMemo, createSignal } from 'solid-js'
 import { Download } from 'lucide-solid'
+import { formatByteSize } from '@dinkster/core'
 import type { CanvasGalleryPage } from '../../canvas/gallery/fixtures.js'
 import {
   ProductButton,
@@ -45,7 +46,7 @@ const makesLabels: Record<Makes, string> = {
 
 const model = (name: string, gigabytes: number, here: boolean): MockModel => ({
   name,
-  size: `${gigabytes.toFixed(1)} GB`,
+  size: formatByteSize(gigabytes * 1024 ** 3),
   gigabytes,
   here,
 })
@@ -63,7 +64,7 @@ const h3 = [
 const missing = (models: readonly MockModel[]) => {
   const left = models.filter((entry) => !entry.here)
   const amount = left.reduce((total, entry) => total + entry.gigabytes, 0)
-  return left.length > 0 ? `${amount.toFixed(1)} GB` : undefined
+  return left.length > 0 ? formatByteSize(amount * 1024 ** 3) : undefined
 }
 
 const generation = { pack: 'Generation', version: '0.4.2', from: 'Built in' }
