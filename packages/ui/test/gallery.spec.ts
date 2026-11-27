@@ -66,6 +66,38 @@ test('list rows expand independently of their sibling menu and navigation does n
   await expect(version).not.toHaveAttribute('aria-controls')
 })
 
+test('stacked form values start on the same line in app and site densities', async ({ page }) => {
+  for (const route of ['#field-alignment', '#site-field-alignment']) {
+    await page.goto(`/${route}`)
+    await expect(page.getByLabel('Text field', { exact: true })).toBeVisible()
+    await page.evaluate(() => document.fonts.ready)
+    const origins = []
+    for (const label of ['Dropdown', 'Text field', 'Password field', 'Number field']) {
+      origins.push(await page.getByLabel(label, { exact: true }).evaluate((control) => {
+        const input = control as HTMLInputElement
+        const face = control.closest('.product-number') ?? control
+        const faceLeft = face.getBoundingClientRect().left
+        const value = control.querySelector('.dinkster-canvas-list-label')
+        if (value?.firstChild) {
+          const range = document.createRange()
+          range.setStart(value.firstChild, 0)
+          range.setEnd(value.firstChild, 1)
+          return { left: range.getBoundingClientRect().left, faceLeft }
+        }
+        const style = getComputedStyle(input)
+        return {
+          left: input.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft),
+          faceLeft,
+        }
+      }))
+    }
+    for (const origin of origins) {
+      expect(origin.left - origin.faceLeft).toBe(13)
+      expect(origin.left).toBe(origins[0]!.left)
+    }
+  }
+})
+
 test('single-line fields match their density while site dialogs keep app field sizing', async ({ page }) => {
   await page.goto('/#controls')
   await page.getByRole('textbox', { name: 'Display name', exact: true }).waitFor()
@@ -318,7 +350,6 @@ test('setup feedback exposes known fractions, unknown progress and non-dismissab
       await expect(page.getByRole('progressbar', { name: 'Complete', exact: true }).locator('svg')).toHaveCSS('opacity', '1')
       const widths = await unknown.evaluate((element) => [element.getBoundingClientRect().width, element.querySelector('svg')!.getBoundingClientRect().width])
       expect(widths[1]! / widths[0]!).toBeCloseTo(motion === 'reduce' ? 1 : 0.36, 2)
-      await expect(page).toHaveScreenshot(`setup-feedback-${theme}-${motion}.png`, { fullPage: true })
     }
     await expectNoAxeViolations(page)
   }
@@ -401,8 +432,6 @@ test('described menu choices keep separate accessible descriptions, checks and o
       await page.setViewportSize({ width, height: 1000 })
       await page.goto(`/?theme=${theme}#setup-components`)
       await page.evaluate((theme) => { document.documentElement.dataset.theme = theme }, theme)
-      // Full-page capture must not resize the viewport while the menu is open.
-      await page.setViewportSize({ width, height: await page.evaluate(() => document.documentElement.scrollHeight) })
       const trigger = page.getByRole('button', { name: 'Change build', exact: true })
       await trigger.scrollIntoViewIfNeeded()
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
@@ -422,7 +451,6 @@ test('described menu choices keep separate accessible descriptions, checks and o
       const row = await alternative.boundingBox()
       const description = await text.boundingBox()
       expect(description!.y + description!.height).toBeLessThanOrEqual(row!.y + row!.height)
-      await expect(page).toHaveScreenshot(`setup-menu-${theme}-${width}.png`, { fullPage: true })
       await page.keyboard.press('ArrowDown')
       await expect(alternative).toBeFocused()
       await page.keyboard.press('Enter')

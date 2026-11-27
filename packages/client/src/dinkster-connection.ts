@@ -982,6 +982,7 @@ export interface MountDescriptor {
   readonly entryCount?: number
   readonly scanProgress?: MountScanProgress
   readonly error?: string
+  readonly saveError?: string
 }
 
 export interface MountGrantOptions {
@@ -998,6 +999,7 @@ export interface MountLocations {
 
 export interface MountSettings {
   readonly mounts: readonly MountDescriptor[]
+  readonly revision?: string
   readonly outputMount?: string
   readonly activeOutputMount?: string
   readonly restartRequired?: boolean
@@ -3791,7 +3793,7 @@ export class DinksterConnection {
     const query = this.project && this.project !== 'default' ? `?${new URLSearchParams({ project: this.project })}` : ''
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts${query}`, { signal })
     if (!res.ok) throw await requestFailure(res)
-    const payload = await res.json() as { mounts?: unknown; outputMount?: unknown; activeOutputMount?: unknown; mountChangesAllowed?: unknown; restartRequired?: unknown; pendingRemovals?: unknown }
+    const payload = await res.json() as { mounts?: unknown; revision?: unknown; outputMount?: unknown; activeOutputMount?: unknown; mountChangesAllowed?: unknown; restartRequired?: unknown; pendingRemovals?: unknown }
     // Compatibility: a response without the field (older backend) decodes
     // as false - read-only; a present non-boolean is a protocol error.
     if (payload.mountChangesAllowed !== undefined && typeof payload.mountChangesAllowed !== 'boolean') {
@@ -3816,16 +3818,19 @@ export class DinksterConnection {
       return typeof row['id'] === 'string' && (row['mode'] === 'read' || row['mode'] === 'readwrite') &&
         typeof row['state'] === 'string' && (row['path'] === undefined || typeof row['path'] === 'string') &&
         (row['error'] === undefined || typeof row['error'] === 'string') &&
+        (row['saveError'] === undefined || typeof row['saveError'] === 'string') &&
         (row['kind'] === undefined || typeof row['kind'] === 'string') &&
         (row['source'] === undefined || typeof row['source'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
+    if (payload.revision !== undefined && typeof payload.revision !== 'string') throw new Error('GET /api/mounts: malformed revision')
     if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
     if (payload.activeOutputMount != null && typeof payload.activeOutputMount !== 'string') throw new Error('GET /api/mounts: malformed active output mount')
     if (payload.restartRequired !== undefined && typeof payload.restartRequired !== 'boolean') throw new Error('GET /api/mounts: malformed restartRequired')
     if (payload.pendingRemovals !== undefined && (!Array.isArray(payload.pendingRemovals) || !payload.pendingRemovals.every((id) => typeof id === 'string'))) throw new Error('GET /api/mounts: malformed pendingRemovals')
     return {
       mounts,
+      ...(typeof payload.revision === 'string' ? { revision: payload.revision } : {}),
       mountChangesAllowed: payload.mountChangesAllowed === undefined ? false : payload.mountChangesAllowed,
       ...(typeof payload.outputMount === 'string' ? { outputMount: payload.outputMount } : {}),
       ...(typeof payload.activeOutputMount === 'string' ? { activeOutputMount: payload.activeOutputMount } : {}),
@@ -3859,7 +3864,7 @@ export class DinksterConnection {
       const row = value as Record<string, unknown> | null
       if (row === null || typeof row !== 'object' || typeof row['id'] !== 'string' || typeof row['path'] !== 'string') throw new Error('GET /api/mounts/locations: malformed location')
       if ((row['mode'] !== undefined && row['mode'] !== 'read' && row['mode'] !== 'readwrite') ||
-        ['state', 'source', 'kind', 'error'].some((key) => row[key] !== undefined && typeof row[key] !== 'string') ||
+        ['state', 'source', 'kind', 'error', 'saveError'].some((key) => row[key] !== undefined && typeof row[key] !== 'string') ||
         (row['entryCount'] !== undefined && (typeof row['entryCount'] !== 'number' || !Number.isSafeInteger(row['entryCount']) || row['entryCount'] < 0))) {
         throw new Error('GET /api/mounts/locations: malformed location facts')
       }
@@ -3867,6 +3872,7 @@ export class DinksterConnection {
         ...(row['mode'] === 'read' || row['mode'] === 'readwrite' ? { mode: row['mode'] } : {}),
         ...(typeof row['state'] === 'string' ? { state: row['state'] } : {}),
         ...(typeof row['error'] === 'string' ? { error: row['error'] } : {}),
+        ...(typeof row['saveError'] === 'string' ? { saveError: row['saveError'] } : {}),
         ...(typeof row['source'] === 'string' ? { source: row['source'] } : {}),
         ...(typeof row['kind'] === 'string' ? { kind: row['kind'] } : {}),
         ...(typeof row['entryCount'] === 'number' ? { entryCount: row['entryCount'] } : {}),
@@ -3887,7 +3893,7 @@ export class DinksterConnection {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mounts, outputMount }),
     })
-    if (!res.ok) throw await requestFailure(res)
+    if (!res.ok) throw await requestFailure(res, 'error')
   }
 
   async retryMount(id: string): Promise<void> {
@@ -3932,7 +3938,7 @@ export class DinksterConnection {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id }),
       })
-      if (!res.ok) throw await requestFailure(res)
+      if (!res.ok) throw await requestFailure(res, 'error')
     }
     // Folder ordering can already have pinned the default project's output.
     // Keep that override in sync with the persisted library default.
@@ -3950,6 +3956,16 @@ export class DinksterConnection {
     if (typeof value['id'] !== 'string' || (value['mode'] !== 'read' && value['mode'] !== 'readwrite') ||
       typeof value['state'] !== 'string') throw new Error('POST /api/mounts: malformed response')
     return value as unknown as MountDescriptor
+  }
+
+  async updateMountAccess(id: string, mode: 'read' | 'readwrite', revision: string): Promise<void> {
+    const query = new URLSearchParams({ project: this.project ?? 'default' })
+    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(id)}/access?${query}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode, revision }),
+    })
+    if (!res.ok) throw await requestFailure(res, 'error')
   }
 
   async removeMount(id: string): Promise<void> {

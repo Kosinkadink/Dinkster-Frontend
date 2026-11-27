@@ -551,8 +551,10 @@ export function ProductRadio(
   )
 }
 
-export function ProductField(props: {
-  label: string
+export function ProductField(props: (
+  | { label: string; layout?: 'inline' }
+  | { label?: never; layout: 'self-labeled' }
+) & {
   description?: string
   error?: string
   children: (attributes: {
@@ -563,8 +565,10 @@ export function ProductField(props: {
 }) {
   const id = createUniqueId()
   return (
-    <div class="dinkster-field">
-      <label for={id}>{props.label}</label>
+    <div class="dinkster-field" data-layout={props.layout}>
+      <Show when={props.label}>
+        <label for={id}>{props.label}</label>
+      </Show>
       {props.children({
         id,
         get 'aria-describedby'() {

@@ -39,8 +39,8 @@ export function UploadDestination(props: {
     onCleanup(() => { generation++ })
     untrack(() => { void load() })
   })
-  const writable = () => locations()?.activeMounts?.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready' &&
-    settings()?.mounts.some((configured) => configured.id === mount.id && configured.mode === 'readwrite')) ?? []
+  const writable = () => locations()?.activeMounts?.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready' && !mount.saveError &&
+    settings()?.mounts.some((configured) => configured.id === mount.id && configured.mode === 'readwrite' && !configured.saveError)) ?? []
   const selected = () => writable().find((mount) => mount.id === (props.value.mount || locations()?.importMount))
   const unavailable = () => Boolean(props.value.mount) && selected() === undefined
   return <section class="runtime-settings-body upload-destination" data-testid="upload-destination">

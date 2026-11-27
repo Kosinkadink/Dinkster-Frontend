@@ -117,7 +117,7 @@ import { BoardGallery } from './board.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
 import { SettingsSectionGallery } from './settings-section.js'
-import { SelectGallery } from './select.js'
+import { FieldAlignmentGallery, SelectGallery } from './select.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -188,6 +188,9 @@ function Gallery() {
   const [sizeLimit, setSizeLimit] = createSignal(10000000000)
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
+  const [formMount, setFormMount] = createSignal('input')
+  const [formFolder, setFormFolder] = createSignal('reference/')
+  const [formRemember, setFormRemember] = createSignal(false)
   const [serverOpen, setServerOpen] = createSignal(false)
   const [progressOpen, setProgressOpen] = createSignal(false)
   const [storageOpen, setStorageOpen] = createSignal(false)
@@ -225,7 +228,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models', '#settings-section', '#setup-components'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -242,6 +245,8 @@ function Gallery() {
             ? 'Settings groups'
             : route() === '#dropdowns'
             ? 'Dropdowns'
+            : route().endsWith('field-alignment')
+            ? 'Field alignment'
             : route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
@@ -323,6 +328,24 @@ function Gallery() {
                       { label: 'Dinkster', value: '0.0.19' },
                     ]} />
                   </ProductDisclosure>
+                </ProductPanel>
+              </Section>
+              <Section title="Editable filled block" components="ProductPanel, ProductField, ProductSelect, ProductTextInput, ProductCheckbox">
+                <ProductPanel fill="quiet">
+                  <ProductField label="Mount" layout="inline">
+                    {(attributes) => <ProductSelect {...attributes} value={formMount()} onChange={setFormMount}
+                      options={['input', 'reference'].map((value) => ({ value, label: value }))} />}
+                  </ProductField>
+                  <ProductField label="Folder" layout="inline"
+                    {...(formFolder().startsWith('/') || formFolder().split('/').includes('..')
+                      ? { error: 'Enter a folder inside this Mount.' } : {})}>
+                    {(attributes) => <ProductTextInput {...attributes} value={formFolder()}
+                      onInput={(event) => setFormFolder(event.currentTarget.value)} />}
+                  </ProductField>
+                  <ProductField layout="self-labeled">
+                    {(attributes) => <ProductCheckbox {...attributes} label="Remember for this project" checked={formRemember()}
+                      onChange={(event) => setFormRemember(event.currentTarget.checked)} />}
+                  </ProductField>
                 </ProductPanel>
               </Section>
               <Section title="Progress" components="ProductProgress">
@@ -531,6 +554,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#dropdowns'}>
               <SelectGallery />
+            </Match>
+            <Match when={route() === '#field-alignment' || route() === '#site-field-alignment'}>
+              <FieldAlignmentGallery />
             </Match>
             <Match when={route() === '#controls'}>
               <Section
@@ -1758,7 +1784,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models', '#settings-section', '#setup-components'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
@@ -1775,7 +1801,7 @@ function GalleryRoot() {
   })
   return (
     <Show
-      when={route().startsWith('#site-')}
+      when={route().startsWith('#site-') && route() !== '#site-field-alignment'}
       fallback={
         <Switch fallback={<Gallery />}>
           <Match when={route() === '#window-toolbar'}>

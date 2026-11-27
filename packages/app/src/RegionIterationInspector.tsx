@@ -5,7 +5,7 @@ import { useAppMessage } from './locale.js'
 import { resolveNodeOccurrence } from './problem-display.js'
 import { regionIterationInventory, regionValuePresentation, type RegionIteration, type RegionIterationNode } from './region-iteration.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
-import { ProductSelect } from '@dinkster/ui'
+import { ProductProgress, ProductSelect } from '@dinkster/ui'
 
 export function RegionIterationInspector(props: {
   readonly execution: ExecutionState
@@ -131,7 +131,7 @@ export function RegionIterationInspector(props: {
                   <Show when={node()?.progress !== undefined}>
                     <div class="region-iteration-progress">
                       <span>{message('regionInspector.progress', { percent: Math.round(node()!.progress! * 100) })}</span>
-                      <progress max="1" value={node()!.progress} />
+                      <ProductProgress label={message('regionInspector.progress', { percent: Math.round(node()!.progress! * 100) })} value={node()!.progress} />
                     </div>
                   </Show>
                   <code>{node()?.runtimeId}</code>
