@@ -3,6 +3,11 @@ import { importNativeAsset, resolveDroppedAsset, type DesktopFileImportProgress 
 import { model3dMimeFor } from '../model3d-mime.js'
 import { assetUploadPolicy, formatSize, mediaAcceptsFile } from './helpers.js'
 
+/** Native totals mark staging; only native progress reports the publication boundary. */
+export type AssetFileImportProgress =
+  | (DesktopFileImportProgress & { readonly transport: 'native' })
+  | { readonly transport: 'browser'; readonly phase: 'copying'; readonly received: number; readonly total: number | null }
+
 function importName(name: string): string {
   const basename = (name.split(/[\\/]/).filter(Boolean).at(-1) ?? name).trim().replace(/[\u0000-\u001f\u007f]/g, '')
   const bounded = Array.from(basename).slice(0, 255).join('')
@@ -19,7 +24,7 @@ export async function importAssetFile(file: File, options: {
   readonly destination: AssetUploadDestination
   readonly current: () => boolean
   readonly signal: AbortSignal
-  readonly onProgress?: (progress: DesktopFileImportProgress) => void
+  readonly onProgress?: (progress: AssetFileImportProgress) => void
 }): Promise<{ readonly asset: MediaAssetRef; readonly existing: boolean } | undefined> {
   const { accept, kind, policy, current, signal, connection } = options
   signal.throwIfAborted()
@@ -49,13 +54,15 @@ export async function importAssetFile(file: File, options: {
     mediaType: latent ? 'application/x-comfy-latent' : effectiveType || 'application/octet-stream',
     ...(media !== undefined ? { kind: media } : {}),
     ...(latent ? { kind: 'data/latent' } : destination),
-  }, current, { signal, ...(options.onProgress ? { onProgress: options.onProgress } : {}) })
+  }, current, { signal, ...(options.onProgress ? { onProgress: (progress: DesktopFileImportProgress) => {
+    options.onProgress?.({ ...progress, transport: 'native' })
+  } } : {}) })
   signal.throwIfAborted()
   if (!current()) return undefined
   const transfer = {
     signal,
     ...(options.onProgress ? { onProgress: ({ sent, total }: AssetUploadProgress) => {
-      if (!signal.aborted && current()) options.onProgress?.({ phase: 'copying', received: sent, total })
+      if (!signal.aborted && current()) options.onProgress?.({ transport: 'browser', phase: 'copying', received: sent, total })
     } } : {}),
   }
   const asset = existing ?? imported ?? (media !== undefined
