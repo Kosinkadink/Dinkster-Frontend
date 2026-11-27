@@ -1,4 +1,4 @@
-import { Show, createEffect, createSignal, createUniqueId, onCleanup } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup } from 'solid-js'
 import { ProductButton, ProductField, ProductTextInput } from './controls.js'
 import { ProductSelect } from './select.js'
 import { ProductConfirmation, ProductDialog, ProductErrorBanner } from './messages.js'
@@ -30,10 +30,10 @@ export function ProductSecretDialog(props: {
     setValue('')
     if (input) input.value = ''
   }
+  const context = createMemo(() => [props.contextKey, props.name, props.canManageDeployment] as const,
+    undefined, { equals: (before, after) => before.every((value, index) => value === after[index]) })
   createEffect(() => {
-    props.contextKey
-    props.name
-    props.canManageDeployment
+    context()
     generation++
     clear()
     setScope('account')
