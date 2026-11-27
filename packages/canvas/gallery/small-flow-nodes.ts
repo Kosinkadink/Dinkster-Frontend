@@ -123,6 +123,16 @@ const unpack = schema('dinkster.utilities.unpack', 'Unpack', [
     visible: { formula: 'not linked(list) or count == 0' },
   },
   {
+    kind: 'group',
+    id: 'items',
+    displayName: 'Items',
+    value: { ...out('item', T), optional: true },
+    keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 },
+    grows: { count: 'count' },
+    minMembers: 0,
+    memberLabel: { formula: '"Item " + str(index())' },
+  },
+  {
     kind: 'button',
     id: 'set_count',
     label: 'Set count',
@@ -136,16 +146,6 @@ const unpack = schema('dinkster.utilities.unpack', 'Unpack', [
       },
       { step: 'set', field: 'count', value: { formula: 'new_count' } },
     ],
-  },
-  {
-    kind: 'group',
-    id: 'items',
-    displayName: 'Items',
-    value: { ...out('item', T), optional: true },
-    keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 },
-    grows: { count: 'count' },
-    minMembers: 0,
-    memberLabel: { formula: '"Item " + str(index())' },
   },
 ])
 const listSource = schema('List', 'List', [

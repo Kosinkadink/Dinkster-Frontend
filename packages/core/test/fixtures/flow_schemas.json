@@ -211,6 +211,33 @@
         }
       },
       {
+        "kind": "group",
+        "id": "items",
+        "label": "Items",
+        "value": {
+          "kind": "output",
+          "id": "item",
+          "type": {
+            "kind": "variable",
+            "templateId": "T"
+          },
+          "optional": true
+        },
+        "keys": {
+          "numbered": {
+            "prefix": "",
+            "start": 0,
+            "pad": 0
+          }
+        },
+        "grows": {
+          "count": "count"
+        },
+        "memberLabel": {
+          "formula": "\"Item \" + str(index())"
+        }
+      },
+      {
         "kind": "button",
         "id": "set_count",
         "label": "Set count",
@@ -247,33 +274,6 @@
             }
           }
         ]
-      },
-      {
-        "kind": "group",
-        "id": "items",
-        "label": "Items",
-        "value": {
-          "kind": "output",
-          "id": "item",
-          "type": {
-            "kind": "variable",
-            "templateId": "T"
-          },
-          "optional": true
-        },
-        "keys": {
-          "numbered": {
-            "prefix": "",
-            "start": 0,
-            "pad": 0
-          }
-        },
-        "grows": {
-          "count": "count"
-        },
-        "memberLabel": {
-          "formula": "\"Item \" + str(index())"
-        }
       }
     ],
     "validate": [
