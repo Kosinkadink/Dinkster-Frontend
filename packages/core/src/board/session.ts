@@ -1,7 +1,7 @@
 import { diag } from '../diagnostics.js'
 import type { Json } from '../format/document.js'
 import { ownJson } from '../format/json.js'
-import { isValidActorId } from '../ids.js'
+import { isValidActorId, uuidv4 } from '../ids.js'
 import { createSignal, type ReadonlySignal } from '../reactive/signal.js'
 import {
   COLLAB_PROTOCOL_VERSION, isValidCollabRevision, isValidCollabTitle, validateCollabDescriptor, validateCollabServerOp,
@@ -19,7 +19,7 @@ function ownedInvocation(invocation: BoardCommandInvocation): BoardCommandInvoca
   const owned = result.value as unknown as BoardCommandInvocation
   if (owned.command !== 'board.item.add') return owned
   return { ...owned, params: { items: owned.params.items.map((item) => ({
-    ...item, id: item.id ?? `${item.kind}-${crypto.randomUUID()}`,
+    ...item, id: item.id ?? `${item.kind}-${uuidv4()}`,
   })) } }
 }
 
@@ -116,7 +116,7 @@ export class SharedBoardSession implements BoardSession {
   private readonly undoStack: HistoryEntry[] = []
   private readonly redoStack: HistoryEntry[] = []
   private readonly maxUndo: number
-  private readonly nonce = crypto.randomUUID()
+  private readonly nonce = uuidv4()
   private counter = 0
   private target: number
   private resync = false
@@ -135,7 +135,7 @@ export class SharedBoardSession implements BoardSession {
     const invalid = validateCollabDescriptor(descriptor, connection.sessionId, 'board')
     if (invalid !== null) throw new Error(invalid)
     if (!isValidCollabRevision(revision)) throw new Error('invalid Board snapshot revision')
-    this.actorId = options.actorId ?? crypto.randomUUID()
+    this.actorId = options.actorId ?? uuidv4()
     if (!isValidActorId(this.actorId)) throw new Error('invalid Board actor id')
     this.maxUndo = options.maxUndo ?? 200
     if (!Number.isSafeInteger(this.maxUndo) || this.maxUndo < 0) throw new Error('invalid maxUndo')
