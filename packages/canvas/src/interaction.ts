@@ -49,7 +49,6 @@ import {
   containingGroup,
   initialGroupMembership,
   groupBoxKey,
-  hasKnownLinkDropAnchorType,
   dragNumericValue,
   isIntegerWidgetValue,
   isNumberWidget,
@@ -4480,7 +4479,6 @@ export class InteractionController {
         g.moved &&
         hit.kind === 'empty' &&
         !g.preserveInputDriver &&
-        hasKnownLinkDropAnchorType(g.anchorType) &&
         (g.seeking === 'in' ? fixedFrom : fixedInto) !== undefined
       ) {
         this.host.onLinkDropOnEmpty?.(

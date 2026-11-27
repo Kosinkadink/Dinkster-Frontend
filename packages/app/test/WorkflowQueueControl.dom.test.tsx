@@ -2,7 +2,7 @@
 
 import { asConnectionId, asLineageId, asPromptId, type CompileArtifact, type ExecutionRef } from '@dinkster/core'
 import type { ExecutionState, SupervisorStatus } from '@dinkster/client'
-import { Show, createSignal } from 'solid-js'
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkflowQueueControl, type WorkflowQueueOwner } from '../src/WorkflowQueueControl.js'
@@ -67,9 +67,9 @@ describe('WorkflowQueueControl', () => {
       executions={[running]}
       canQueue={status().state === 'ready'} onQueue={() => undefined} onCancel={() => undefined}
       onOpenExecution={() => undefined} hideRunList={status().state === 'failed'}
-      runControl={<Show when={status().state !== 'ready'}>
-        <EngineRunControl status={status()} baseUrl="" onRestart={async () => undefined} />
-      </Show>} />, root)
+      runControl={(runButton) => <EngineRunControl status={status()} baseUrl="" onRestart={async () => undefined}>
+        {runButton}
+      </EngineRunControl>} />, root)
     expect(root.querySelector('[data-testid="queue-button"]')).not.toBeNull()
     for (const state of ['stopped', 'starting'] as const) {
       setStatus({ protocol: 1, state })

@@ -1001,11 +1001,18 @@ export function deriveSceneOverlays(args: {
     if (blocked !== undefined) list.push(executionBlockedBadge(blocked))
     const expanded = expandedByNode.get(n.id)
     if (expanded !== undefined) list.push(executionExpandedBadge(expanded))
+    // Execution errors own their runtime tab; warnings still belong to Problems.
+    const problemLines = (args.nodeProblems?.[n.id] ?? []).filter((line) =>
+      !(line.kind === 'error' && (runErrorsByNode.has(n.id) || lastRunNodes.has(n.id)) && line.diagnostic.origin === 'runtime'))
+    const errorLines = problemLines.filter((line) => line.kind === 'error')
+    const warningLines = problemLines.filter((line) => line.kind === 'warning')
     const nodeLogs = runLogsByNode.get(n.id)
     if (nodeLogs !== undefined) {
-      const warnings = nodeLogs.reduce((total, entry) => entry.level === 'warning' ? total + 1 : total, 0)
+      const warnings = nodeLogs.filter((entry) => entry.level === 'warning' &&
+        !(entry.code !== undefined && entry.origin === undefined && warningLines.some((line) =>
+          line.diagnostic.code === `runtime.${entry.code}` && line.diagnostic.data?.['runtimeId'] === entry.runtimeNodeId))).length
       if (warnings > 0 && !args.dismissedLogTabs?.has(`${n.id}\u0000warning`)) list.push(logWarningBadge(warnings))
-      if (nodeLogs.length > warnings && !args.dismissedLogTabs?.has(`${n.id}\u0000info`)) list.push(LOG_INFO_BADGE)
+      if (nodeLogs.some((entry) => entry.level !== 'warning') && !args.dismissedLogTabs?.has(`${n.id}\u0000info`)) list.push(LOG_INFO_BADGE)
     }
     for (const diagnostic of mediaDiagnosticsByNode.get(n.id) ?? []) {
       const port = diagnostic.code === 'alpha_dropped' ? diagnostic.outputId : diagnostic.inputId
@@ -1013,12 +1020,6 @@ export function deriveSceneOverlays(args: {
       if (list.some((badge) => badge.id === id)) continue
       list.push(mediaDiagnosticBadge(id, `${diagnostic.code === 'alpha_dropped' ? 'Alpha dropped' : 'Mask polarity'}: ${port}`))
     }
-    // Execution errors already own the runtime error badge and its
-    // runtime-details popover, so a runtime cause is not counted again here.
-    const problemLines = (args.nodeProblems?.[n.id] ?? []).filter((line) =>
-      !((runErrorsByNode.has(n.id) || lastRunNodes.has(n.id)) && line.diagnostic.origin === 'runtime'))
-    const errorLines = problemLines.filter((line) => line.kind === 'error')
-    const warningLines = problemLines.filter((line) => line.kind === 'warning')
     // A node that cannot run here says so on its tab, with no count.
     if (errorLines.some((line) =>
       line.diagnostic.code === 'dinksterGraph.residentProcessBoundary' || line.diagnostic.code === 'dinksterGraph.nodeUnavailable')) {
