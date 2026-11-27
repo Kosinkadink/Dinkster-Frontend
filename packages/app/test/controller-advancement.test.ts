@@ -4,10 +4,13 @@ import {
   asPromptId,
   boundaryItems,
   boundaryOf,
+  buildGraphConnectivity,
   compile,
   coreCommandRegistry,
   documentResolver,
   DocumentStore,
+  elabInputsOf,
+  elaborateInterface,
   inputsOf,
   loadDocument,
   outputsOf,
@@ -229,6 +232,8 @@ describe('compiled occurrence controller ownership', () => {
   const controlled = (id: string, value: number) => ({
     kind: 'input' as const,
     id,
+    displayName: 'Run seed', tooltip: 'Seed used by this run', visible: true,
+    readOnly: false, disabled: false, disabledReason: 'The run owns this seed',
     type: INT,
     optional: false,
     widget: { widgetType: 'INT' as const, options: { min: 0, max: 100, step: 1 }, default: value, controller: 'after_generate' as const },
@@ -260,7 +265,7 @@ describe('compiled occurrence controller ownership', () => {
     type: 'DynamicControllers', displayName: 'Dynamic', category: 'test', source: 'v3', isOutputNode: true,
     body: [
       { kind: 'choice', id: 'mode', options: [{ key: 'a', rows: [controlled('seed', 1)] }], shared: [], required: false },
-      { kind: 'typeChoice', id: 'slot', type: INT, rows: [controlled('seed', 1)], required: false },
+      { kind: 'typeChoice', id: 'slot', displayName: 'Typed source', tooltip: 'Choose a typed source', type: INT, rows: [controlled('seed', 1)], required: false },
       {
         kind: 'group', id: 'items', value: controlled('seed', 1),
         keys: { kind: 'numbered', prefix: 'item', start: 1, pad: 0 }, grows: 'link', minMembers: 0, maxMembers: 4,
@@ -335,6 +340,29 @@ describe('compiled occurrence controller ownership', () => {
     const app = createWorkflowApp([sourceSchema, dynamicSchema])
     expect(await app.openDocument(doc, 'Dynamic controller ownership')).toEqual([])
     const tab = app.activeTab()!
+    const resolved = documentResolver(tab.store.doc, dynamicResolve)(type)!
+    for (const [id, values] of [['dynamic', [3, 4, 5]], ['sibling', [30, 40, 50]]] as const) {
+      const node = tab.store.doc.graphs.g0!.nodes[id]!
+      const connectivity = buildGraphConnectivity(tab.store.doc.graphs.g0!)(node.id)
+      const rows = elabInputsOf(elaborateInterface(resolved, node, connectivity)).filter((row) => row.apiName !== undefined)
+      const reference = elabInputsOf(elaborateInterface(dynamicSchema, {
+        values: { 'mode.seed': values[0], 'slot.seed': values[1], 'items.item1': values[2] },
+        dynamic: { mode: { selected: 'a' }, items: { members: ['item1'] } },
+      }, {
+        ...connectivity,
+        isInputConnected: (key) => key === 'slot' || (state === 'driven' && id === 'dynamic'
+          && ['mode.seed', 'slot.seed', 'items.item1'].includes(key)),
+      })).filter((row) => row.apiName !== undefined)
+      expect(rows.map((row) => row.spec.id)).toEqual([keys[0], slot, keys[1], keys[2]])
+      expect(reference.map((row) => row.spec.id)).toEqual(['mode.seed', 'slot', 'slot.seed', 'items.item1'])
+      rows.forEach((row, index) => {
+        const { outer: _scope, ...spec } = row.spec
+        expect(spec).toEqual({ ...reference[index]!.spec, id: row.spec.id })
+        expect([row.readOnly, row.disabled, row.disabledReason]).toEqual([
+          reference[index]!.readOnly, reference[index]!.disabled, reference[index]!.disabledReason,
+        ])
+      })
+    }
     const artifact = compileControllers(tab.store.doc)
     const suffix = depth === 0 ? '' : depth === 1 ? '.leaf' : '.inner.leaf'
     const prompt = (first: number[], second: number[]) => ({
@@ -376,10 +404,15 @@ describe('compiled occurrence controller ownership', () => {
   })
 
   it.each([1, 2].flatMap((depth) => [
-    { depth, storedMember: true, childDriven: false }, { depth, storedMember: false, childDriven: false },
-    { depth, storedMember: true, childDriven: true },
+    { depth, storedMember: true, childDriven: false, primaryMode: 'active', secondaryMode: 'active' },
+    { depth, storedMember: false, childDriven: false, primaryMode: 'active', secondaryMode: 'active' },
+    { depth, storedMember: true, childDriven: true, primaryMode: 'active', secondaryMode: 'active' },
+    { depth, storedMember: true, childDriven: false, primaryMode: 'muted', secondaryMode: 'active' },
+    { depth, storedMember: true, childDriven: false, primaryMode: 'bypassed', secondaryMode: 'active' },
+    { depth, storedMember: true, childDriven: false, primaryMode: 'active', secondaryMode: 'muted' },
+    { depth, storedMember: true, childDriven: false, primaryMode: 'active', secondaryMode: 'bypassed' },
   ]))(
-    'advances shifted fan-out through $depth boundaries with stored member $storedMember and child wire $childDriven', async ({ depth, storedMember, childDriven }) => {
+    'advances shifted fan-out through $depth boundaries with stored member $storedMember, child wire $childDriven and modes $primaryMode/$secondaryMode', async ({ depth, storedMember, childDriven, primaryMode, secondaryMode }) => {
     const [choice, slot, groupId] = depth === 1 ? ['pick', 'typed', 'members'] : ['option', 'variant', 'list']
     const keys = [`${choice}.seed`, `${slot}.seed`, `${groupId}.item1`]
     const whole = (id: string, port: string) => ({
@@ -403,6 +436,7 @@ describe('compiled occurrence controller ownership', () => {
       }]))),
       sub: graph('sub', { ...Object.fromEntries([['secondary', 20], ['primary', 10]].map(([id, value]) => [id, {
         id, type: dynamicSchema.type, values: { 'items.item1': value },
+        mode: id === 'primary' ? primaryMode : secondaryMode,
         dynamic: { items: { members: ['item1'] } }, controllers: { 'items.item1': 'fixed' },
       }])), ...(childDriven ? { internal: { id: 'internal', type: sourceSchema.type, values: {} } } : {}) },
       childDriven ? Object.fromEntries(['mode.seed', 'slot.seed'].map((port, index) => [`childWire${index}`, {
@@ -421,7 +455,8 @@ describe('compiled occurrence controller ownership', () => {
     const prompt = (first: number[], second: number[]) => ({
       src: { class_type: sourceSchema.type, inputs: {}, outputIds: ['out'] },
       ...Object.fromEntries(([['first', first], ['second', second]] as const).flatMap(([id, values]) =>
-        ([['primary', 10], ['secondary', 20]] as const).map(([leaf, prefix]) => [
+        ([['primary', 10], ['secondary', 20]] as const)
+          .filter(([leaf]) => (leaf === 'primary' ? primaryMode : secondaryMode) === 'active').map(([leaf, prefix]) => [
           `${id}.${depth === 1 ? '' : 'inner.'}${leaf}`, {
             class_type: dynamicSchema.type,
             inputs: { 'mode.seed': childDriven && leaf === 'primary' ? [`${id}.${depth === 1 ? '' : 'inner.'}internal`, 0] : values[0],
