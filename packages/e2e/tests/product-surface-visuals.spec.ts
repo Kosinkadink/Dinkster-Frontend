@@ -80,6 +80,15 @@ for (const theme of ['dark', 'light'] as const) {
       await panel.locator(`[data-tab-id="${id}"]`).blur()
       await page.mouse.move(600, 400)
       await expect(page.getByTestId('app-tooltip')).toBeHidden()
+      if (zone === 'bottom') await page.evaluate(() => {
+        const app = window.__dinksterTest!.app as unknown as {
+          clearLogs(): void
+          recordHostLog(severity: 'info', source: string, message: string): void
+        }
+        app.clearLogs()
+        app.recordHostLog('info', 'Local', 'connecting')
+        app.recordHostLog('info', 'Local', 'connected')
+      })
       await expect(panel).toHaveScreenshot(`panel-tabs-${zone}-${theme}.png`, { animations: 'disabled' })
     }
   })
