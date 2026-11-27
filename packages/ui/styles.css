@@ -331,7 +331,6 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-models .dinkster-row-details .dinkster-model-name { font-weight: var(--dinkster-weight-regular); }
 .dinkster-model-size { color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
 .dinkster-model-download .dinkster-text-button { font: inherit; font-size: var(--dinkster-type-metadata-size); text-decoration: none; }
-.dinkster-model-progress .dinkster-product-progress { background: var(--dinkster-border-subtle); }
 .dinkster-model-summary { display: grid; gap: var(--dinkster-space-4); }
 .dinkster-model-summary:is([data-state='failed'], [data-state='unavailable']) { color: var(--dinkster-warning-foreground); }
 .dinkster-model-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-12); }
@@ -352,7 +351,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-menu-item:not(:disabled):hover, .dinkster-menu-item:focus-visible, .dinkster-menu-item:not(:disabled)[data-active] { background: var(--dinkster-interaction-hover); }
 .dinkster-menu-item-copy { display: grid; min-width: 0; }
 .dinkster-menu-item-description { white-space: normal; overflow-wrap: anywhere; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
-.dinkster-product-progress { height: 4px; overflow: hidden; border-radius: 2px; background: var(--dinkster-surface-raised); }
+.dinkster-product-progress { height: 4px; overflow: hidden; border-radius: 2px; background: var(--dinkster-border-subtle); }
 .dinkster-product-progress > svg { display: block; width: 100%; height: 100%; border-radius: inherit; fill: var(--dinkster-accent-foreground); }
 .dinkster-product-progress[data-indeterminate] > svg { width: 36%; animation: dinkster-progress-sweep 1.4s ease-in-out infinite alternate; }
 @keyframes dinkster-progress-sweep { from { transform: translateX(-100%); } to { transform: translateX(280%); } }
@@ -1660,11 +1659,9 @@ button.dinkster-row-main { cursor: pointer; }
 .workflow-queue-cancel { display: inline-flex; align-items: center; padding-right: var(--dinkster-space-8); border: 1px solid var(--dinkster-border-subtle); border-left: 0; border-radius: 0 var(--dinkster-radius-control) var(--dinkster-radius-control) 0; background: var(--dinkster-surface-panel); }
 /* A run's progress: one 4 px bar of two 2 px lines, the whole workflow above and the running node below in the same cyan, fainter. */
 .run-progress { display: grid; grid-template-rows: 2px 2px; height: 4px; overflow: hidden; border-radius: var(--dinkster-radius-capsule); background: var(--dinkster-border-subtle); }
-.run-progress > progress { display: block; width: 100%; height: 2px; border: 0; background: transparent; appearance: none; }
-.run-progress > progress::-webkit-progress-bar { background: transparent; }
-.run-progress > progress::-webkit-progress-value { background: var(--dinkster-accent-foreground); }
-.run-progress > progress::-moz-progress-bar { background: var(--dinkster-accent-foreground); }
-.run-progress > .run-progress-node { opacity: 0.45; }
+.run-progress > .dinkster-product-progress { width: 100%; height: 2px; border-radius: 0; background: transparent; }
+.run-progress > .dinkster-product-progress > svg { border-radius: 0; }
+.run-progress > [data-part='node'] { opacity: 0.45; }
 /* Under the Run bar the two lines are a bar of their own, 3 px below it and 4 px in from each side, so they never meet a button's outline. With nothing running there is no bar and no space kept for it. */
 .workflow-queue-line { position: absolute; top: calc(100% + 3px); right: 4px; left: 4px; pointer-events: none; }
 /* The list under the runs button opens 3 px under the Run bar, or 3 px under the progress bar while one runs. */
