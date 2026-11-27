@@ -5,7 +5,7 @@ import {
   parseByteSize,
 } from '../src/index.js'
 
-test('byte sizes use base 1024 and at most one decimal without trailing zeroes', () => {
+test('byte sizes use base 1024 with one decimal below 100 and whole numbers above', () => {
   for (const [bytes, label] of [
     [0, '0 B'],
     [1023, '1023 B'],
@@ -25,6 +25,14 @@ test('byte sizes use base 1024 and at most one decimal without trailing zeroes',
     [12647, '12.4 KB'],
     [2048, '2 KB'],
     [-1536, '-1.5 KB'],
+    [99.4 * 1024, '99.4 KB'],
+    [100 * 1024, '100 KB'],
+    [100.4 * 1024, '100 KB'],
+    [100.6 * 1024, '101 KB'],
+    [319.5 * 1048576, '320 MB'],
+    [123456789, '118 MB'],
+    [-99.4 * 1024, '-99.4 KB'],
+    [-100.6 * 1024, '-101 KB'],
   ] as const) {
     expect(formatByteSize(bytes)).toBe(label)
   }
@@ -44,6 +52,8 @@ test('byte progress keeps both numbers in the total unit and writes the suffix o
     [0, 0, { received: '0', total: '0 B' }],
     [12646, 20480, { received: '12.3', total: '20 KB' }],
     [12647, 20480, { received: '12.4', total: '20 KB' }],
+    [99.4 * 1024, 319.5 * 1024, { received: '99.4', total: '320 KB' }],
+    [100.6 * 1024, 319.5 * 1024, { received: '101', total: '320 KB' }],
   ] as const) {
     expect(formatByteProgress(received, total)).toEqual(expected)
   }
@@ -52,6 +62,7 @@ test('byte progress keeps both numbers in the total unit and writes the suffix o
 test('editable sizes default to GB and accept only nonnegative safe byte counts', () => {
   expect(formatByteSize(10000000000, 'GB')).toBe('9.3 GB')
   expect(formatByteSize(4097, 'GB')).toBe('0 GB')
+  expect(formatByteSize(129385889792, 'GB')).toBe('120.5 GB')
   for (const [input, bytes] of [
     ['0', 0],
     ['1.5', 1610612736],
@@ -60,6 +71,7 @@ test('editable sizes default to GB and accept only nonnegative safe byte counts'
     ['.5 MB', 524288],
     ['1 KB', 1024],
     ['4097 B', 4097],
+    ['120.5 GB', 129385889792],
     ['1 TB', 1099511627776],
     ['1.6 B', 2],
     ['9007199254740991 B', 9007199254740991],

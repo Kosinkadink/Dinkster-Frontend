@@ -10,14 +10,17 @@ const byteUnit = (bytes: number): number => {
   return unit
 }
 
-/** Base-1024 byte counts with the product's familiar unit names. */
+const formatByteValue = (value: number, editable = false): string =>
+  String(Number(value.toFixed(editable || Math.abs(value) < 100 ? 1 : 0)))
+
+/** Base-1024 sizes; fixed units retain one decimal for editable fields. */
 export function formatByteSize(
   bytes: number,
   fixedUnit?: (typeof units)[number],
 ): string {
   const unit =
     fixedUnit === undefined ? byteUnit(bytes) : units.indexOf(fixedUnit)
-  return `${bytes < 0 ? '-' : ''}${Number((Math.abs(bytes) / 1024 ** unit).toFixed(1))} ${units[unit]}`
+  return `${bytes < 0 ? '-' : ''}${formatByteValue(Math.abs(bytes) / 1024 ** unit, fixedUnit !== undefined)} ${units[unit]}`
 }
 
 /** Bare values are GB; fractional sizes round to the nearest whole byte. */
@@ -37,7 +40,7 @@ export function formatByteProgress(
   total: number,
 ): { readonly received: string; readonly total: string } {
   return {
-    received: String(Number((received / 1024 ** byteUnit(total)).toFixed(1))),
+    received: formatByteValue(received / 1024 ** byteUnit(total)),
     total: formatByteSize(total),
   }
 }
