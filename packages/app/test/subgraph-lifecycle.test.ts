@@ -1195,6 +1195,170 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     }
   })
 
+  it.each(([1, 2] as const).flatMap((depth) =>
+    (['detach', 'active', 'muted', 'bypassed', 'loop'] as const).flatMap((operation) =>
+      [false, true].map((allText) => [depth, operation, allText] as const))))
+  ('keeps standalone option wires at depth %s through %s with all-text=%s', async (depth, operation, allText) => {
+    const doc = boundarySample(depth)
+    for (const id of ['detail', 'portrait']) {
+      const graph = doc.graphs[id]
+      if (graph !== undefined) Object.assign(graph, { boundary: { body: graph.boundary!.body
+        .filter((row) => !('id' in row && row.id === 'mode')) } })
+    }
+    Object.assign(doc.graphs.detail!.nodes, { extra: {
+      ...structuredClone(doc.graphs.detail!.nodes.sample!), id: 'extra',
+      values: { ...doc.graphs.detail!.nodes.sample!.values, strength: 0.53,
+        'mode.text': 'private extra caption', 'mode.mix': 0.73 },
+    } })
+    Object.assign(doc.graphs.root!.nodes, { captionRuntime: { id: 'captionRuntime', type: 'StringSource', values: {} } })
+    const setup = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveBoundarySample),
+    }))
+    const edit = (command: string, params: Record<string, Json>) => {
+      const result = setup.dispatch({ command, params })
+      expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+    }
+    edit('dynamic.selectOption', { graphId: 'detail', nodeId: 'sample', construct: 'mode', option: 'text' })
+    if (allText) edit('dynamic.selectOption', { graphId: 'detail', nodeId: 'extra', construct: 'mode', option: 'text' })
+    for (const [itemId, port] of [['caption', 'mode.text'], ['photo', 'mode.picture']] as const) {
+      edit('boundary.addItem', { graphId: 'detail', side: 'inputs', itemId,
+        node: 'sample', port, ...(itemId === 'caption' ? { promoted: true } : {}) })
+      edit('boundary.addBinding', { graphId: 'detail', itemId, node: 'extra', port })
+    }
+    if (depth === 2) for (const [itemId, port] of [['heading', 'caption'], ['picture', 'photo']] as const) {
+      edit('boundary.addItem', { graphId: 'portrait', side: 'inputs', itemId,
+        node: 'detail', port, ...(itemId === 'heading' ? { promoted: true } : {}) })
+    }
+    const caption = depth === 1 ? 'caption' : 'heading'
+    const picture = depth === 1 ? 'photo' : 'picture'
+    edit('node.setValue', { graphId: 'root', nodeId: 'first', inputId: caption, value: 'first dormant caption' })
+    edit('node.setValue', { graphId: 'root', nodeId: 'second', inputId: caption, value: 'sibling caption' })
+    edit('link.connect', { graphId: 'root', from: { node: 'captionRuntime', port: 'text' }, to: { node: 'first', port: caption } })
+    edit('link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: picture } })
+    edit('link.connect', { graphId: 'root', from: { node: 'first', port: 'output91' }, to: { node: 'sink', port: 'number' } })
+    const configured = setup.doc
+    const promptOf = (current: WorkflowDocument) => {
+      const result = compile({ document: current, revision: 1, resolve: resolveBoundarySample, scope: { kind: 'full' },
+        connection: asConnectionId('standalone-lifecycle'), schemaHash: 'standalone-lifecycle' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) throw new Error('Standalone option lifecycle did not compile')
+      return result.artifact.prompt
+    }
+    const suffix = depth === 1 ? '' : '.detail'
+    const original = promptOf(configured)
+    const first = original[`first${suffix}.sample`]!
+    const extra = original[`first${suffix}.extra`]!
+    expect(first.inputs['mode.text']).toEqual(['captionRuntime', 0])
+    expect(first.inputs).not.toHaveProperty('mode.picture')
+    expect(first.slotVariants?.mode).toBe('text')
+    expect(extra.inputs['mode.picture']).toEqual(allText ? undefined : ['imageA', 0])
+    expect(extra.inputs['mode.text']).toEqual(allText ? ['captionRuntime', 0] : undefined)
+    expect(extra.inputs.strength).toBe(0.53)
+    expect(extra.inputs['mode.mix']).toBe(0.73)
+    expect(extra.slotVariants?.mode).toBe(allText ? 'text' : 'image')
+    expect(original[`second${suffix}.sample`]!.inputs['mode.text']).toBe('sibling caption')
+    expect(original.sink!.inputs.number).toEqual([`first${suffix}.sample`, 6])
+    if (operation === 'detach') {
+      edit('occurrence.localize', { graphId: 'root', nodeId: 'first' })
+      const detached = setup.doc
+      expect(detached.graphs.root!.nodes.first!.type).not.toBe(configured.graphs.root!.nodes.first!.type)
+      expect(promptOf(detached)).toEqual(original)
+      const link = Object.values(detached.graphs.root!.links).find((entry) =>
+        'port' in entry.to && entry.to.node === 'first' && entry.to.port === caption)!
+      edit('link.disconnect', { graphId: 'root', linkId: link.id })
+      edit('node.setValue', { graphId: 'root', nodeId: 'first', inputId: caption, value: 'detached caption' })
+      const changed = setup.doc
+      for (const current of [changed, loadDocument(JSON.parse(JSON.stringify(changed))).document!]) {
+        const prompt = promptOf(current)
+        expect(prompt).toEqual({ ...original, [`first${suffix}.sample`]: {
+          ...first, inputs: { ...first.inputs, 'mode.text': 'detached caption' },
+        }, ...(allText ? { [`first${suffix}.extra`]: {
+          ...extra, inputs: { ...extra.inputs, 'mode.text': 'detached caption' },
+        } } : {}) })
+        expect(current.graphs.root!.nodes.second).toEqual(configured.graphs.root!.nodes.second)
+        expect(current.graphs.detail).toEqual(configured.graphs.detail)
+        expect(current.graphs.portrait).toEqual(configured.graphs.portrait)
+      }
+      for (let step = 0; step < 3; step++) expect(setup.undo()).toBe(true)
+      expect(setup.doc).toEqual(configured)
+      for (let step = 0; step < 3; step++) expect(setup.redo()).toBe(true)
+      expect(setup.doc).toEqual(changed)
+      return
+    }
+    const before = { ...configured, graphs: { ...configured.graphs, root: { ...configured.graphs.root!, nodes: {
+      ...configured.graphs.root!.nodes, first: { ...configured.graphs.root!.nodes.first!,
+        ...(operation === 'loop' ? { region: { kind: 'map', elementPorts: [caption] } } : { mode: operation }),
+      },
+    } } } } as WorkflowDocument
+    const result = await flatten(before, 'root', [], 'first', resolveBoundarySample)
+    if (operation === 'bypassed' || operation === 'loop') {
+      expect(result.ok).toBe(false)
+      expect(result.reports.map((entry) => entry.code)).toContain(operation === 'bypassed'
+        ? 'subgraph.flatten.modeUnsupported' : 'subgraph.flatten.regionUnsupported')
+      expect(result.session.doc).toEqual(before)
+      expect(result.session.canUndo).toBe(false)
+      return
+    }
+    expect(result.ok, JSON.stringify(result.reports)).toBe(true)
+    const flattened = result.session.doc
+    const replacements = Object.values(flattened.graphs.root!.nodes).filter((entry) => before.graphs.root!.nodes[entry.id] === undefined)
+    expect(replacements).toHaveLength(depth === 1 ? 2 : 1)
+    const primary = depth === 1 ? replacements.find((entry) => entry.values.strength === 0.2)! : replacements[0]!
+    const primaryId = depth === 1 ? primary.id : `${primary.id}.sample`
+    const extraId = depth === 1 ? replacements.find((entry) => entry.id !== primary.id)!.id : `${primary.id}.extra`
+    for (const current of [flattened, loadDocument(JSON.parse(JSON.stringify(flattened))).document!]) {
+      const prompt = promptOf(current)
+      expect(prompt[primaryId]).toEqual(operation === 'active' ? first : undefined)
+      expect(prompt[extraId]).toEqual(operation === 'active' ? extra : undefined)
+      expect(prompt.sink!.inputs.number).toEqual(operation === 'active' ? [primaryId, 6] : undefined)
+      const awake = { ...current, graphs: { ...current.graphs, root: { ...current.graphs.root!, nodes: {
+        ...current.graphs.root!.nodes, ...Object.fromEntries(replacements.map((entry) => [entry.id, { ...entry, mode: 'active' }])),
+      } } } } as WorkflowDocument
+      const awakened = promptOf(awake)
+      expect(awakened[primaryId]).toEqual(first)
+      expect(awakened[extraId]).toEqual(extra)
+      expect(awakened.sink!.inputs.number).toEqual([primaryId, 6])
+      const revived = new DocumentStore(awake, coreCommandRegistry(), 200, undefined, () => ({
+        kind: 'initial', schemaResolverFor: (document) => documentResolver(document, resolveBoundarySample),
+      }))
+      if (depth === 2) expect(revived.dispatch({ command: 'occurrence.localize', params: {
+        graphId: 'root', nodeId: primary.id,
+      } }).ok).toBe(true)
+      const targetGraph = depth === 1 ? 'root' : revived.doc.graphs.root!.nodes[primary.id]!.type.slice(1)
+      for (const [nodeId, option] of [[depth === 1 ? primary.id : 'sample', 'image'],
+        [depth === 1 ? extraId : 'extra', allText ? 'image' : 'text']]) expect(revived.dispatch({ command: 'dynamic.selectOption', params: {
+        graphId: targetGraph, nodeId: nodeId!, construct: 'mode', option: option!,
+      } }).ok).toBe(true)
+      for (const restored of [revived.doc, loadDocument(JSON.parse(JSON.stringify(revived.doc))).document!]) {
+        const activePrompt = promptOf(restored)
+        expect(activePrompt[primaryId]).toEqual({ ...first, slotVariants: { ...first.slotVariants, mode: 'image' },
+          inputs: { ...Object.fromEntries(Object.entries(first.inputs).filter(([id]) => id !== 'mode.text')),
+            'mode.picture': ['imageA', 0] },
+        })
+        expect(activePrompt[extraId]).toEqual({ ...extra, slotVariants: { ...extra.slotVariants, mode: allText ? 'image' : 'text' },
+          inputs: { ...Object.fromEntries(Object.entries(extra.inputs).filter(([id]) => id !== (allText ? 'mode.text' : 'mode.picture'))),
+            [allText ? 'mode.picture' : 'mode.text']: [allText ? 'imageA' : 'captionRuntime', 0] },
+        })
+        expect(activePrompt[`second${suffix}.sample`]).toEqual(original[`second${suffix}.sample`])
+        expect(activePrompt[`second${suffix}.extra`]).toEqual(original[`second${suffix}.extra`])
+      }
+      expect(revived.undo()).toBe(true)
+      expect(revived.undo()).toBe(true)
+      if (depth === 2) expect(revived.undo()).toBe(true)
+      expect(revived.doc).toEqual(awake)
+      expect(prompt[`second${suffix}.sample`]).toEqual(original[`second${suffix}.sample`])
+      expect(prompt[`second${suffix}.extra`]).toEqual(original[`second${suffix}.extra`])
+      expect(current.graphs.root!.nodes.second).toEqual(configured.graphs.root!.nodes.second)
+      expect(current.graphs.detail).toEqual(configured.graphs.detail)
+      expect(current.graphs.portrait).toEqual(configured.graphs.portrait)
+    }
+    expect(result.session.undo()).toBe(true)
+    expect(result.session.doc.graphs).toEqual({ ...before.graphs,
+      root: { ...before.graphs.root!, nextOrdinal: flattened.graphs.root!.nextOrdinal } })
+    expect(result.session.redo()).toBe(true)
+    expect(result.session.doc).toEqual(flattened)
+  })
+
   const calculator = node('Calculator', [floatField('seed', 3), floatField('bias', 7), {
     ...floatField('total', 5), automatic: { formula: 'seed * 2 + bias' },
     labelFormula: { formula: '"Total " + fixed(seed * 2 + bias, 0)' }, tooltip: 'Calculated in this receiver',

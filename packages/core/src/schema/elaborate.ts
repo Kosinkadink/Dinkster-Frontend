@@ -1966,7 +1966,7 @@ function elaboratePass(
     if ((row.kind === 'input' || row.kind === 'output') && row.unavailable !== undefined) {
       const path = raw.prefix + row.id
       const { code, message, inactive } = row.unavailable
-      if (inactive && !connectivity.isInputConnected(path) && !connectivity.isOutputConnected(path)) return
+      if (inactive && !census && !connectivity.isInputConnected(path) && !connectivity.isOutputConnected(path)) return
       problems.add(path)
       diagnostics.push(diag(inactive ? 'info' : 'warning', 'schema', code, message, { refs: [{ portId: path }] }))
       if (row.kind === 'input') {
