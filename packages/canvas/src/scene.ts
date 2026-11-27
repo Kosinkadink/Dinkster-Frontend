@@ -862,6 +862,14 @@ export function buildScene(input: BuildSceneInput): Scene {
       const stored = node.values[valueKeyOf(field)]
       const min = field.spec.widget?.options['min']
       const max = field.spec.widget?.options['max']
+      if (fact?.kind === 'known' && typeof max === 'number' && fact.count > max) {
+        countDiagnostics.push({
+          severity: 'warning', origin: 'compile', code: 'list.count.exceedsLimit',
+          message: `The list has ${fact.count} items. This node allows ${max} outputs.`,
+          refs: [{ graphId: input.graphId, nodeId }],
+          ...(sourcePath === undefined ? {} : { anchor: { occurrence: { instancePath: sourcePath, node: asNodeId(nodeId) } } }),
+        })
+      }
       if (fact?.kind !== 'estimate' || typeof stored !== 'number' || fact.count >= stored ||
           typeof min === 'number' && fact.count < min || typeof max === 'number' && fact.count > max) continue
       estimatedCounts.set(field.address.port, fact.count)

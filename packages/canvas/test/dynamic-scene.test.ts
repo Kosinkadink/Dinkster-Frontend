@@ -314,6 +314,39 @@ it('hides manual Unpack count actions for known wired counts and restores them w
   }
 })
 
+it('warns about a known list over the output limit without changing outputs, wires or node height', () => {
+  const wire = JSON.parse(readFileSync(new URL('../../core/test/fixtures/flow_schemas.json', import.meta.url), 'utf8'))
+  const parsed = parseDinksterSchema('Unpack', wire['dinkster.utilities.unpack']).schema!
+  const unpack: NodeSchema = { ...parsed, body: parsed.body.map(item => item.kind === 'input' && item.id === 'count'
+    ? { ...item, listCountOf: 'list' } : item) }
+  const texts: TypeExpr = { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }
+  const source = schemaOf('Texts', [{ kind: 'input', id: 'texts', optional: false, type: texts,
+    widget: { widgetType: 'LIST', options: {}, default: [] } }])
+  const sink = schemaOf('Sink', [{ ...input('in'), type: texts.element }])
+  const resolve = (type: string) => type === 'Unpack' ? unpack : type === 'Texts' ? source : sink
+  let height: number | undefined
+  for (const count of [512, 513, 900]) {
+    const doc = docOf({ g0: { nodes: {
+      source: { type: 'Texts', values: { texts: Array.from({ length: count }, (_, i) => String(i)) } },
+      unpack: { type: 'Unpack', values: { count: 3 } }, sink: { type: 'Sink' },
+    }, links: [[{ node: 'source', tap: 'texts' }, ['unpack', 'list']], [['unpack', 'items.2'], ['sink', 'in']]] } })
+    const before = JSON.stringify(doc)
+    const scene = buildScene({ document: doc, graphId: 'g0', resolve, tokens: defaultTokens, measure, widgetMeasure })
+    const node = scene.nodes.find(node => node.id === 'unpack')!
+    expect(node.layout.pins.filter(pin => pin.direction === 'out').map(pin => pin.portId)).toEqual(['items.0', 'items.1', 'items.2'])
+    expect(scene.links).toHaveLength(2)
+    const problems = scene.diagnostics.filter(problem => problem.code === 'list.count.exceedsLimit')
+    expect(problems).toEqual(count === 512 ? [] : [expect.objectContaining({ severity: 'warning',
+      message: `The list has ${count} items. This node allows 512 outputs.`,
+      refs: [{ graphId: 'g0', nodeId: 'unpack' }],
+      anchor: { occurrence: { instancePath: [], node: 'unpack' } },
+    })])
+    height ??= node.layout.height
+    expect(node.layout.height).toBe(height)
+    expect(JSON.stringify(doc)).toBe(before)
+  }
+})
+
 it('retires only excess estimated outputs without editing the stored count or growing on estimates', () => {
   const wire = JSON.parse(readFileSync(new URL('../../core/test/fixtures/flow_schemas.json', import.meta.url), 'utf8'))
   const parsed = parseDinksterSchema('Unpack', wire['dinkster.utilities.unpack']).schema!
