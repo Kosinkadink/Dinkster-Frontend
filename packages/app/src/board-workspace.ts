@@ -1,12 +1,14 @@
 import {
-  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, boardMediaKindOf, connectSharedBoardSession, createLocalBoardSession, createSignal, isValidCollabTitle, jsonSameValue, loadBoard, planBoardCommand, t,
-  type BoardAsset, type BoardDocument, type BoardItemInput, type BoardSession, type CollabSessionDescriptor, type Json, type SharedBoardSession,
+  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, DocumentStore, boardMediaKindOf, connectSharedBoardSession, coreCommandRegistry, createLocalBoardSession, createSignal, defaultValuesOf, documentResolver, elabInputsOf, elaborateInterface, exposedKey, exposedToJson, isValidCollabTitle, jsonSameValue, loadBoard, loadDocument, planBoardCommand, t,
+  type BoardAsset, type BoardCardItem, type BoardCardSource, type BoardDocument, type BoardItemInput, type BoardSession, type CollabSessionDescriptor, type Json, type NodeSchema, type SharedBoardSession, type WorkflowDocument,
 } from '@dinkster/core'
 import type { AssetUploadDestination, DinksterConnection, LibraryRecord } from '@dinkster/client'
 import type { CollabTransport } from './collab.js'
+import { buildParamRows } from './app-view-rows.js'
 
 type BoardConnection = Pick<DinksterConnection, 'uploadMediaAsset' | 'checkAssetAvailability' |
-  'uploadAsset' | 'createLibraryRecord' | 'patchLibraryRecord' | 'getLibraryRecord' | 'fetchAssetText'>
+  'uploadAsset' | 'createLibraryRecord' | 'patchLibraryRecord' | 'getLibraryRecord' | 'fetchAssetText'> &
+  Partial<Pick<DinksterConnection, 'fetchBlueprintBody'>>
 
 export interface BoardMediaFile {
   readonly file: File
@@ -189,6 +191,117 @@ export class BoardWorkspace {
       this.titles.set(JSON.stringify([entry.baseUrl, id]), title)
       this.entries.update((entries) => [...entries])
     }
+  }
+
+  /** Resolve and validate the source before committing a single undoable placement. */
+  async placeCard(id: string, source: {
+    readonly project: string
+    readonly baseUrl: string
+    readonly kind: BoardCardItem['kind']
+    readonly source: BoardCardSource
+    readonly name: string
+  }, point: { readonly x: number; readonly y: number }, stillWanted: () => boolean = () => true): Promise<string> {
+    const entry = this.mediaEntry(id)
+    if (source.project !== this.options.project || source.baseUrl !== entry.baseUrl)
+      throw new Error('Cards must come from this Board\'s project and backend')
+    const selection = structuredClone(source)
+    const location = { ...point }
+    const connection = this.options.mediaConnection(entry.baseUrl)
+    if (!connection) throw new Error('This Board\'s backend is unavailable')
+    const current = () => !this.disposed && stillWanted() && this.entries.get().includes(entry) &&
+      this.options.mediaConnection(entry.baseUrl) === connection
+    const loaded = await this.cardSource(connection, selection.kind, selection.source, current)
+    if (!current()) throw new Error('Board changed while loading the card; nothing was placed')
+    let x = location.x - 170
+    let y = location.y - 94
+    while (Object.values(entry.session.doc.items).some((item) => item.rect.x === x && item.rect.y === y)) {
+      x += 24
+      y += 24
+    }
+    const result = entry.session.dispatch({ command: 'board.item.add', params: { items: [{
+      kind: selection.kind, name: (loaded.name ?? selection.name).slice(0, BOARD_MAX_NAME),
+      source: selection.source, values: {}, rect: { x, y, width: 340, height: 188 },
+    }] } })
+    if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+    return result.created[0]!
+  }
+
+  /** A private compile/control snapshot; neither source bytes nor editing tabs are changed. */
+  async loadCard(id: string, cardId: string, resolve: (type: string) => NodeSchema | undefined,
+    stillWanted: () => boolean = () => true,
+  ): Promise<WorkflowDocument> {
+    const entry = this.mediaEntry(id)
+    const card = entry.session.doc.items[cardId]
+    if (!card || (card.kind !== 'workflow' && card.kind !== 'blueprint')) throw new Error('Card is no longer on this Board')
+    const connection = this.options.mediaConnection(entry.baseUrl)
+    if (!connection) throw new Error('This Board\'s backend is unavailable')
+    const current = () => !this.disposed && stillWanted() && this.entries.get().includes(entry) &&
+      this.options.mediaConnection(entry.baseUrl) === connection && entry.session.doc.items[cardId] === card
+    const loaded = await this.cardSource(connection, card.kind, card.source, current)
+    if (!current()) throw new Error('Card changed while loading')
+    let document = loaded.document
+    if (card.kind === 'blueprint') {
+      let root = 'board-root'
+      while (document.graphs[root]) root += '-copy'
+      const schema = documentResolver(document, resolve)(`#${document.root}`)
+      if (!schema) throw new Error('Blueprint inputs are unavailable')
+      const values = defaultValuesOf(schema) as Record<string, Json>
+      const wrapped = loadDocument({
+        ...document, root,
+        graphs: { ...document.graphs, [root]: {
+          id: root, name: card.name, nodes: { n0: { id: 'n0', type: `#${document.root}`, values } },
+          links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+        } },
+        view: { graphs: { ...document.view.graphs, [root]: { nodes: { n0: { position: { x: 0, y: 0 } } } } } },
+        ext: { ...document.ext, 'dinkster.exposed': exposedToJson(elabInputsOf(elaborateInterface(schema,
+          { values },
+        )).map((input) => ({ graphId: root, nodeId: 'n0', inputId: input.spec.id }))) },
+      })
+      if (!wrapped.document) throw new Error(wrapped.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      document = wrapped.document
+    }
+    const resolver = documentResolver(document, resolve)
+    const store = new DocumentStore(document, coreCommandRegistry([], resolver))
+    const pending = new Set(Object.keys(card.values))
+    while (pending.size > 0) {
+      const row = buildParamRows(store.doc, documentResolver(store.doc, resolve))
+        .find((candidate) => pending.has(exposedKey(candidate.entry)))
+      if (!row) break
+      const key = exposedKey(row.entry)
+      pending.delete(key)
+      if (row.kind === 'stale') throw new Error(`Card input is unavailable: ${row.reason}`)
+      if (row.linked || row.derived) continue
+      const result = store.dispatch({ command: 'node.setValue', params: {
+        graphId: row.entry.graphId, nodeId: row.entry.nodeId, inputId: row.valueKey, value: card.values[key]!,
+      } })
+      if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+    }
+    return store.doc
+  }
+
+  private async cardSource(connection: BoardConnection, kind: BoardCardItem['kind'], source: BoardCardSource,
+    current: () => boolean,
+  ): Promise<{ readonly document: WorkflowDocument; readonly name?: string }> {
+    let document: WorkflowDocument | undefined
+    let name: string | undefined
+    if (source.kind === 'library') {
+      const record = await connection.getLibraryRecord(source.recordId, 'local')
+      if (!current()) throw new Error('Board changed while loading the card')
+      if (!record || record.mediaType !== 'application/x-dinkster-workflow+json' || !record.labels.includes(kind))
+        throw new Error(`The saved ${kind} is no longer available`)
+      name = record.name
+      const text = await connection.fetchAssetText(record.digest)
+      if (!current()) throw new Error('Board changed while loading the card')
+      if (text !== undefined) document = loadDocument(JSON.parse(text) as unknown).document
+    } else {
+      if (kind !== 'blueprint') throw new Error('Only blueprints can come from a pack')
+      document = await connection.fetchBlueprintBody?.(source.packId, source.blueprintId, source.digest)
+      if (!current()) throw new Error('Board changed while loading the card')
+    }
+    if (!document) throw new Error(`The ${kind} source bytes are unavailable or invalid`)
+    if (kind === 'blueprint' && !document.graphs[document.root]?.boundary)
+      throw new Error('The blueprint source is not a boundary subgraph')
+    return { document, ...(name === undefined ? {} : { name }) }
   }
 
   /** Refuse mismatched source context and missing bytes before placing recorded Assets. */

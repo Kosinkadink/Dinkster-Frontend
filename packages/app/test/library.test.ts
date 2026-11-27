@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { BOARD_MEDIA_TYPE, asPromptId, diag, emptyBoard, type DinksterNodesPayload, type JsonObject, type NodeSchema } from '@dinkster/core'
+import { BOARD_MEDIA_TYPE, asNodeId, asPortId, asPromptId, boundaryOf, compile, diag, documentResolver, emptyBoard, exposedKey, type DinksterNodesPayload, type JsonObject, type NodeSchema } from '@dinkster/core'
 import { buildDinksterRegistry, type LibraryRecord } from '@dinkster/client'
 import {
   AppState,
@@ -20,6 +20,8 @@ import {
   type Tab,
 } from '../src/app-state.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { buildParamRows } from '../src/app-view-rows.js'
+import { activeProjectId } from '../src/projects.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
 ;(globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
@@ -103,6 +105,138 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
   app.setTabTarget(tab.id, added.id)
   return { backend: added, tab }
 }
+
+describe('Board card sources', () => {
+  it('places referenced cards undoably and resolves their exposed values independently without changing the saved workflow or open tab', async () => {
+    const { backend, tab } = await nativeSetup()
+    const { connection, baseUrl } = backend
+    const board = app.boards.open(emptyBoard(), 'Cards', baseUrl)
+    const exposed = [
+      { graphId: 'g0', nodeId: 'n0', inputId: 'b', label: 'Right' },
+      { graphId: 'g0', nodeId: 'n0', inputId: 'a', label: 'Left' },
+      { graphId: 'g0', nodeId: 'n1', inputId: 'a', label: 'Linked' },
+    ]
+    const bytes = JSON.stringify({ ...CHAIN_DOC, ext: { 'dinkster.exposed': exposed } })
+    vi.spyOn(connection, 'getLibraryRecord').mockResolvedValue(record())
+    vi.spyOn(connection, 'fetchAssetText').mockResolvedValue(bytes)
+    const selection = { project: activeProjectId(), baseUrl, kind: 'workflow' as const,
+      source: { kind: 'library' as const, recordId: 'r1' }, name: 'Stale title' }
+    const first = await app.boards.placeCard(board.id, selection, { x: 500, y: 350 })
+    const second = await app.boards.placeCard(board.id, selection, { x: 500, y: 350 })
+    expect(board.session.doc.items[first]).toMatchObject({ name: 'Saved Flow', rect: { x: 330, y: 256 } })
+    expect(board.session.doc.items[second]).toMatchObject({ rect: { x: 354, y: 280 } })
+    expect(board.session.undo()).toBe(true)
+    expect(board.session.doc.items[second]).toBeUndefined()
+    expect(board.session.redo()).toBe(true)
+    for (const [id, value] of [[first, 17], [second, 29]] as const) {
+      expect(board.session.dispatch({ command: 'board.card.input', params: { id, input: exposed[0]!, value } }).ok).toBe(true)
+      expect(board.session.dispatch({ command: 'board.card.input', params: { id, input: exposed[2]!, value: 999 } }).ok).toBe(true)
+      expect(board.session.dispatch({ command: 'board.card.input', params: { id,
+        input: { graphId: 'g0', nodeId: 'n1', inputId: 'b' }, value: 777 } }).ok).toBe(true)
+    }
+    const originalTab = tab.store.doc
+    const resolve = backend.registry.get()!.resolve
+    const a = await app.boards.loadCard(board.id, first, resolve)
+    const b = await app.boards.loadCard(board.id, second, resolve)
+    expect(a.graphs.g0!.nodes.n0!.values).toEqual({ a: 3, b: 17 })
+    expect(b.graphs.g0!.nodes.n0!.values).toEqual({ a: 3, b: 29 })
+    expect(a.graphs.g0!.nodes.n1!.values).toEqual({ b: 10 })
+    for (const [document, expected] of [[a, 17], [b, 29]] as const) {
+      const result = compile({ document, revision: 1, resolve, connection: backend.id, schemaHash: backend.registry.get()!.hash,
+        scope: { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }] } })
+      expect(result.ok).toBe(true)
+      if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      expect(result.artifact.prompt.n0!.inputs).toEqual({ a: 3, b: expected })
+      expect(result.artifact.prompt.n1!.inputs).toEqual({ a: ['n0', 0], b: 10 })
+    }
+    expect(buildParamRows(a, documentResolver(a, resolve)).map((row) => row.kind === 'live' && row.label)).toEqual(['Right', 'Left', 'Linked'])
+    board.session.dispatch({ command: 'board.card.input', params: { id: first, input: exposed[0]! } })
+    expect((await app.boards.loadCard(board.id, first, resolve)).graphs.g0!.nodes.n0!.values.b).toBe(4)
+    expect((await app.boards.loadCard(board.id, second, resolve)).graphs.g0!.nodes.n0!.values.b).toBe(29)
+    expect(tab.store.doc).toBe(originalTab)
+    expect(JSON.parse(bytes).graphs.g0.nodes.n0.values).toEqual({ a: 3, b: 4 })
+    board.session.dispatch({ command: 'board.card.input', params: { id: first, input: exposed[1]!, value: 51 } })
+    const conditional = (type: string): NodeSchema | undefined => {
+      const schema = resolve(type)
+      return schema && { ...schema, body: schema.body.map((row) => row.kind === 'input' && row.id === 'a'
+        ? { ...row, visible: { formula: 'b > 5' } } : row) }
+    }
+    expect((await app.boards.loadCard(board.id, first, conditional)).graphs.g0!.nodes.n0!.values.a).toBe(3)
+    board.session.dispatch({ command: 'board.card.input', params: { id: first, input: exposed[0]!, value: 17 } })
+    expect((await app.boards.loadCard(board.id, first, conditional)).graphs.g0!.nodes.n0!.values).toEqual({ a: 51, b: 17 })
+    await expect(app.boards.placeCard(board.id, { ...selection, project: 'other-project' }, { x: 0, y: 0 })).rejects.toThrow('project and backend')
+    await expect(app.boards.placeCard(board.id, { ...selection, baseUrl: 'http://other' }, { x: 0, y: 0 })).rejects.toThrow('project and backend')
+    vi.spyOn(connection, 'getLibraryRecord').mockResolvedValue(record({ labels: ['blueprint'] }))
+    await expect(app.boards.placeCard(board.id, selection, { x: 0, y: 0 })).rejects.toThrow('no longer available')
+    expect(board.session.doc.order).toEqual([first, second])
+  })
+
+  it.each(['cancel', 'reopen', 'backend'] as const)('does not place delayed card bytes after %s', async (action) => {
+    const { backend } = await nativeSetup()
+    const { connection, baseUrl } = backend
+    const board = app.boards.open(emptyBoard(), 'Cards', baseUrl)
+    vi.spyOn(connection, 'getLibraryRecord').mockResolvedValue(record())
+    let release!: (text: string) => void
+    let started!: () => void
+    let cancelled = false
+    const entered = new Promise<void>((resolve) => { started = resolve })
+    vi.spyOn(connection, 'fetchAssetText').mockImplementation(() => {
+      started()
+      return new Promise<string>((resolve) => { release = resolve })
+    })
+    const placing = app.boards.placeCard(board.id, { project: activeProjectId(), baseUrl, kind: 'workflow',
+      source: { kind: 'library', recordId: 'r1' }, name: 'Card' }, { x: 300, y: 200 }, () => !cancelled)
+    const refused = expect(placing).rejects.toThrow('Board changed')
+    await entered
+    let replacement = board
+    if (action === 'cancel') cancelled = true
+    else if (action === 'reopen') {
+      app.boards.close(board.id)
+      replacement = app.boards.open(board.session.doc, 'Reopened', baseUrl)
+    } else {
+      app.removeBackend(backend.id)
+      app.addBackend(baseUrl, 'Replacement', false, 'dinkster')
+    }
+    release(JSON.stringify(CHAIN_DOC))
+    await refused
+    expect(replacement.session.doc.order).toEqual([])
+    expect(replacement.session.canUndo).toBe(false)
+    expect(app.boards.entries.get()).toEqual([replacement])
+  })
+
+  it('wraps a saved blueprint as one subgraph instance and applies card inputs to that instance only', async () => {
+    const { backend } = await nativeSetup()
+    const { connection, baseUrl } = backend
+    const board = app.boards.open(emptyBoard(), 'Blueprints', baseUrl)
+    const blueprint = { ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0, boundary: boundaryOf([
+      { id: 'amount', binds: { kind: 'port', node: asNodeId('n0'), port: asPortId('a') }, promoted: true },
+    ], [{ id: 'result', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('sum') } }]) } } }
+    const bytes = JSON.stringify(blueprint)
+    vi.spyOn(connection, 'getLibraryRecord').mockResolvedValue(record({ labels: ['blueprint'] }))
+    vi.spyOn(connection, 'fetchAssetText').mockResolvedValue(bytes)
+    const id = await app.boards.placeCard(board.id, { project: activeProjectId(), baseUrl, kind: 'blueprint',
+      source: { kind: 'library', recordId: 'r1' }, name: 'Add' }, { x: 500, y: 300 })
+    const resolve = backend.registry.get()!.resolve
+    const document = await app.boards.loadCard(board.id, id, resolve)
+    const rows = buildParamRows(document, documentResolver(document, resolve))
+    expect(rows.map((row) => row.entry.inputId)).toEqual(['amount'])
+    const input = rows[0]!.entry
+    expect(exposedKey(input)).not.toBe(exposedKey({ graphId: 'g0', nodeId: 'n0', inputId: 'a' }))
+    board.session.dispatch({ command: 'board.card.input', params: { id, input, value: 41 } })
+    const changed = await app.boards.loadCard(board.id, id, resolve)
+    expect(Object.values(changed.graphs[changed.root]!.nodes)).toMatchObject([{ type: '#g0', values: { amount: 41 } }])
+    expect(changed.graphs.g0!.nodes.n0!.values.a).toBe(3)
+    const compiled = compile({ document: changed, revision: 1, resolve, connection: backend.id, schemaHash: backend.registry.get()!.hash,
+      scope: { kind: 'partial', targets: [{ instancePath: [asNodeId('n0')], node: asNodeId('n1') }] } })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) throw new Error(compiled.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+    expect(compiled.artifact.prompt['n0.n0']!.inputs).toEqual({ a: 41, b: 4 })
+    expect(compiled.artifact.prompt['n0.n1']!.inputs).toEqual({ a: ['n0.n0', 0], b: 10 })
+    expect(JSON.parse(bytes)).toEqual(blueprint)
+    vi.spyOn(connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(CHAIN_DOC))
+    await expect(app.boards.loadCard(board.id, id, resolve)).rejects.toThrow('not a boundary subgraph')
+  })
+})
 
 describe('Board Library persistence', () => {
   it('saves and reopens every item kind with membership and media facts, then patches the linked record without losing newer edits', async () => {

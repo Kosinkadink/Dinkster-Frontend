@@ -4023,10 +4023,14 @@ export class DinksterConnection {
   }
 
   /** Fetch and validate one immutable blueprint through the owning backend transport. */
-  async fetchBlueprintBody(packId: string, blueprintId: string): Promise<WorkflowDocument | undefined> {
+  async fetchBlueprintBody(packId: string, blueprintId: string, expectedDigest?: string): Promise<WorkflowDocument | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/blueprints/${encodeURIComponent(blueprintId)}`)
     if (!res.ok) return undefined
-    try { return loadDocument(JSON.parse(await res.text()) as unknown).document }
+    try {
+      const text = await res.text()
+      if (expectedDigest !== undefined && `sha256:${sha256Hex(new TextEncoder().encode(text))}` !== expectedDigest) return undefined
+      return loadDocument(JSON.parse(text) as unknown).document
+    }
     catch { return undefined }
   }
 
