@@ -1064,6 +1064,102 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     }
   })
 
+  it.each([1, 2] as const)('keeps whole-group members and choice ownership through separate lifecycle changes at depth %s', async (depth) => {
+    const doc = boundarySample(depth)
+    Object.assign(doc.graphs.root!.nodes.first!, {
+      values: { strength: 0.2, count: 3, 'layers.layer0.strength': 0.2, 'layers.layer1.strength': 0.8,
+        'mode.mix': 0.6, 'mode.text': 'first text' },
+      dynamic: { layers: { members: ['layer1', 'layer0'] }, mode: { selected: 'text' } },
+    })
+    Object.assign(doc.graphs.root!.nodes.second!, {
+      values: { strength: 0.8, count: 2, 'layers.layer0.strength': 0.9, 'mode.mix': 0.8 },
+      dynamic: { layers: { members: ['layer0'] }, mode: { selected: 'image' } },
+    })
+    const suffix = depth === 1 ? '.sample' : '.detail.sample'
+    const promptOf = (current: WorkflowDocument) => {
+      const result = compile({ document: current, revision: 1, resolve: resolveBoundarySample, scope: { kind: 'full' },
+        connection: asConnectionId('construct-lifecycle'), schemaHash: 'construct-lifecycle' })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) throw new Error('construct lifecycle did not compile')
+      return result.artifact.prompt
+    }
+    const original = promptOf(doc)
+    const first = original[`first${suffix}`]!
+    expect(first.outputMembers?.layers).toEqual(['layer0', 'layer1', 'layer3', 'layer2'])
+    expect(first.inputs).toMatchObject({ 'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4,
+      'layers.layer2.strength': 0.2, 'layers.layer3.strength': 0.8, 'mode.mix': 0.6, 'mode.text': 'first text' })
+    expect(first.slotVariants?.mode).toBe('text')
+    expect(original[`second${suffix}`]!.outputMembers?.layers).toEqual(['layer0', 'layer1', 'layer2'])
+    expect(original[`second${suffix}`]!.inputs['layers.layer2.strength']).toBe(0.9)
+    expect(original[`second${suffix}`]!.slotVariants?.mode).toBe('image')
+    const detached = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveBoundarySample),
+    }))
+    expect(detached.dispatch({ command: 'occurrence.localize', params: { graphId: 'root', nodeId: 'first' } }).ok).toBe(true)
+    const localized = detached.doc
+    expect(localized.graphs.root!.nodes.first!.type).not.toBe(doc.graphs.root!.nodes.first!.type)
+    expect(promptOf(localized)).toEqual(original)
+    expect(detached.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: 'first',
+      values: { 'layers.layer0.strength': 0.7, 'mode.mix': 0.73 } } }).ok).toBe(true)
+    const edited = detached.doc
+    expect(detached.dispatch({ command: 'dynamic.selectOption', params: {
+      graphId: 'root', nodeId: 'first', construct: 'mode', option: 'image',
+    } }).ok).toBe(true)
+    const selected = detached.doc
+    for (const current of [selected, loadDocument(JSON.parse(JSON.stringify(selected))).document!]) {
+      const prompt = promptOf(current)
+      expect(prompt[`first${suffix}`]).toEqual({ ...first, slotVariants: { ...first.slotVariants, mode: 'image' },
+        inputs: Object.fromEntries(Object.entries({ ...first.inputs, 'layers.layer2.strength': 0.7, 'mode.mix': 0.73 })
+          .filter(([key]) => key !== 'mode.text')) })
+      expect(prompt[`second${suffix}`]).toEqual(original[`second${suffix}`])
+      expect(current.graphs.root!.nodes.first!.values['mode.text']).toBe('first text')
+      expect(current.graphs.root!.nodes.second).toEqual(doc.graphs.root!.nodes.second)
+      expect(current.graphs.detail).toEqual(doc.graphs.detail)
+      expect(current.graphs.portrait).toEqual(doc.graphs.portrait)
+    }
+    for (const expected of [edited, localized, doc]) {
+      expect(detached.undo()).toBe(true)
+      expect(detached.doc).toEqual(expected)
+    }
+    expect(promptOf(detached.doc)).toEqual(original)
+    for (let step = 0; step < 3; step++) expect(detached.redo()).toBe(true)
+    expect(detached.doc).toEqual(selected)
+    expect(promptOf(loadDocument(JSON.parse(JSON.stringify(detached.doc))).document!)).toEqual(promptOf(selected))
+
+    for (const mode of ['active', 'muted', 'bypassed', 'loop'] as const) {
+      const before = { ...doc, graphs: { ...doc.graphs, root: { ...doc.graphs.root!, nodes: { ...doc.graphs.root!.nodes,
+        first: { ...doc.graphs.root!.nodes.first!, ...(mode === 'loop' ? { region: { kind: 'map', elementPorts: ['strength'] } } : { mode }) },
+      } } } } as WorkflowDocument
+      const result = await flatten(before, 'root', [], 'first', resolveBoundarySample)
+      if (mode === 'bypassed' || mode === 'loop') {
+        expect(result.ok).toBe(false)
+        expect(result.session.doc).toEqual(before)
+        expect(result.session.canUndo).toBe(false)
+        continue
+      }
+      expect(result.ok, JSON.stringify(result.reports)).toBe(true)
+      const flattened = result.session.doc
+      const replacements = Object.values(flattened.graphs.root!.nodes).filter((entry) => before.graphs.root!.nodes[entry.id] === undefined)
+      expect(replacements).toHaveLength(1)
+      const receiver = depth === 1 ? replacements[0]!.id : `${replacements[0]!.id}.sample`
+      for (const current of [flattened, loadDocument(JSON.parse(JSON.stringify(flattened))).document!]) {
+        const prompt = promptOf(current)
+        expect(Object.entries(prompt).filter(([id, entry]) => entry.class_type === 'Boundary sample' && !id.startsWith('second.'))
+          .map(([id]) => id)).toEqual(mode === 'active' ? [receiver] : [])
+        if (mode === 'active') expect(prompt[receiver]).toEqual(first)
+        expect(prompt[`second${suffix}`]).toEqual(original[`second${suffix}`])
+        expect(current.graphs.root!.nodes.second).toEqual(doc.graphs.root!.nodes.second)
+        expect(current.graphs.detail).toEqual(doc.graphs.detail)
+        expect(current.graphs.portrait).toEqual(doc.graphs.portrait)
+      }
+      expect(result.session.undo()).toBe(true)
+      expect(result.session.doc.graphs).toEqual({ ...before.graphs,
+        root: { ...before.graphs.root!, nextOrdinal: flattened.graphs.root!.nextOrdinal } })
+      expect(result.session.redo()).toBe(true)
+      expect(result.session.doc).toEqual(flattened)
+    }
+  })
+
   const calculator = node('Calculator', [floatField('seed', 3), floatField('bias', 7), {
     ...floatField('total', 5), automatic: { formula: 'seed * 2 + bias' },
     labelFormula: { formula: '"Total " + fixed(seed * 2 + bias, 0)' }, tooltip: 'Calculated in this receiver',

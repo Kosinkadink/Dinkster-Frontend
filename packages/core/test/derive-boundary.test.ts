@@ -1921,6 +1921,10 @@ describe('Boundary sample acceptance compilation', () => {
         }
       }
       check(0.2, 'outer text', 0.2)
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: `${group}.layer0.strength`, value: 0.9 })
+      check(0.2, 'outer text', 0.9)
+      expect(store.doc.graphs.detail).toEqual(original.graphs.detail)
+      expect(store.doc.graphs.portrait).toEqual(original.graphs.portrait)
       edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {},
         unset: [`${group}.layer0.strength`, `${choice}.mix`, `${choice}.text`] })
       check(level === 1 ? 0.4 : 0.6, level === 1 ? 'dormant inner text' : 'middle text', 0.3)
