@@ -97,21 +97,8 @@ const targetOf = (place: ButtonPlace): PressTarget => ({
  */
 const NO_HOST_EDITOR = new Set(['COMPOSITOR', 'CURVE', 'PAINTER', 'MASK', 'IMAGE_COMPARE'])
 
-/**
- * Runs declared buttons for the canvas: one press at a time per button, its
- * working words and Cancel, and the box it leaves until the next click.
- */
-export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
-  const [states, setStates] = createSignal<ReadonlyMap<string, ButtonState>>(new Map())
-  const running = new Map<string, AbortController>()
-
-  const update = (key: string, next: ButtonState | undefined): void => {
-    const copy = new Map(states())
-    if (next === undefined) copy.delete(key)
-    else copy.set(key, next)
-    setStates(copy)
-  }
-
+/** The shared editor host for declared buttons and stored-value fixes. */
+export function createActionHost(app: AppState, surfaces: ButtonSurfaces, place: ButtonPlace): ActionHost {
   const resolverOf = (tab: Tab) => app.registryForTab(tab)?.resolve ?? (() => undefined)
 
   const lookupCall = (request: LookupRequest): LookupCall => ({
@@ -316,8 +303,26 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     return open(request.options, request.state) as Promise<string | number | boolean | undefined>
   }
 
+  return hostFor(place)
+}
+
+/**
+ * Runs declared buttons for the canvas: one press at a time per button, its
+ * working words and Cancel, and the box it leaves until the next click.
+ */
+export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
+  const [states, setStates] = createSignal<ReadonlyMap<string, ButtonState>>(new Map())
+  const running = new Map<string, AbortController>()
+
+  const update = (key: string, next: ButtonState | undefined): void => {
+    const copy = new Map(states())
+    if (next === undefined) copy.delete(key)
+    else copy.set(key, next)
+    setStates(copy)
+  }
+
   const availability = (place: ButtonPlace): ButtonAvailability =>
-    buttonAvailability(place.tab.store.doc, targetOf(place), lookOf(place))
+    buttonAvailability(place.tab.store.doc, targetOf(place), createActionHost(app, surfaces, place))
 
   const report = (place: ButtonPlace, outcome: PressOutcome): void => {
     // A press that went through already ends its message with its notes; a failed one does not.
@@ -348,7 +353,7 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         const backend = app.backendForTab(place.tab)
         const registry = app.registryForTab(place.tab)
         const schemaState = backend.schemaState.get()
-        const outcome = await runPress(store, targetOf(place), hostFor(place), {
+        const outcome = await runPress(store, targetOf(place), createActionHost(app, surfaces, place), {
           signal: controller.signal,
           onProgress: (progress) => update(key, progress === undefined ? { place } : { place, busy: progress.text }),
           stillCurrent: () => app.tabs.get().includes(place.tab) && place.tab.store === store &&
