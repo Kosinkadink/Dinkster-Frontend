@@ -391,6 +391,8 @@ describe('buildParamRows', () => {
     const automatic: NodeSchema = { ...schemaOf('Sink', [input('seed', { type: INT }), input('steps', {
       type: INT, automatic: { formula: 'seed * 2' }, labelFormula: { formula: '"Steps " + str(seed * 2)' },
       tooltip: 'Calculated from this occurrence',
+      readOnly: { formula: 'seed < 15' }, disabled: { formula: 'seed < 10' },
+      disabledReason: { formula: '"Seed " + str(seed)' }, onAbsent: 'accept', lazy: true,
     })]), isOutputNode: true }
     const resolveAutomatic = (type: string) => type === 'Sink' ? automatic : resolveBoundarySample(type)
     const binding = (id: string, node: string, port: string) => ({
@@ -414,7 +416,36 @@ describe('buildParamRows', () => {
       const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined, () => ({
         kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveAutomatic),
       }))
+      const checkMetadata = (current: WorkflowDocument, firstSeed: number) => {
+        const root = current.graphs.root!
+        const plain = { ...current, graphs: { root: { ...root,
+          nodes: { ...root.nodes, ...Object.fromEntries(['first', 'second'].map((id) => [id, {
+            ...root.nodes[id]!, type: 'Sink', values: { seed: id === 'first' ? firstSeed : 13,
+              ...(Object.hasOwn(root.nodes[id]!.values, steps) ? { steps: root.nodes[id]!.values[steps] } : {}),
+            },
+          }])) },
+          links: Object.fromEntries(Object.entries(root.links).map(([id, link]) => [id, {
+            ...link, to: 'port' in link.to ? { ...link.to, port: asPortId(link.to.port === seed ? 'seed' : 'steps') } : link.to,
+          }])),
+        } }, ext: { 'dinkster.exposed': ['first', 'second'].map((nodeId) => ({ graphId: 'root', nodeId, inputId: 'steps' })) } } as WorkflowDocument
+        const reference = buildParamRows(plain, resolveAutomatic).map(live)
+        const rows = buildParamRows(current, resolveAutomatic).map(live)
+        rows.forEach((row, index) => {
+          const expected = reference[index]!
+          const { outer: _outer, lookupScope: _lookupScope, ...spec } = row.item.spec
+          expect(spec).toEqual({ ...expected.item.spec, id: steps, optional: depth > 0,
+            ...(expected.item.spec.displayName === 'steps' ? { displayName: steps } : {}),
+          })
+          expect([row.item.readOnly, row.item.disabled, row.item.disabledReason,
+            row.item.automatic, row.item.automaticIfEmptied, row.derived, row.linked, row.value, row.label]).toEqual([
+            expected.item.readOnly, expected.item.disabled, expected.item.disabledReason,
+            expected.item.automatic, expected.item.automaticIfEmptied, expected.derived, expected.linked, expected.value,
+            expected.label === 'steps' ? steps : expected.label,
+          ])
+        })
+      }
       const check = (current: WorkflowDocument, firstSeed: number) => {
+        checkMetadata(current, firstSeed)
         const rows = buildParamRows(current, resolveAutomatic).map(live)
         expect(rows.map((row) => [row.entry.graphId, row.entry.nodeId, row.valueKey, row.value, row.label, row.linked])).toEqual([
           ['root', 'first', steps, firstSeed * 2, `Steps ${firstSeed * 2}`, false],
@@ -463,6 +494,7 @@ describe('buildParamRows', () => {
       check(store.doc, 31)
       expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: steps, value: 19 } }).ok).toBe(true)
       for (const current of [store.doc, loadDocument(JSON.parse(JSON.stringify(store.doc))).document!]) {
+        checkMetadata(current, 31)
         const rows = buildParamRows(current, resolveAutomatic).map(live)
         expect(rows.map((row) => row.value)).toEqual([19, 26])
         expect(rows[0]!.item.automatic).toBeUndefined()
@@ -500,6 +532,7 @@ describe('buildParamRows', () => {
         } }).ok).toBe(true)
         const connected = wired.doc
         for (const current of [connected, loadDocument(JSON.parse(JSON.stringify(connected))).document!]) {
+          checkMetadata(current, 31)
           const rows = buildParamRows(current, resolveAutomatic).map(live)
           expect(rows.map((row) => row.value)).toEqual([5, 26])
           expect(rows[0]!.item.automatic).toMatchObject({ state: 'default', value: 5 })
