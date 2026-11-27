@@ -63,11 +63,11 @@ it.each(['projects', 'editor'] as const)('requires an explicit CPU choice for re
   expect(button('Set up')).toBeUndefined()
   const notice = document.querySelector('[role="note"]')!
   expect(notice.textContent).toBe([
-    '2 x NVIDIA Quadro P400 needs NVIDIA driver 580 or newer. It has 535.12.',
-    'Intel Arc A770 was found, but xpu-smi is missing, so its driver cannot be checked.',
-    'A AMD graphics card was found, but amd-smi failed, so its driver cannot be checked.',
-    'NVIDIA Quadro P600 needs NVIDIA driver 580 or newer.',
     'Update or repair the graphics driver, then check again. Or use CPU only, which is much slower.',
+    '2 x NVIDIA Quadro P400: needs NVIDIA driver 580 or newer, has 535.12.',
+    'Intel Arc A770: xpu-smi is missing, so its driver cannot be checked.',
+    'AMD graphics card: amd-smi failed, so its driver cannot be checked.',
+    'NVIDIA Quadro P600: needs NVIDIA driver 580 or newer.',
   ].join(''))
   expect(document.querySelectorAll('[role="note"]')).toHaveLength(1)
   expect(notice.previousElementSibling).toBe(document.querySelector('.setup-facts'))
@@ -84,10 +84,10 @@ it.each(['projects', 'editor'] as const)('requires an explicit CPU choice for re
   expect(document.querySelector('.setup-facts')?.textContent).toContain('NVIDIA graphics card build')
   expect(document.querySelector('[role="note"]')).toBeNull()
   expect([...document.querySelectorAll('.setup-facts p')].map((node) => node.textContent)).toEqual([
-    '2 x NVIDIA Quadro P400', 'Not used: the driver of Intel Arc A770 could not be checked.',
-    'Not used: the driver of A AMD graphics card could not be checked.',
-    'Not used: NVIDIA Quadro P600 needs NVIDIA driver 580 or newer.',
-    'Not used: NVIDIA GeForce GTX 580 is too old for this build.',
+    '2 x NVIDIA Quadro P400', 'Not used: Intel Arc A770. Its driver could not be checked.',
+    'Not used: AMD graphics card. Its driver could not be checked.',
+    'Not used: NVIDIA Quadro P600. Needs NVIDIA driver 580 or newer.',
+    'Not used: NVIDIA GeForce GTX 580. Too old for this build.',
   ])
   expect(document.body.textContent).not.toContain('Built-in graphics')
   button('Set up').click()
@@ -108,10 +108,10 @@ it('keeps CPU selected for unfixable cards and explains grouped cards with unkno
   dispose = render(() => <SetupForm surface="projects" />, document.body)
   await vi.advanceTimersByTimeAsync(0)
   expect(document.querySelector('[role="note"]')?.textContent).toBe([
-    'NVIDIA GeForce GTX 580 is too old for any build.',
-    'There is no build for Intel graphics on Linux yet, so 2 x A Intel graphics card is not used.',
-    'There is no build for graphics on Linux yet, so A graphics card is not used.',
     'Dinkster will run on the CPU, which is much slower.',
+    'NVIDIA GeForce GTX 580: too old for any build.',
+    '2 x Intel graphics card: no build for Intel graphics on Linux yet.',
+    'Graphics card: no build for it on Linux yet.',
   ].join(''))
   expect(button('Check again')).toBeUndefined()
   expect(button('Use CPU only')).toBeUndefined()

@@ -75,10 +75,9 @@ export function SetupForm(props: {
         system: message(`setup.graphics.system.${setup.plan()?.system}`),
       }
       const reason = description && card.reason.startsWith('detection-tool-') ? 'detection-unchecked' : card.reason
-      const key = `setup.graphics.${description ? 'unused' : 'warning'}.${reason}${!vendor && reason === 'no-published-build' ? '-unknown' : ''}`
-      const line = message(key, params)
-      return !description && card.reason === 'driver-too-old' && card.driver
-        ? `${line} ${message('setup.graphics.presentDriver', params)}` : line
+      const suffix = !vendor && reason === 'no-published-build' ? '-unknown'
+        : !description && reason === 'driver-too-old' && card.driver ? '-known' : ''
+      return message(`setup.graphics.${description ? 'unused' : 'warning'}.${reason}${suffix}`, params)
     })
   }
   const checkAgain = () => {
@@ -161,8 +160,8 @@ export function SetupForm(props: {
             <Show when={download()}>{(size) => <><dt>{message('setup.download')}</dt><dd><span>{message('setup.downloadSpace', { size: size(), free: bytes(plan().freeBytes) })}</span></dd></>}</Show>
           </dl>
           <Show when={graphicsWarning()}><ProductNotice tone="warning">
-            <For each={cardLines(false)}>{(line) => <>{line}<br /></>}</For>
             {message(repairable() ? plan().variant ? 'setup.graphics.cpuRepair' : 'setup.graphics.repair' : 'setup.graphics.cpu')}
+            <For each={cardLines(false)}>{(line) => <><br /><span class="dinkster-description">{line}</span></>}</For>
           </ProductNotice></Show>
           <Show when={setup.job()}><div class="setup-job" role="status">
             <strong>{jobLine()}</strong>
