@@ -119,6 +119,24 @@ describe('packsSource', () => {
     expect(vhs.details).toContainEqual({ label: 'asset: Video VAE', text: 'model/vae - 1.5 MB' })
   })
 
+  it('shows the catalog-selected storage pack and refreshes it when the owner becomes available', async () => {
+    const source = packsSource(app)
+    for (const provider of ['vhs.video', 'dev.local', 'owner']) {
+      const backend = app.backends.get()[0]!
+      backend.registry.set(buildDinksterRegistry(backend.id, {
+        ...nodesPayload,
+        packs: { ...nodesPayload.packs as object,
+          core: { displayName: 'Dinkster Core', typeStorage: { 'owner.SEGS': provider, invalid: 42 } },
+        },
+      }))
+      const core = (await source.page({ query: '', limit: 10 })).items.find((entry) => entry.id === 'core')!
+      expect(core.badges).toContain(`owner.SEGS values: Stored ${provider}'s way`)
+      expect(core.details?.filter((detail) => detail.label.endsWith(' values'))).toEqual([
+        { label: 'owner.SEGS values', text: `Stored ${provider}'s way` },
+      ])
+    }
+  })
+
   it('ranks the whole corpus for a query, not a loaded page', async () => {
     loadDinksterSchemas()
     // Page size 1: 'video' must still find vhs.video even though an

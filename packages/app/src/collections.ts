@@ -139,6 +139,8 @@ export function packsSource(app: AppState): CollectionSource {
         if (count === 0) continue
         const sourceKind = info.source?.split(':', 1)[0]
         const assetCount = info.assets?.length ?? 0
+        const typeStorage = Object.entries(info.typeStorage ?? {}).sort(([a], [b]) => a.localeCompare(b))
+          .map(([type, provider]) => ({ label: `${type} values`, text: `Stored ${provider}'s way` }))
         entries.push({
           id: packId,
           title: info.displayName,
@@ -149,6 +151,7 @@ export function packsSource(app: AppState): CollectionSource {
             ...(sourceKind !== undefined ? [sourceKind] : []),
             `${count} node${count === 1 ? '' : 's'}`,
             ...(assetCount > 0 ? [`${assetCount} asset${assetCount === 1 ? '' : 's'}`] : []),
+            ...typeStorage.map(({ label, text }) => `${label}: ${text}`),
           ],
           ...(info.icon !== undefined && backend !== undefined
             ? { thumbRender: async (signal?: AbortSignal) => {
@@ -164,6 +167,7 @@ export function packsSource(app: AppState): CollectionSource {
             { label: 'pack id', text: packId },
             ...(backend !== undefined ? [{ label: 'backend', text: backend.label }] : []),
             { label: 'nodes', text: String(count) },
+            ...typeStorage,
             ...(assetCount > 0 ? [{ label: 'assets', text: String(assetCount) }] : []),
             ...(info.assets ?? []).map((asset) => ({
               label: `asset: ${asset.name}`,

@@ -1031,6 +1031,8 @@ export interface PackInfo {
   readonly artifactDigest?: string
   readonly source?: string
   readonly publisher?: string
+  /** Borrowed type ids mapped to the packs selected to store their values. */
+  readonly typeStorage?: Readonly<Record<string, string>>
   /** Pack asset declarations, descriptors only; absent means none declared. */
   readonly assets?: readonly PackAssetDescriptor[]
   /**
