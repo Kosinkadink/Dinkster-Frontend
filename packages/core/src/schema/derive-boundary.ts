@@ -705,6 +705,7 @@ export function deriveBoundarySchema(
   const items: BodyRow[] = []
   const seenIds = new Set<string>()
   const routeCache = new WeakMap<object, Partial<Record<'input' | 'output', { node: NodeData; route: BoundaryRoute }>>>()
+  const inactiveBindings = new WeakSet<object>()
   const slotTypeBindings = new WeakMap<NodeData, { readonly bindings: ReadonlyMap<string, TypeExpr>; readonly choices: Readonly<Record<string, string>> }>()
 
   /** Elaborate the requested route's selections without retaining replaced scopes. */
@@ -812,6 +813,7 @@ export function deriveBoundarySchema(
       if (route.terminal.slot.unavailable !== undefined) {
         fail(route.terminal.slot.unavailable.code, `${describe}: ${route.terminal.slot.unavailable.message}`)
         if (!route.terminal.slot.unavailable.inactive) return undefined
+        inactiveBindings.add(binds)
       }
     }
     if (binds.kind === 'port' && route.terminal.kind !== 'port') {
@@ -827,14 +829,17 @@ export function deriveBoundarySchema(
         const stored = node.dynamic?.[hop.constructPath]?.selected
         const active = stored ?? hop.spec.default ?? (hop.spec.required ? hop.spec.options[0]?.key : undefined)
         if (active === undefined || !hop.options.includes(active)) {
+          inactiveBindings.add(binds)
           fail('boundary.branchInactive', `${describe}: '${binds.port}' is not a row of the chosen option of '${hop.constructPath}'; the chosen option is '${active ?? ''}'`)
         }
       } else if (hop.kind === 'slotVariant') {
         const active = node.dynamic?.[hop.constructPath]?.selected
         if (active !== hop.key) {
+          inactiveBindings.add(binds)
           fail('boundary.branchInactive', `${describe}: variant '${hop.key}' of '${hop.constructPath}' is not chosen; the chosen variant is '${active ?? ''}'`)
         }
       } else if (hop.kind === 'slot' && hop.spec.variants === undefined && !isInternallyConnected(binds, hop.constructPath)) {
+        inactiveBindings.add(binds)
         fail('boundary.slotDisconnected', `${describe} binds '${binds.port}' beneath type choice '${hop.constructPath}', which is not connected inside the definition`)
       } else if (hop.kind === 'member' && !(node.dynamic?.[hop.familyPath]?.members ?? []).includes(hop.member) &&
           typeof hop.spec.grows !== 'object') {
@@ -1179,7 +1184,7 @@ export function deriveBoundarySchema(
     // An automatic field the definition stores nothing for stays automatic on
     // the subgraph node; a stored value is the row's default instead.
     const automatic = promoted && !Object.hasOwn(node.values, item.binds.port as string) ? inner.automatic : undefined
-    const { widget: _widget, forceInput: _forceInput, acceptsList: _acceptsList, automatic: _automatic,
+    const { widget: _widget, forceInput: _forceInput, acceptsList: _acceptsList, automatic: _automatic, unavailable: _unavailable,
       lookupScope: _lookupScope, section: _section, adjacentTo: _adjacentTo, labelFormula: _labelFormula, ...inherited } = inner
     items.push({
       ...inherited,
@@ -1394,6 +1399,12 @@ export function deriveBoundarySchema(
       }
     }
     derivedItems = projected
+  }
+
+  // An inactive fan-out target does not disable another target's live input.
+  for (const item of boundaryItems(def.boundary, 'inputs')) {
+    if (unavailable.get(item.id)?.inactive && [item.binds, ...(item.alsoBinds ?? [])].some((binding) =>
+      routeCache.get(binding)?.input !== undefined && !inactiveBindings.has(binding))) unavailable.delete(item.id)
   }
 
   if (diags.some((d) => d.severity === 'error' && (d.refs === undefined || d.code === 'boundary.duplicateId'))) return { diagnostics: diags }
