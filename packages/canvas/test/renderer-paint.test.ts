@@ -520,16 +520,16 @@ describe('typed overview detail', () => {
     }
   })
 
-  it('only paints overview titles that fit their node width', () => {
+  it('keeps short overview titles whole and cuts long titles with three dots', () => {
     const base = fixtureScene('clean')
     const node = base.nodes[0]!
     const fittingTitle = 'ImgSrc'
-    const oversizedTitle = 'This title is wider than its node'
+    const oversizedTitle = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
     const scene = {
       ...base,
       nodes: [
-        { ...node, layout: { ...node.layout, title: fittingTitle } },
-        { ...node, id: 'oversized-title', x: node.x + node.layout.width + 20, layout: { ...node.layout, title: oversizedTitle } },
+        { ...node, layout: { ...node.layout, width: 140, title: fittingTitle } },
+        { ...node, id: 'oversized-title', x: node.x + 160, layout: { ...node.layout, width: 140, title: oversizedTitle } },
       ],
       links: [],
     }
@@ -537,7 +537,7 @@ describe('typed overview detail', () => {
       renderer.setViewport({ x: 0, y: 0, scale: CANVAS_DETAIL_MIN_SCALE - 0.01 }))
 
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === fittingTitle)).toBe(true)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === oversizedTitle)).toBe(false)
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'ABCDEFGHIJKLMN...')).toBe(true)
   })
 
 })
