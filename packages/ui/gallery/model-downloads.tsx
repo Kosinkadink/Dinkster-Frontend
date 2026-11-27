@@ -2,10 +2,12 @@ import { For, Show, createSignal } from 'solid-js'
 import {
   ProductButton,
   ProductDialog,
+  ProductErrorBanner,
   ProductField,
   ProductModelDownloads,
   ProductRadio,
   ProductTextInput,
+  ProductToast,
   type ProductModelDownloadRow,
 } from '../src/index.js'
 
@@ -95,6 +97,8 @@ function DownloadExample(props: {
   )
   const [sourceOpen, setSourceOpen] = createSignal<string>()
   const [action, setAction] = createSignal('')
+  const [copied, setCopied] = createSignal<{ message: string }>()
+  const [copyError, setCopyError] = createSignal('')
   const [stopped, setStopped] = createSignal(false)
   const [waitingStopped, setWaitingStopped] = createSignal(false)
   const locations = [
@@ -102,7 +106,8 @@ function DownloadExample(props: {
     { id: 'portable', name: 'Portable models', path: '/media/portable/models' },
   ]
   const [locationId, setLocationId] = createSignal('shared')
-  const destination = () => locations.find((location) => location.id === locationId())!
+  const destination = () =>
+    locations.find((location) => location.id === locationId())!
   const select = (id: string, checked: boolean) =>
     setSelected((current) => {
       const next = new Set(current)
@@ -125,13 +130,27 @@ function DownloadExample(props: {
         value: `example/models on ${index === 2 ? 'Civitai' : 'Hugging Face'}`,
       },
       { label: 'License', value: 'Apache-2.0' },
-      { label: 'File', value: `${destination().path}/${files[index]!.folder}/${files[index]!.name}` },
+      {
+        label: 'File',
+        value: `${destination().path}/${files[index]!.folder}/${files[index]!.name}`,
+      },
     ],
-    factsAction: { label: 'Copy revision and checksum', onClick: () => {
-      void navigator.clipboard.writeText(`Revision: 462165984030deed462165984030deed46216598\nSHA-256: ${'31e35c80fc4829d1'.repeat(4)}`)
-        .then(() => setAction('Revision and checksum copied'))
-        .catch(() => setAction('Could not copy the revision and checksum. Try again.'))
-    } },
+    factsAction: {
+      label: 'Copy revision and checksum',
+      onClick: () => {
+        setCopyError('')
+        void navigator.clipboard
+          .writeText(
+            `Revision: 462165984030deed462165984030deed46216598\nSHA-256: ${'31e35c80fc4829d1'.repeat(4)}`,
+          )
+          .then(() => setCopied({ message: 'Revision and checksum copied' }))
+          .catch(() =>
+            setCopyError(
+              'Could not copy the revision and checksum. Try again.',
+            ),
+          )
+      },
+    },
   })
   const ready = (index: number): ProductModelDownloadRow => ({
     ...files[index]!,
@@ -304,7 +323,9 @@ function DownloadExample(props: {
   }
   const allReady = () => props.scene === 'run' || props.scene === 'done'
   const count = () => selected().size
-  const insufficient = () => (props.scene === 'many' && count() > 8) || (props.scene === 'ready' && count() > 0 && locationId() === 'portable')
+  const insufficient = () =>
+    (props.scene === 'many' && count() > 8) ||
+    (props.scene === 'ready' && count() > 0 && locationId() === 'portable')
   const primary = () =>
     props.scene === 'ready' || props.scene === 'many'
       ? {
@@ -324,8 +345,25 @@ function DownloadExample(props: {
       <ProductModelDownloads
         rows={rows()}
         listLabel="Models"
-        destination={{ label: 'Save to', selectedId: locationId(), emptyLabel: 'Choose a folder',
-          freeSpace: locationId() === 'portable' ? '200 MB free' : '20 GB free', locations,
+        notice={
+          <>
+            <Show when={copyError()}>
+              <ProductErrorBanner onDismiss={() => setCopyError('')}>
+                {copyError()}
+              </ProductErrorBanner>
+            </Show>
+            <ProductToast
+              notification={copied()}
+              onDismiss={() => setCopied(undefined)}
+            />
+          </>
+        }
+        destination={{
+          label: 'Save to',
+          selectedId: locationId(),
+          emptyLabel: 'Choose a folder',
+          freeSpace: locationId() === 'portable' ? '200 MB free' : '20 GB free',
+          locations,
           onSelect: setLocationId,
         }}
         summary={
@@ -334,18 +372,18 @@ function DownloadExample(props: {
             : `Image starter needs ${rows().filter((row) => row.state !== 'ready').length} models that are not ${props.scene === 'needs' || props.scene === 'access' ? 'ready on' : 'on'} this computer.`
         }
         footer={
-          action() ||
-          (insufficient()
+          insufficient()
             ? `${props.scene === 'many' ? count() * 2.25 : 6.8} GB to download, ${locationId() === 'portable' ? '200 MB' : '20 GB'} free. Untick some models or free up space.`
-            : props.scene === 'downloading' || props.scene === 'waiting'
-              ? 'You can close this. Downloads keep going and show under tasks in the status bar.'
-              : allReady()
-                ? '3 models ready.'
-                : props.scene === 'ready'
-                  ? '6.8 GB to download'
-                  : props.scene === 'failed'
-                    ? ''
-                    : 'Nothing can be downloaded yet.')
+            : action() ||
+              (props.scene === 'downloading' || props.scene === 'waiting'
+                ? 'You can close this. Downloads keep going and show under tasks in the status bar.'
+                : allReady()
+                  ? '3 models ready.'
+                  : props.scene === 'ready'
+                    ? '6.8 GB to download'
+                    : props.scene === 'failed'
+                      ? ''
+                      : 'Nothing can be downloaded yet.')
         }
         footerWarning={insufficient()}
         closeLabel="Close"

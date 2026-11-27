@@ -148,7 +148,12 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
           </span>
         </div>
         <Show when={props.row.folder}>
-          {(folder) => <span class="dinkster-model-download-folder"><ProductIcon icon={Folder} />{folder()}</span>}
+          {(folder) => (
+            <span class="dinkster-model-download-folder">
+              <ProductIcon icon={Folder} />
+              {folder()}
+            </span>
+          )}
         </Show>
         <Show when={available()}>
           {(entry) => (
@@ -189,8 +194,15 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
         {(entry) => (
           <div class="dinkster-model-download-facts">
             <ProductFacts label={props.row.name} items={entry().facts} />
-            <Show when={entry().factsAction}>{(action) => <ProductTextButton label={action().label}
-              disabled={action().disabled === true} onClick={action().onClick} />}</Show>
+            <Show when={entry().factsAction}>
+              {(action) => (
+                <ProductTextButton
+                  label={action().label}
+                  disabled={action().disabled === true}
+                  onClick={action().onClick}
+                />
+              )}
+            </Show>
           </div>
         )}
       </Show>
@@ -253,7 +265,11 @@ export function ProductModelDownloads(props: {
     readonly selectedId: string
     readonly emptyLabel: string
     readonly freeSpace: string
-    readonly locations: readonly { readonly id: string; readonly name: string; readonly path: string }[]
+    readonly locations: readonly {
+      readonly id: string
+      readonly name: string
+      readonly path: string
+    }[]
     readonly onSelect: (id: string) => void
   }
 }) {
@@ -271,32 +287,56 @@ export function ProductModelDownloads(props: {
   return (
     <section class="dinkster-model-downloads" data-testid="model-downloads">
       <header class="dinkster-model-download-header">
-      <Show when={props.destination}>{(destination) => {
-        const selected = () => destination().locations.find((location) => location.id === destination().selectedId)
-        return <div class="dinkster-model-download-destination">
-          <ProductMenu label={destination().label} triggerName={destination().label} fill="quiet"
-            labelContent={<span class="dinkster-model-download-destination-label">
-              <span>{destination().label}</span><ProductIcon icon={Folder} />
-              <strong>{selected()?.name ?? destination().emptyLabel}</strong>
-              <span class="dinkster-model-download-destination-path">{selected()?.path}</span>
-              <span class="dinkster-model-download-space">{destination().freeSpace}</span>
-            </span>}
-            items={destination().locations.map((location) => ({ label: location.name, description: location.path,
-              checked: location.id === destination().selectedId, onSelect: () => destination().onSelect(location.id) }))} />
-        </div>
-      }}</Show>
-      {props.notice}
-      <div class="dinkster-model-download-summary">
-        <p class="dinkster-description">{props.summary}</p>
-        <Show when={props.selection}>
-          {(selection) => (
-            <ProductTextButton
-              label={selection().label}
-              onClick={selection().onClick}
-            />
-          )}
+        <Show when={props.destination}>
+          {(destination) => {
+            const selected = () =>
+              destination().locations.find(
+                (location) => location.id === destination().selectedId,
+              )
+            return (
+              <div class="dinkster-model-download-destination">
+                <ProductMenu
+                  label={destination().label}
+                  triggerName={destination().label}
+                  fill="quiet"
+                  labelContent={
+                    <span class="dinkster-model-download-destination-label">
+                      <span>{destination().label}</span>
+                      <ProductIcon icon={Folder} />
+                      <strong>
+                        {selected()?.name ?? destination().emptyLabel}
+                      </strong>
+                      <span class="dinkster-model-download-destination-path">
+                        {selected()?.path}
+                      </span>
+                      <span class="dinkster-model-download-space">
+                        {destination().freeSpace}
+                      </span>
+                    </span>
+                  }
+                  items={destination().locations.map((location) => ({
+                    label: location.name,
+                    description: location.path,
+                    checked: location.id === destination().selectedId,
+                    onSelect: () => destination().onSelect(location.id),
+                  }))}
+                />
+              </div>
+            )
+          }}
         </Show>
-      </div>
+        {props.notice}
+        <div class="dinkster-model-download-summary">
+          <p class="dinkster-description">{props.summary}</p>
+          <Show when={props.selection}>
+            {(selection) => (
+              <ProductTextButton
+                label={selection().label}
+                onClick={selection().onClick}
+              />
+            )}
+          </Show>
+        </div>
       </header>
       <ul
         ref={list}
