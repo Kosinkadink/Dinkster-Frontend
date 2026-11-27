@@ -428,9 +428,9 @@ test('real media, controls, zoom transitions, forwarding, clipping, and cleanup'
   await page.locator('.node-media-overlay').first().dispatchEvent('wheel', { deltaY: 120, clientX: 200, clientY: 200 })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport().scale)).not.toBe(before.scale)
 
-  for (const scale of [1.5, 1, 0.75, 0.6, 0.5, 0.49]) {
+  for (const scale of [1.5, 1, 0.75, 0.6, 0.5, 0.3, 0.29]) {
     await page.evaluate((value) => window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 15, scale: value }), scale)
-    if (scale >= 0.5) {
+    if (scale >= 0.3) {
       await expect(videoControls.first().getByRole('button', { name: /^(Play|Pause) video$/ })).toBeVisible()
     } else {
       await expect(page.locator('.node-media-overlay')).toHaveCount(0)
@@ -681,4 +681,91 @@ test('output pager cap retains focused, selected, and open-viewer roots without 
   await page.getByTestId('graph-canvas').focus()
   await expect(pagerFor(29)).toHaveCount(0)
   await expect(pagerFor(24)).toHaveCount(1)
+})
+
+test('editors and media stay usable until the configured node details cutoff', async ({ page }, info) => {
+  await page.route('**/api/mounts', (route) => route.fulfill({ json: {
+    activeOutputMount: 'output', mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }],
+  } }))
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const concrete = (name: string) => ({ kind: 'concrete' as const, name })
+    app.registerSchemas([
+      { type: 'ZoomCurve', displayName: 'Curve editor', category: 'test', source: 'v3', isOutputNode: true, body: [
+        { kind: 'input', id: 'curve', type: concrete('CURVE'), optional: false,
+          widget: { widgetType: 'CURVE', options: { histogram: 'histogram' } } },
+        { kind: 'input', id: 'histogram', type: concrete('HISTOGRAM'), optional: true },
+      ] },
+      { type: 'ZoomSave', displayName: 'Save target', category: 'test', source: 'v3', isOutputNode: true, body: [
+        { kind: 'input', id: 'target', type: concrete('SAVE_TARGET'), optional: false,
+          widget: { widgetType: 'SAVE_TARGET', options: {} } },
+      ] },
+    ])
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'editor-zoom', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Root', nodes: {
+        curve0: { id: 'curve0', type: 'ZoomCurve', values: {
+          curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.4, value: 0.6 }, { position: 1, value: 0.9 }] },
+        } }, save: { id: 'save', type: 'ZoomSave', values: {} },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: {
+        curve0: { position: { x: 40, y: 60 }, editors: { curve: { unfolded: true } } },
+        save: { position: { x: 400, y: 60 }, editors: { target: { unfolded: true } } },
+      } } } },
+    }, 'Editor zoom')
+    app.settings.set('canvas.detailMinPercent', 30)
+    window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 20, scale: 0.4 })
+  })
+  const curve = page.locator('.node-editor-space-overlay[data-node-id="curve0"]')
+  const save = page.locator('.node-editor-space-overlay[data-node-id="save"]')
+  for (const scale of [0.75, 0.71, 0.5, 0.31, 0.3]) {
+    await page.evaluate((scale) => window.__dinksterTest!.renderer!.setViewport({ x: 60, y: 60, scale }), scale)
+    await page.screenshot({ path: info.outputPath(`editors-${Math.round(scale * 100)}.png`) })
+    await expect(curve.locator('circle.dinkster-canvas-curve-point')).toHaveCount(3)
+    const point = curve.locator('circle.dinkster-canvas-curve-point').nth(1)
+    const box = await point.boundingBox()
+    if (!box) throw new Error('curve point is not drawn')
+    const before = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.curve0!.values.curve)
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width / 2 + 6, box.y + box.height / 2 - 4, { steps: 3 })
+    await page.mouse.up()
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.curve0!.values.curve)).not.toEqual(before)
+    const prefix = save.getByRole('textbox')
+    await prefix.fill(`zoom-${scale}`)
+    await prefix.press('Enter')
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.save!.values.target)).toMatchObject({ prefix: `zoom-${scale}` })
+  }
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 60, y: 60, scale: 0.29 }))
+  await expect(page.locator('.node-editor-space-overlay')).toHaveCount(0)
+  await page.screenshot({ path: info.outputPath('editors-29.png') })
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 20))
+  await expect(curve).toBeVisible()
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 50))
+  await expect(curve).toHaveCount(0)
+  await installMediaProof(page)
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 30))
+  const audio = page.locator('.node-media-overlay[data-media-kind="audio"]')
+  for (const scale of [0.71, 0.5, 0.31]) {
+    await page.evaluate((scale) => window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 20, scale }), scale)
+    const seek = audio.getByRole('slider', { name: 'Audio position' })
+    await expect(seek).toBeVisible()
+    const before = await seek.getAttribute('aria-valuenow')
+    await seek.focus()
+    await seek.press('ArrowRight')
+    await expect(seek).not.toHaveAttribute('aria-valuenow', before!)
+    const video = page.locator('.node-media-overlay[data-node-id="mp4"]')
+    const mute = video.getByRole('button', { name: 'Mute video', exact: true })
+    const muted = await mute.getAttribute('aria-pressed')
+    await mute.click()
+    await expect(mute).toHaveAttribute('aria-pressed', muted === 'true' ? 'false' : 'true')
+    await audio.getByRole('button', { name: 'Play audio', exact: true }).click()
+    await expect(audio.locator('audio')).toHaveJSProperty('paused', false)
+    await audio.getByRole('button', { name: 'Pause audio', exact: true }).click()
+    await expect(audio.locator('audio')).toHaveJSProperty('paused', true)
+    await page.screenshot({ path: info.outputPath(`media-${Math.round(scale * 100)}.png`) })
+  }
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 20, scale: 0.29 }))
+  await expect(page.locator('.node-media-overlay')).toHaveCount(0)
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 20))
+  await expect(audio.getByRole('slider', { name: 'Audio position' })).toBeVisible()
 })
