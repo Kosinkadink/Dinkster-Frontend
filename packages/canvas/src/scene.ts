@@ -589,7 +589,9 @@ export function boundaryNodesInGroup(scene: Scene, group: SceneGroup): Array<'in
     .map((node) => node.side)
 }
 
-type ProjectedTypeConstraint = NonNullable<NonNullable<Parameters<typeof solveGraphTypes>[2]>['projectedInputs']>[number]
+type ProjectedTypeConstraint = NonNullable<NonNullable<Parameters<typeof solveGraphTypes>[2]>['projectedInputs']>[number] & {
+  readonly identity: EffectiveLinkIdentity
+}
 
 function projectTypeThroughRegionInputs(
   document: WorkflowDocument,
@@ -643,6 +645,7 @@ function projectedTypeConstraints(
       if (trace.kind !== 'output') return []
       const type = solved.result.portTypeOf(trace.ref.node, 'output', trace.ref.port)
       return type === undefined ? [] : [{
+        identity: link.identity,
         type: projectTypeThroughRegionInputs(document, link, type),
         to: link.to.endpoint as PortRef,
         label: `projected ${JSON.stringify(link.identity)}`,
@@ -1165,12 +1168,13 @@ export function buildScene(input: BuildSceneInput): Scene {
   // visible pin receives the solver's display type. Keeping this substitution
   // here (rather than teaching layout about graph constraints) preserves the
   // document -> elaboration -> solving -> rendering dependency direction.
+  const parentConstraints = effective === undefined ? []
+    : projectedTypeConstraints(input.document, input.resolve, effective, def.id)
+  const parentInputTypes = new Map(parentConstraints.map((constraint) => [constraint.identity, constraint.type]))
   const solvedTypes = solveGraphTypes(effectiveGraph, input.resolve, {
     resolveNode: (node) => resolveNode(input.graphId, node, sourcePath),
     connectivityOf,
-    ...(effective === undefined ? {} : {
-      projectedInputs: projectedTypeConstraints(input.document, input.resolve, effective, def.id),
-    }),
+    projectedInputs: parentConstraints,
   })
   // Definition-owned identities (the shown body graph's own links and net
   // sinks) keep their ordinary scene ids so every selection/gesture seam
@@ -2055,7 +2059,6 @@ export function buildScene(input: BuildSceneInput): Scene {
       const from = item.wireHidden === true ? pinlessRowAnchor(item.id) : boundaryPin(inputsNode, item.id)
       if (!from) continue
       const pinType = inputsNode.layout.pins.find((p) => p.portId === item.id)?.type
-      const typeName = pinType === undefined ? undefined : canonicalTypeIdOf(pinType)
       // One noodle per binding: fan-out targets render exactly like the
       // primary (the boundary pin fans out to every bound inner input).
       const bindings = [item.binds, ...(item.alsoBinds ?? [])]
@@ -2073,6 +2076,8 @@ export function buildScene(input: BuildSceneInput): Scene {
         }) === true
         const targets = projected.length > 0 ? projected : fallback === undefined || locallyDriven ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
+          const type = identities.map((identity) => parentInputTypes.get(identity)).find((value) => value !== undefined) ?? pinType
+          const typeName = type === undefined ? undefined : canonicalTypeIdOf(type)
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,
             from: { kind: 'boundary', side: 'inputs', item: item.id },
@@ -2081,7 +2086,7 @@ export function buildScene(input: BuildSceneInput): Scene {
             y1: from.y,
             x2: to.x,
             y2: to.y,
-            ...(pinType === undefined ? {} : { fromType: pinType }),
+            ...(type === undefined ? {} : { fromType: type }),
             ...(typeName !== undefined ? { typeName } : {}),
             boundary: true,
             ...(item.wireHidden === true ? { hidden: true as const } : {}),

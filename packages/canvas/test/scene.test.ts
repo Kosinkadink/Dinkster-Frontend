@@ -92,6 +92,47 @@ describe('buildScene', () => {
     expect(inside.links.map((link) => [link.id, link.fromType])).toEqual([
       ['boundary:inputs:incoming', record], ['boundary:outputs:outgoing', record],
     ])
+
+    const subset: TypeExpr = { kind: 'record', name: 'Subset', fields: [
+      { id: 'other-seed', name: 'noise', type: { kind: 'concrete', name: 'INT' }, optional: false },
+    ] }
+    const otherRecord: TypeExpr = { kind: 'record', name: 'Other', fields: [
+      ...subset.fields,
+      { id: 'strength', name: 'strength', type: { kind: 'concrete', name: 'FLOAT' }, optional: true },
+    ] }
+    const occurrenceLoad = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'record-occurrences', root: 'root',
+      graphs: {
+        root: { id: 'root', name: 'Root', nextOrdinal: 4, nodes: {
+          make: { id: 'make', type: 'Make', values: {} }, other: { id: 'other', type: 'Other', values: {} },
+          first: { id: 'first', type: '#body', values: {} }, second: { id: 'second', type: '#body', values: {} },
+        }, links: {
+          start: { id: 'start', from: { node: 'make', port: 'record' }, to: { reroute: 'r0' } },
+          middle: { id: 'middle', from: { reroute: 'r0' }, to: { reroute: 'r1' } },
+          end: { id: 'end', from: { reroute: 'r1' }, to: { node: 'first', port: 'incoming' } },
+          otherLink: { id: 'otherLink', from: { node: 'other', port: 'record' }, to: { node: 'second', port: 'incoming' } },
+        }, nets: {}, reroutes: { r0: { id: 'r0' }, r1: { id: 'r1' } } },
+        body: { id: 'body', name: 'Body', nextOrdinal: 1,
+          nodes: { sink: { id: 'sink', type: 'Sink', values: {} } }, links: {}, nets: {}, reroutes: {},
+          boundary: { body: [{ kind: 'input', id: 'incoming', binds: { kind: 'port', node: 'sink', port: 'value' } }] },
+        },
+      }, view: { graphs: {} },
+    })
+    expect(occurrenceLoad.diagnostics).toEqual([])
+    const occurrences = occurrenceLoad.document!
+    const parentRecord = (node: string, current = occurrences) => buildScene({
+      document: current, graphId: 'body', tokens: defaultTokens, measure, widgetMeasure,
+      resolve: documentResolver(current, (type) => type === 'Make' ? source : type === 'Other'
+        ? { ...source, type: 'Other', body: [{ kind: 'output', id: 'record', type: otherRecord }] }
+        : { ...sink, body: [{ kind: 'input', id: 'value', type: subset, optional: false }] }),
+      occurrence: { owner: { instancePath: [], node: asNodeId(node) }, plannerAvailable: true },
+    }).links.find((link) => link.id === 'boundary:inputs:incoming')?.fromType
+    expect(parentRecord('first')).toEqual(record)
+    expect(parentRecord('second')).toEqual(otherRecord)
+    const disconnected = { ...occurrences, graphs: { ...occurrences.graphs,
+      root: { ...occurrences.graphs.root!, links: {} },
+    } }
+    expect(parentRecord('first', disconnected)).toEqual(subset)
   })
 
   it('keeps mapped Save wires on their real inputs through folding and undo', () => {
