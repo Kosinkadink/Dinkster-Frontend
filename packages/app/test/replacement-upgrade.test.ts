@@ -513,8 +513,13 @@ describe('native open-time replacement', () => {
     app.problemFixes.recheck(tab, 'save-targets')
     await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, diagnostics().find((problem) => problem.code === 'saveTarget.mountsMissing')!)?.state).toBe('stale'))
     expect(tab.store.doc).toEqual(changed)
-    app.problemFixes.recheck(tab, 'save-targets')
-    await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, diagnostics().find((problem) => problem.code === 'saveTarget.mountsMissing')!)?.state).toBe('offered'))
+    mounts = { ...mounts, activeOutputMount: 'new-output', mounts: [...mounts.mounts,
+      { id: 'new-output', mode: 'readwrite', state: 'ready' }] }
+    const stopScanning = app.problemFixes.changed.subscribe(() => { diagnostics() })
+    try {
+      app.problemFixes.recheck(tab, 'save-targets')
+      await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, diagnostics().find((problem) => problem.code === 'saveTarget.mountsMissing')!)?.state).toBe('offered'))
+    } finally { stopScanning() }
   })
 
   it('stores a save-target-only fix and undoes it without an automatic-adjustment notice', async () => {

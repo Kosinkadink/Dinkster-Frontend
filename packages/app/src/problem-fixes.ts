@@ -174,9 +174,9 @@ export class ProblemFixes {
     if (offers?.get(key)?.state === 'storing') return
     const backend = key === 'save-targets' ? this.app.backendForTab(tab) : undefined
     if (backend !== undefined) {
-      const held = offers?.get(key)
       void this.readMounts(backend).then((settings) => {
-        if (settings === undefined || offers?.get(key) !== held) return
+        if (settings === undefined || this.offers.get(tab.store) !== offers || this.app.backendForTab(tab) !== backend ||
+          offers?.get(key)?.state === 'storing') return
         offers?.delete(key)
         this.scan(tab)
         this.changed.update((value) => value + 1)
