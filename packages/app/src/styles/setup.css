@@ -3,9 +3,10 @@
 .setup-form { display: flex; flex-direction: column; gap: var(--dinkster-space-24); width: 100%; }
 .setup-facts { display: grid; grid-template-columns: 160px minmax(0, 1fr); align-items: baseline; gap: var(--dinkster-space-24); margin: 0; }
 .setup-facts dt { color: var(--dinkster-text-secondary); }
-.setup-facts dd { display: grid; grid-template-columns: minmax(0, 1fr) 144px; align-items: start; gap: var(--dinkster-space-24); min-width: 0; margin: 0; }
+.setup-facts dd { display: grid; grid-template-columns: minmax(0, 1fr) 144px; align-items: baseline; gap: var(--dinkster-space-24); min-width: 0; margin: 0; }
 .setup-facts dd > :first-child { grid-column: 1; }
 .setup-facts dd > button, .setup-facts dd > .dinkster-menu-anchor { justify-self: end; }
+.setup-facts .dinkster-menu-trigger[data-fill='quiet'] { min-height: 0; padding: 0; border-width: 0; }
 .setup-facts dd > span { overflow-wrap: anywhere; }
 .setup-facts dd > div { min-width: 0; overflow-wrap: anywhere; }
 .setup-facts p { margin: var(--dinkster-space-4) 0 0; }
