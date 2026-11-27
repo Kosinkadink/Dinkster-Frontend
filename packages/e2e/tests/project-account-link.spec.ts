@@ -4,6 +4,12 @@ import { expect, nativeTest as test } from './fixtures.js'
 const accountId = '48bb018e-5b17-4e68-bd81-c6412c4bcd72'
 const issuer = 'https://identity.example.test'
 
+async function openProjects(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Film', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'All projects', exact: true }).click()
+  await expect(page.getByTestId('projects-dialog')).toBeVisible()
+}
+
 async function accountFixture(page: Page) {
   const state = { available: true, signedIn: true, revision: 7, uid: '7b42c8d9-2f8b-4ce9-9d87-82fc78a31457',
     link: null as { issuer: string; id: string } | null, refuse: false, writes: 0, wait: undefined as Promise<void> | undefined }
@@ -33,7 +39,7 @@ async function accountFixture(page: Page) {
     return route.fulfill({ json: { project: project() } })
   })
   const open = async () => {
-    if (!await page.getByTestId('projects-dialog').isVisible()) await page.getByTestId('projects-button').click()
+    if (!await page.getByTestId('projects-dialog').isVisible()) await openProjects(page)
     await page.getByTestId('projects-dialog').locator('li[data-project-id="default"]').getByRole('button', { name: 'Account link', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Account link', exact: true })
     await expect(dialog.getByRole('button', { name: 'Refresh', exact: true })).toBeVisible()
@@ -45,7 +51,7 @@ async function accountFixture(page: Page) {
 test('links one library project, keeps unchanged Save disabled and confirms signed-out unlink', async ({ page }, info) => {
   const { state, sibling, open } = await accountFixture(page)
   await page.goto('/?dinksterProject=default')
-  await page.getByTestId('projects-button').click()
+  await openProjects(page)
   await expect(page.getByTestId('projects-dialog')).toContainText('Other project')
   await page.screenshot({ path: info.outputPath('configured-list.png') })
   let dialog = await open()
@@ -149,7 +155,7 @@ test('hides account controls when account services are unconfigured', async ({ p
   const { state } = await accountFixture(page)
   state.available = false
   await page.goto('/?dinksterProject=default')
-  await page.getByTestId('projects-button').click()
+  await openProjects(page)
   const projects = page.getByTestId('projects-dialog')
   await expect(projects).toContainText('Other project')
   await expect(projects.getByRole('button', { name: 'Account link', exact: true })).toHaveCount(0)
