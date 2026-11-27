@@ -303,6 +303,12 @@ describe('buildParamRows', () => {
     expect(rows().map((row) => [live(row).value, live(row).valueKey, live(row).linked, live(row).spec]))
       .toEqual(['first', 'second'].map((id) => [`${id} caption`, inputId, false,
         { widgetType: 'STRING', options: {}, default: 'dormant inner text' }]))
+    for (const row of rows().map(live)) {
+      expect(row.derived).toBe(false)
+      expect(row.item.kept).toBeUndefined()
+      expect(row.item.readOnly === true).toBe(false)
+      expect(row.item.disabled === true).toBe(false)
+    }
     const chosen = live(rows()[0]!)
     dispatch('node.setValue', { graphId: chosen.entry.graphId, nodeId: chosen.entry.nodeId,
       inputId: chosen.valueKey, value: 'edited caption' })
@@ -338,8 +344,32 @@ describe('buildParamRows', () => {
     expect(store.doc.graphs.root!.nodes).toEqual(edited.graphs.root!.nodes)
     expect(store.doc.graphs.detail).toEqual(original.graphs.detail)
     expect(store.doc.graphs.portrait).toEqual(original.graphs.portrait)
-    expect(rows(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!).map((row) => live(row).value))
-      .toEqual(['edited caption', 'second caption'])
+    for (const current of [store.doc, loadDocument(JSON.parse(JSON.stringify(store.doc))).document!]) {
+      const restored = rows(current).map(live)
+      expect(restored.map((row) => [row.value, row.linked])).toEqual([['edited caption', false], ['second caption', false]])
+      for (const row of restored) {
+        expect(row.derived).toBe(false)
+        expect(row.item.kept).toBeUndefined()
+        expect(row.item.readOnly === true).toBe(false)
+        expect(row.item.disabled === true).toBe(false)
+        expect(row.spec?.widgetType).toBe('STRING')
+      }
+    }
+    const beforeSecondEdit = store.doc
+    const restored = live(rows()[0]!)
+    dispatch('node.setValue', { graphId: restored.entry.graphId, nodeId: restored.entry.nodeId,
+      inputId: restored.valueKey, value: 'restored editable caption' })
+    expect(rows().map((row) => live(row).value)).toEqual(['restored editable caption', 'second caption'])
+    expect(store.doc.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+    expect(store.doc.graphs.detail).toEqual(original.graphs.detail)
+    expect(store.doc.graphs.portrait).toEqual(original.graphs.portrait)
+    const afterSecondEdit = store.doc
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(beforeSecondEdit)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(afterSecondEdit)
+    expect(rows(loadDocument(JSON.parse(JSON.stringify(afterSecondEdit))).document!).map((row) => live(row).value))
+      .toEqual(['restored editable caption', 'second caption'])
   })
 
   it('boundary/construct-fields/app-view keeps member keys and occurrence edits through reorder and reload', () => {
