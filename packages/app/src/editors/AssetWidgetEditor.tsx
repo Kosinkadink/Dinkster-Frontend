@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component } from 'solid-js'
 import { assetMultiSelect, formatByteSize, type CollectionEntry, type JsonObject } from '@dinkster/core'
 import type { AssetGuessCandidate } from '@dinkster/client'
+import { failureMessage } from '../request-failure.js'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
 import { assetSourcesStatus, committableAssetRef, mediaAcceptsFile, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
@@ -343,7 +344,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         ...(kind === 'model3d' ? { mime: ref.mediaType } : {}),
       }, url)
     } catch (error) {
-      if (live && request === assetPreviewRequest) setAssetError(error instanceof Error ? error.message : String(error))
+      if (live && request === assetPreviewRequest) setAssetError(failureMessage(error))
     }
   }
   onCleanup(() => {
@@ -376,7 +377,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       const errors = [...sourceErrors, ...result.diagnostics.map((entry) => entry.message)]
       if (errors.length > 0) setLogicalModelsError(errors.join('; '))
     } catch (error) {
-      if (live && load === logicalModelLoad) setLogicalModelsError(error instanceof Error ? error.message : String(error))
+      if (live && load === logicalModelLoad) setLogicalModelsError(failureMessage(error))
     } finally {
       if (live && load === logicalModelLoad) setLogicalModelsLoading(false)
     }
@@ -493,7 +494,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       return true
     } catch (error) {
       if (current()) {
-        setAssetError(error instanceof Error ? error.message : String(error))
+        setAssetError(failureMessage(error))
       }
       return false
     }
@@ -603,7 +604,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         match.candidates.filter((candidate) => assetGuessCandidateToRef(candidate) !== undefined),
       ))
     } catch (error) {
-      if (live) setAssetMatchError(error instanceof Error ? error.message : String(error))
+      if (live) setAssetMatchError(failureMessage(error))
     } finally {
       if (live) setAssetMatchPending(false)
     }

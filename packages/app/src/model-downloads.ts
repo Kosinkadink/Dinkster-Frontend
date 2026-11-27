@@ -1,5 +1,6 @@
 import { createSignal, type ReadonlySignal } from '@dinkster/core'
 import { ModelDownloadBusyError, type DinksterConnection, type ModelDownloadJob, type ModelDownloadPlan, type ModelDownloadRequirement, type ModelDownloadSelection } from '@dinkster/client'
+import { failureMessage } from './request-failure.js'
 
 export interface ModelDownloadState {
   readonly requirement: ModelDownloadRequirement
@@ -146,7 +147,7 @@ export class ModelDownloadsController {
       })) await this.review(requirement)
     } catch (error) {
       this.update(pending, { ...row, pending: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: failureMessage(error),
       })
     }
   }
@@ -167,7 +168,7 @@ export class ModelDownloadsController {
       })) await this.review(requirement)
     } catch (error) {
       this.update(pending, { ...row, pending: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: failureMessage(error),
       })
     }
   }
@@ -208,7 +209,7 @@ export class ModelDownloadsController {
         this.update(pending, { requirement: row.requirement, pending: false,
           ...(row.source === undefined ? {} : { source: row.source }),
           ...(row.job && active(row.job) ? { job: row.job } : {}),
-          error: error instanceof Error ? error.message : String(error),
+          error: failureMessage(error),
         })
       }
       this.schedulePoll()
@@ -263,7 +264,7 @@ export class ModelDownloadsController {
           // A failed start may have reached the server. A retry must discover jobs before planning again.
           this.update(pending, { requirement: queued.requirement, pending: false, interrupted: true,
             ...(queued.source === undefined ? {} : { source: queued.source }),
-            error: error instanceof Error ? error.message : String(error),
+            error: failureMessage(error),
           })
         } finally {
           this.starting.delete(pending)
@@ -289,7 +290,7 @@ export class ModelDownloadsController {
       if (!this.matches(job, requirement)) throw new Error('Model job no longer matches the captured project and requirement')
       this.update(pending, { ...row, pending: false, job })
     } catch (error) {
-      this.update(pending, { ...row, pending: false, error: error instanceof Error ? error.message : String(error) })
+      this.update(pending, { ...row, pending: false, error: failureMessage(error) })
     }
     this.schedulePoll()
   }

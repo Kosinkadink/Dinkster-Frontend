@@ -8,6 +8,7 @@ import { PackPreparationStatus } from './PackPreparationStatus.js'
 import { SchemaPreview } from './SchemaPreview.js'
 import { useAppMessage } from './locale.js'
 import { isNativeProjectBackend } from './desktop-bridge.js'
+import { failureMessage } from './request-failure.js'
 import { activeProjectId } from './projects.js'
 
 export function NodeInstallPrompt(props: { readonly app: AppState; readonly request: CatalogNode & { readonly backendId: string } }) {
@@ -45,7 +46,7 @@ export function NodeInstallPrompt(props: { readonly app: AppState; readonly requ
   }
   const failure = (error: unknown) => {
     if (!disposed) setStatus(error instanceof PackInstallError && error.status === 404
-      ? message('search.installUnavailable') : error instanceof Error ? error.message : String(error))
+      ? message('search.installUnavailable') : failureMessage(error))
   }
   const review = async () => {
     if (busy() || applied() || uncertain()) return

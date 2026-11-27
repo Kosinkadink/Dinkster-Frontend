@@ -6,6 +6,7 @@
  */
 
 import { desktopSaveBridge } from './desktop-bridge.js'
+import { failureMessage } from './request-failure.js'
 import { createAppPageTabs } from './app-page-tabs.js'
 import { isPageTab } from './page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
@@ -5245,9 +5246,9 @@ export class AppState {
               this.log('info', label, `engine not ready (${e.state}); deferring /api/nodes refresh`)
               return
             }
-            base.schemaState.set({ status: 'error', message: e instanceof Error ? e.message : String(e) })
+            base.schemaState.set({ status: 'error', message: failureMessage(e, 'Node definitions could not be loaded.') })
             this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-              diag('error', 'schema', 'schema.refreshFailed', `[${label}] failed to refresh /api/nodes after ${why}: ${e instanceof Error ? e.message : String(e)}`),
+              diag('error', 'schema', 'schema.refreshFailed', failureMessage(e, `Node definitions for ${label} could not be refreshed.`)),
             ])
           },
         )
@@ -6363,7 +6364,7 @@ export class AppState {
       title = title.trim()
       if (!title || title === board.name) return
       void this.boards.rename(board.id, title).catch((error: unknown) => {
-        this.reportProblems(board.id, [diag('error', 'collab', 'board.rename.refused', error instanceof Error ? error.message : String(error))])
+        this.reportProblems(board.id, [diag('error', 'collab', 'board.rename.refused', failureMessage(error, 'The board could not be renamed.'))])
       })
       return
     }
@@ -6943,7 +6944,7 @@ export class AppState {
         throw e
       }
     } catch (e) {
-      return e instanceof Error ? e.message : String(e)
+      return failureMessage(e, 'The workflow could not be shared.')
     } finally {
       this.collabPending.delete(key)
     }
@@ -6963,7 +6964,7 @@ export class AppState {
         if (!stillWanted()) return 'Board join was superseded'
         this.pages.open(`board:${entry.id}`)
         return undefined
-      } catch (error) { return error instanceof Error ? error.message : String(error) }
+      } catch (error) { return failureMessage(error, 'The board session could not be joined.') }
     }
     const existing = [...this.collabTabs.get().entries()].find(([, s]) => s.descriptor.sessionId === sessionId)
     if (existing !== undefined) {
@@ -6981,7 +6982,7 @@ export class AppState {
       await this.adoptCollabSession(descriptor, backend.baseUrl, descriptor.documentId)
       return undefined
     } catch (e) {
-      return e instanceof Error ? e.message : String(e)
+      return failureMessage(e, 'The shared session could not be joined.')
     } finally {
       this.collabPending.delete(key)
     }
@@ -7017,7 +7018,7 @@ export class AppState {
     try {
       await this.collabTransport.end(entry.baseUrl, entry.descriptor.sessionId)
     } catch (e) {
-      return e instanceof Error ? e.message : String(e)
+      return failureMessage(e, 'The shared session could not be ended.')
     }
     // Only downgrade the membership DELETE targeted: if the tab left and
     // joined another session while the DELETE was in flight, this stale
@@ -7589,7 +7590,7 @@ export class AppState {
     } catch (error) {
       if (!current()) return
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('warning', 'validation', 'project.needsUnavailable',
-        `Project needs unavailable: ${error instanceof Error ? error.message : String(error)}`)])
+        failureMessage(error, 'Project needs unavailable.'))])
     }
   }
 
@@ -7795,7 +7796,7 @@ export class AppState {
       if (!stillOwned()) return
       this.reportProblems(tab.id, [diag(
         'warning', 'validation', 'workflow.requirementsUnavailable',
-        `Workflow requirement plan unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        failureMessage(error, 'Workflow requirement plan unavailable.'),
       )])
     }
   }
@@ -7895,7 +7896,7 @@ export class AppState {
     } catch (error) {
       const owner = liveTab()
       if (owner === undefined) return
-      this.reportProblems(owner.id, [diag('warning', 'import', 'import.assets.guessFailed', error instanceof Error ? error.message : String(error))])
+      this.reportProblems(owner.id, [diag('warning', 'import', 'import.assets.guessFailed', failureMessage(error))])
     }
   }
 
@@ -8266,9 +8267,9 @@ export class AppState {
       // closed owner's entries.
       if (!this.tabs.get().includes(tab)) return false
       this.reportProblems(tab.id, [
-        diag('error', 'validation', 'library.saveFailed', `failed to save workflow: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'validation', 'library.saveFailed', failureMessage(e, 'The workflow could not be saved.')),
       ])
-      this.showTransientStatus(`Save failed on ${backend.label}: ${e instanceof Error ? e.message : String(e)}`)
+      this.showTransientStatus(failureMessage(e, `The workflow could not be saved on ${backend.label}.`))
       return false
     }
   }
@@ -8302,7 +8303,7 @@ export class AppState {
       // an ownership loss, not a transport diagnosis worth surfacing.
       if (this.ownerStillLive(backend) && stillWanted()) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag('error', 'validation', 'library.openFailed', `failed to open workflow from library: ${e instanceof Error ? e.message : String(e)}`),
+          diag('error', 'validation', 'library.openFailed', failureMessage(e, 'The library workflow could not be opened.')),
         ])
       }
       return false
@@ -8335,7 +8336,7 @@ export class AppState {
       return true
     } catch (e) {
       if (this.ownerStillLive(backend)) {
-        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'template.openFailed', `failed to open template: ${e instanceof Error ? e.message : String(e)}`)])
+        this.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'template.openFailed', failureMessage(e, 'The template could not be opened.'))])
       }
       return false
     }
@@ -8359,7 +8360,7 @@ export class AppState {
           'error',
           'validation',
           'template.openFailed',
-          `failed to open remote template: ${error instanceof Error ? error.message : String(error)}`,
+          failureMessage(error, 'The remote template could not be opened.'),
         )])
       }
       return false
@@ -8399,7 +8400,7 @@ export class AppState {
     } catch (e) {
       if (this.ownerStillLive(backend) && stillWanted()) {
         this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag('error', 'validation', 'history.openFailed', `failed to open run workflow: ${e instanceof Error ? e.message : String(e)}`),
+          diag('error', 'validation', 'history.openFailed', failureMessage(e, 'The run workflow could not be opened.')),
         ])
       }
       return false
@@ -8454,7 +8455,7 @@ export class AppState {
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag('error', 'validation', 'history.deleteFailed', `failed to delete run record: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'validation', 'history.deleteFailed', failureMessage(e, 'The run record could not be deleted.')),
       ])
       throw e
     } finally {
@@ -8476,7 +8477,7 @@ export class AppState {
       return deleted
     } catch (e) {
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-        diag('error', 'validation', 'history.clearFailed', `failed to clear run history: ${e instanceof Error ? e.message : String(e)}`),
+        diag('error', 'validation', 'history.clearFailed', failureMessage(e, 'Run history could not be cleared.')),
       ])
       throw e
     } finally {
@@ -8962,7 +8963,7 @@ export class AppState {
         if (!current()) return
         backend.workerCatalog.set({
           status: 'error',
-          message: error instanceof Error ? error.message : String(error),
+          message: failureMessage(error, 'Workers could not be loaded.'),
         })
       },
     )
@@ -9008,14 +9009,14 @@ export class AppState {
         this.log('info', backend.label, `engine not ready (${e.state}); waiting for the supervisor`)
         return
       }
-      const message = e instanceof Error ? e.message : String(e)
+      const message = failureMessage(e, 'Node definitions could not be loaded.')
       backend.schemaState.set({ status: 'error', message })
       this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
         {
           severity: 'error',
           origin: 'schema',
           code: 'schema.fetchFailed',
-          message: `[${backend.label}] failed to fetch ${backend.protocol === 'dinkster' ? '/api/nodes' : '/object_info'}: ${message}`,
+          message: `[${backend.label}] ${message}`,
         },
       ])
     } finally {
@@ -10246,7 +10247,7 @@ export class AppState {
           severity: 'error',
           origin: 'validation',
           code: 'submit.transportFailed',
-          message: `failed to submit prompt: ${e instanceof Error ? e.message : String(e)}`,
+          message: failureMessage(e, 'The run could not be submitted.'),
         },
       ])
       this.queueRefusal.set(tab)

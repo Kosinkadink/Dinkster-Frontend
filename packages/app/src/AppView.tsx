@@ -87,6 +87,7 @@ import {
 import { parseAppViewText } from './app-view-text.js'
 import { lookupAnswersOf } from './lookup-demand.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 import ArrowDown from 'lucide-solid/icons/arrow-down'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
 import FolderPlus from 'lucide-solid/icons/folder-plus'
@@ -1192,7 +1193,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
       })
       .catch((error: unknown) => {
         if (!live || remoteTokens.get(key) !== token) return
-        const message = error instanceof Error ? error.message : String(error)
+        const message = failureMessage(error, 'Choices could not be loaded.')
         setRemoteCombo(key, previous?.state === 'ready' || previous?.state === 'stale'
           ? { state: 'stale', source, options: previous.options, message }
           : { state: 'unavailable', source, message })

@@ -434,7 +434,7 @@ describe('model provider credentials', () => {
     provider = 'untrusted-host'
     await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Malformed model download provider')
     error = 'unrecognized-private-message'
-    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Model download POST failed: 409')
+    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toMatchObject({ status: 409, serverMessage: undefined })
   })
 })
 
@@ -721,22 +721,25 @@ describe('mount listing decode', () => {
 
   it('times out a stalled mount read, ignores its late completion, and clears health on retry', async () => {
     vi.useFakeTimers()
+    const details: string[] = []
+    const unsubscribe = subscribeRequestFailures((failure) => details.push(failure.message))
     try {
       let finish!: (response: Response) => void
       const fetchFn = vi.fn<FetchLike>()
         .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
         .mockResolvedValue(jsonResponse(200, { mounts: [], outputMount: 'renders' }))
       const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn })
-      const first = expect(connection.fetchMountSettings()).rejects.toThrow('timed out after 30 seconds')
+      const first = connection.fetchMountSettings().catch((error: unknown) => error)
       await vi.advanceTimersByTimeAsync(30_000)
-      await first
+      expect(requestFailureReason(await first)).toBe('The engine did not answer.')
+      expect(details).toEqual(['GET /api/mounts failed: no answer'])
       expect(connection.mountError.get()).toContain('timed out')
       finish(jsonResponse(200, { mounts: [], outputMount: 'stale' }))
       await Promise.resolve()
       expect(connection.mountError.get()).toContain('timed out')
       await expect(connection.fetchMountSettings()).resolves.toMatchObject({ outputMount: 'renders' })
       expect(connection.mountError.get()).toBeUndefined()
-    } finally { vi.useRealTimers() }
+    } finally { unsubscribe(); vi.useRealTimers() }
   })
 
   it('does not commit a schema catalog that arrives after its deadline', async () => {
@@ -970,7 +973,7 @@ describe('pack settings transport', () => {
     const replies = [jsonResponse(503, {}), jsonResponse(400, { error: 'quality must be at most 5' })]
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => replies.shift()! })
     await expect(connection.fetchPackSettings('pack')).rejects.toMatchObject({ status: 503 })
-    await expect(connection.updatePackSettings('pack', { enabled: true, quality: 9 })).rejects.toThrow('quality must be at most 5')
+    expect(await connection.updatePackSettings('pack', { enabled: true, quality: 9 }).catch(requestFailureReason)).toBe('quality must be at most 5')
   })
 })
 
@@ -3576,7 +3579,7 @@ describe('workflow library wire', () => {
     expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 8, accountProject: null })
     for (const [status, error] of [[409, 'project-changed'], [403, 'operator-required'], [503, 'account-projects-unavailable']] as const) {
       const { conn: refused, requests: attempts } = submitHarness(() => jsonResponse(status, { error }))
-      await expect(refused.setProjectAccountLink('p-film', accountId, 7)).rejects.toThrow(error)
+      await expect(refused.setProjectAccountLink('p-film', accountId, 7)).rejects.toMatchObject({ status })
       expect(attempts).toHaveLength(1)
     }
     const { conn: wrongProject } = submitHarness(() => jsonResponse(200, { project: { ...project, id: 'other', accountProject: null } }))

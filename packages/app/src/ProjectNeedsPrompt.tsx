@@ -9,6 +9,7 @@ import { ProductActionFooter, ProductField } from './ProductForm.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductListRow } from './ProductSurfaces.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 import { isNativeProjectBackend } from './desktop-bridge.js'
 
 export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly review: ProjectNeedsReview }) {
@@ -50,7 +51,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
           setError(message('search.installExpired'))
         }, Math.min(result.expiresAt - performance.now(), 2_147_483_647))
       }
-    } catch (cause) { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)) }
+    } catch (cause) { if (!disposed) setError(failureMessage(cause)) }
     finally { if (!disposed) { setBusy(false); setPreparing(false) } }
   }
   const apply = async (): Promise<void> => {
@@ -65,7 +66,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
     catch (cause) {
       if (!disposed) {
         setUncertain(props.app.projectPackInstallations.has(props.review.backend))
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setError(failureMessage(cause))
       }
     } finally { if (!disposed) { setPlan(undefined); setApplying(false); setBusy(false) } }
   }
@@ -74,7 +75,7 @@ export function ProjectNeedsPrompt(props: { readonly app: AppState; readonly rev
     setBusy(true)
     setError(undefined)
     try { await props.app.enableReviewedProjectPacks(props.review) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
+    catch (cause) { setError(failureMessage(cause)) }
     finally { setBusy(false) }
   }
   const reviewAgain = async (): Promise<void> => {

@@ -29,6 +29,7 @@ import type {
 import type { ImportAssetPromptReason } from './import-asset-autoresolve.js'
 import type { ModelProviderConnection } from './ModelProvider.js'
 import { ModelDownloadsController, type ModelDownloadState } from './model-downloads.js'
+import { failureMessage } from './request-failure.js'
 
 /** Minimal slot surface (a core Signal satisfies it). */
 export interface RequestSlot<T> {
@@ -304,7 +305,7 @@ export function installAssetConsent(p: {
         }
       } catch (error) {
         clearIfOwned()
-        p.onTransportError(error instanceof Error ? error.message : String(error))
+        p.onTransportError(failureMessage(error))
       } finally {
         inFlight = false
         if (!owned()) settle()

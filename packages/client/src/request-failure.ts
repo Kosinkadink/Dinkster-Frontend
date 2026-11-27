@@ -15,6 +15,7 @@ export class RequestFailure extends Error {
 
 const failures = new WeakMap<Response, RequestFailure>()
 const listeners = new Set<(failure: RequestFailure) => void>()
+const observedFetches = new WeakSet<FetchLike>()
 
 export function subscribeRequestFailures(listener: (failure: RequestFailure) => void): () => void {
   listeners.add(listener)
@@ -27,17 +28,28 @@ function report(failure: RequestFailure): void {
 
 /** Observe failures without changing status-dependent recovery or consuming the response. */
 export function requestFetch(fetchFn: FetchLike): FetchLike {
-  return async (url, init) => {
+  if (observedFetches.has(fetchFn)) return fetchFn
+  const observed: FetchLike = async (url, init) => {
     const method = init?.method ?? 'GET'
     const path = new URL(url, 'http://dinkster.invalid').pathname
     let response: Response
+    let timeoutReported = false
+    const onAbort = () => {
+      if (init?.signal?.reason?.name === 'TimeoutError') {
+        timeoutReported = true
+        report(new RequestFailure(method, path, undefined, undefined, { cause: init.signal.reason }))
+      }
+    }
+    init?.signal?.addEventListener('abort', onAbort, { once: true })
     try {
       response = await fetchFn(url, init)
     } catch (cause) {
       if (init?.signal?.aborted && init.signal.reason?.name === 'AbortError') throw cause
       const failure = new RequestFailure(method, path, undefined, undefined, { cause })
-      report(failure)
+      if (!timeoutReported) report(failure)
       throw failure
+    } finally {
+      init?.signal?.removeEventListener('abort', onAbort)
     }
     if (!response.ok) {
       const failure = new RequestFailure(method, path, response.status)
@@ -46,15 +58,19 @@ export function requestFetch(fetchFn: FetchLike): FetchLike {
     }
     return response
   }
+  observedFetches.add(observed)
+  return observed
 }
 
-export async function requestFailure(response: Response, readMessage = true): Promise<RequestFailure> {
+export async function requestFailure(response: Response, readMessage: boolean | 'error' = true): Promise<RequestFailure> {
   const detail = failures.get(response)
   let serverMessage: string | undefined
   if (readMessage && !response.bodyUsed && response.headers.get('content-type')?.includes('application/json')) {
     const body: unknown = await response.json().catch(() => undefined)
     if (typeof body === 'object' && body !== null && 'message' in body && typeof body.message === 'string') {
       serverMessage = body.message.trim() || undefined
+    } else if (readMessage === 'error' && typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string') {
+      serverMessage = body.error.trim() || undefined
     }
   }
   return new RequestFailure(detail?.method ?? 'GET', detail?.path ?? new URL(response.url || '/', 'http://dinkster.invalid').pathname, response.status, serverMessage)
@@ -65,11 +81,13 @@ export function requestFailureReason(error: unknown, reasons = {
   access: 'You do not have access.',
   server: 'The engine reported an error.',
 }): string | undefined {
+  if (error instanceof Error && error.name === 'TimeoutError') return reasons.unanswered
   if (error instanceof RequestFailure) {
     if (error.serverMessage !== undefined) return error.serverMessage
     if (error.status === undefined) return reasons.unanswered
   }
   if (!(error instanceof Error) || !('status' in error) || typeof error.status !== 'number') return undefined
+  if ('serverError' in error && typeof error.serverError === 'string' && error.serverError.trim() !== '') return error.serverError
   if ('body' in error && typeof error.body === 'object' && error.body !== null) {
     for (const key of ['message', 'detail'] as const) {
       const value: unknown = (error.body as Record<string, unknown>)[key]

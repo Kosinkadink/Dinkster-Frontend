@@ -25,7 +25,7 @@
 
 import { credentialFetch, mintDelegation, type CollabCredentials, type Delegation, type MintDelegation } from './credentials.js'
 import { requestWithDeadline } from './request-deadline.js'
-import { requestFetch, requestFailure } from './request-failure.js'
+import { RequestFailure, requestFetch, requestFailure, requestFailureReason } from './request-failure.js'
 import { decodeModelProviderStatus, decodeModelProviderSignIn, decodeModelProviderPoll,
   type ModelProviderStatus, type ModelProviderSignIn, type ModelProviderPoll } from './model-provider.js'
 import { decodeModelDownloadPlan, decodeModelDownloadJob, decodeModelDownloadJobs, decodeModelPresence, ModelDownloadBusyError,
@@ -754,7 +754,7 @@ export interface DinksterConnectionConfig extends CollabCredentials {
 }
 
 export class ExecutionRequestError extends Error {
-  constructor(readonly diagnostic: Diagnostic) {
+  constructor(readonly diagnostic: Diagnostic, readonly status: number, readonly body?: Record<string, unknown>) {
     super(diagnostic.message)
   }
 }
@@ -769,7 +769,7 @@ const responseDiagnostic = (
     : `http-${status}`
   const message = typeof payload?.['message'] === 'string'
     ? payload['message']
-    : `HTTP ${status}: ${serverCode}`
+    : requestFailureReason(new RequestFailure('', '', status)) ?? 'The request could not be completed.'
   return diag('error', 'runtime', `execution.${operation}.${serverCode}`, message, {
     data: {
       status,
@@ -2074,7 +2074,7 @@ export class DinksterConnection {
           if (response.status === 401 || response.status === 403) {
             throw await this.failExecutionRequest(response, 'ws-ticket')
           }
-          if (!response.ok) throw new Error(`WebSocket authentication failed: HTTP ${response.status}`)
+          if (!response.ok) throw await requestFailure(response)
           const body = await response.json() as { ticket?: unknown }
           if (typeof body.ticket !== 'string') throw new Error('WebSocket authentication returned no ticket')
           return `${wsUrl}${wsUrl.includes('?') ? '&' : '?'}ticket=${encodeURIComponent(body.ticket)}`
@@ -2116,10 +2116,11 @@ export class DinksterConnection {
   }
 
   private async failExecutionRequest(response: Response, operation: string): Promise<ExecutionRequestError> {
-    const problem = responseDiagnostic(response.status, await responsePayload(response), operation)
+    const payload = await responsePayload(response)
+    const problem = responseDiagnostic(response.status, payload, operation)
     this.emitProblem(problem)
     if (operation === 'events' || operation === 'ws-ticket') this.socket.disconnect()
-    return new ExecutionRequestError(problem)
+    return new ExecutionRequestError(problem, response.status, payload)
   }
 
   /** Subscribe to persisted completed job_state messages, excluding fetched replays. */
@@ -2432,10 +2433,7 @@ export class DinksterConnection {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(values),
     })
-    if (!res.ok) {
-      const body = await res.json().catch(() => undefined) as { error?: unknown } | undefined
-      throw new Error(typeof body?.error === 'string' ? body.error : `pack settings update failed: ${res.status}`)
-    }
+    if (!res.ok) throw await requestFailure(res, 'error')
     const decoded = decodePackSettings(await res.json())
     if (decoded === undefined) throw new Error('pack settings response is malformed')
     return decoded
@@ -2985,7 +2983,7 @@ export class DinksterConnection {
     const res = await fetchFn(`${this.baseUrl}/api/library/storage/clear`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
     })
-    if (!res.ok && res.status !== 409) throw new Error(`POST library storage clear failed: ${res.status}`)
+    if (!res.ok && res.status !== 409) throw await requestFailure(res)
     const value: unknown = await res.json()
     if (!record(value) || typeof value['collectionEnabled'] !== 'boolean' ||
       !Array.isArray(value['blocked']) || !value['blocked'].every((reason: unknown) => typeof reason === 'string') ||
@@ -3355,7 +3353,7 @@ export class DinksterConnection {
       const response = await this.registryFetchFn(url, {
         signal, credentials: 'omit', ...(cached?.etag ? { headers: { 'If-None-Match': cached.etag } } : {}),
       })
-      if (response.status !== 304 && !response.ok) throw new Error(`Registry replacements request failed: ${response.status}`)
+      if (response.status !== 304 && !response.ok) throw await requestFailure(response)
       const raw: unknown = response.status === 304 && cached ? cached.body : await response.json()
       if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('Malformed ComfyUI translation index')
       const index = raw as Record<string, unknown>
@@ -3633,13 +3631,13 @@ export class DinksterConnection {
       })
       if (res.status === 404 && method === 'GET' && path) return undefined
       if (!res.ok) {
-        const raw: unknown = await res.json().catch(() => undefined)
+        const raw: unknown = await res.clone().json().catch(() => undefined)
         if (path === 'plan' && res.status === 409 && record(raw) &&
           (raw['error'] === 'credential-required' || raw['error'] === 'provider-grant-required' || raw['error'] === 'civitai-access-required' || raw['error'] === 'model-hidden'))
           return { ...raw, status: raw['error'], ...(typeof body?.['source'] === 'string' ? { source: body['source'] } : {}) }
         if (path === 'start' && res.status === 409 && record(raw) && raw['error'] === 'model-download-busy')
           throw new ModelDownloadBusyError()
-        throw new Error(`Model download ${method} failed: ${res.status}`)
+        throw await requestFailure(res)
       }
       return res.json() as Promise<unknown>
     }, 'Model download request timed out. Reconnect to inspect the existing job before retrying.', signal)
@@ -4316,12 +4314,8 @@ export class DinksterConnection {
       ...(method === 'POST' || method === 'PUT' ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
       ...(signal === undefined ? {} : { signal }),
     })
-    const payload: unknown = await res.json().catch(() => undefined)
-    if (!res.ok) {
-      const code = (payload as { error?: unknown } | undefined)?.error
-      throw new Error(`${method} ${path} failed: ${typeof code === 'string' ? code : res.status}`)
-    }
-    return payload
+    if (!res.ok) throw await requestFailure(res)
+    return await res.json().catch(() => undefined) as unknown
   }
 
   renameProject(id: string, name: string, revision: number, signal?: AbortSignal): Promise<LibraryProject> {
@@ -4506,7 +4500,7 @@ export class DinksterConnection {
     )
     if (res.status === 204) return true
     if (res.status === 404) return false
-    throw new Error(`The engine did not answer (${res.status}).`)
+    throw await requestFailure(res)
   }
 
   /**

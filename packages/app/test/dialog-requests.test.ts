@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { asConnectionId, createSignal, type CommandInvocation } from '@dinkster/core'
 import { DinksterConnection, type AssetGuessCandidate, type AssetGuessMatch, type DinksterSubmitResult, type MissingAsset, type ModelDownloadJob, type WebSocketLike } from '@dinkster/client'
 import { ModelDownloadsController, modelDownloadTotals } from '../src/model-downloads.js'
+import '../src/locale.js'
 import {
   assetGuessCandidateToRef,
   installAssetConsent,
@@ -740,7 +741,7 @@ describe('installAssetConsent ownership', () => {
     void slot.value!.retry!(['blake3:a'])
     a.retries[0]!.reject(new Error('socket closed'))
     await flush()
-    expect(cb.onTransportError).toHaveBeenCalledWith('socket closed')
+    expect(cb.onTransportError).toHaveBeenCalledWith('The action could not be completed.')
     expect(slot.value).toBeUndefined()
   })
 

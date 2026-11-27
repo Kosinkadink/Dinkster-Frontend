@@ -113,7 +113,7 @@ describe('All assets collection source', () => {
     const result = await source.page({ query: '', limit: 24 })
     expect(result.items.map((entry) => entry.title)).toEqual(['ok.png'])
     expect(onSourceFailures).toHaveBeenCalledWith([
-      { sourceId: 'offline', label: 'offline', message: 'index unavailable' },
+      { sourceId: 'offline', label: 'offline', message: 'Assets could not be loaded.' },
     ])
   })
 
@@ -143,7 +143,7 @@ describe('All assets collection source', () => {
       adapter('unstable', page),
     ], [], undefined, { onSourceFailures })
 
-    await expect(source.page({ query: '', limit: 24 })).rejects.toThrow('unstable: index unavailable')
+    await expect(source.page({ query: '', limit: 24 })).rejects.toThrow('unstable: Assets could not be loaded.')
     const controller = new AbortController()
     const cancelled = source.page({ query: 'new', limit: 24, signal: controller.signal })
     controller.abort()
@@ -152,7 +152,7 @@ describe('All assets collection source', () => {
     await expect(cancelled).rejects.toMatchObject({ name: 'AbortError' })
     expect(onSourceFailures).toHaveBeenCalledOnce()
     expect(onSourceFailures).toHaveBeenCalledWith([
-      { sourceId: 'unstable', label: 'unstable', message: 'index unavailable' },
+      { sourceId: 'unstable', label: 'unstable', message: 'Assets could not be loaded.' },
     ])
   })
 
@@ -163,7 +163,7 @@ describe('All assets collection source', () => {
     ], [], undefined, { failWhenAllSourcesFail: true })
 
     await expect(source.page({ query: '', limit: 24 })).rejects.toThrow(
-      'left: request failed (500); right: offline',
+      'left: Assets could not be loaded.; right: Assets could not be loaded.',
     )
   })
 

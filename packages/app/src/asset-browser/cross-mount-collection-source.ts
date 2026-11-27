@@ -2,6 +2,7 @@ import type { MountDescriptor } from '@dinkster/client'
 import type { CollectionEntry, CollectionPageRequest, CollectionSource } from '@dinkster/core'
 import { assetCollectionSource, assetEntryOf, assetItemOf } from './collection-adapter.js'
 import type { AssetSourceAdapter } from './types.js'
+import { failureMessage } from '../request-failure.js'
 
 interface CrossMountCursor {
   readonly version: 1
@@ -35,7 +36,7 @@ const requestSignature = (req: CollectionPageRequest): string => JSON.stringify(
   filters: req.filters ?? {},
 })
 
-const errorText = (reason: unknown): string => reason instanceof Error ? reason.message : String(reason)
+const errorText = (reason: unknown): string => failureMessage(reason, 'Assets could not be loaded.')
 
 const errorEntry = (id: string, label: string, reason: string): CollectionEntry => ({
   id: `all-assets:error:${id}`,

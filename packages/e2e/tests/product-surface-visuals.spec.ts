@@ -359,10 +359,10 @@ test('stored run outputs load only after selection and retain their original ide
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
   await page.screenshot({ path: testInfo.outputPath('stored-run-selected.png'), animations: 'disabled' })
   await rows.nth(1).click()
-  await expect(rows.nth(1)).toContainText('Could not load outputs:')
+  await expect(rows.nth(1)).toContainText('Could not load outputs.')
   await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true')
   await rows.nth(2).click()
-  await expect(rows.nth(2)).toContainText('response run identity mismatch')
+  await expect(rows.nth(2)).toContainText('Could not load outputs.')
   await expect(rows.nth(2).locator('.output-thumbnail')).toHaveCount(0)
   await rows.nth(2).scrollIntoViewIfNeeded()
   await page.mouse.move(600, 400)
@@ -529,7 +529,7 @@ test('HTTP metadata errors expose shell status and panel retries', async ({ page
     for (const [toggle, name] of [['library-toggle', 'library'], ['assets-toggle', 'assets']] as const) {
       await openDock(page, toggle)
       const state = page.getByTestId('dock-zone-left').getByRole('alert').filter({ hasText: 'Backend data unavailable' })
-      await expect(state).toContainText('GET /api/nodes failed: 503')
+      await expect(state).toContainText('The engine reported an error.')
       await expect(state.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
       await page.mouse.move(width / 2, height / 2)
       await page.keyboard.press('Escape')
@@ -597,7 +597,7 @@ test('Library Assets and Runs use shared empty and loading states', async ({ pag
     const presentation = library.locator('[data-collection-state]')
     await expect(presentation).toHaveAttribute('data-collection-state', state)
     if (state === 'loading') await expect(presentation.getByRole('status')).toContainText('Loading workflows')
-    if (state === 'error') await expect(presentation.getByRole('alert')).toContainText('GET /api/library failed: 503')
+    if (state === 'error') await expect(presentation.getByRole('alert')).toContainText('The engine reported an error.')
     if (state === 'empty') {
       await expect(presentation).toContainText('No saved workflows')
       await expect(presentation.locator('img')).toHaveCount(0)
@@ -979,7 +979,7 @@ test('Storage settings distinguish accounting policy and permission failures', a
   await screenshot(page, 'storage-unavailable-900')
   state = 'forbidden'
   await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
-  await expect(panel.getByRole('alert')).toContainText('403')
+  await expect(panel.getByRole('alert')).toContainText('You do not have access.')
   await expect(panel.getByRole('button', { name: 'Apply limit', exact: true })).toBeDisabled()
   await screenshot(page, 'storage-forbidden-900')
 })
@@ -1168,7 +1168,7 @@ test('Template gallery presents loading error retry and empty search states', as
   await expect.poll(() => release !== undefined).toBe(true)
   mode = 'error'
   release?.()
-  await expect(gallery.getByRole('alert')).toContainText('GET /api/templates failed: 503')
+  await expect(gallery.getByRole('alert')).toContainText('The engine reported an error.')
   await expect(gallery.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
   await capture('error')
   mode = 'empty'

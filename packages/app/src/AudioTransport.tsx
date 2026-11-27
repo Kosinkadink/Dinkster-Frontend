@@ -5,6 +5,7 @@ import { ProductSlider } from './ProductSlider.js'
 import { audioNumber } from './audio-preview.js'
 import { mediaMetadataOf } from './media-metadata.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 import './audio-controls.css'
 
 /** Shared Canvas/App transport. Its gain, loop and playhead are never graph values. */
@@ -75,7 +76,7 @@ export function AudioTransport(props: {
       setWaveform(result.waveform ? blobUrl(result.waveform, 'image/png') : undefined)
       setDiagnostic(result.diagnostics.join('; '))
     } catch (error) {
-      if (!request.signal.aborted) { setSrc(undefined); setDiagnostic(error instanceof Error ? error.message : String(error)) }
+      if (!request.signal.aborted) { setSrc(undefined); setDiagnostic(failureMessage(error, 'Audio could not be loaded.')) }
     } finally {
       clearTimeout(deadline)
       if (!request.signal.aborted) setBusy(false)
@@ -121,7 +122,7 @@ export function AudioTransport(props: {
         })
       }
       void consume().catch((error: unknown) => {
-        if (current) { setDiagnostic(error instanceof Error ? error.message : String(error)); setBusy(false) }
+        if (current) { setDiagnostic(failureMessage(error, 'Audio could not be loaded.')); setBusy(false) }
       })
     }
   }))

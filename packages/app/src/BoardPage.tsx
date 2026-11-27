@@ -10,6 +10,7 @@ import { ASSET_DRAG_TYPE, readAssetDrag } from './asset-browser/drag.js'
 import { inspectBoardMedia } from './board-media.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductButton, ProductFileInput } from './ProductControls.js'
+import { failureMessage } from './request-failure.js'
 import { ProductActionFooter } from './ProductForm.js'
 import { UploadDestination } from './UploadDestination.js'
 import { activeProjectId } from './projects.js'
@@ -79,7 +80,7 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
       clearError()
       setImporting(undefined)
     } catch (reason) {
-      if (current()) { setError(reason instanceof Error ? reason.message : String(reason)); setImporting(undefined) }
+      if (current()) { setError(failureMessage(reason, 'Files could not be imported.')); setImporting(undefined) }
     } finally {
       if (importAbort === abort) { importAbort = undefined; setBusy(false) }
     }
@@ -123,7 +124,7 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
           if (live && props.entry === entry && request === drop) clearError()
         } catch (reason) {
           if (live && props.entry === entry && request === drop)
-            setError(reason instanceof Error ? reason.message : String(reason))
+            setError(failureMessage(reason, 'The file could not be placed.'))
         }
       })()
     }}
@@ -185,7 +186,7 @@ export function installBoardPages(app: AppState): () => void {
             if (app.boards.entries.get().includes(owner)) setSaveError(undefined)
           } catch (reason) {
             if (app.boards.entries.get().includes(owner))
-              setSaveError(reason instanceof Error ? reason.message : String(reason))
+              setSaveError(failureMessage(reason, 'The board could not be saved.'))
           }
         },
         snapshot: () => app.boards.entries.get().find((candidate) => candidate.id === entry.id)?.session.doc,

@@ -669,7 +669,7 @@ export function App(props: {
         if (app.pages.open(`board:${board.id}`)) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
       }).catch((reason: unknown) => {
         if (stillWanted() && app.backends.get().includes(backend)) app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag('error', 'validation', 'board.openFailed', `failed to open Board: ${reason instanceof Error ? reason.message : String(reason)}`),
+          diag('error', 'validation', 'board.openFailed', failureMessage(reason, 'The board could not be opened.')),
         ])
       })
       return
@@ -2954,7 +2954,7 @@ export function App(props: {
               app.showTransientStatus(message('shell.share.sharing', { title: tab.title }))
               const board = boardForTab(tab.id)
               const sharing = board ? app.boards.share(board.id).then(() => undefined, (reason: unknown) =>
-                reason instanceof Error ? reason.message : String(reason)) : app.shareActiveTab()
+                failureMessage(reason, 'The board could not be shared.')) : app.shareActiveTab()
               void sharing.then((error) => {
                 app.showTransientStatus(error === undefined
                   ? message('shell.share.shared', { title: tab.title })

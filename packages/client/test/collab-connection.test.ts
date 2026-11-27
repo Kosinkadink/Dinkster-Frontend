@@ -306,7 +306,7 @@ describe('session management helpers', () => {
       createCollabSession('http://test:8765', { scope: '', documentId: 'd', snapshot: {} }, async () =>
         jsonResponse(400, { error: "'scope' is required (single-user: 'local')" }),
       ),
-    ).rejects.toThrow(/'scope' is required/)
+    ).rejects.toMatchObject({ status: 400, serverMessage: "'scope' is required (single-user: 'local')" })
   })
 
   it('reports revoked delegation identity without retrying a management request', async () => {
@@ -315,7 +315,7 @@ describe('session management helpers', () => {
     }))
     const onDiagnostic = vi.fn()
     await expect(listCollabSessions('http://test:8765', 'local', fetchFn, { onDiagnostic }))
-      .rejects.toThrow(/delegation-revoked/)
+      .rejects.toMatchObject({ status: 403, serverMessage: 'delegation-revoked' })
     expect(fetchFn).toHaveBeenCalledTimes(1)
     expect(onDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
       code: 'delegation-revoked', delegationId: 'delegation-789',
@@ -423,7 +423,7 @@ describe('postOp status mapping', () => {
         baseRevision: 3,
         patch: [],
       }),
-    ).toEqual({ kind: 'error', message: 'connection refused' })
+    ).toEqual({ kind: 'error', message: 'The engine did not answer.' })
   })
 })
 
