@@ -77,6 +77,8 @@
   "storagePanel.mountName": "Name",
   "storagePanel.allowSaving": "Allow saving to this folder",
   "storagePanel.stopSaving": "Stop saving to this folder",
+  "storagePanel.stopSavingTitle": "Stop saving to \"{folder}\"?",
+  "storagePanel.stopSavingAction": "Stop saving",
   "storagePanel.stopSavingNotice": "Choose where new files will be saved. Existing files stay in this folder.",
   "storagePanel.accessFailed": "Could not change saving access for \"{folder}\". {reason}",
   "storagePanel.choose": "Choose",

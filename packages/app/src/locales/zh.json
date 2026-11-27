@@ -84,6 +84,8 @@
   "storagePanel.mountName": "名称",
   "storagePanel.allowSaving": "允许保存到此文件夹",
   "storagePanel.stopSaving": "停止保存到此文件夹",
+  "storagePanel.stopSavingTitle": "停止保存到 \"{folder}\"？",
+  "storagePanel.stopSavingAction": "停止保存",
   "storagePanel.stopSavingNotice": "选择新文件的保存位置。现有文件保留在此文件夹中。",
   "storagePanel.accessFailed": "无法更改 \"{folder}\" 的保存权限。{reason}",
   "storagePanel.choose": "选择",

@@ -251,9 +251,9 @@ export function StorageFolders(props: {
       ? undefined : mounts.reduce((sum, mount) => sum + mount.entryCount!, 0)
   }
   const removalQuestion = (id: string, model: boolean) => <ProductConfirmation
-    title={leaving()?.saving ? message('storagePanel.stopSaving') : message('projectFolders.removeTitle', { folder: id })}
-    consequence={leaving()?.saving ? message('storagePanel.stopSavingNotice') : message('projectFolders.removeNotice')}
-    actionLabel={message(leaving()?.saving ? 'storagePanel.stopSaving' : 'projectFolders.remove')} intent={leaving()?.saving ? 'remove' : 'neutral'} surface="inherit" pending={busy()}
+    title={message(leaving()?.saving ? 'storagePanel.stopSavingTitle' : 'projectFolders.removeTitle', { folder: id })}
+    consequence={!model && id === settings()?.outputMount && replacements(id).length === 0 ? '' : message(leaving()?.saving ? 'storagePanel.stopSavingNotice' : 'projectFolders.removeNotice')}
+    actionLabel={message(leaving()?.saving ? 'storagePanel.stopSavingAction' : 'projectFolders.remove')} intent={leaving()?.saving ? 'remove' : 'neutral'} surface="inherit" pending={busy()}
     disabled={!model && id === settings()?.outputMount && !replacements(id).some((row) => row.id === replacement())}
     onCancel={() => { setError(''); setLeaving(undefined) }} onConfirm={leave}>
     <Show when={!model && id === settings()?.outputMount} fallback={<Show when={error()}><p class="dinkster-field-error" role="alert"><ProductIcon icon={CircleAlert} />{message(leaving()?.saving ? 'storagePanel.accessFailed' : 'storagePanel.stopFailed', { folder: id, reason: error() })}</p></Show>}>
