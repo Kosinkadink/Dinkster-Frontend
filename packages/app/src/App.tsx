@@ -2914,6 +2914,14 @@ export function App(props: {
             onActivate={(event, tab) => activateTab(event, tab.id, p.groupId)}
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
             onRename={(tab, title) => app.renameTab(tab.id, title)}
+            canRename={(tab) => {
+              const board = boardForTab(tab.id)
+              return board ? app.boards.canRename(board.id) : !isPageTab(tab) && ['graph', 'app'].includes(tab.editorKind)
+            }}
+            renameName={(tab) => {
+              const board = boardForTab(tab.id)
+              return board ? board.name : tab.title
+            }}
             onDuplicate={(tab) => {
               if (isPageTab(tab)) return
               void app.duplicateTab(tab.id).then((copy) => {
