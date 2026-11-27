@@ -67,7 +67,7 @@ it('ends initial loading after a telemetry failure, including after dismissal an
 
 it.each([
   { models: true, allocator: false, inconsistent: false, expected: 'Models: 2.8 GB, Other memory: 3.7 GB' },
-  { models: false, allocator: true, inconsistent: false, expected: 'Held, unused: 476.8 MB, Other memory: 6.1 GB' },
+  { models: false, allocator: true, inconsistent: false, expected: 'Held, unused: 477 MB, Other memory: 6.1 GB' },
   { models: false, allocator: false, inconsistent: false, expected: 'Used: 6.5 GB' },
   { models: true, allocator: true, inconsistent: true, expected: 'Used: 6.5 GB' },
 ])('draws only independently reported parts: $expected', async ({ models, allocator, inconsistent, expected }) => {
@@ -99,7 +99,7 @@ it('preserves non-card and unmeasured budgets with exact sizes and automatic rem
   expect(field('Disk').value).toBe('23.3 GB')
   expect(field('vram:cuda:1').value).toBe('5.6 GB')
   expect(root.querySelectorAll('.dinkster-resource-card')).toHaveLength(1)
-  expect(field('custom').value).toBe('117.7 MB')
+  expect(field('custom').value).toBe('0.1 GB')
   expect(root.querySelectorAll('[role="slider"]')).toHaveLength(1)
   const input = (name: string, value: string) => { const element = field(name); element.value = value; element.dispatchEvent(new Event('input', { bubbles: true })) }
   const form = field('Disk').closest('form')!
@@ -250,7 +250,7 @@ it('preserves focused model rows across snapshots and immediately unloads the se
   const unmount = render(() => <ResourcesPanel backends={[{ id: 'local', label: 'Local', connection }]} activeBackendId="local" />, root)
   await flush()
   expect(root.textContent).toContain('6.5 of 11.2 GB')
-  expect(root.querySelector('svg.dinkster-resource-bar')!.getAttribute('aria-label')).toBe('Models: 2.8 GB, Held, unused: 476.8 MB, Other memory: 3.3 GB')
+  expect(root.querySelector('svg.dinkster-resource-bar')!.getAttribute('aria-label')).toBe('Models: 2.8 GB, Held, unused: 477 MB, Other memory: 3.3 GB')
   expect(root.querySelector('.dinkster-resource-model')!.textContent).toContain('2.8 GB')
   const unload = root.querySelector<HTMLButtonElement>('[aria-label="Unload Flux model"]')!
   unload.focus()

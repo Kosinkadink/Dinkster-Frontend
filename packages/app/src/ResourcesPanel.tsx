@@ -108,7 +108,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
   const budgetName = (device: string) => device === 'ram' ? message('resources.systemMemory') : device === 'disk' ? message('resources.disk') : device
   const configuredBudgetValue = (device: string) => {
     const value = configuredBudgets()[device]
-    return typeof value === 'number' ? formatByteSize(value) : value === undefined ? '' : String(value)
+    return typeof value === 'number' ? formatByteSize(value, 'GB') : value === undefined ? '' : String(value)
   }
   const otherBudgetValue = (device: string) => otherBudgetDraft()[device] ?? configuredBudgetValue(device)
   const changeOtherBudget = (device: string, value: string) => setOtherBudgetDraft((current) => {
