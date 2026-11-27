@@ -62,6 +62,141 @@ function sceneOf(workflow: string, graphId = 'g0') {
 }
 
 describe('buildScene', () => {
+  it.each([1, 2] as const)('keeps renamed shared fields equivalent to their plain declaration through fallback and links at depth %s', (depth) => {
+    const leaf = ['red', 'green', 'blue', 'alpha']
+    const middle = ['r', 'g', 'b', 'a']
+    const outer = depth === 1 ? middle : ['tint', 'shade', 'light', 'opacity']
+    const values = (ids: readonly string[], numbers: readonly number[]) => Object.fromEntries(ids.map((id, index) => [id, numbers[index]!]))
+    const FLOAT = { kind: 'concrete' as const, name: 'FLOAT' }
+    const fields = leaf.map((id, index) => ({ kind: 'input' as const, id, type: FLOAT, optional: false,
+      tooltip: `Channel ${id}`, widget: { widgetType: 'FLOAT', options: { min: 0, max: 1, step: 0.01 }, default: (index + 1) / 100 } }))
+    const sample: NodeSchema = { type: 'Channels', displayName: 'Channels', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: fields }, { kind: 'output', id: 'result', type: FLOAT }] }
+    const literal: NodeSchema = { ...sample, type: 'Literal', body: [
+      { ...fields[0]!, id: 'value' }, { kind: 'output', id: 'value', type: FLOAT, knownValue: { input: 'value' } },
+    ] }
+    const native = (type: string) => type === 'Channels' ? sample : type === 'Literal' ? literal
+      : type === 'Runtime' ? { ...literal, body: [{ kind: 'output' as const, id: 'value', type: FLOAT }] }
+      : type === 'Sink' ? { ...sample, body: [{ ...fields[0]!, id: 'number' }] } : undefined
+    const graph = (id: string, nodes: unknown, body?: unknown) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100,
+      ...(body === undefined ? {} : { boundary: { body } }) })
+    const boundary = (ids: readonly string[], target: string, ports: readonly string[]) => [
+      { kind: 'line', rows: ids.map((id, index) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node: target, port: ports[index] } })) },
+      { kind: 'output', id: 'result', binds: { kind: 'port', node: target, port: 'result' } },
+    ]
+    const original = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'shared-channels', root: 'root', graphs: {
+      root: graph('root', {
+        first: { id: 'first', type: depth === 1 ? '#detail' : '#portrait', values: values(outer, [0.2, 0.17, 0.37, 0.57]) },
+        second: { id: 'second', type: depth === 1 ? '#detail' : '#portrait', values: values(outer, [0.8, 0.81, 0.61, 0.41]) },
+        outside: { id: 'outside', type: 'Literal', values: { value: 0.93 } }, sink: { id: 'sink', type: 'Sink', values: {} },
+      }),
+      detail: graph('detail', { sample: { id: 'sample', type: 'Channels', values: values(leaf, [0.3, 0.31, 0.32, 0.33]) } }, boundary(middle, 'sample', leaf)),
+      ...(depth === 2 ? { portrait: graph('portrait', { detail: { id: 'detail', type: '#detail', values: values(middle, [0.6, 0.62, 0.64, 0.66]) } },
+        boundary(outer, 'detail', middle)) } : {}),
+    }, view: { graphs: {} } }).document!
+    const storeFor = (doc: WorkflowDocument) => new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, native),
+    }))
+    const store = storeFor(original)
+    expect(store.dispatch({ command: 'link.connect', params: { graphId: 'root', from: { node: 'first', port: 'result' },
+      to: { node: 'sink', port: 'number' } } }).ok).toBe(true)
+    const initial = store.doc
+    const check = (current: WorkflowDocument, first: readonly number[], linked?: 'literal' | 'runtime', defaults = [0.3, 0.31, 0.32, 0.33]) => {
+      const resolve = documentResolver(current, native)
+      const compiled = compile({ document: current, revision: 1, resolve: native, scope: { kind: 'full' },
+        connection: asConnectionId('shared-channels'), schemaHash: 'shared-channels' })
+      expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('shared fields did not compile')
+      const suffix = depth === 1 ? '.sample' : '.detail.sample'
+      expect(compiled.artifact.prompt[`first${suffix}`]!.inputs).toEqual({ ...values(leaf, first),
+        ...(linked === 'runtime' ? { red: ['outside', 0] } : {}) })
+      expect(compiled.artifact.prompt[`second${suffix}`]!.inputs).toEqual(values(leaf, [0.8, 0.81, 0.61, 0.41]))
+      expect(compiled.artifact.prompt.sink!.inputs.number).toEqual([`first${suffix}`, 0])
+      for (const [id, expected] of [['first', first], ['second', [0.8, 0.81, 0.61, 0.41]]] as const) {
+        const path = [asNodeId(id), ...(depth === 1 ? [] : [asNodeId('detail')])]
+        const scene = buildScene({ document: current, graphId: 'detail', resolve, tokens: defaultTokens, measure, widgetMeasure,
+          occurrence: { owner: { instancePath: path.slice(0, -1), node: path.at(-1)! }, plannerAvailable: true },
+          occurrenceView: occurrenceDynamicView(current, resolve, path),
+        })
+        const panel = scene.boundaryNodes.find((node) => node.side === 'inputs')!
+        const rows = panel.layout.rows.filter((row) => row.kind === 'widget')
+        expect(rows.map((row) => row.valueKey)).toEqual(middle)
+        const plain = { ...current, graphs: { ...current.graphs, root: { ...current.graphs.root!, nodes: {
+          plain: { id: asNodeId('plain'), type: 'Channels', values: values(leaf, expected) },
+        }, links: {} } } }
+        const reference = buildScene({ document: plain, graphId: 'root', resolve: documentResolver(plain, native), tokens: defaultTokens, measure, widgetMeasure })
+          .nodes[0]!.layout.rows.filter((row) => row.kind === 'widget')
+        for (const [index, row] of rows.entries()) {
+          const spec = reference[index]!.spec
+          // A promoted input is optional and inherits the definition's stored default.
+          expect(row.optional).toBe(true)
+          expect(row.spec).toEqual({ ...spec, default: defaults[index], ...(spec.representations === undefined ? {} : {
+            representations: { ...spec.representations, representations: spec.representations.representations.map((representation) => ({
+              ...representation, widget: { ...representation.widget, default: defaults[index] },
+            })) },
+          }) })
+        }
+        expect(rows.map((row) => [row.label, row.type, row.readOnly, row.disabled, row.height]))
+          .toEqual(reference.map((row) => [row.label, row.type, row.readOnly, row.disabled, row.height]))
+        const face = buildScene({ document: current, graphId: 'root', resolve, tokens: defaultTokens, measure, widgetMeasure })
+          .nodes.find((node) => node.id === id)!
+        const shared = face.layout.rows.filter((row) => row.kind === 'widget')
+        expect(shared.map((row) => row.valueKey)).toEqual(outer)
+        expect(new Set(shared.map((row) => row.y)).size).toBe(1)
+        expect(shared.map((row) => [row.inset, row.width, row.height]))
+          .toEqual(reference.map((row) => [row.inset, row.width, row.height]))
+        const shown = boundaryFieldNode(panel)!.node.values
+        for (const [index, row] of rows.entries()) {
+          expect(row.familyOwner).toMatchObject({ graphId: 'root', nodeId: id, valueKey: outer[index] })
+          expect(row.inset + (row.width ?? panel.layout.width - row.inset * 2)).toBeLessThanOrEqual(panel.layout.width)
+          if (index > 0) expect(rows[index - 1]!.y + rows[index - 1]!.height).toBeLessThanOrEqual(row.y)
+          if (id === 'first' && index === 0 && linked !== undefined) {
+            expect(panel.fields!.wired.r).toEqual(linked === 'literal' ? { value: 0.93 } : {})
+          } else expect(shown[middle[index]!] ?? row.spec.default).toBe(expected[index])
+        }
+      }
+      expect(current.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+    }
+    check(initial, [0.2, 0.17, 0.37, 0.57])
+    expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: 'first', values: {}, unset: outer } }).ok).toBe(true)
+    const fallback = store.doc
+    check(fallback, depth === 1 ? [0.3, 0.31, 0.32, 0.33] : [0.6, 0.62, 0.64, 0.66])
+    check(loadDocument(JSON.parse(JSON.stringify(fallback))).document!, depth === 1 ? [0.3, 0.31, 0.32, 0.33] : [0.6, 0.62, 0.64, 0.66])
+    if (depth === 2) {
+      expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'portrait', nodeId: 'detail', values: {}, unset: middle } }).ok).toBe(true)
+      check(store.doc, [0.3, 0.31, 0.32, 0.33])
+    }
+    expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'detail', nodeId: 'sample', values: {}, unset: leaf } }).ok).toBe(true)
+    check(store.doc, [0.01, 0.02, 0.03, 0.04], undefined, [0.01, 0.02, 0.03, 0.04])
+    for (let index = 0; index < depth + 1; index++) expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(initial)
+    for (let index = 0; index < depth + 1; index++) expect(store.redo()).toBe(true)
+    check(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, [0.01, 0.02, 0.03, 0.04], undefined, [0.01, 0.02, 0.03, 0.04])
+    for (const kind of ['literal', 'runtime'] as const) {
+      const doc = kind === 'literal' ? initial : { ...initial, graphs: { ...initial.graphs, root: { ...initial.graphs.root!, nodes: {
+        ...initial.graphs.root!.nodes, outside: { ...initial.graphs.root!.nodes.outside!, type: 'Runtime' },
+      } } } } as WorkflowDocument
+      const wired = storeFor(doc)
+      expect(wired.dispatch({ command: 'link.connect', params: { graphId: 'root', from: { node: 'outside', port: 'value' },
+        to: { node: 'first', port: outer[0]! } } }).ok).toBe(true)
+      const connected = wired.doc
+      check(connected, [kind === 'literal' ? 0.93 : 0.2, 0.17, 0.37, 0.57], kind)
+      check(loadDocument(JSON.parse(JSON.stringify(connected))).document!, [kind === 'literal' ? 0.93 : 0.2, 0.17, 0.37, 0.57], kind)
+      const link = Object.values(connected.graphs.root!.links).find((link) => 'node' in link.to && link.to.node === 'first')!
+      expect(wired.dispatch({ command: 'link.disconnect', params: { graphId: 'root', linkId: link.id } }).ok).toBe(true)
+      const disconnected = wired.doc
+      check(wired.doc, [0.2, 0.17, 0.37, 0.57])
+      expect(wired.undo()).toBe(true)
+      expect(wired.doc).toEqual(connected)
+      expect(wired.redo()).toBe(true)
+      expect(wired.doc).toEqual(disconnected)
+      expect(wired.doc.graphs.root!.nodes).toEqual(doc.graphs.root!.nodes)
+      expect(wired.doc.graphs.root!.links).toEqual(doc.graphs.root!.links)
+      expect(wired.doc.graphs.detail).toEqual(original.graphs.detail)
+      expect(wired.doc.graphs.portrait).toEqual(original.graphs.portrait)
+    }
+  })
+
   it('keeps mapped Save wires on their real inputs through folding and undo', () => {
     const schema: NodeSchema = {
       type: 'Save', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,
