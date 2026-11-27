@@ -625,7 +625,7 @@ function Gallery() {
                     />
                   )}
                 </ProductField>
-                <ProductField label="Keep at most" description="Bare values are GB. Explicit units use base 1024. Changes apply on Enter or when leaving the field.">
+                <ProductField label="Keep at most">
                   {(attributes) => <ProductByteSizeInput {...attributes} value={sizeLimit()} minimum={1} onCommit={setSizeLimit} />}
                 </ProductField>
                 <ProductField label="Unavailable size limit">
