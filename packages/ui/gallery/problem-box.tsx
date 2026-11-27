@@ -220,7 +220,7 @@ export function ProblemBoxGallery(props: { theme: 'dark' | 'light' }) {
           )}
         </For>
         <For each={[true, false]}>{(offered) => (
-          <figure class="dinkster-canvas-example" data-testid={offered ? 'fix-all-offered' : 'fix-all-unavailable'}>
+          <figure class="dinkster-canvas-example dinkster-problem-fixes-example" data-testid={offered ? 'fix-all-offered' : 'fix-all-unavailable'}>
             <ProductPanel>
               <ProductPanelHeader title="Problems / This workflow" actions={
                 <Show when={offered}><ProductButton intent="add" fill="solid">Fix all</ProductButton></Show>
