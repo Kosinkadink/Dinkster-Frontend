@@ -86,6 +86,13 @@ test('single-line fields match their density while site dialogs keep app field s
   const dialog = page.getByRole('dialog', { name: 'Rename project' })
   expect((await dialog.getByRole('textbox', { name: 'Name', exact: true }).boundingBox())!.height).toBe(32)
   expect((await dialog.getByRole('button', { name: 'Save', exact: true }).boundingBox())!.height).toBe(28)
+  await page.goto('/#settings-section')
+  const insets = await page.getByRole('region', { name: 'View', exact: true }).locator('input, [role="combobox"]').evaluateAll((controls) => controls.map((element) => {
+    const style = getComputedStyle(element)
+    return Number.parseFloat(style.borderLeftWidth) + Number.parseFloat(style.paddingLeft)
+  }))
+  expect(insets).toHaveLength(2)
+  expect(insets[1]).toBe(insets[0])
 })
 
 test('product dropdowns keep candidates separate from saved values and work inside dialogs', async ({ page }) => {
