@@ -444,7 +444,7 @@ export function ProductSearch(props: {
           <ProductIcon icon={Search} />
           <For each={props.chips}>
             {(chip) => (
-              <span class="dinkster-search-chip" role="group" aria-label={chip.name} title={chip.name}>
+              <span class="dinkster-search-chip" role="group" aria-label={chip.name} data-tooltip-label={chip.label}>
                 <ProductSearchTypeLabel label={chip.label} direction={chip.direction} color={chip.color} shape={chip.shape} />
                 <button
                   type="button"

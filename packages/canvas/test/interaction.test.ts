@@ -902,7 +902,7 @@ describe('canvas hover targets', () => {
     expect(harness.overlays.at(-1)).not.toMatchObject({ hoveredNode: 'n1' })
   })
 
-  it('emits proven-mismatch noodle bodies and midpoint grab dots but not healthy noodles', () => {
+  it('emits wire tooltip targets for healthy and mismatched bodies and midpoint grab dots', () => {
     const hover = vi.fn()
     const scene = interactionScene() as any
     scene.links = [
@@ -931,7 +931,10 @@ describe('canvas hover targets', () => {
     }))
 
     harness.fire('pointermove', 155, 90)
-    expect(hover).toHaveBeenLastCalledWith(undefined)
+    expect(hover).toHaveBeenLastCalledWith(expect.objectContaining({
+      kind: 'link',
+      hit: expect.objectContaining({ link: expect.objectContaining({ id: 'good' }) }),
+    }))
   })
 
   it('refreshHover re-announces the stationary pointer hover against the replaced scene', () => {

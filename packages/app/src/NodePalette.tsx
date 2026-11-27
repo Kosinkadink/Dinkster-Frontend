@@ -21,6 +21,7 @@ import { useAppMessage } from './locale.js'
 import { SchemaPreview } from './SchemaPreview.js'
 import { searchPlace } from './universal-search.js'
 import { palettePreviewSchema } from './palette-node-preview.js'
+import { wireDescription } from './wire-description.js'
 
 /** Canvas-pane anchor plus the world position where an immediate pick lands. */
 export interface PaletteAnchor {
@@ -123,12 +124,6 @@ export function buildCategoryTree(categories: readonly string[]): { folders: Cat
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((folder) => ({ ...folder, children: freeze(folder.children) }))
   return { folders: freeze(roots), uncategorized }
-}
-
-export const typeLabelOf = (type: TypeExpr): string => {
-  if (type.kind === 'variable' && !hasKnownLinkDropAnchorType(type)) return 'Any'
-  if (type.kind === 'list') return `${typeLabelOf(type.element)} list`
-  return productSearchTypeName(presentedType(defaultTokens, type).label)
 }
 
 /** The host owns corpus and placement; all browsing state lasts only for this open. */
@@ -335,15 +330,18 @@ export function NodePalette(props: {
         kinds={kinds()} kind={kind()} onKind={(value) => { setKind(value); setCurrent(undefined) }}
         chips={[
           ...(props.anchor.linkDrop === undefined ? [] : [{
-          label: typeLabelOf(props.anchor.linkDrop.anchorType),
-          name: `${message(props.anchor.linkDrop.seeking === 'in' ? 'palette.filter.takes' : 'palette.filter.gives')} ${typeLabelOf(props.anchor.linkDrop.anchorType)}`,
+          label: wireDescription({ fromType: props.anchor.linkDrop.anchorType, ...props.anchor.linkDrop }),
+          name: `${message(props.anchor.linkDrop.seeking === 'in' ? 'palette.filter.takes' : 'palette.filter.gives')} ${wireDescription({ fromType: props.anchor.linkDrop.anchorType, ...props.anchor.linkDrop })}`,
           direction: props.anchor.linkDrop.seeking === 'in' ? 'takes' as const : 'gives' as const,
           color: presentedType(defaultTokens, props.anchor.linkDrop.anchorType).color,
           shape: cardinalityOf(props.anchor.linkDrop.anchorType) === 'list' ? 'diamond' as const : 'circle' as const,
           removeLabel: message('palette.filter.removeConnection'), onRemove: props.onRemoveLinkDrop,
           }]),
           ...requirements().map((item) => {
-            const label = productSearchTypeName(typeIdDisplayLabel(item.type))
+            const label = item.direction === 'takes' && props.anchor.splice !== undefined &&
+              typeExprCanonicalLabel(props.anchor.splice.fromType) === item.type
+              ? wireDescription(props.anchor.splice)
+              : productSearchTypeName(typeIdDisplayLabel(item.type))
             const name = `${message(item.direction === 'takes' ? 'palette.filter.takes' : 'palette.filter.gives')} ${label}`
             return { label, name, direction: item.direction, color: typeColor(defaultTokens, item.type), shape: typeShape(item.type),
               removeLabel: message('palette.filter.removeType', { type: name }),

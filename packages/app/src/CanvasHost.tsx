@@ -191,6 +191,7 @@ import { canvasMenuContext, curveHistogramMenuGroup, memberRemovalInvocation, me
 import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
 import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
+import { wireDescription } from './wire-description.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type EditorTarget, type WidgetEditorState } from './WidgetEditor.js'
 import { GLSL_EDITOR_KIND, type EditorHostContext } from './editors.js'
@@ -3597,6 +3598,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         refreshToolboxScopeHighlight()
       },
       onHoverTarget: (target) => {
+        if (linkDoubleClickMenu() !== undefined) return
         const openBox = problemBox()
         if (openBox !== undefined) {
           // While the box is open, pointing at a row highlights its line.
@@ -3721,6 +3723,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       onOpenPalette: (worldX, worldY) => {
         if (refuseFrozenEdit()) return // read-only view: no node adds
         openPaletteAt(worldX, worldY)
+      },
+      onLinkClick: (link, x, y) => {
+        props.tooltips?.show({ kind: 'link', hit: { link } }, { x, y, above: y }, false, true, tooltipOwner)
       },
       onLinkDoubleClick: (context, screenX, screenY) => {
         if (refuseFrozenEdit()) return
@@ -3897,7 +3902,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (target) => (target as { kind?: string } | null | undefined)?.kind !== 'dom',
         tooltipOwner,
       )
-    const unsubscribeTooltipViewport = renderer.onViewportChange(hideCanvasTooltips)
+    let focusedWireId: string | undefined
+    const showFocusedWireTooltip = (): void => {
+      const link = renderer.getScene().links.find(link => link.id === focusedWireId)
+      if (link === undefined || linkDoubleClickMenu() !== undefined) return
+      const viewport = renderer.getViewport()
+      const bounds = canvasEl.getBoundingClientRect()
+      const x = bounds.left + viewport.x + (link.x1 + link.x2) / 2 * viewport.scale
+      const y = bounds.top + viewport.y + (link.y1 + link.y2) / 2 * viewport.scale
+      props.tooltips?.show({ kind: 'link', hit: { link } }, { x, y, above: y }, false, true, tooltipOwner)
+    }
+    const unsubscribeTooltipViewport = renderer.onViewportChange(() => {
+      hideCanvasTooltips()
+      showFocusedWireTooltip()
+    })
     const camera = createCameraAnimator({
       getViewport: () => {
         // Sampling the bookmark's starting view transfers ownership before the next wheel frame.
@@ -3914,6 +3932,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     focusCanvas = () => canvasEl.focus()
     focusSemanticTarget = (item): void => {
       const target = item?.target
+      props.tooltips?.hideMatching(candidate => (candidate as { kind?: string })?.kind === 'link', tooltipOwner)
+      focusedWireId = target?.kind === 'link' ? target.id : undefined
+      showFocusedWireTooltip()
       const focused = target?.kind === 'port'
         ? { nodeId: target.nodeId, pin: { portId: target.id, direction: target.direction,
           ...(target.widgetTap === true ? { widgetTap: true as const } : {}) } }
@@ -4037,6 +4058,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     function openPaletteAt(worldX: number, worldY: number, linkDrop?: LinkDropContext): void {
       const vp = renderer.getViewport()
       const tab = activeTab()
+      if (linkDrop !== undefined) {
+        const endpoint = linkDrop.fixedFrom ?? linkDrop.fixedInto
+        const scene = renderer.getScene()
+        const direction = endpoint?.['tap'] !== undefined || linkDrop.seeking === 'in' ? 'out' : 'in'
+        const pin = scene.nodes.find(node => node.id === endpoint?.['node'])?.layout.pins.find(pin =>
+          pin.portId === (endpoint?.['tap'] ?? endpoint?.['port']) &&
+          (pin.widgetTap === true) === (endpoint?.['tap'] !== undefined) &&
+          pin.direction === direction)
+        const rerouteWire = endpoint?.['reroute'] === undefined ? undefined : scene.links.find(link =>
+          link.to.kind === 'reroute' && link.to.reroute === endpoint['reroute'])
+        const listCountFact = pin?.listCountFact ?? rerouteWire?.listCountFact
+        linkDrop = { ...linkDrop, ...(listCountFact === undefined ? {} : { listCountFact }) }
+      }
       const suggestedNode = tab && linkDrop && fieldDropPrimitive(tab, linkDrop)
       // A fresh anchor object every open: NodePalette resets its per-open
       // state (query, highlight, filters) on anchor identity change.
@@ -8134,6 +8168,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         {(linkMenu) => (
           <div class="link-menu-layer" data-testid="link-double-click-backdrop" tabIndex={-1} onPointerDown={(event) => { if (event.target === event.currentTarget && performance.now() - linkMenuOpenedAt > LINK_MENU_DISMISS_GRACE_MS) setLinkDoubleClickMenu(undefined) }} onKeyDown={(event) => { if (event.key === 'Escape') setLinkDoubleClickMenu(undefined) }} ref={(element) => queueMicrotask(() => element.focus())}>
             <div class="link-double-click-menu" data-testid="link-double-click-menu" style={{ left: `${linkMenu.x}px`, top: `${linkMenu.y}px` }}>
+              <div class="link-menu-heading">{wireDescription(linkMenu.context)}</div>
               <ProductButton variant="ghost" size="compact" type="button" onClick={() => {
                 const tab = activeTab()
                 setLinkDoubleClickMenu(undefined)

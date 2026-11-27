@@ -1268,15 +1268,19 @@ export function buildScene(input: BuildSceneInput): Scene {
                 ? matchVariableOf(pin.type)
                 : undefined
             const matchConstraint = matchConstraintOf(pin.type)
+            const listCountFact = solvedTypes.listCountFactOf(asNodeId(node.id),
+              pin.widgetTap === true || pin.direction === 'in' ? 'input' : 'output', pin.portId)
             if (matchVariable === undefined) {
               return {
                 ...pin,
                 type,
+                ...(listCountFact === undefined ? {} : { listCountFact }),
               }
             }
             return {
               ...pin,
               type,
+              ...(listCountFact === undefined ? {} : { listCountFact }),
               matchVariable,
               ...(matchConstraint !== undefined
                 ? { matchConstraint }

@@ -47,6 +47,7 @@ import {
   type Json,
   type LookedState,
   type LookupCallSpec,
+  type ListCountFact,
   type MaterializeFrame,
   type NodeData,
   type NodeSchema,
@@ -495,6 +496,8 @@ export interface PinLayout extends DynamicAnnotations {
   /** Center y, node-local. */
   readonly y: number
   readonly type: TypeExpr
+  /** Available list length for wire-opened search; never a matching constraint. */
+  readonly listCountFact?: ListCountFact
   /** Declared match identity retained after the displayed type resolves. */
   readonly matchVariable?: string
   /** Declared finite match constraint, including list/asset wrappers, retained after inference. */

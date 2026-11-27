@@ -1,6 +1,7 @@
 import { defaultTokens, presentedType, typeIdDisplayLabel } from '@dinkster/canvas'
 import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, t as translate } from '@dinkster/core'
 import type { InputSpec, Json, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr, WidgetSpec } from '@dinkster/core'
+import { wireDescription } from './wire-description.js'
 
 export interface TooltipContent {
   readonly title?: string
@@ -309,11 +310,14 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const rerouteTypeName: string | undefined = t.hit.reroute.typeName
     return { title: 'Reroute', lines: [rerouteTypeName !== undefined ? typeIdDisplayLabel(rerouteTypeName) : 'Any'] }
   }
-  if (t.kind === 'link' && t.hit.link.mismatch === true && t.hit.link.diagnostics?.length > 0) {
+  if (t.kind === 'link') {
+    const mismatch = t.hit.link.mismatch === true && t.hit.link.diagnostics?.length > 0
     return {
-      title: 'Type mismatch',
-      lines: t.hit.link.diagnostics.map((diagnostic: { severity: string; message: string }) =>
-        diagnostic.message),
+      ...(mismatch ? { title: 'Type mismatch' } : {}),
+      lines: [
+        ...(mismatch ? t.hit.link.diagnostics.map((diagnostic: { severity: string; message: string }) => diagnostic.message) : []),
+        wireDescription(t.hit.link),
+      ],
     }
   }
   if (t.kind === 'pin') {

@@ -262,6 +262,8 @@ describe('canvas tooltip provider', () => {
       hit: {
         link: {
           mismatch: true,
+          typeName: 'list<IMAGE>',
+          listCountFact: { kind: 'known', count: 4 },
           diagnostics: [
             { severity: 'warning', message: 'IMAGE cannot feed LATENT' },
             { severity: 'error', message: 'type variable has no solution' },
@@ -271,8 +273,24 @@ describe('canvas tooltip provider', () => {
     }
     expect(resolveCanvasTooltip(target, { detailed: false })).toEqual({
       title: 'Type mismatch',
-      lines: ['IMAGE cannot feed LATENT', 'type variable has no solution'],
+      lines: ['IMAGE cannot feed LATENT', 'type variable has no solution', 'list of 4 images'],
     })
+  })
+
+  it('describes known, estimated and unknown list wires without confusing empty with unknown', () => {
+    for (const [fact, expected] of [
+      [{ kind: 'known', count: 0 }, 'list of 0 images'],
+      [{ kind: 'known', count: 1 }, 'list of 1 image'],
+      [{ kind: 'known', count: 4 }, 'list of 4 images'],
+      [{ kind: 'estimate', count: 81, sources: ['last-run'] }, 'list of 81 images (estimate from last run)'],
+      [{ kind: 'estimate', count: 79, sources: ['asset'] }, 'list of 79 images (estimate from asset facts)'],
+      [undefined, 'list of images; Count unknown'],
+    ] as const) {
+      expect(resolveCanvasTooltip({ kind: 'link', hit: { link: {
+        typeName: 'list<IMAGE>', listCountFact: fact,
+      } } }, { detailed: false })?.lines).toEqual([expected])
+    }
+    expect(resolveCanvasTooltip({ kind: 'link', hit: { link: { typeName: 'MASK' } } }, { detailed: false })?.lines).toEqual(['mask'])
   })
 
   it('adds numeric constraints and the input doc to detailed widget content', () => {

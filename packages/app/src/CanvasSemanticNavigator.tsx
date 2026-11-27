@@ -15,6 +15,7 @@ import {
   type SceneNode,
 } from '@dinkster/canvas'
 import { useAppMessage } from './locale.js'
+import { wireDescription } from './wire-description.js'
 
 export const CANVAS_SEMANTIC_WINDOW_SIZE = 5
 
@@ -347,7 +348,7 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
     const from = endpointName(link.from, 'out', nodes, reroutes, pinNames)
     const to = endpointName(link.to, 'in', nodes, reroutes, pinNames)
     const traits = [
-      ...(link.typeName === undefined ? [] : [typeProblemWords(typeExprFromTypeId(link.typeName), 'name').toLowerCase()]),
+      wireDescription(link),
       ...(link.maybeAbsent === true ? ['may be absent'] : []),
       ...(link.mismatch === true ? ['type mismatch'] : []),
     ]

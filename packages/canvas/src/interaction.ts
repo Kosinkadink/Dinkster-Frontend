@@ -63,6 +63,7 @@ import {
   type MaterializeFrame,
   type EffectiveLinkIdentity,
   type LinkEndpoint,
+  type ListCountFact,
   type LookupCallSpec,
   type OccurrenceLinkEndpoint,
   type TypeExpr,
@@ -289,6 +290,7 @@ export interface LinkDropContext {
   readonly seeking: 'in' | 'out'
   readonly anchorType: TypeExpr
   readonly anchorTypeName?: string
+  readonly listCountFact?: ListCountFact
   /** Fixed endpoint's world position - lets the host keep the dropped
    * noodle rendered (via setPaletteGhost) while its palette is open. */
   readonly anchorX: number
@@ -306,6 +308,8 @@ export interface LinkDoubleClickContext {
   readonly position: { readonly x: number; readonly y: number }
   readonly fromType: TypeExpr
   readonly toType: TypeExpr
+  readonly typeName?: string
+  readonly listCountFact?: ListCountFact
   readonly fixedFrom: JsonObject
   readonly fixedInto: JsonObject
 }
@@ -326,6 +330,8 @@ function linkMenuContext(link: SceneLink, position: { x: number; y: number }): L
     position: { x: snap(position.x), y: snap(position.y) },
     fromType: link.fromType ?? { kind: 'wildcard' },
     toType: link.toType ?? { kind: 'wildcard' },
+    ...(link.typeName === undefined ? {} : { typeName: link.typeName }),
+    ...(link.listCountFact === undefined ? {} : { listCountFact: link.listCountFact }),
     fixedFrom: endpoint(link.from),
     fixedInto: endpoint(link.to),
   }
@@ -484,6 +490,8 @@ export interface InteractionHost {
   onToolboxHover?(button: ToolboxButtonRect | undefined): void
   /** Semantic target under the idle pointer, with client-space anchor. */
   onHoverTarget?(target: CanvasHoverTarget | undefined): void
+  /** A motionless wire-body click, after selection has been updated. */
+  onLinkClick?(link: SceneLink, clientX: number, clientY: number): void
   /**
    * Live drag offsets while a move gesture is in progress, undefined when it
    * ends (commit or cancel). Fires only on change; presence egress rides it.
@@ -1966,7 +1974,7 @@ export class InteractionController {
         this.notifySelection()
         this.gesture = {
           kind: 'link-press',
-          ...(hit.link.boundary !== true ? { linkId: hit.link.id } : {}),
+          linkId: hit.link.id,
           midpoint: hit.midpoint,
           modified: e.ctrlKey || e.metaKey || e.shiftKey || e.altKey,
           moved: false,
@@ -3218,7 +3226,7 @@ export class InteractionController {
       : note
         ? { kind: 'note', row: note, x: clientX, y: clientY }
       : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'button' || hit.kind === 'memberRemove' || hit.kind === 'header' || hit.kind === 'reroute' ||
-        hit.kind === 'link' && hit.link.mismatch === true)
+        hit.kind === 'link')
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
         : undefined)
   }
@@ -3560,10 +3568,12 @@ export class InteractionController {
         if (!g.moved && g.keepSelection !== true) this.setSelection([])
         return
       case 'link-press':
-        if (!g.moved && !g.modified && g.midpoint && g.linkId !== undefined) {
+        if (!g.moved && g.linkId !== undefined) {
           const link = scene.links.find((candidate) => candidate.id === g.linkId)
-          if (link !== undefined && link.boundary !== true && link.hidden !== true && link.netId === undefined)
+          if (link === undefined) return
+          if (!g.modified && g.midpoint && link.boundary !== true && link.hidden !== true && link.netId === undefined)
             this.host.onLinkDoubleClick?.(linkMenuContext(link, w), clientX, clientY)
+          else this.host.onLinkClick?.(link, clientX, clientY)
         }
         return
       case 'marquee': {

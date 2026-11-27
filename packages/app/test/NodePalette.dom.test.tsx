@@ -140,7 +140,7 @@ describe('NodePalette shared search', () => {
     try {
       expect(rows(view.root).map((row) => row.dataset.key)).toEqual(['entry:image', 'entry:blueprint:p/b'])
       expect(rows(view.root)[0]!.textContent).toContain('into picture')
-      expect(view.root.querySelector('[aria-label="Takes IMAGE"]')).toBeTruthy()
+      expect(view.root.querySelector('[aria-label="Takes image"]')).toBeTruthy()
       button(view.root, 'Remove connection constraint').click()
       expect(remove).toHaveBeenCalledOnce()
       expect(commit).not.toHaveBeenCalled()
