@@ -1394,8 +1394,8 @@ export function layoutNode(
       ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
       ...(frames !== undefined ? { materialize: frames } : {}),
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
-      ...(selectorDisplay?.[item.address.port] === 'inactive' || (item.kind === 'input' && item.kept !== undefined) ? { inactive: true } : {}),
-      ...(item.kind === 'input' && item.kept !== undefined ? { kept: item.kept } : {}),
+      ...(selectorDisplay?.[item.address.port] === 'inactive' || item.kept !== undefined ? { inactive: true } : {}),
+      ...(item.kept !== undefined ? { kept: item.kept } : {}),
       ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }

@@ -33,6 +33,7 @@ import { historicalSchemas as schemas } from './historical-schemas.js'
 import { buildScene, boundaryPositions, boundaryNodesInGroup, nodesInGroup, nodeStatesForGraph, scenesEqual, updateSceneNodePositions, updateSceneNodeValues, NET_STUB_GAP, NET_STUB_HEIGHT, NET_STUB_PAD_X, type Scene } from '../src/scene.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { TextMeasurer, WidgetMeasure } from '../src/layout.js'
+import { hitTestPin } from '../src/hit.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
@@ -365,7 +366,7 @@ describe('buildScene', () => {
         change: { id: 'change', type: 'Change', values: { field: saved } },
       } } }, view: { graphs: { g0: { nodes: {} } } },
     }).document!
-    const sceneWith = (fields: Extract<TypeExpr, { kind: 'record' }>['fields'], selection = saved) => {
+    const sceneWith = (fields: Extract<TypeExpr, { kind: 'record' }>['fields'], selection = saved, wired: boolean | 'rerouted' = false) => {
       const record: TypeExpr = { kind: 'record', name: 'settings', fields }
       const schema = (type: string): NodeSchema => ({
         type, displayName: type, category: 'Records', source: 'v3', isOutputNode: false,
@@ -380,7 +381,14 @@ describe('buildScene', () => {
       })
       const graph = document.graphs.g0!
       const current = { ...document, graphs: { g0: { ...graph, nodes: Object.fromEntries(Object.entries(graph.nodes)
-        .map(([id, node]) => [id, { ...node, values: { field: selection } }])) } } }
+        .map(([id, node]) => [id, { ...node, values: { field: selection } }])),
+        reroutes: wired === 'rerouted' ? { r: { id: asRerouteId('r') } } : {},
+        links: wired === 'rerouted' ? {
+          read: { id: asLinkId('read'), from: { node: asNodeId('read'), port: asPortId('value') }, to: { reroute: asRerouteId('r') } },
+          tail: { id: asLinkId('tail'), from: { reroute: asRerouteId('r') }, to: { node: asNodeId('change'), port: asPortId('value') } },
+        } : wired ? { read: { id: asLinkId('read'), from: { node: asNodeId('read'), port: asPortId('value') },
+          to: { node: asNodeId('change'), port: asPortId('value') } } } : {},
+      } } }
       return buildScene({ document: current, graphId: 'g0', resolve: schema, tokens: defaultTokens, measure, widgetMeasure })
     }
     const warnings = (scene: Scene) => scene.diagnostics.filter((diagnostic) => diagnostic.code === 'record-field-removed')
@@ -392,6 +400,26 @@ describe('buildScene', () => {
     expect(warnings(sceneWith(retyped)).map((diagnostic) => diagnostic.message))
       .toEqual(["Record field 'seed' changed type from INT to STRING.", "Record field 'seed' changed type from INT to STRING."])
     expect(warnings(sceneWith(retyped, selected('STRING')))).toEqual([])
+    const output = (scene: Scene) => scene.nodes.find((node) => node.id === 'read')?.layout.pins
+      .find((pin) => pin.direction === 'out' && pin.widgetTap !== true && pin.portId === 'value')
+    expect(output(sceneWith([]))).toBeUndefined()
+    expect(output(sceneWith(retyped))).toBeUndefined()
+    for (const fields of [[], retyped]) {
+      for (const wired of [true, 'rerouted'] as const) {
+        const retained = sceneWith(fields, saved, wired)
+        expect(output(retained)).toMatchObject({ type: integer, inactive: true, maybeAbsent: true })
+        expect(output(retained)?.kept).toContain('seed')
+        for (const link of retained.links) expect(link).toMatchObject({ dimmed: true, maybeAbsent: true })
+        const read = retained.nodes.find((node) => node.id === 'read')!
+        expect(hitTestPin(retained, read.x + read.layout.width, read.y + output(retained)!.y)).toBeUndefined()
+        expect(retained.nodes.find((node) => node.id === 'change')?.layout.pins
+          .find((pin) => pin.direction === 'out' && pin.widgetTap !== true && pin.portId === 'record')?.kept).toBeUndefined()
+      }
+    }
+    const reselected = sceneWith(retyped, selected('STRING'), true)
+    expect(output(reselected)).toMatchObject({ type: text })
+    expect(output(reselected)?.kept).toBeUndefined()
+    expect(reselected.links.find((link) => link.id === 'read')?.dimmed).toBeUndefined()
     expect(document.graphs.g0!.nodes.read!.values.field).toBe(saved)
   })
 

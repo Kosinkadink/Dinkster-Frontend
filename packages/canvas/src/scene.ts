@@ -1548,7 +1548,12 @@ export function buildScene(input: BuildSceneInput): Scene {
     if (isRerouteRef(end)) {
       const r = rerouteById.get(end.reroute)
       const type = tracedType(end)
-      return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id }, ...(type === undefined ? {} : { type }) } : undefined
+      const trace = traceEndpoint(def, end, rerouteIndex)
+      const kept = trace.kind === 'output' ? endPoint(trace.ref, 'out')?.kept
+        : trace.kind === 'tapValue' ? endPoint({ node: trace.node, tap: trace.input }, 'out')?.kept : undefined
+      return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id },
+        ...(type === undefined ? {} : { type }), ...(kept === undefined ? {} : { kept }),
+      } : undefined
     }
     if (isWidgetTapRef(end)) {
       const node = byId.get(end.node)
@@ -1577,6 +1582,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         port: end.port,
       },
       type: pin.type,
+      ...(pin.kept !== undefined ? { kept: true as const } : {}),
     }
   }
 

@@ -342,6 +342,8 @@ export interface ElaboratedOutput {
   readonly boxes?: readonly string[]
   /** Inside its member's box: the row's own label, drawn in place of the full name. */
   readonly ownLabel?: string
+  /** A removed record field: retain its old type and dim its existing wires. */
+  readonly kept?: string
 }
 
 /** A section header as the node draws it. */
@@ -2611,7 +2613,7 @@ function elaboratePass(
     })
   }
 
-  const project = (type: TypeExpr): TypeExpr => {
+  const project = (type: TypeExpr, onRemoved?: (message: string) => void): TypeExpr => {
     if (type.kind === 'record_field') {
       const source = items.find((item) => item.kind === 'input' && item.spec.id === type.input)
       const selector = items.find((item) => item.kind === 'input' && item.spec.id === type.index)
@@ -2669,6 +2671,7 @@ function elaboratePass(
           ...(options.nodeId === undefined ? {} : { anchor: { port: { node: options.nodeId, port: asPortId(type.index) } } }),
           data: { input: type.index, oldType, ...(current === undefined ? {} : { newType: current }) },
         }))
+        onRemoved?.(message)
         return oldType
       } catch (error) {
         report('elab.record.selection', error instanceof Error ? error.message : 'Invalid record field selection.', type.index)
@@ -2689,12 +2692,18 @@ function elaboratePass(
       }
       return { kind: 'tuple_element', element, index }
     }
-    if (type.kind === 'tuple') return { ...type, elements: type.elements.map(project) }
-    if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: project(type.element) }
+    if (type.kind === 'tuple') return { ...type, elements: type.elements.map((element) => project(element, onRemoved)) }
+    if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: project(type.element, onRemoved) }
     return type
   }
   for (const [index, item] of items.entries()) {
-    if (item.kind === 'output') items[index] = { ...item, spec: { ...item.spec, type: project(item.spec.type) } }
+    if (item.kind === 'output') {
+      let kept: string | undefined
+      const type = project(item.spec.type, (message) => { kept = message })
+      items[index] = { ...item, spec: { ...item.spec, type,
+        ...(kept === undefined ? {} : { optional: true, ...(!connectivity.isOutputConnected(item.address.port) ? { hidden: true as const } : {}) }),
+      }, ...(kept === undefined ? {} : { kept }) }
+    }
     else if (item.kind === 'input' && item.spec.type.kind === 'record_field') items[index] = { ...item, spec: { ...item.spec, type: project(item.spec.type) } }
   }
 

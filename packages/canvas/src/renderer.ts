@@ -4263,6 +4263,7 @@ export class CanvasRenderer {
           }
           if (row.output) {
             if (row.output.ghost) ctx.globalAlpha = rowAlpha * GHOST_ALPHA
+            if (row.output.inactive) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
             ctx.fillStyle = t.colors.label
             const right = row.crossInset === undefined
               ? node.x + l.width - t.rowGeometry.portLabelInset - (row.nameInset ?? 0)
