@@ -501,7 +501,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     const rect = label.getBoundingClientRect()
     return rect.width > 1 && rect.height > 1
   }
-  const sessionOf = (element: Element | null | undefined) => element?.closest<HTMLElement>('[data-tooltip-session]')
+  const sessionOf = (element: Element | null | undefined) => element?.closest<HTMLElement>('[data-tooltip-session]') ?? undefined
   const domTargetOf = (element: HTMLElement) => {
     const rect = element.getBoundingClientRect()
     const detail = element.dataset['tooltipDetail']?.split('|').filter(Boolean)
