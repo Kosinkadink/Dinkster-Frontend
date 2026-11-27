@@ -11,7 +11,7 @@ interface SaveTargetGroup {
 }
 
 const readyMounts = (settings: MountSettings): ReadonlySet<string> => new Set(settings.mounts
-  .filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready').map((mount) => mount.id))
+  .filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready' && !mount.saveError).map((mount) => mount.id))
 
 const saveTargetStamp = (fixes: readonly StoredSaveTargetFix[]): string => JSON.stringify(fixes.map((fix) =>
   [fix.part.graphId, fix.part.instancePath ?? [], fix.part.nodeId, fix.valueKey, fix.stamp]).sort())

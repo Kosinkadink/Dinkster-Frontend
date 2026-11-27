@@ -474,9 +474,20 @@ describe('native open-time replacement', () => {
       { id: 'offline', mode: 'readwrite', state: 'offline' }] }
     backend.connection.ingest({ type: 'mounts_changed' })
     await vi.waitFor(() => expect(groupProblem().message).toContain('"absent" is missing and this project\'s output mount "offline" is not available.'))
-    mounts = { ...mounts, activeOutputMount: 'ready' }
+    mounts = { ...mounts, activeOutputMount: 'ready', mounts: mounts.mounts.map((mount) =>
+      mount.id === 'ready' ? { ...mount, saveError: 'permission-denied' } : mount) }
+    backend.connection.ingest({ type: 'mounts_changed' })
+    await vi.waitFor(() => expect(groupProblem().message).toContain('output mount "ready" is not available.'))
+    expect(app.problemFixes.forProblem(tab, groupProblem())?.offered).toMatchObject({ kind: 'save-targets', defaultReady: false })
+    const beforeUnavailable = tab.store.doc
+    await app.problemFixes.apply(tab, app.problemFixes.scan(tab).filter((fix) => fix.offered.kind === 'save-targets'))
+    expect(tab.store.doc).toEqual(beforeUnavailable)
+    mounts = { ...mounts, mounts: mounts.mounts.map((mount) =>
+      mount.id === 'ready' ? { id: 'ready', mode: 'readwrite', state: 'ready' } : mount) }
     backend.connection.ingest({ type: 'mounts_changed' })
     await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, groupProblem())?.offered).toMatchObject({ kind: 'save-targets', defaultReady: true }))
+    app.problemFixes.recheck(tab, 'save-targets')
+    await vi.waitFor(() => expect(app.problemFixes.forProblem(tab, groupProblem())?.state).toBe('offered'))
     const offered = app.problemFixes.scan(tab)
     expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'second', inputId: 'target',
       value: { mount: 'other', prefix: 'personal/movie' } } }).ok).toBe(true)
