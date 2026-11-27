@@ -316,6 +316,7 @@ interface DinksterTestBridge {
     }
     registry: { set(value: import('@dinkster/client').SchemaRegistry): void }
     tabs: { get(): readonly DinksterBridgeTab[] }
+    setTabEditorKind(tabId: string, editorKind: string): void
     editorSplits: { readonly layout: { get(): unknown; set(value: unknown): void } }
     readonly appViewEnabled: boolean
     panels: {
@@ -489,7 +490,8 @@ interface DinksterTestBridge {
         baseUrl: string
         protocol: 'v1' | 'dinkster'
         scopedClient: Pick<import('@dinkster/client').RefreshableScopedClient, 'remoteChoices'>
-        connection: {
+        connection: Pick<import('@dinkster/client').DinksterConnection,
+          'fetchMountSettings' | 'fetchMountLocations' | 'fetchModelSettings' | 'retryMount'> & {
           status: { get(): string }
           accountStatus(): Promise<unknown>
           ingest(event: Readonly<Record<string, unknown>> & { type: string }): void
@@ -519,6 +521,7 @@ interface DinksterTestBridge {
       }>
     }
     tabTargets: { get(): ReadonlyMap<string, string> }
+    logs: { get(): readonly { source: string; message: string }[] }
     setTabTarget(tabId: string, id: string): void
     removeBackend(id: string): void
     viewUrlForExecution(ref: DinksterBridgeExecutionRef, file: { filename: string }): string

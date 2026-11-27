@@ -51,8 +51,12 @@ export function ProductAuthCard(props: {
   )
 }
 
-export function ProductPanel(props: { children: JSX.Element }) {
-  return <div class="dinkster-panel">{props.children}</div>
+export function ProductPanel(props: { fill?: 'quiet'; children: JSX.Element }) {
+  return (
+    <div class="dinkster-panel" data-fill={props.fill}>
+      {props.children}
+    </div>
+  )
 }
 
 export function ProductWindowIdentity(props: {
