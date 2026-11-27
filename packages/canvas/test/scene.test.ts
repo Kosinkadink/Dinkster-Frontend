@@ -2252,6 +2252,104 @@ describe('scenesEqual', () => {
 })
 
 describe('an editor on the Inputs panel', () => {
+  it('keeps shared-line notes, unknown text and empty rows local to each entered construct', () => {
+    const INT = { kind: 'concrete' as const, name: 'INT' }
+    const schema: NodeSchema = { type: 'Noted', displayName: 'Noted', category: 'test', source: 'v3', isOutputNode: true,
+      body: [{ kind: 'choice', id: 'pack', required: true, default: 'a', shared: [], options: [{ key: 'a', rows: [
+        { kind: 'row', rows: [
+          { kind: 'input', id: 'seed', type: INT, optional: false, widget: { widgetType: 'INT', options: {}, default: 3 } },
+          { kind: 'input', id: 'other', type: INT, optional: false, widget: { widgetType: 'INT', options: {}, default: 9 } },
+          { kind: 'note', id: 'result', text: { formula: 'fixed(seed * 2, 0)' }, unknown: 'Linked seed' },
+        ] },
+        { kind: 'note', id: 'pending', text: { formula: 'str(1 // 0)' }, unknown: 'Waiting' },
+        { kind: 'note', id: 'empty', text: '' },
+      ] }] }],
+    }
+    const source: NodeSchema = { ...schema, type: 'Source', body: [
+      { kind: 'input', id: 'value', type: INT, optional: false, widget: { widgetType: 'INT', options: {}, default: 47 } },
+      { kind: 'output', id: 'value', type: INT, knownValue: { input: 'value' } },
+    ] }
+    const native = (type: string) => type === 'Noted' ? schema : type === 'Literal' ? source
+      : type === 'Runtime' ? { ...source, body: [{ kind: 'output' as const, id: 'value', type: INT }] } : undefined
+    const bind = (id: string, node: string, port: string) => ({ kind: 'input', id, binds: { kind: 'construct', node, port } })
+    const graph = (id: string, nodes: unknown, body?: unknown) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100,
+      ...(body ? { boundary: { body } } : {}) })
+    for (const depth of [1, 2]) {
+      const key = depth === 1 ? 'bundle' : 'outer'
+      const document = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'entered-notes', root: 'root', graphs: {
+        root: graph('root', { ...Object.fromEntries([['first', 21, 4], ['second', 13, 7]].map(([id, seed, other]) => [id, {
+          id, type: depth === 1 ? '#detail' : '#portrait', values: { [`${key}.seed`]: seed, [`${key}.other`]: other },
+        }])), outside: { id: 'outside', type: 'Literal', values: { value: 47 } } }),
+        detail: graph('detail', { sample: { id: 'sample', type: 'Noted', values: { 'pack.seed': 3 } } }, [bind('bundle', 'sample', 'pack')]),
+        ...(depth === 2 ? { portrait: graph('portrait', { detail: { id: 'detail', type: '#detail', values: { 'bundle.seed': 7 } } },
+          [bind('outer', 'detail', 'bundle')]) } : {}),
+      }, view: { graphs: {} } }).document!
+      const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined, () => ({
+        kind: 'initial', schemaResolverFor: (current) => documentResolver(current, native),
+      }))
+      const check = (current: WorkflowDocument, firstSeed: number, linked?: 'literal' | 'runtime') => {
+        const resolve = documentResolver(current, native)
+        for (const [id, seed, other] of [['first', firstSeed, 4], ['second', 13, 7]] as const) {
+          const path = [asNodeId(id), ...(depth === 1 ? [] : [asNodeId('detail')])]
+          const scene = buildScene({ document: current, graphId: 'detail', resolve, tokens: defaultTokens, measure, widgetMeasure,
+            occurrence: { owner: { instancePath: path.slice(0, -1), node: path.at(-1)! }, plannerAvailable: true },
+            occurrenceView: occurrenceDynamicView(current, resolve, path),
+          })
+          const panel = scene.boundaryNodes.find((node) => node.side === 'inputs')!
+          const notes = panel.layout.rows.filter((row) => row.kind === 'note')
+          expect(notes.map((row) => [row.text, row.unknown ?? false])).toEqual([
+            id === 'first' && linked !== undefined ? ['Linked seed', true] : [String(seed * 2), false], ['Waiting', true], ['', false],
+          ])
+          expect(notes.every((row) => row.height > 0)).toBe(true)
+          const fields = panel.layout.rows.filter((row) => row.kind === 'widget').filter((row) => row.valueKey !== 'bundle')
+          expect(fields.map((row) => [row.valueKey, row.familyOwner])).toEqual([
+            ['bundle.seed', { graphId: 'root', nodeId: id, construct: 'pack.seed', valueKey: `${key}.seed` }],
+            ['bundle.other', { graphId: 'root', nodeId: id, construct: 'pack.other', valueKey: `${key}.other` }],
+          ])
+          expect([fields[0]!.y, fields[1]!.y]).toEqual([notes[0]!.y, notes[0]!.y])
+          const face = boundaryFieldNode(panel)!
+          if (id === 'first' && linked !== undefined) expect(panel.fields!.wired['bundle.seed']).toEqual(linked === 'literal' ? { value: 47 } : {})
+          else expect(face.node.values).toMatchObject({ 'bundle.seed': seed, 'bundle.other': other })
+          expect(scene.nodes.find((node) => node.id === 'sample')!.layout.rows.filter((row) => row.kind === 'note')
+            .map((row) => [row.text, row.unknown ?? false])).toEqual(notes.map((row) => [row.text, row.unknown ?? false]))
+        }
+        expect(current.graphs.detail).toEqual(document.graphs.detail)
+        expect(current.graphs.portrait).toEqual(document.graphs.portrait)
+      }
+      check(document, 21)
+      expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: `${key}.seed`, value: 31 } }).ok).toBe(true)
+      const edited = store.doc
+      check(edited, 31)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(document)
+      check(store.doc, 21)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(edited)
+      check(loadDocument(JSON.parse(JSON.stringify(edited))).document!, 31)
+      for (const kind of ['literal', 'runtime'] as const) {
+        const current = kind === 'literal' ? edited : { ...edited, graphs: { ...edited.graphs, root: { ...edited.graphs.root!, nodes: {
+          ...edited.graphs.root!.nodes, outside: { ...edited.graphs.root!.nodes.outside!, type: 'Runtime' },
+        } } } } as WorkflowDocument
+        const wired = new DocumentStore(current, coreCommandRegistry(), 200, undefined, () => ({
+          kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, native),
+        }))
+        expect(wired.dispatch({ command: 'link.connect', params: { graphId: 'root', from: { node: 'outside', port: 'value' },
+          to: { node: 'first', port: `${key}.seed` } } }).ok).toBe(true)
+        const connected = wired.doc
+        check(connected, kind === 'literal' ? 47 : 31, kind)
+        check(loadDocument(JSON.parse(JSON.stringify(connected))).document!, kind === 'literal' ? 47 : 31, kind)
+        const linkId = Object.keys(connected.graphs.root!.links)[0]!
+        expect(wired.dispatch({ command: 'link.disconnect', params: { graphId: 'root', linkId } }).ok).toBe(true)
+        check(wired.doc, 31)
+        expect(wired.undo()).toBe(true)
+        expect(wired.doc).toEqual(connected)
+        check(wired.doc, kind === 'literal' ? 47 : 31, kind)
+        expect(wired.redo()).toBe(true)
+        check(wired.doc, 31)
+      }
+    }
+  })
+
   it.each(['formula', 'lookup'] as const)('keeps evaluated %s labels and explicit names on entered fields', (calculation) => {
     const { schema, diagnostics } = parseDinksterSchema('Calculated', { body: [
       { kind: 'input', id: 'seed', type: { kind: 'concrete', types: ['INT'] }, default: 5, widget: { type: 'INT' } },
