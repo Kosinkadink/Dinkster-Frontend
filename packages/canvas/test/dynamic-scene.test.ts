@@ -14,11 +14,13 @@
  * Mixed integration (reroutes + widget taps + nets + nested groups
  * composing in one graph) lives at the bottom.
  */
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   asConnectionId,
   asNodeId,
   boundaryOf,
+  buttonAvailability,
   compile,
   DocumentStore,
   coreCommandRegistry,
@@ -239,6 +241,53 @@ const sceneOf = (doc: WorkflowDocument, graphId = 'g0'): Scene =>
 
 const makeStore = (doc: WorkflowDocument) => new DocumentStore(doc, coreCommandRegistry())
 const sceneFrom = (store: DocumentStore, graphId = 'g0'): Scene => sceneOf(store.doc, graphId)
+
+it('hides manual Unpack count actions for known wired counts and restores them without losing outputs', () => {
+  const wire = JSON.parse(readFileSync(new URL('../../core/test/fixtures/flow_schemas.json', import.meta.url), 'utf8'))
+  const parsed = parseDinksterSchema('Unpack', wire['dinkster.utilities.unpack']).schema!
+  const unpack: NodeSchema = { ...parsed, body: parsed.body.map(item => item.kind === 'input' && item.id === 'count'
+    ? { ...item, listCountOf: 'list' } : item) }
+  const texts = schemaOf('Texts', [{ kind: 'input', id: 'texts', optional: false,
+    type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } },
+    widget: { widgetType: 'LIST', options: {}, default: [] },
+  }, { kind: 'output', id: 'unknown', type: { kind: 'list', element: { kind: 'concrete', name: 'STRING' } } }])
+  const resolve = (type: string) => type === 'Unpack' ? unpack : type === 'Texts' ? texts : undefined
+  const host = { schemaResolverFor: () => resolve, schemaOf: (_doc: unknown, _graph: unknown, node: NodeData) => resolve(node.type), editorFor: () => undefined }
+  for (const shared of [false, true]) for (const count of [3, 0]) {
+    const values = Array.from({ length: count }, (_, i) => String(i))
+    const node = { type: 'Unpack', values: { count: 5 } }
+    const doc = docOf({ g0: { nodes: { source: { type: 'Texts', values: { texts: values } },
+      ...(shared ? { shell: { type: '#g1' } } : { unpack: node }),
+    }, links: [[{ node: 'source', tap: 'texts' }, [shared ? 'shell' : 'unpack', 'list']]] },
+    ...(shared ? { g1: { nodes: { unpack: node }, boundary: { inputs: [{ id: 'list', binds: { kind: 'port', node: 'unpack', port: 'list' } }] } } } : {}),
+    })
+    const store = new DocumentStore(doc, coreCommandRegistry([], resolve), 200, undefined, () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'source', inputId: 'texts', value: values } }).ok).toBe(true)
+    const graphId = shared ? 'g1' : 'g0'
+    const shown = () => buildScene({ document: store.doc, graphId, resolve, tokens: defaultTokens, measure, widgetMeasure,
+      ...(shared ? { occurrence: { owner: { instancePath: [], node: asNodeId('shell') }, plannerAvailable: true }, occurrenceView: occurrenceDynamicView(store.doc, resolve, ['shell']) } : {}),
+    }).nodes.find(n => n.node.type === 'Unpack')!
+    const hasAction = () => shown().layout.rows.some(row => row.kind === 'button' && row.buttonId === 'set_count')
+    const target = { graphId, nodeId: 'unpack', instancePath: shared ? ['shell'] : [], button: 'set_count' }
+    expect(shown().layout.pins.filter(pin => pin.direction === 'out')).toHaveLength(count)
+    expect(hasAction()).toBe(false)
+    expect(buttonAvailability(store.doc, target, host).enabled).toBe(false)
+    expect(store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'l0' } }).ok).toBe(true)
+    expect(hasAction()).toBe(true)
+    expect(buttonAvailability(store.doc, target, host).enabled).toBe(true)
+    expect(shown().layout.pins.filter(pin => pin.direction === 'out')).toHaveLength(count)
+    expect(store.undo()).toBe(true)
+    expect(hasAction()).toBe(false)
+    expect(store.redo()).toBe(true)
+    expect(hasAction()).toBe(true)
+    expect(store.dispatch({ command: 'link.connect', params: { graphId: 'g0',
+      from: { node: 'source', port: 'unknown' }, to: { node: shared ? 'shell' : 'unpack', port: 'list' },
+    } }).ok).toBe(true)
+    expect(hasAction()).toBe(true)
+    expect(buttonAvailability(store.doc, target, host).enabled).toBe(true)
+    expect(shown().layout.pins.filter(pin => pin.direction === 'out')).toHaveLength(count)
+  }
+})
 
 it('carries independent counts through nested occurrence wires without using an inner default', () => {
   const texts: TypeExpr = { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }

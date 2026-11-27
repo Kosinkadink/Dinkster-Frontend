@@ -33,6 +33,7 @@ import { buildBypassCandidates, matchBypassInput } from '../compile/bypass.js'
 import { innerConstructAddress, matchBoundaryItem, outerConstructAddress } from '../compile/crossing.js'
 import { effectiveOccurrenceTopology, occurrenceMemberReferenced, type EffectiveLink } from '../compile/effective-topology.js'
 import { occurrenceDynamicView, type ValueOwner } from '../compile/occurrence-view.js'
+import { solveOccurrenceTypes } from '../compile/occurrence-solve.js'
 import type { ControllerMode, GraphDef, Json, NodeData, WorkflowDocument } from '../format/document.js'
 import { asNodeId, asPortId, isExactWidgetTapRef, isPortEndpoint, occurrenceKey, portAddressKey, sameEndpoint, type LinkEndpoint } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
@@ -47,6 +48,7 @@ import {
   buildGraphConnectivity,
   describedEntries,
   elaborateInterface,
+  hideKnownListCountButtons,
   elabInputsOf,
   elabOutputsOf,
   EMPTY_CONNECTIVITY,
@@ -516,7 +518,10 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
     return field.automatic?.value ?? (readWhenUnset(field.spec) as Json | undefined)
   }
   const contexts = new Map<string, FormulaContext>()
-  const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue, incomingType })
+  const baseInterface = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue, incomingType })
+  const counts = elabInputsOf(baseInterface).some(input => input.spec.listCountOf !== undefined)
+    ? solveOccurrenceTypes(doc, resolve, graph.id, path.map(asNodeId)) : undefined
+  const elaborated = hideKnownListCountButtons(baseInterface, port => counts?.listCountOf(node.id, 'input', port))
   return { doc, graph, node, schema, elaborated, contexts, connectivity, incomingValue, incomingType, valueOwners: occurrence?.valueOwners.get(node.id) ?? new Map() }
 }
 

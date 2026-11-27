@@ -635,6 +635,22 @@ export const elabInputsOf = (e: Pick<ElaboratedInterface, 'items'>): readonly El
 export const elabOutputsOf = (e: Pick<ElaboratedInterface, 'items'>): readonly ElaboratedOutput[] =>
   e.items.filter((i): i is ElaboratedOutput => i.kind === 'output')
 
+/** Hide manual count setters only when every edit they offer is owned by a known list fact. */
+export function hideKnownListCountButtons(e: ElaboratedInterface, listCountOf: (port: string) => number | undefined): ElaboratedInterface {
+  const inputs = elabInputsOf(e)
+  const items = e.items.filter(item => {
+    if (item.kind !== 'button') return true
+    const prefix = item.id.slice(0, item.id.lastIndexOf('.') + 1)
+    const edits = item.spec.steps.filter(step => step.step !== 'ask')
+    return edits.length === 0 || !edits.every(step => {
+      if (step.step !== 'set' || typeof step.field !== 'string') return false
+      const input = inputs.find(input => input.address.port === prefix + step.field)
+      return input?.spec.listCountOf !== undefined && listCountOf(prefix + input.spec.listCountOf) !== undefined
+    })
+  })
+  return items.length === e.items.length ? e : { ...e, items }
+}
+
 /**
  * The node.values key an elaborated input's value persists under: its
  * flattened id. The one rule compile, the canvas and the app share.

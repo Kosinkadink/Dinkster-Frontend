@@ -29,6 +29,7 @@ import {
   elabInputsOf,
   elabOutputsOf,
   elaborateInterface,
+  hideKnownListCountButtons,
   EMPTY_CONNECTIVITY,
   type ElaborateOptions,
   hasPreviewSurface,
@@ -1124,8 +1125,8 @@ export function buildScene(input: BuildSceneInput): Scene {
         }
     const schema = resolveNode(input.graphId, occurrenceNode, sourcePath)
     const elaborated = schema
-      ? elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views,
-          enclosingRuns && (node.mode ?? 'active') === 'active')
+      ? hideKnownListCountButtons(elaborateShown(schema, occurrenceNode, connectivityOf(node.id), node.id, problemPorts.get(node.id), view?.views,
+          enclosingRuns && (node.mode ?? 'active') === 'active'), port => solvedTypes.listCountOf(node.id, 'input', port))
       : undefined
     for (const diagnostic of elaborated?.diagnostics ?? []) {
       const port = diagnostic.data?.['input']
