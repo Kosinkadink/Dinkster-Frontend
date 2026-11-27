@@ -210,8 +210,9 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
   }
 
   for (const node of scene.nodes) {
-    const inputs = node.layout.pins.filter((pin) => pin.direction === 'in').length
-    const outputs = node.layout.pins.length - inputs
+    const visiblePins = node.layout.pins.filter((pin) => !pin.lineHidden)
+    const inputs = visiblePins.filter((pin) => pin.direction === 'in').length
+    const outputs = visiblePins.length - inputs
     const status = nodeStatus(node, source.states[node.id], source.badges[node.id] ?? [])
     const outputStatus = nodeOutputStatus(source.outputTexts[node.id])
     const memberships = groupsForNode.get(node.id)
@@ -257,6 +258,7 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
     })
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
+      if (pin.lineHidden) continue
       const name = pinName(node, pin)
       const count = connections.get(pinConnectionKeyOf(node.id, pin)) ?? 0
       const problem = source.rowProblems[node.id]?.[pin.direction === 'in' ? pin.portId : outputRowKey(pin.portId)]

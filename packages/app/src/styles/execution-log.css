@@ -270,4 +270,6 @@
   .execution-log-node,
   .execution-log-node-empty,
   .execution-log-message { grid-column: 1 / -1; }
+
+  .execution-log-node-empty { display: none; }
 }

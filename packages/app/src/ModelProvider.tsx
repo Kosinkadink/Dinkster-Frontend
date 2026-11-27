@@ -1,8 +1,7 @@
 import { createEffect, createSignal, onCleanup, Show, untrack } from 'solid-js'
 import { X } from 'lucide-solid'
 import type { DinksterConnection, ModelProviderSignIn, ModelProviderStatus } from '@dinkster/client'
-import { ProductButton, ProductTextInput } from './ProductControls.js'
-import { ProductField, ProductNotice } from './ProductForm.js'
+import { ProductButton, ProductField, ProductIconButton, ProductLink, ProductNotice, ProductTextInput } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
 
 export type ModelProviderConnection = Pick<DinksterConnection, 'fetchModelProvider' | 'saveModelProviderToken' |
@@ -101,30 +100,30 @@ export function ModelProvider(props: { readonly connection: ModelProviderConnect
     setToken('')
     void perform(() => connection.saveModelProviderToken(value))
   }
-  return <section class="model-provider" data-testid="model-provider">
-    <h4>{message('modelProvider.title')}</h4>
-    <Show when={error()}><ProductNotice tone="error">{message('modelProvider.error')} <ProductButton size="compact" aria-label={message('modelProvider.dismiss')} onClick={() => setError(false)}><X size={14} aria-hidden="true" /></ProductButton></ProductNotice></Show>
+  return <section class="dinkster-stack dinkster-model-provider" data-testid="model-provider">
+    <h4 class="dinkster-heading">{message('modelProvider.title')}</h4>
+    <Show when={error()}><ProductNotice tone="error">{message('modelProvider.error')} <ProductIconButton icon={X} label={message('modelProvider.dismiss')} onClick={() => setError(false)} /></ProductNotice></Show>
     <ProductNotice tone="info">{message('modelProvider.privacy')}</ProductNotice>
-    <p role="status">{message(status()?.expired ? 'modelProvider.expired' : status()?.configured ? 'modelProvider.connected' : 'modelProvider.disconnected')}</p>
+    <p class="dinkster-description" role="status">{message(status()?.expired ? 'modelProvider.expired' : status()?.configured ? 'modelProvider.connected' : 'modelProvider.disconnected')}</p>
     <Show when={flow()}>{(current) => <>
       <ProductNotice tone="info">{message('modelProvider.pending')}</ProductNotice>
-      <Show when={current().method === 'device'}><ProductField controlId="model-provider-code" label={message('modelProvider.code')} layout="stack"><code id="model-provider-code">{current().method === 'device' ? (current() as Extract<ModelProviderSignIn, { method: 'device' }>).userCode : ''}</code></ProductField></Show>
-      <a class="product-button" href={current().method === 'pkce' ? (current() as Extract<ModelProviderSignIn, { method: 'pkce' }>).authorizationUrl : (current() as Extract<ModelProviderSignIn, { method: 'device' }>).verificationUri} target="_blank" rel="noopener noreferrer">{message('modelProvider.open')}</a>
+      <Show when={current().method === 'device'}><div class="dinkster-stack"><span class="dinkster-description">{message('modelProvider.code')}</span><code class="dinkster-mono">{current().method === 'device' ? (current() as Extract<ModelProviderSignIn, { method: 'device' }>).userCode : ''}</code></div></Show>
+      <ProductLink href={current().method === 'pkce' ? (current() as Extract<ModelProviderSignIn, { method: 'pkce' }>).authorizationUrl : (current() as Extract<ModelProviderSignIn, { method: 'device' }>).verificationUri} target="_blank" rel="noopener noreferrer">{message('modelProvider.open')}</ProductLink>
       <ProductButton disabled={busy()} onClick={() => void cancel()}>{message('modelProvider.cancel')}</ProductButton>
     </>}</Show>
-    <Show when={!flow()}><div class="project-folder-actions">
-      <ProductButton disabled={busy()} onClick={refresh}>{message('modelProvider.refresh')}</ProductButton>
+    <Show when={!flow()}><div class="dinkster-actions">
       <ProductButton disabled={busy()} onClick={() => void signIn()}>{message('modelProvider.signIn')}</ProductButton>
+      <ProductButton disabled={busy()} onClick={refresh}>{message('modelProvider.refresh')}</ProductButton>
       <ProductButton disabled={busy()} onClick={() => { setFallback(!fallback()); setToken(''); setForgetting(false) }}>{message('modelProvider.fallback')}</ProductButton>
       <Show when={status()?.configured || status()?.expired}><ProductButton disabled={busy()} onClick={() => { setForgetting(true); setFallback(false); setToken('') }}>{message('modelProvider.forget')}</ProductButton></Show>
     </div></Show>
-    <Show when={fallback() && !flow()}><div class="model-provider-token">
-      <ProductField controlId="model-provider-token" label={message('modelProvider.token')} layout="stack"><ProductTextInput id="model-provider-token" type="password" autocomplete="off" value={token()} disabled={busy()} onInput={(event) => setToken(event.currentTarget.value)} /></ProductField>
-      <ProductButton variant="primary" disabled={busy() || !token().trim()} onClick={save}>{message('modelProvider.save')}</ProductButton>
+    <Show when={fallback() && !flow()}><div class="dinkster-stack">
+      <ProductField label={message('modelProvider.token')}>{(attributes) => <ProductTextInput id={attributes.id} type="password" autocomplete="off" value={token()} disabled={busy()} onInput={(event) => setToken(event.currentTarget.value)} />}</ProductField>
+      <ProductButton fill="solid" disabled={busy() || !token().trim()} onClick={save}>{message('modelProvider.save')}</ProductButton>
     </div></Show>
-    <Show when={forgetting()}><div class="project-folder-removal"><ProductNotice tone="warning">{message('modelProvider.forgetNotice')}</ProductNotice>
+    <Show when={forgetting()}><div class="dinkster-stack"><ProductNotice tone="warning">{message('modelProvider.forgetNotice')}</ProductNotice>
       <ProductButton disabled={busy()} onClick={() => setForgetting(false)}>{message('modelProvider.cancel')}</ProductButton>
-      <ProductButton variant="danger" disabled={busy()} onClick={() => void perform(() => connection.forgetModelProvider())}>{message('modelProvider.forget')}</ProductButton>
+      <ProductButton intent="remove" fill="solid" disabled={busy()} onClick={() => void perform(() => connection.forgetModelProvider())}>{message('modelProvider.forget')}</ProductButton>
     </div></Show>
   </section>
 }

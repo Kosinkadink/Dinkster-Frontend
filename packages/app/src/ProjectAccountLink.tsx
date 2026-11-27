@@ -87,7 +87,10 @@ export function ProjectAccountLink(props: {
   }
 
   // The nested dialog must not trigger the Projects dialog's backdrop or shortcuts.
-  return <div onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><ProductDialog title={message('projectAccount.title')} pending={saving()} onDismiss={props.onClose}>
+  return <div onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><ProductDialog title={message('projectAccount.title')} pending={saving()} onDismiss={props.onClose}
+    action={!loading() && !removing() && choices()?.projects.length
+      ? <ProductButton intent="add" fill="solid" pending={saving()} disabled={!changed() || !project()?.uid} onClick={() => { void save(selection()) }}>{message('projectAccount.save')}</ProductButton>
+      : undefined}>
     <Show when={error() && !removing()}><ProductErrorBanner onDismiss={() => setError(false)}>{message('projectAccount.error')}</ProductErrorBanner></Show>
     <Show when={loading()} fallback={<>
       <Show when={project()}>{(record) => <>
@@ -108,7 +111,6 @@ export function ProjectAccountLink(props: {
             </Show>
           </Show>
           <div class="dinkster-actions">
-            <Show when={choices()?.projects.length}><ProductButton intent="add" fill="solid" pending={saving()} disabled={!changed() || !record().uid} onClick={() => { void save(selection()) }}>{message('projectAccount.save')}</ProductButton></Show>
             <Show when={record().accountProject}><ProductButton intent="remove" disabled={saving() || !record().uid} onClick={() => setRemoving(true)}>{message('projectAccount.unlink')}</ProductButton></Show>
           </div>
         </>}>

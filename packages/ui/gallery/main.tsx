@@ -101,6 +101,7 @@ import { SiteGallery } from './site.js'
 import { EditorBarGallery } from './editor-bar.js'
 import { ProjectsGallery } from './projects.js'
 import { TemplatesGallery } from './templates.js'
+import { ModelDownloadsGallery } from './model-downloads.js'
 import { EngineStatesGallery } from './engine-states.js'
 import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
@@ -1717,7 +1718,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#page-tabs', '#models'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
@@ -1748,6 +1749,9 @@ function GalleryRoot() {
           </Match>
           <Match when={route() === '#templates'}>
             <TemplatesGallery />
+          </Match>
+          <Match when={route() === '#model-downloads'}>
+            <ModelDownloadsGallery />
           </Match>
           <Match when={route() === '#page-tabs'}>
             <PageTabsGallery />

@@ -42,7 +42,7 @@ export function CanvasEditorSpace(props: {
  */
 export function CanvasEditorPicture(props: {
   ref?: (element: HTMLDivElement) => void
-  message?: string
+  message?: JSX.Element
   loading?: boolean
   /** Controls drawn on the picture, at its top right. */
   actions?: JSX.Element
@@ -58,7 +58,7 @@ export function CanvasEditorPicture(props: {
           <Show when={props.loading}>
             <ProductSpinner />
           </Show>
-          <span>{props.message}</span>
+          {props.message}
         </div>
       </Show>
       <Show when={props.actions}>
@@ -74,6 +74,16 @@ export function CanvasEditorPicture(props: {
       />
     </div>
   )
+}
+
+/** Reports the natural height of controls whose rows change with the editor state. */
+export function CanvasEditorControls(props: { measured?: ((height: number) => void) | undefined; children: JSX.Element }) {
+  return <div class="dinkster-canvas-editor-controls" ref={(element) => {
+    if (props.measured === undefined) return
+    const observer = new ResizeObserver(() => props.measured?.(element.offsetHeight))
+    observer.observe(element)
+    onCleanup(() => observer.disconnect())
+  }}>{props.children}</div>
 }
 
 /** One line of an editor's own controls, as tall as a canvas row. */

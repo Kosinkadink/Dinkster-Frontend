@@ -177,6 +177,7 @@ export function CollectionPanel(props: {
   const [items, setItems] = createSolidSignal<readonly CollectionEntry[]>([])
   const [cursor, setCursor] = createSolidSignal<string | undefined>(undefined)
   const [total, setTotal] = createSolidSignal<number | undefined>(undefined)
+  const [disabledActions, setDisabledActions] = createSolidSignal<readonly string[]>([])
   const [loading, setLoading] = createSolidSignal(false)
   const [error, setError] = createSolidSignal<string | undefined>(undefined)
   // Owner of the COMMITTED page (see onSourceAction). Invalidated the
@@ -362,6 +363,7 @@ export function CollectionPanel(props: {
         setItems(append ? [...new Map([...items(), ...page.items].map((entry) => [entry.id, entry])).values()] : page.items)
         setCursor(page.cursor)
         setTotal(page.total)
+        setDisabledActions(page.disabledActions ?? [])
         setPageOwner(page.owner)
         setLoading(false)
         if (!append && pendingInitialSelection !== undefined && selectedId() === undefined) {
@@ -828,7 +830,7 @@ export function CollectionPanel(props: {
               class="collection-source-action"
               data-testid="collection-source-action"
               data-action={a.id}
-              disabled={loading()}
+              disabled={loading() || disabledActions().includes(a.id)}
               onClick={() => props.onSourceAction?.(sourceId(), a.id, pageOwner())}
             >
               {a.label}

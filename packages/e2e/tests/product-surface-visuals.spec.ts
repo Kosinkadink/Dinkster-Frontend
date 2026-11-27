@@ -376,13 +376,6 @@ test('stored run outputs load only after selection and retain their original ide
   await page.screenshot({ path: testInfo.outputPath('stored-runs-empty.png'), animations: 'disabled' })
   await page.getByTestId('runs-panel').getByTestId('collection-search').fill('absent run')
   await expect(empty).toHaveText('No matches.')
-  await page.getByTestId('runs-panel').getByTestId('collection-source-action').click()
-  const confirmation = page.getByTestId('runs-panel').locator('.dinkster-confirmation')
-  await expect(confirmation).toContainText('Removes every finished run on this backend, for all workflows. Saved files stay.')
-  await page.screenshot({ path: testInfo.outputPath('clear-finished-confirmation-1440.png'), animations: 'disabled' })
-  await page.setViewportSize({ width: 900, height: 900 })
-  await expect(confirmation).toBeVisible()
-  await page.screenshot({ path: testInfo.outputPath('clear-finished-confirmation-900.png'), animations: 'disabled' })
 })
 
 test('App view validation and remote failures keep editable controls', async ({ page }) => {
@@ -1530,7 +1523,7 @@ test('Saved connection rows retain actions, credential editing and connection fa
     document.querySelector('.canvas-pane')!.append(host)
     desktopWindow.dinksterDesktop = {
       locale: async () => 'en',
-      status: async () => ({ phase: 'running', detail: 'Ready' }),
+      info: async () => ({}),
       connectionCredentials: async () => ({ custody: true, profiles: [profile.id] }),
       setConnectionCredential: async () => { host.dataset['savedToken'] = 'true' },
     }

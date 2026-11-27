@@ -128,7 +128,6 @@ it('does not expose obsolete environment management when an older Desktop host s
   document.body.append(host)
   const bridge = {
     locale: async () => 'en',
-    status: async () => ({ phase: 'running' as const, detail: 'Ready' }),
     info: vi.fn(),
     exportSnapshot: vi.fn(),
     importSnapshot: vi.fn(),
