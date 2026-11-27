@@ -316,6 +316,13 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
         diagnostic.message),
     }
   }
+  if (t.kind === 'link' && t.hit.link.fromType?.kind === 'record') {
+    const record = t.hit.link.fromType as Extract<TypeExpr, { kind: 'record' }>
+    return {
+      title: record.name,
+      lines: record.fields.map((field) => `${field.name}: ${presentedType(defaultTokens, field.type).label}`),
+    }
+  }
   if (t.kind === 'pin') {
     const schema = context.resolveSchema?.(t.hit.node.node.type)
     const port = portSpecOf(schema, t.hit.node.node, t.hit.direction === 'in' ? 'input' : 'output', t.hit.portId)

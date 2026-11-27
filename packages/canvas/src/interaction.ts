@@ -3216,7 +3216,7 @@ export class InteractionController {
       : note
         ? { kind: 'note', row: note, x: clientX, y: clientY }
       : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'button' || hit.kind === 'memberRemove' || hit.kind === 'header' || hit.kind === 'reroute' ||
-        hit.kind === 'link' && hit.link.mismatch === true)
+        hit.kind === 'link' && (hit.link.mismatch === true || hit.link.fromType?.kind === 'record'))
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
         : undefined)
   }

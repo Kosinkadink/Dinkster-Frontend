@@ -256,6 +256,24 @@ describe('canvas tooltip provider', () => {
     ])
   })
 
+  it('record wire hover lists declared field names and types without reading values', () => {
+    const record = { kind: 'record', name: 'Settings', fields: [
+      { id: 'stable-seed', name: 'noise', type: { kind: 'concrete', name: 'INT' }, optional: false },
+      { id: 'stable-images', name: 'images', type: { kind: 'list', element: { kind: 'concrete', name: 'IMAGE' } }, optional: true },
+      { id: 'stable-inner', name: 'details', type: { kind: 'record', name: 'Details', fields: [] }, optional: false },
+    ] }
+    const link = { fromType: record, toType: { kind: 'wildcard' }, get value() { throw new Error('Value access is forbidden') } }
+    expect(resolveCanvasTooltip({ kind: 'link', hit: { link } }, { detailed: false })).toEqual({
+      title: 'Settings', lines: ['noise: INT', 'images: list<IMAGE>', 'details: Details'],
+    })
+    expect(resolveCanvasTooltip({ kind: 'link', hit: { link: {
+      fromType: record, mismatch: true, diagnostics: [{ severity: 'warning', message: 'Field noise must be STRING, got INT' }],
+    } } }, { detailed: false })).toEqual({
+      title: 'Type mismatch', lines: ['Field noise must be STRING, got INT'],
+    })
+    expect(resolveCanvasTooltip({ kind: 'link', hit: { link: { fromType: { kind: 'concrete', name: 'INT' } } } }, { detailed: false })).toBeUndefined()
+  })
+
   it('mismatch link hover shows every retained solver diagnostic', () => {
     const target = {
       kind: 'link',

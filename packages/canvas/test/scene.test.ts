@@ -54,6 +54,46 @@ function sceneOf(workflow: string, graphId = 'g0') {
 }
 
 describe('buildScene', () => {
+  it('preserves record fields on direct and rerouted wires into a generic input', () => {
+    const record: TypeExpr = { kind: 'record', name: 'Settings', fields: [
+      { id: 'seed-id', name: 'noise', type: { kind: 'concrete', name: 'INT' }, optional: false },
+      { id: 'label-id', name: 'label', type: { kind: 'concrete', name: 'STRING' }, optional: true },
+    ] }
+    const source: NodeSchema = { type: 'Make', displayName: 'Make', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'output', id: 'record', type: record }] }
+    const sink: NodeSchema = { ...source, type: 'Sink', body: [{ kind: 'input', id: 'value', type: { kind: 'wildcard' }, optional: false }] }
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'record-wires', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Root', nextOrdinal: 3, nodes: {
+        make: { id: 'make', type: 'Make', values: {} }, sink: { id: 'sink', type: 'Sink', values: {} },
+        other: { id: 'other', type: 'Sink', values: {} },
+      }, links: {
+        direct: { id: 'direct', from: { node: 'make', port: 'record' }, to: { node: 'sink', port: 'value' } },
+        first: { id: 'first', from: { node: 'make', port: 'record' }, to: { reroute: 'r0' } },
+        middle: { id: 'middle', from: { reroute: 'r0' }, to: { reroute: 'r1' } },
+        last: { id: 'last', from: { reroute: 'r1' }, to: { node: 'other', port: 'value' } },
+      }, nets: {}, reroutes: { r0: { id: 'r0' }, r1: { id: 'r1' } } } },
+      view: { graphs: {} },
+    })
+    expect(loaded.diagnostics).toEqual([])
+    const scene = buildScene({ document: loaded.document!, graphId: 'g0', resolve: (type) => type === 'Make' ? source : sink,
+      tokens: defaultTokens, measure, widgetMeasure })
+    expect(scene.links.map((link) => [link.id, link.fromType])).toEqual([
+      ['direct', record], ['first', record], ['middle', record], ['last', record],
+    ])
+    const graph = loaded.document!.graphs.g0!
+    const document = { ...loaded.document!, graphs: { g0: { ...graph, links: {}, reroutes: {}, boundary: { body: [
+      { kind: 'input' as const, id: 'incoming', binds: { kind: 'port' as const, node: asNodeId('sink'), port: asPortId('value') } },
+      { kind: 'output' as const, id: 'outgoing', binds: { kind: 'port' as const, node: asNodeId('make'), port: asPortId('record') } },
+    ] } } } }
+    const bound = { ...sink, body: [{ kind: 'input' as const, id: 'value', type: record, optional: false }] }
+    const inside = buildScene({ document, graphId: 'g0', resolve: documentResolver(document, (type) => type === 'Make' ? source : bound),
+      tokens: defaultTokens, measure, widgetMeasure })
+    expect(inside.links.map((link) => [link.id, link.fromType])).toEqual([
+      ['boundary:inputs:incoming', record], ['boundary:outputs:outgoing', record],
+    ])
+  })
+
   it('keeps mapped Save wires on their real inputs through folding and undo', () => {
     const schema: NodeSchema = {
       type: 'Save', displayName: 'Save', category: 'test', source: 'v3', isOutputNode: true,

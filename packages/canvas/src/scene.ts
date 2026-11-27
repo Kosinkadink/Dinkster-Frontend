@@ -1432,27 +1432,31 @@ export function buildScene(input: BuildSceneInput): Scene {
   const reroutes: SceneReroute[] = []
   const rerouteById = new Map<string, SceneReroute>()
   let rerouteFallbackY = 0
-  const outputTypeName = (ref: PortRef): string | undefined => {
+  const outputType = (ref: PortRef): TypeExpr | undefined => {
     const producer = byId.get(ref.node)
     const key = ref.port
     // Real output only: a widget tap shares its input's port id on the 'out'
     // side, so an unguarded lookup would color off the widget row.
     const pin = producer?.layout.pins.find((p) => p.direction === 'out' && p.portId === key && p.widgetTap !== true)
-    return pin === undefined ? undefined : canonicalTypeIdOf(pin.type)
+    return pin?.type
   }
-  const widgetTapTypeName = (nodeId: string, inputId: string): string | undefined => {
+  const widgetTapType = (nodeId: string, inputId: string): TypeExpr | undefined => {
     const node = byId.get(nodeId)
     const pin = node?.layout.pins.find((p) => p.widgetTap === true && p.address.port === inputId)
-    return pin === undefined ? undefined : canonicalTypeIdOf(pin.type)
+    return pin?.type
   }
-  const tracedTypeName = (from: LinkEndpoint): string | undefined => {
+  const tracedType = (from: LinkEndpoint): TypeExpr | undefined => {
     if (isWidgetTapRef(from)) {
-      return widgetTapTypeName(from.node, from.tap)
+      return widgetTapType(from.node, from.tap)
     }
     const trace = traceEndpoint(def, from, rerouteIndex)
-    if (trace.kind === 'tapValue') return widgetTapTypeName(trace.node, trace.input)
+    if (trace.kind === 'tapValue') return widgetTapType(trace.node, trace.input)
     if (trace.kind !== 'output') return undefined
-    return outputTypeName(trace.ref)
+    return outputType(trace.ref)
+  }
+  const tracedTypeName = (from: LinkEndpoint): string | undefined => {
+    const type = tracedType(from)
+    return type === undefined ? undefined : canonicalTypeIdOf(type)
   }
   const bypassInput = (ref: PortRef, consumerType?: TypeExpr) => {
     const node = byId.get(ref.node)
@@ -1531,7 +1535,8 @@ export function buildScene(input: BuildSceneInput): Scene {
   const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr; kept?: true } | undefined => {
     if (isRerouteRef(end)) {
       const r = rerouteById.get(end.reroute)
-      return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id }, ...(r.typeName ? { type: typeExprFromTypeId(r.typeName) } : {}) } : undefined
+      const type = tracedType(end)
+      return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id }, ...(type === undefined ? {} : { type }) } : undefined
     }
     if (isWidgetTapRef(end)) {
       const node = byId.get(end.node)
@@ -2076,6 +2081,7 @@ export function buildScene(input: BuildSceneInput): Scene {
             y1: from.y,
             x2: to.x,
             y2: to.y,
+            ...(pinType === undefined ? {} : { fromType: pinType }),
             ...(typeName !== undefined ? { typeName } : {}),
             boundary: true,
             ...(item.wireHidden === true ? { hidden: true as const } : {}),
@@ -2103,16 +2109,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       const to = boundaryPin(outputsNode, item.id)
       if (!to) continue
       const pinType = outputsNode.layout.pins.find((p) => p.portId === item.id)?.type
-      const traced =
-        item.binds.kind === 'port'
-          ? tracedTypeName({
-              node: item.binds.node,
-              port: item.binds.port,
-            })
-          : item.binds.kind === 'widgetTap'
-            ? widgetTapTypeName(item.binds.node, item.binds.tap)
-          : undefined
-      const typeName = traced ?? (pinType === undefined ? undefined : canonicalTypeIdOf(pinType))
+      const type = item.binds.kind === 'port' || item.binds.kind === 'widgetTap' ? tracedType(item.binds) ?? pinType : pinType
+      const typeName = type === undefined ? undefined : canonicalTypeIdOf(type)
       const maybeAbsent = item.binds.kind === 'port' && tracedMaybeAbsent({ node: item.binds.node, port: item.binds.port })
       const sourceMuted = item.binds.kind === 'port' && tracedSourceMuted({ node: item.binds.node, port: item.binds.port })
       const projected = projectedAnchors('out', item, item.binds)
@@ -2127,6 +2125,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           y1: from.y,
           x2: to.x,
           y2: to.y,
+          ...(type === undefined ? {} : { fromType: type }),
           ...(typeName !== undefined ? { typeName } : {}),
           ...(maybeAbsent ? { maybeAbsent: true as const } : {}),
           ...(sourceMuted ? { sourceMuted: true as const } : {}),
