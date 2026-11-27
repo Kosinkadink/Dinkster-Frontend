@@ -73,7 +73,7 @@ export function MediaValueInspector(props: {
             <div><dt>{message('mediaInspector.fact.outputId')}</dt><dd>{props.query.outputId}</dd></div>
             <div><dt>{message('mediaInspector.fact.type')}</dt><dd>{value().typeId}</dd></div>
             <div><dt>{message('mediaInspector.fact.fingerprint')}</dt><dd>{value().fingerprint}</dd></div>
-            <For each={metadata()?.fields}>{(field) => <div><dt>{message(`mediaInspector.metadata.${field.id}`)}</dt><dd>{metadataValue(field)}</dd></div>}</For>
+            <For each={metadata()?.fields.filter((field) => metadata()?.kind !== 'AUDIO' || field.value !== undefined)}>{(field) => <div><dt>{message(`mediaInspector.metadata.${field.id}`)}</dt><dd>{metadataValue(field)}</dd></div>}</For>
             <Show when={!metadata()}><div><dt>{message('mediaInspector.fact.mediaMetadata')}</dt><dd>{message('mediaInspector.status.notReportedForKind')}</dd></div></Show>
           </dl>
         )}</Show>

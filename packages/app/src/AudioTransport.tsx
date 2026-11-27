@@ -1,19 +1,17 @@
-import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, on, onCleanup, Show } from 'solid-js'
 import type { NodePreview } from '@dinkster/canvas'
-import { ProductAudioWaveform } from '@dinkster/ui'
+import { ChevronLeft, ChevronRight, Pause, Play, Repeat, Volume2 } from 'lucide-solid'
+import { ProductAudioWaveform, ProductIcon, ProductIconButton } from '@dinkster/ui'
 import { ProductSlider } from './ProductSlider.js'
 import { audioNumber } from './audio-preview.js'
-import { mediaMetadataOf } from './media-metadata.js'
 import { useAppMessage } from './locale.js'
 import { failureMessage } from './request-failure.js'
-import './audio-controls.css'
 
 /** Shared Canvas/App transport. Its gain, loop and playhead are never graph values. */
 export function AudioTransport(props: {
   readonly media: NodePreview
   readonly interactive?: boolean
   readonly onActiveChange?: (active: boolean) => void
-  readonly onMediaError?: () => void
 }) {
   const message = useAppMessage()
   let element: HTMLAudioElement | undefined
@@ -30,7 +28,7 @@ export function AudioTransport(props: {
   const [nativeDuration, setNativeDuration] = createSignal(0)
   const [playing, setPlaying] = createSignal(false)
   const [busy, setBusy] = createSignal(false)
-  const [diagnostic, setDiagnostic] = createSignal('')
+  const [failure, setFailure] = createSignal('')
   const [batch, setBatch] = createSignal(0)
   const [loop, setLoop] = createSignal(false)
   const [gain, setGain] = createSignal(1)
@@ -44,6 +42,12 @@ export function AudioTransport(props: {
     return url
   }
   const active = () => props.onActiveChange?.(focused || playing())
+  const canSeek = () => !failure() && duration() > 0 && (props.media.audio === undefined || props.media.audio.canScrub === true)
+  const seek = (position: number) => { void load(Math.min(position, Math.max(0, duration() - 0.01)), batch(), playing() || resume) }
+  const clock = (seconds: number) => {
+    const whole = Math.max(0, Math.floor(seconds))
+    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
+  }
   const load = async (position: number, selectedBatch: number, autoplay: boolean) => {
     const audio = props.media.audio
     if (!audio) {
@@ -56,14 +60,14 @@ export function AudioTransport(props: {
     element?.pause()
     resume = autoplay
     setBusy(true)
-    setDiagnostic('')
+    setFailure('')
     setTime(position)
     const deadline = setTimeout(() => {
       request.abort()
       resume = false
       setSrc(undefined)
       setBusy(false)
-      setDiagnostic('Audio window request timed out. Scrub to retry.')
+      setFailure(failureMessage(new DOMException('Audio request timed out', 'TimeoutError'), message('audioPreview.loadFailed')))
     }, 10_000)
     request.signal.addEventListener('abort', () => clearTimeout(deadline), { once: true })
     try {
@@ -74,9 +78,9 @@ export function AudioTransport(props: {
       span = result.duration
       setSrc(result.window ? blobUrl(result.window, 'audio/wav') : undefined)
       setWaveform(result.waveform ? blobUrl(result.waveform, 'image/png') : undefined)
-      setDiagnostic(result.diagnostics.join('; '))
+      if (!result.window) setFailure(result.diagnostics.join('; ') || message('audioPreview.unavailable'))
     } catch (error) {
-      if (!request.signal.aborted) { setSrc(undefined); setDiagnostic(failureMessage(error, 'Audio could not be loaded.')) }
+      if (!request.signal.aborted) { setSrc(undefined); setFailure(failureMessage(error, message('audioPreview.loadFailed'))) }
     } finally {
       clearTimeout(deadline)
       if (!request.signal.aborted) setBusy(false)
@@ -91,13 +95,13 @@ export function AudioTransport(props: {
     element?.pause()
     release()
     setBatch(media.audio?.initialBatch ?? 0); setTime(0); setNativeDuration(0); setWaveform(undefined); setPlaying(false)
+    setFailure(''); setBusy(false)
     start = 0; span = 0; resume = false
     if (media.audio) {
       void detached.then(() => { if (current) void load(0, batch(), false) })
     }
     else {
       setSrc(undefined)
-      setDiagnostic('Waveform and window playback require an executed AUDIO value.')
       const consume = async (): Promise<void> => {
         await detached
         if (!current) return
@@ -122,13 +126,13 @@ export function AudioTransport(props: {
         })
       }
       void consume().catch((error: unknown) => {
-        if (current) { setDiagnostic(failureMessage(error, 'Audio could not be loaded.')); setBusy(false) }
+        if (current) { setFailure(failureMessage(error, message('audioPreview.loadFailed'))); setBusy(false) }
       })
     }
   }))
   const play = async () => {
     try { await element?.play() }
-    catch (error) { setDiagnostic(`Audio playback unavailable: ${error instanceof Error ? error.message : String(error)}`) }
+    catch { setFailure(message('audioPreview.cannotPlay')) }
   }
   const ended = () => {
     setPlaying(false); active()
@@ -146,40 +150,40 @@ export function AudioTransport(props: {
     onFocusIn={() => { focused = true; active() }}
     onFocusOut={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { focused = false; active() } }}>
     <div class="audio-waveform">
-      <ProductAudioWaveform image={waveform()} value={time()} duration={duration()} ariaLabel="Audio position"
-        interactive={props.interactive !== false}
-        disabled={duration() <= 0 || (props.media.audio !== undefined && props.media.audio.canScrub !== true)}
-        onImageError={() => setDiagnostic('Audio waveform could not be decoded by this browser')}
-        onSeek={(position) => { void load(Math.min(position, Math.max(0, duration() - 0.01)), batch(), playing() || resume) }} />
+      <Show when={!failure()} fallback={<div class="audio-preview-failure" role="status">{failure()}</div>}>
+        <ProductAudioWaveform image={waveform()} value={time()} duration={duration()} ariaLabel={message('audioPreview.waveform')}
+          showTime={false} interactive={false} onImageError={() => setWaveform(undefined)} onSeek={seek} />
+      </Show>
     </div>
     <audio ref={element} src={src()} preload="metadata" onError={() => {
-      setDiagnostic('Audio window cannot be played by this browser')
-      if (!props.media.audio) props.onMediaError?.()
+      if (src()) setFailure(message('audioPreview.cannotPlay'))
     }}
       onLoadedMetadata={() => { setNativeDuration(Number.isFinite(element?.duration) ? element!.duration : 0); if (element) element.volume = gain(); if (resume) { resume = false; void play() } }}
       onTimeUpdate={() => { if (!busy()) setTime(start + (element?.currentTime ?? 0)) }}
       onPlay={() => { setPlaying(true); active() }} onPause={() => { setPlaying(false); active() }} onEnded={ended} />
     <Show when={props.interactive !== false}>
       <div class="audio-transport-row">
-        <button type="button" disabled={busy() || !src()} aria-label={playing() ? 'Pause audio' : 'Play audio'} onClick={() => {
+        <ProductIconButton label={message(playing() ? 'audioPreview.pause' : 'audioPreview.play')} icon={playing() ? Pause : Play}
+          pending={busy()} disabled={!src() || !!failure()} onClick={() => {
           if (playing()) element?.pause()
           else if (element?.ended && props.media.audio) void load(0, batch(), true)
           else void play()
-        }}>{playing() ? 'Pause' : 'Play'}</button>
+        }} />
+        <ProductSlider ariaLabel={message('audioPreview.position')} min={0} max={duration()} step={0.01} value={time()} disabled={!canSeek()} onInput={seek} />
+        <span class="dinkster-audio-time">{clock(time())}<Show when={duration() > 0}> / {clock(duration())}</Show></span>
       </div>
       <div class="audio-transport-row">
-        <label><input type="checkbox" checked={loop()} onChange={(event) => setLoop(event.currentTarget.checked)} /> Loop</label>
-        <label class="audio-gain">Gain <ProductSlider ariaLabel="Audio gain" min={0} max={1} step={0.01} value={gain()} onInput={(value) => { setGain(value); if (element) element.volume = value }} /></label>
+        <ProductIconButton label={message('audioPreview.loop')} icon={Repeat} aria-pressed={loop()} onClick={() => setLoop(!loop())} />
+        <span class="audio-volume-icon" title={message('audioPreview.volume')}><ProductIcon icon={Volume2} /></span>
+        <ProductSlider ariaLabel={message('audioPreview.volume')} min={0} max={1} step={0.01} value={gain()} onInput={(value) => { setGain(value); if (element) element.volume = value }} />
         <Show when={batches() > 1}>
-          <button type="button" aria-label="Previous audio batch" disabled={batch() === 0 || props.media.audio?.canSelectBatch !== true} onClick={() => { setBatch(batch() - 1); void load(0, batch(), false) }}>Previous</button>
-          <span>Batch {batch() + 1}/{batches()}</span>
-          <button type="button" aria-label="Next audio batch" disabled={batch() + 1 >= batches() || props.media.audio?.canSelectBatch !== true} onClick={() => { setBatch(batch() + 1); void load(0, batch(), false) }}>Next</button>
-          <Show when={props.media.audio?.canSelectBatch !== true}><small>Batch selection not advertised by backend.</small></Show>
+          <div class="audio-batch-stepper">
+            <ProductIconButton label={message('audioPreview.previous')} icon={ChevronLeft} disabled={batch() === 0 || props.media.audio?.canSelectBatch !== true} onClick={() => { setBatch(batch() - 1); void load(0, batch(), false) }} />
+            <span>{message('audioPreview.batch', { index: batch() + 1, count: batches() })}</span>
+            <ProductIconButton label={message('audioPreview.next')} icon={ChevronRight} disabled={batch() + 1 >= batches() || props.media.audio?.canSelectBatch !== true} onClick={() => { setBatch(batch() + 1); void load(0, batch(), false) }} />
+          </div>
         </Show>
       </div>
     </Show>
-    <div class="audio-facts"><For each={mediaMetadataOf('AUDIO', meta())?.fields.filter((field) => ['sampleRateHz', 'channels', 'layout', 'durationSeconds'].includes(field.id))}>{(field) => <span>{message(`mediaInspector.metadata.${field.id}`)}: {field.value === undefined ? message('mediaInspector.metadata.notReported') : field.value}</span>}</For></div>
-    <Show when={props.media.audio}><small>Window preview only. Loop and gain do not change the value.</small></Show>
-    <Show when={busy() || diagnostic()}><div class="audio-diagnostic" role="status">{busy() ? 'Loading audio window...' : diagnostic()}</div></Show>
   </div>
 }

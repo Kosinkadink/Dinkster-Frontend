@@ -979,8 +979,7 @@ export function NodeMediaOverlay(props: {
           {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
         </Show>
         <Show when={props.media.kind === 'video'} fallback={
-          <AudioTransport media={props.media} interactive onActiveChange={(active) => props.onActiveChange?.(active)}
-            onMediaError={() => props.onMediaError?.()} />
+          <AudioTransport media={props.media} interactive onActiveChange={(active) => props.onActiveChange?.(active)} />
         }>
           <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
             onActiveChange={props.onActiveChange} onMediaError={props.onMediaError} />
