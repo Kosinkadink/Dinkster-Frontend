@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, compile, coreCommandRegistry, DocumentStore, documentResolver, loadDocument, type GraphDef, type InputSpec, type Json, type NodeSchema, type OutputSpec, type TypeExpr, type WidgetRegistry, type WorkflowDocument } from '@dinkster/core'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, compile, coreCommandRegistry, DocumentStore, documentResolver, elaborateInterface, elabInputsOf, loadDocument, type GraphDef, type InputSpec, type Json, type NodeSchema, type OutputSpec, type TypeExpr, type WidgetRegistry, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { appViewQueueScope, appViewQueueTargetOptions, buildParamRows, buildPreviewRows, previewRuntimeMapping, type ParamRow } from '../src/app-view-rows.js'
 import { boundarySample, resolveBoundarySample } from '../../core/test/fixtures/boundary-sample.js'
@@ -386,14 +386,141 @@ describe('buildParamRows', () => {
     expect(rows.map((r) => live(r).linked)).toEqual([false, false])
   })
 
-  it('shows an automatic field with nothing stored at the value it has in use, not its default', () => {
+  it('recalculates an unstored automatic field for each renamed occurrence through edits, fallback and reload', () => {
     const INT: TypeExpr = { kind: 'concrete', name: 'INT' }
-    const automatic: NodeSchema = schemaOf('Sink', [input('seed', { type: INT }), input('steps', { type: INT, automatic: { formula: 'seed * 2' } })])
-    const rows = buildParamRows(
-      doc({ values: { seed: 21 }, exposed: [entry('sink', 'steps')] }),
-      (type) => type === 'Sink' ? automatic : resolve(type),
-    )
-    expect(live(rows[0]!).value).toBe(42)
+    const automatic: NodeSchema = { ...schemaOf('Sink', [input('seed', { type: INT }), input('steps', {
+      type: INT, automatic: { formula: 'seed * 2' }, labelFormula: { formula: '"Steps " + str(seed * 2)' },
+      tooltip: 'Calculated from this occurrence',
+    })]), isOutputNode: true }
+    const resolveAutomatic = (type: string) => type === 'Sink' ? automatic : resolveBoundarySample(type)
+    const binding = (id: string, node: string, port: string) => ({
+      kind: 'input', id, promoted: true, binds: { kind: 'port', node, port },
+    })
+    for (const depth of [0, 1, 2] as const) {
+      const original = boundarySample(depth)
+      const seed = depth === 0 ? 'seed' : depth === 1 ? 'start' : 'control'
+      const steps = depth === 0 ? 'steps' : depth === 1 ? 'total' : 'result'
+      const document = { ...original, graphs: {
+        root: { ...original.graphs.root!, nodes: Object.fromEntries(['first', 'second'].map((id) => [id, {
+          id, type: depth === 0 ? 'Sink' : depth === 1 ? '#detail' : '#portrait', values: { [seed]: id === 'first' ? 21 : 13 },
+        }])) },
+        ...(depth > 0 ? { detail: { ...original.graphs.detail!, nodes: {
+          sample: { id: 'sample', type: 'Sink', values: { seed: 3 } },
+        }, boundary: { body: [binding('start', 'sample', 'seed'), binding('total', 'sample', 'steps')] } } } : {}),
+        ...(depth === 2 ? { portrait: { ...original.graphs.portrait!, nodes: {
+          detail: { id: 'detail', type: '#detail', values: { start: 7 } },
+        }, boundary: { body: [binding('control', 'detail', 'start'), binding('result', 'detail', 'total')] } } } : {}),
+      }, ext: { 'dinkster.exposed': ['first', 'second'].map((nodeId) => ({ graphId: 'root', nodeId, inputId: steps })) } } as unknown as WorkflowDocument
+      const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined, () => ({
+        kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveAutomatic),
+      }))
+      const check = (current: WorkflowDocument, firstSeed: number) => {
+        const rows = buildParamRows(current, resolveAutomatic).map(live)
+        expect(rows.map((row) => [row.entry.graphId, row.entry.nodeId, row.valueKey, row.value, row.label, row.linked])).toEqual([
+          ['root', 'first', steps, firstSeed * 2, `Steps ${firstSeed * 2}`, false],
+          ['root', 'second', steps, 26, 'Steps 26', false],
+        ])
+        for (const row of rows) {
+          expect(row.item.spec.tooltip).toBe('Calculated from this occurrence')
+          expect(row.spec).toEqual(input('steps').widget)
+          expect(row.node.values).not.toHaveProperty(steps)
+        }
+        const result = compile({ document: current, revision: 1, resolve: resolveAutomatic, scope: { kind: 'full' },
+          connection: 'formula-occurrence' as never, schemaHash: 'formula-occurrence' })
+        expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+        if (!result.ok) throw new Error('automatic occurrence did not compile')
+        const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
+        expect(result.artifact.prompt).toEqual({
+          [`first${suffix}`]: { class_type: 'Sink', inputs: { seed: firstSeed }, outputIds: [] },
+          [`second${suffix}`]: { class_type: 'Sink', inputs: { seed: 13 }, outputIds: [] },
+          ...(current.graphs.root!.nodes.outside?.type === 'IntSource'
+            ? { outside: { class_type: 'IntSource', inputs: {}, outputIds: ['number'] } } : {}),
+        })
+        for (const [receiver, expected] of [[`first${suffix}`, firstSeed * 2], [`second${suffix}`, 26]] as const) {
+          const native = elabInputsOf(elaborateInterface(automatic, {
+            values: result.artifact.prompt[receiver]!.inputs as Record<string, Json>,
+          })).find((row) => row.spec.id === 'steps')!
+          expect(native.automatic).toEqual({ state: 'worked-out', value: expected })
+        }
+        expect(current.graphs.detail).toEqual(document.graphs.detail)
+        expect(current.graphs.portrait).toEqual(document.graphs.portrait)
+      }
+      check(store.doc, 21)
+      expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: seed, value: 31 } }).ok).toBe(true)
+      const edited = store.doc
+      check(edited, 31)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(document)
+      check(store.doc, 21)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(edited)
+      check(loadDocument(JSON.parse(JSON.stringify(edited))).document!, 31)
+      expect(store.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: 'first', values: {}, unset: [seed] } }).ok).toBe(true)
+      check(store.doc, depth === 2 ? 7 : depth === 1 ? 3 : 5)
+      check(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, depth === 2 ? 7 : depth === 1 ? 3 : 5)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(edited)
+      check(store.doc, 31)
+      expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: steps, value: 19 } }).ok).toBe(true)
+      for (const current of [store.doc, loadDocument(JSON.parse(JSON.stringify(store.doc))).document!]) {
+        const rows = buildParamRows(current, resolveAutomatic).map(live)
+        expect(rows.map((row) => row.value)).toEqual([19, 26])
+        expect(rows[0]!.item.automatic).toBeUndefined()
+        expect(rows[0]!.item.automaticIfEmptied).toEqual({ state: 'worked-out', value: 62 })
+        const result = compile({ document: current, revision: 1, resolve: resolveAutomatic, scope: { kind: 'full' },
+          connection: 'formula-occurrence' as never, schemaHash: 'formula-occurrence' })
+        expect(result.ok).toBe(true)
+        if (!result.ok) throw new Error('stored formula override did not compile')
+        const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
+        expect(result.artifact.prompt[`first${suffix}`]!.inputs).toEqual({ seed: 31, steps: 19 })
+        expect(result.artifact.prompt[`second${suffix}`]!.inputs).toEqual({ seed: 13 })
+      }
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(edited)
+      check(store.doc, 31)
+      for (const literal of [true, false]) {
+        const before: WorkflowDocument = { ...edited, graphs: { ...edited.graphs, root: { ...edited.graphs.root!, nodes: {
+          ...edited.graphs.root!.nodes,
+          outside: { id: asNodeId('outside'), type: literal ? 'dinkster.utilities.primitive_int' : 'IntSource',
+            values: literal ? { value: 47 } : {} },
+        } } } }
+        const wired = new DocumentStore(before, coreCommandRegistry(), 200, undefined, () => ({
+          kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveAutomatic),
+        }))
+        expect(wired.dispatch({ command: 'link.connect', params: { graphId: 'root',
+          from: port('outside', literal ? 'value' : 'number'), to: port('first', seed),
+        } }).ok).toBe(true)
+        const connected = wired.doc
+        for (const current of [connected, loadDocument(JSON.parse(JSON.stringify(connected))).document!]) {
+          const rows = buildParamRows(current, resolveAutomatic).map(live)
+          expect(rows.map((row) => row.value)).toEqual([5, 26])
+          expect(rows[0]!.item.automatic).toMatchObject({ state: 'default', value: 5 })
+          expect(current.graphs.root!.nodes.first!.values).toEqual({ [seed]: 31 })
+          const exposed = { ...current, ext: { 'dinkster.exposed': [{ graphId: 'root', nodeId: 'first', inputId: seed }] } }
+          expect(live(buildParamRows(exposed, resolveAutomatic)[0]!).linked).toBe(true)
+          const result = compile({ document: current, revision: 1, resolve: resolveAutomatic, scope: { kind: 'full' },
+            connection: 'formula-occurrence' as never, schemaHash: 'formula-occurrence' })
+          expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+          if (!result.ok) throw new Error('linked formula dependency did not compile')
+          const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
+          expect(result.artifact.prompt[`first${suffix}`]!.inputs).toEqual({ seed: literal ? 47 : ['outside', 0] })
+          expect(result.artifact.prompt[`second${suffix}`]!.inputs).toEqual({ seed: 13 })
+          expect(current.graphs.detail).toEqual(document.graphs.detail)
+          expect(current.graphs.portrait).toEqual(document.graphs.portrait)
+        }
+        expect(wired.dispatch({ command: 'link.disconnect', params: {
+          graphId: 'root', linkId: Object.keys(connected.graphs.root!.links)[0]!,
+        } }).ok).toBe(true)
+        check(wired.doc, 31)
+        const disconnected = wired.doc
+        expect(wired.undo()).toBe(true)
+        expect(wired.doc).toEqual(connected)
+        expect(buildParamRows(wired.doc, resolveAutomatic).map((row) => live(row).value)).toEqual([5, 26])
+        expect(wired.redo()).toBe(true)
+        expect(wired.doc).toEqual(disconnected)
+        check(loadDocument(JSON.parse(JSON.stringify(disconnected))).document!, 31)
+      }
+    }
   })
 
   it('shows an automatic lookup field at the answer the editor holds, and its default before one arrives', () => {
