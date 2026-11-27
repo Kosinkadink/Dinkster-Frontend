@@ -273,6 +273,8 @@ test('crowded destinations reserve a whole slot without changing selection and o
     })
     app.panels.register({ id: 'incoming-panel', title: 'Incoming panel', placement: 'bottom',
       allowedPlacements: ['rail', 'bottom'], order: 100, component: () => document.createElement('div') })
+    app.panels.register({ id: 'oversized-panel', title: 'A genuinely oversized panel title that cannot fit in the narrow destination row', placement: 'bottom',
+      allowedPlacements: ['rail', 'bottom'], order: 101, component: () => document.createElement('div') })
   })
   await page.getByTestId('rail-resize').focus()
   await page.keyboard.press('Home')
@@ -317,13 +319,30 @@ test('crowded destinations reserve a whole slot without changing selection and o
   const title = page.getByTestId('dock-zone-left').locator('[data-panel-title]')
   const libraryId = await title.getAttribute('data-tab-id')
   expect((await title.boundingBox())!.width).toBeGreaterThan(strip.width)
-  const activeBody = await body.getAttribute('id')
   await enter(title, strip.x + 8)
+  await expect(slot).toBeVisible()
+  const librarySlotWidth = (await slot.boundingBox())!.width
+  expect(librarySlotWidth).toBeLessThan(strip.width)
+  await capture(page, 'panel-library-title-slot')
+  await page.mouse.up()
+  expect((await zoneOrder(page, 'right'))[0]).toBe(libraryId)
+  expect((await rightTab(page, libraryId!).boundingBox())!.width).toBeCloseTo(librarySlotWidth, 1)
+
+  const oversized = zoneTab(page, 'bottom', 'oversized-panel')
+  expect((await oversized.boundingBox())!.width).toBeGreaterThan(strip.width)
+  const activeBody = await body.getAttribute('id')
+  const beforeFallback = await visibleTabs()
+  await enter(oversized, strip.x + 8)
   await expect(slot).toHaveCount(0)
   await expect(page.getByTestId('panel-drag-target')).toHaveAttribute('data-kind', 'zone')
   await expect(body).toHaveAttribute('id', activeBody!)
+  expect(await visibleTabs()).toEqual(beforeFallback)
+  const caption = (await page.locator('.panel-drag-target-label').boundingBox())!
+  const ghost = (await page.getByTestId('tab-drag-ghost').boundingBox())!
+  expect(caption.y).toBeGreaterThan(ghost.y + ghost.height)
+  await capture(page, 'panel-truly-oversized-fallback')
   await page.mouse.up()
-  expect((await zoneOrder(page, 'right')).at(-1)).toBe(libraryId)
+  expect((await zoneOrder(page, 'right')).at(-1)).toBe('oversized-panel')
 })
 
 test('release rolls back when the previewed zone disappears during a drag', async ({ page }) => {

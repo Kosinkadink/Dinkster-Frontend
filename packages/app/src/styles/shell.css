@@ -523,6 +523,7 @@
   border: 1px solid var(--dinkster-border-hover);
   border-radius: var(--dinkster-radius-control);
 }
+.panel-drag-target[data-slot-fallback='true'] { place-items: center; }
 .panel-drag-target[data-allowed='false'] {
   color: var(--dinkster-danger-foreground);
   background: color-mix(in srgb, var(--dinkster-danger-background) 72%, transparent);

@@ -2340,7 +2340,18 @@ export function App(props: {
     if (panelId === undefined || originZone === undefined || descriptor === undefined || snapshot === undefined) return
 
     disposePanelDrag?.()
-    panelDragWidth = target.getBoundingClientRect().width
+    const tab = target.matches('[data-panel-title]')
+      ? target.closest('.dock-zone-section')!.querySelector<HTMLElement>(`.product-tab[data-tab-id="${CSS.escape(panelId)}"]`)!
+      : target
+    const tablist = tab.closest<HTMLElement>('.product-tablist')!
+    const display = tablist.style.display
+    const tabDisplay = tab.style.display
+    // Title-only headers stretch, but their mounted tab has the landing-row size.
+    tablist.style.display = 'flex'
+    tab.style.display = 'block'
+    panelDragWidth = tab.getBoundingClientRect().width
+    tab.style.display = tabDisplay
+    tablist.style.display = display
     panelDragPointerId = pointerId
     let drag = beginPanelDragModel(
       pointerId,

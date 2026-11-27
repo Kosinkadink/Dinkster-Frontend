@@ -71,6 +71,7 @@ export function PanelDragOverlay(props: {
                 data-allowed={preview.allowed}
                 data-kind={preview.target.kind}
                 data-zone={targetZone(preview.target)}
+                data-slot-fallback={props.drag.tabFit?.acceptsSlot === false && target.kind === 'zone' ? 'true' : undefined}
                 style={rectStyle(geometry.rect)}
               >
                 <Show when={targetLabel(preview.target)}>{(label) => (

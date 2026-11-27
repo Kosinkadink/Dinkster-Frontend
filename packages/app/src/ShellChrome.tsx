@@ -563,6 +563,11 @@ function DockZoneSection(props: {
         visibleCount += 1
       }
     }
+    if (reservedWidth !== undefined
+      && reservedWidth > (allWidth <= available + overflowWidth ? available + overflowWidth : available)) {
+      setHiddenTabIds(savedHiddenIds!)
+      return { zone: props.zone, section: props.section, slots: [], acceptsSlot: false }
+    }
     const next = new Set(props.panels.filter((panel) => !visibleIds.has(panel.id)).map((panel) => panel.id))
     const previous = hiddenTabIds()
     if (previous.size !== next.size || [...previous].some((id) => !next.has(id))) {
@@ -578,8 +583,7 @@ function DockZoneSection(props: {
       left += width + gap
       return [slot]
     })
-    return { zone: props.zone, section: props.section, slots,
-      acceptsSlot: reservedWidth <= (allWidth <= available + overflowWidth ? available + overflowWidth : available) }
+    return { zone: props.zone, section: props.section, slots, acceptsSlot: true }
   }
   const insideStrip = createMemo(() => {
     const drag = props.drag
