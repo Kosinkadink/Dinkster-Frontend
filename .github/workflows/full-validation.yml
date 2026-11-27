@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DINKSTER_REF: 60c728320094036001c07ed0e075ff0dce4f1a74
+  DINKSTER_REF: f09acd9c22f18ea4e74c6903441913bc06657638
 
 jobs:
   validation-plan:
