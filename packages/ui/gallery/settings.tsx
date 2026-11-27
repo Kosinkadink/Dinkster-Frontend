@@ -6,7 +6,7 @@ import { useAppMessage } from '../../app/src/locale.js'
 import { useSignal } from '../../app/src/solid-adapter.js'
 import { ProductNumberInput } from '../../app/src/ProductNumberInput.js'
 import {
-  ProductByteSizeInput, ProductConfirmation, ProductDialog, ProductIcon, ProductPage, ProductSelect, ProductSettingRow, ProductTextButton,
+  ProductButton, ProductByteSizeInput, ProductConfirmation, ProductDialog, ProductIcon, ProductPage, ProductSelect, ProductSettingRow, ProductTextButton,
   ProductSettingsPage, ProductSettingsSection, ProductShortcutCapture, ProductShortcutText, ProductSwitch,
   ProductTextArea, ProductTextInput, ProductToast, ProductErrorBanner, type ProductSearchGroup,
 } from '../src/index.js'
@@ -35,7 +35,7 @@ const settings: readonly Setting[] = [
   { id: 'dinkster.locale', label: 'Language', group: 'general', section: 'Appearance', value: 'Automatic', options: ['Automatic', 'English', 'Chinese'] },
   { id: 'dinkster.theme', label: 'Theme', group: 'general', section: 'Appearance', value: 'Dark', options: ['Dark', 'Light'] },
   { id: 'shell.activityBar.visible', label: 'Activity bar visible', group: 'general', section: 'Workspace', value: true },
-  { id: 'tooltips.delayMs', label: 'Tooltip delay', group: 'general', section: 'Workspace', value: 500, unit: 'ms', description: 'Between 0 and 5000 milliseconds.' },
+  { id: 'tooltips.delayMs', label: 'Tooltip delay', group: 'general', section: 'Workspace', value: 500, unit: 'ms' },
   { id: 'shell.layout.left.width', label: 'Left panel size', group: 'general', section: 'Workspace', value: 380, unit: 'px' },
   { id: 'shell.layout.right.width', label: 'Right panel size', group: 'general', section: 'Workspace', value: 380, unit: 'px' },
   { id: 'shell.layout.bottom.height', label: 'Bottom panel size', group: 'general', section: 'Workspace', value: 240, unit: 'px' },
@@ -126,7 +126,7 @@ export function SettingsGallery() {
   const error = (setting: Setting) => typeof setting.value === 'number' && setting.unit !== 'GB' && (!Number.isFinite(Number(value(setting))) || Number(value(setting)) < 0 || Number(value(setting)) > 5000) ? 'Enter a number between 0 and 5000.' : undefined
   const control = (setting: Setting, searching = false) => {
     const attributes = () => ({ id: setting.id, 'aria-label': setting.label, 'aria-describedby': error(setting) ? `${setting.id}-error` : !searching && setting.description ? `${setting.id}-description` : undefined, 'aria-invalid': error(setting) ? 'true' as const : undefined })
-    return <Show when={!setting.locked} fallback={<output id={setting.id} class="dinkster-setting-locked"><ProductIcon icon={LockKeyhole} />{typeof value(setting) === 'boolean' ? value(setting) ? 'On' : 'Off' : String(value(setting))}</output>}>
+    return <Show when={!setting.locked} fallback={<output id={setting.id} class="dinkster-setting-locked">{typeof value(setting) === 'boolean' ? value(setting) ? 'On' : 'Off' : String(value(setting))}</output>}>
       <Show when={setting.list} fallback={<>
       <Show when={typeof setting.value === 'boolean'}><ProductSwitch id={setting.id} label={setting.label} checked={value(setting) as boolean} onChange={(next) => update(setting.id, next)} /></Show>
       <Show when={setting.options}><ProductSelect {...attributes()} options={(setting.options ?? []).map((value) => ({ value, label: value }))} value={String(value(setting))} onChange={(next) => update(setting.id, next)} /></Show>
@@ -236,9 +236,10 @@ export function SettingsGallery() {
             <p class="dinkster-settings-note">The engine cannot tell which files are still in use, so nothing can be cleared.</p>
           </ProductSettingsSection>
         </Show>
-        <Show when={group() === 'shortcuts'} fallback={<For each={sections()}>{(section) => <ProductSettingsSection title={section}>
+        <Show when={group() === 'shortcuts'} fallback={<For each={sections()}>{(section) => <ProductSettingsSection title={<><Show when={section === 'Studio server'}><ProductIcon icon={LockKeyhole} /></Show>{section}</>}>
           <Show when={section === 'Studio server'}><p class="dinkster-settings-note">This server does not allow changing these settings from here.</p></Show>
           <For each={settings.filter((setting) => setting.group === group() && setting.section === section && visible(setting))}>{row}</For>
+          <Show when={group() === 'general' && section === 'Workspace'}><div class="dinkster-setting-row"><div class="dinkster-setting-copy"><label for="gallery-reset-layout">Panel layout</label></div><div class="dinkster-setting-control"><ProductButton id="gallery-reset-layout" onClick={() => { for (const setting of settings) if (setting.id.startsWith('shell.layout.')) update(setting.id, setting.value) }}>Reset layout</ProductButton></div></div></Show>
           <Show when={section === 'Limit' && limited() && (cleared() ? 9.3 : 12.4) * 1024 ** 3 > Number(values()['storage.limit'] ?? 10737418240)}><p class="dinkster-settings-note">Files in use are kept, so the total can stay above the limit.</p></Show>
         </ProductSettingsSection>}</For>}>
           <For each={settingsCommandGroups(commands)}>{(area) => <ProductSettingsSection title={message(`settingsPage.commands.${area.id}`)}><For each={area.commands}>{(command) => <ProductSettingRow

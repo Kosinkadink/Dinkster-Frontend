@@ -10,7 +10,7 @@
   "settingsPage.group.advanced": "Advanced",
   "settingsPage.section.appearance": "Appearance",
   "settingsPage.section.workspace": "Workspace",
-  "settingsPage.section.layout": "Layout",
+  "settingsPage.panelLayout": "Panel layout",
   "settingsPage.section.view": "View",
   "settingsPage.section.minimap": "Minimap",
   "settingsPage.section.previews": "Previews",
