@@ -310,14 +310,15 @@ export class BoardWorkspace {
     this.pending.add(id)
     const revision = entry.session.revision
     const snapshot = entry.session.doc
+    const name = entry.name
     try {
       const descriptor = await this.options.transport.create(entry.baseUrl, {
         scope: this.scope, documentKind: 'board', documentId: entry.id, snapshot,
-        ...(entry.name !== undefined ? { title: entry.name } : {}),
+        ...(name !== undefined ? { title: name } : {}),
       })
       try {
         return await this.adopt(descriptor, entry.baseUrl, () =>
-          this.entries.get().includes(entry) && entry.session.revision === revision && entry.session.doc === snapshot)
+          this.entries.get().includes(entry) && entry.session.revision === revision && entry.session.doc === snapshot && entry.name === name)
       } catch (error) {
         void this.options.transport.end(entry.baseUrl, descriptor.sessionId).catch(() => undefined)
         throw error

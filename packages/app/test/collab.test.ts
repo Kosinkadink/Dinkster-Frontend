@@ -429,7 +429,7 @@ describe('Board workspace collaboration', () => {
     } finally { otherProject.dispose() }
   })
 
-  it('keeps edits and removes an unadopted publication when the Board changes during creation', async () => {
+  it.each(['document', 'name'] as const)('keeps edits and removes an unadopted publication when the Board %s changes during creation', async (change) => {
     const server = new FakeCollabServer()
     const app = makeApp(server)
     const document = emptyBoard()
@@ -439,13 +439,15 @@ describe('Board workspace collaboration', () => {
     const admission = new Promise<void>((resolve) => { release = resolve })
     server.transport.create = async (baseUrl, args) => { await admission; return create(baseUrl, args) }
     const sharing = app.boards.share(entry.id)
-    entry.session.dispatch({ command: 'board.item.add', params: { items: [{
-      id: 'note-1', kind: 'note', text: 'Keep me', rect: { x: 10, y: 20, width: 120, height: 80 },
-    }] } })
+    if (change === 'name') await app.boards.rename(entry.id, 'Keep this name')
+    else entry.session.dispatch({ command: 'board.item.add', params: { items: [{
+        id: 'note-1', kind: 'note', text: 'Keep me', rect: { x: 10, y: 20, width: 120, height: 80 },
+      }] } })
     release()
     await expect(sharing).rejects.toThrow('Board changed')
     expect(app.boards.entries.get()).toEqual([entry])
-    expect(entry.session.doc.items['note-1']).toMatchObject({ text: 'Keep me' })
+    if (change === 'name') expect(entry.title).toBe('Keep this name')
+    else expect(entry.session.doc.items['note-1']).toMatchObject({ text: 'Keep me' })
     expect(server.sessions.size).toBe(0)
   })
 
