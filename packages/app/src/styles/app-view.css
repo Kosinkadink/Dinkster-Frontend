@@ -63,18 +63,6 @@
 .app-layout-queue-targets small { grid-column: 2; color: var(--dinkster-text-muted); }
 .app-view-rows,
 .app-layout-flow { display: flex; flex-direction: column; gap: 12px; }
-.app-view-row {
-  background: var(--dinkster-surface-panel);
-  border: 1px solid var(--dinkster-border-subtle);
-  border-radius: 6px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.app-view-row.stale { border-color: var(--dinkster-warning-border); }
-.app-view-row.dragging { opacity: 0.55; }
-.app-view-row-head { display: flex; align-items: center; gap: 8px; }
 .app-view-drag-handle {
   background: none;
   border: none;
@@ -86,7 +74,6 @@
 }
 .app-view-drag-handle:active { cursor: grabbing; }
 .app-view-drag-handle:disabled { color: var(--dinkster-text-disabled); cursor: default; }
-.app-view-label { flex: 1; min-width: 0; font-weight: 600; display: flex; align-items: baseline; gap: 8px; }
 .app-view-context { color: var(--dinkster-text-secondary); font-weight: 400; font-size: 11px; }
 .app-view-rename-field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .app-view-rename { flex: 1; min-width: 0; }
@@ -94,9 +81,6 @@
 .app-view-widget-preview { display: block; width: 100%; }
 .app-view-widget-action { width: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .app-view-color { justify-content: flex-start; }
-.app-view-control { width: 100%; }
-.app-view-control.product-checkbox { width: var(--dinkster-space-16); min-width: var(--dinkster-space-16); flex: none; padding: 0; }
-.app-view-control.multiline { min-height: 72px; }
 .app-view-readonly { margin: 0; color: var(--dinkster-text-secondary); display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .app-view-hint { color: var(--dinkster-text-secondary); font-size: 11px; }
 .app-view-stale { margin: 0; color: var(--dinkster-warning-foreground); }
