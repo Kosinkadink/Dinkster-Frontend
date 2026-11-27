@@ -44,6 +44,7 @@ test('live-tab backend target keeps keyboard, focus, per-tab, frozen, and remova
   expect(await page.evaluate((tabId) => window.__dinksterTest!.app.tabTargets.get().get(tabId), firstTab)).toBe(secondId)
 
   await page.getByTestId('new-tab').click()
+  await page.getByRole('menuitem', { name: 'Blank workflow', exact: true }).click()
   await expect(target).toHaveAttribute('data-selected-id', 'local')
   await page.locator(`.tab[data-tab-id="${firstTab}"] .tab-select`).click()
   await expect(target).toHaveAttribute('data-selected-id', secondId)

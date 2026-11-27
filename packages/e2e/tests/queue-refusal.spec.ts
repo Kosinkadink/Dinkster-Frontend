@@ -15,7 +15,6 @@ for (const width of [1440, 900]) {
     await waitForWorkspaceReady(page)
     await page.evaluate(async (doc) => {
       const app = window.__dinksterTest!.app
-      ;(app as unknown as { templateGalleryOpen: { set(value: boolean): void } }).templateGalleryOpen.set(false)
       await app.openDocument(doc, 'Blocked workflow')
       app.dock.setOpen('right', false)
     }, workflow)
