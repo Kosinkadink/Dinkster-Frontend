@@ -1,10 +1,11 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
+import { ChevronRight } from 'lucide-solid'
 import { canonicalJson, diag, type Diagnostic, type ImportedNodePackResolution } from '@dinkster/core'
 import type { CompatSkip, PackInferenceUnavailable, PackInstallPlan, PackPreparationProgress } from '@dinkster/client'
 import { diagnosticFocusTarget, type AppState } from './app-state.js'
 import { groupProblemDiagnostics } from './problem-display.js'
 import { RuntimeErrorHints } from './RuntimeErrorHints.js'
-import { useAppMessage } from './locale.js'
+import { useAppMessage, useModelKindLabel } from './locale.js'
 import { ProductButton, ProductCheckbox } from './ProductControls.js'
 import type { useSelectionContext } from './selection-context.js'
 import { contextProblems } from './problem-context.js'
@@ -14,7 +15,7 @@ import { ProductEmptyState, ProductPanelHeader } from './ProductSurfaces.js'
 import { useSignal } from './solid-adapter.js'
 import { isNativeProjectBackend } from './desktop-bridge.js'
 import { activeProjectId } from './projects.js'
-import { ProductDisclosure } from '@dinkster/ui'
+import { ProductIcon } from '@dinkster/ui'
 
 export interface ProblemsDisclosure {
   readonly expanded: (key: string) => boolean
@@ -75,6 +76,9 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
   const activeTabId = useSignal(props.app.activeTabId)
   const disclosure = props.disclosure ?? createProblemsDisclosure()
   const [selectionOnly, setSelectionOnly] = createSignal(false)
+  const [modelsExpanded, setModelsExpanded] = createSignal(false)
+  const modelListId = createUniqueId()
+  const modelKindLabel = useModelKindLabel()
   const selectedContext = () => {
     const view = props.selection?.()
     return view !== undefined && view.context.kind !== 'document' && view.context.kind !== 'subgraph' ? view : undefined
@@ -291,19 +295,25 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
         </section>
       </Show>
       <Show when={missingModels()}>{(missing) => (
-        <section class="problems-group" data-testid="workflow-model-problems">
-          <ProductDisclosure title={message(missing().models.length === 1 ? 'problems.modelsMissingOne' : 'problems.modelsMissing', { count: missing().models.length })}>
-            <For each={missing().diagnostics}>{(diagnostic) => (
-              <ProductButton variant="ghost" size="compact" onClick={() => activateProblem(props.app, diagnostic)}>
-                {diagnostic.message}
-              </ProductButton>
-            )}</For>
-          </ProductDisclosure>
-          <ProductActionFooter>
+        <section class="problems-models" data-testid="workflow-model-problems">
+          <div class="problems-models-header">
+            <ProductButton variant="ghost" size="compact" class="problems-models-toggle"
+              aria-expanded={modelsExpanded()} aria-controls={modelListId} onClick={() => setModelsExpanded((open) => !open)}>
+              <ProductIcon icon={ChevronRight} />
+              <span>{message(missing().models.length === 1 ? 'problems.modelsMissingOne' : 'problems.modelsMissing', { count: missing().models.length })}</span>
+            </ProductButton>
             <ProductButton variant="secondary" size="compact" onClick={() => props.app.reviewModelDownload(missing().tab)}>
               {message('problems.action.reviewModel')}
             </ProductButton>
-          </ProductActionFooter>
+          </div>
+          <div id={modelListId} class="problems-models-list" hidden={!modelsExpanded()}>
+            <For each={missing().diagnostics}>{(diagnostic) => (
+              <ProductButton variant="ghost" size="compact" class="problems-models-item" onClick={() => activateProblem(props.app, diagnostic)}>
+                <span>{diagnostic.data!['name'] as string}</span>
+                <span class="dinkster-model-download-meta">{modelKindLabel(diagnostic.data!['kind'] as string)}</span>
+              </ProductButton>
+            )}</For>
+          </div>
         </section>
       )}</Show>
       <Show

@@ -2,7 +2,7 @@ import { createEffect, createMemo, createResource, createRoot, createSignal, For
 import { ProductButton, ProductDialog, ProductField, ProductModelDownloads, ProductRadio, ProductTextInput, type ProductModelDownloadRow } from '@dinkster/ui'
 import type { AssetConsentRequest, ModelConsentState } from './dialog-requests.js'
 import { formatByteSize } from './collections.js'
-import { useAppMessage } from './locale.js'
+import { useAppMessage, useModelKindLabel } from './locale.js'
 import { ModelProvider } from './ModelProvider.js'
 import { modelDownloadTotals } from './model-downloads.js'
 
@@ -30,13 +30,7 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
   const disposePanels: (() => void)[] = []
   onCleanup(() => disposePanels.forEach((dispose) => dispose()))
   const models = () => props.request.models ?? []
-  const kindLabel = (kind: string) => {
-    const name = kind.replace(/^model\//, '')
-    const canonical = ({ checkpoints: 'checkpoint', upscale_models: 'upscale', controlnets: 'controlnet', loras: 'lora' } as Record<string, string>)[name] ?? name
-    const key = `storagePanel.kind.${canonical}`
-    const label = message(key)
-    return label === key ? canonical.replaceAll('_', ' ').replaceAll('-', ' ') : label
-  }
+  const kindLabel = useModelKindLabel()
   const indexOf = (key: string) => models().findIndex((row) => keyOf(row) === key)
   const review = (key: string) => { const index = indexOf(key); if (index >= 0) void props.request.reviewModel?.(index) }
   createEffect(() => {

@@ -1775,6 +1775,15 @@ button.dinkster-row-main { cursor: pointer; }
   margin: 6px 0;
 }
 
+.problems-models { margin-block: var(--dinkster-space-8); padding: var(--dinkster-space-12); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-quiet); }
+.problems-models-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); }
+.problems-models-header > .problems-models-toggle { display: flex; justify-content: start; gap: var(--dinkster-space-8); padding: 0; min-width: 0; color: var(--dinkster-text-primary); text-align: left; }
+.problems-models-toggle > .dinkster-icon { display: block; flex: none; }
+.problems-models-toggle[aria-expanded='true'] > .dinkster-icon { transform: rotate(90deg); }
+.problems-models-list:not([hidden]) { display: grid; gap: var(--dinkster-space-8); margin-top: var(--dinkster-space-12); }
+.problems-models-list > .problems-models-item { display: flex; flex-wrap: wrap; justify-content: start; gap: var(--dinkster-space-8); min-width: 0; padding: 0; text-align: left; }
+.problems-models-item > span { overflow-wrap: anywhere; }
+
 .problems-group-header {
   width: 100%;
   display: flex;

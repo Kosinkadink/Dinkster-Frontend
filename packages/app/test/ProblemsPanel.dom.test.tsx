@@ -136,14 +136,23 @@ describe('ProblemsPanel browser interactions', () => {
     }, root)
     try {
       const grouped = root.querySelector('[data-testid="workflow-model-problems"]')!
-      expect(grouped.querySelector('summary')!.textContent).toContain('3 models are not on this computer')
-      expect(grouped.querySelector<HTMLDetailsElement>('details')!.open).toBe(false)
+      const toggle = grouped.querySelector<HTMLButtonElement>('[aria-expanded]')!
+      expect(toggle.textContent).toContain('3 models are not on this computer')
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      expect(document.getElementById(toggle.getAttribute('aria-controls')!)!.hidden).toBe(true)
       const actions = [...root.querySelectorAll<HTMLButtonElement>('button')].filter((button) => button.textContent === 'Download models')
       expect(actions).toHaveLength(1)
       expect(root.querySelector('.problem-message')!.textContent).toContain('portrait.png')
-      grouped.querySelector('summary')!.click()
-      expect(grouped.querySelector<HTMLDetailsElement>('details')!.open).toBe(true)
-      expect(grouped.textContent).toContain('same.safetensors')
+      toggle.click()
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      const list = document.getElementById(toggle.getAttribute('aria-controls')!)!
+      expect(list.hidden).toBe(false)
+      expect(list.textContent).toContain('same.safetensors')
+      expect(list.textContent).toContain('Checkpoints')
+      expect(list.textContent).toContain('VAEs')
+      expect(list.textContent).not.toContain('is not in a model folder')
+      list.querySelector<HTMLButtonElement>('button')!.click()
+      expect(app.diagnosticFocus.get()?.anchor?.occurrence?.node).toBe('n1')
       actions[0]!.click()
       await vi.waitFor(() => expect(root.querySelector('dialog')?.textContent).toContain('Image starter needs 3 models'))
       expect(app.assetConsent.get()?.models?.map((row) => [row.requirement.kind, row.requirement.asset?.digest])).toEqual([
