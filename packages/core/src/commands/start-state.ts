@@ -8,6 +8,8 @@
  */
 
 import type { DynamicPortState, Json, WorkflowDocument } from '../format/document.js'
+import { documentNodeResolver } from '../compile/compile.js'
+import { occurrenceSolveOptions } from '../compile/occurrence-solve.js'
 import { asNodeId, isPortEndpoint, type LinkEndpoint } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
@@ -78,7 +80,11 @@ export function storeKnownListCounts(tx: TransactionBuilder, resolve: SchemaReso
         .map((input) => ({ node, input }))
     })
     if (targets.length === 0) continue
-    const facts = solveGraphTypes(graph, resolve)
+    const resolveNode = documentNodeResolver(tx.current, resolve)
+    const facts = solveGraphTypes(graph, resolve, {
+      resolveNode: (node) => resolveNode(graphId, node),
+      ...(graphId === tx.current.root ? occurrenceSolveOptions(tx.current, resolve, undefined, graph, []) : {}),
+    })
     for (const { node, input } of targets) {
       const count = facts.listCountOf(node.id, 'input', input.listCountOf!)
       if (count === undefined || node.values[input.id] === count) continue

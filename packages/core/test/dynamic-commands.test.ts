@@ -1072,13 +1072,21 @@ describe('a count that shrinks', () => {
     const initial = doc({ g0: graph({ id: 'g0',
       nodes: {
         texts: node('texts', { type: 'Texts', values: { texts: ['red', 'green', 'blue'] } }),
+        pass: node('pass', { type: '#body' }),
         n1: node('n1', { values: { count: 3 } }),
         sink: node('sink', { type: 'Sink' }),
       },
       links: {
-        feed: { id: asLinkId('feed'), from: { node: asNodeId('texts'), tap: asPortId('texts') }, to: port('n1', 'list') },
+        source: { id: asLinkId('source'), from: { node: asNodeId('texts'), tap: asPortId('texts') }, to: port('pass', 'in') },
+        feed: { id: asLinkId('feed'), from: port('pass', 'out'), to: port('n1', 'list') },
         kept: { id: asLinkId('kept'), from: port('n1', 'items.2'), to: port('sink', 'value') },
       },
+    }), body: graph({ id: 'body',
+      nodes: { inner: node('inner', { type: 'Texts', values: { texts: ['default', 'must', 'not', 'win'] } }) },
+      boundary: boundaryOf(
+        [{ id: 'in', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('texts') } }],
+        [{ id: 'out', binds: { kind: 'widgetTap', node: asNodeId('inner'), tap: asPortId('texts') } }],
+      ),
     }) })
     const store = new DocumentStore(initial, coreCommandRegistry(), 200, undefined,
       () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
@@ -1106,6 +1114,12 @@ describe('a count that shrinks', () => {
     expect(store.doc.graphs['g0']!.nodes['n1']!.values['count']).toBe(2)
     expect(store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'feed' } }).ok).toBe(true)
     expect(store.doc.graphs['g0']!.nodes['n1']!.values['count']).toBe(2)
+    expect(store.dispatch({ command: 'link.connect', params: {
+      graphId: 'g0', from: { node: asNodeId('texts'), tap: asPortId('texts') }, to: port('n1', 'list'),
+    } }).ok).toBe(true)
+    expect(edit(['direct']).ok).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['n1']!.values['count']).toBe(1)
+    expect(store.doc.graphs['body']).toEqual(initial.graphs['body'])
   })
 
   it('keeps wired later outputs, nets and forwards in the same undo step', () => {
