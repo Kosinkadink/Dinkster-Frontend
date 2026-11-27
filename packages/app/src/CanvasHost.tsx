@@ -1760,12 +1760,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   let secretOpenRequest = 0
   let secretContextTab: Tab | undefined
   let secretContextBackend: Backend | undefined
+  const secretContextIsCurrent = (tab: Tab, backend: Backend): boolean => {
+    const current = activeTab()
+    return current !== undefined && props.app.liveTabContinuing(tab.store) === current && props.app.backendForTab(current) === backend
+  }
   onCleanup(() => { secretOpenRequest++ })
   createEffect(() => {
     backendsTick(); tabTargets()
     const tab = activeTab()
     const backend = tab === undefined ? undefined : props.app.backendForTab(tab)
-    if (tab !== secretContextTab || backend !== secretContextBackend) {
+    if (backend !== secretContextBackend || (tab !== secretContextTab &&
+      (secretContextTab === undefined || props.app.liveTabContinuing(secretContextTab.store) !== tab))) {
       secretOpenRequest++
       secretContextTab = tab
       secretContextBackend = backend
@@ -5758,7 +5763,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           return
         }
         const request = ++secretOpenRequest
-        const isCurrent = () => request === secretOpenRequest && activeTab() === tab && props.app.backendForTab(tab) === backend
+        const isCurrent = () => request === secretOpenRequest && secretContextIsCurrent(tab, backend)
         void backend.connection.fetchSecretPresence(name).then((presence) => {
           if (!isCurrent()) return
           setSecretEditor({ tab, backend, name, canManageDeployment: presence.canManageDeployment,
@@ -8339,11 +8344,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         {(target) => <ProductSecretDialog name={target.name} contextKey={`${target.tab.id}:${target.backend.id}`}
           canManageDeployment={target.canManageDeployment} removalFallback={target.fallback}
           {...(target.source === 'account' ? { onRemove: async () => {
-            if (activeTab() !== target.tab || props.app.backendForTab(target.tab) !== target.backend) throw new Error('Secret context changed')
+            if (!secretContextIsCurrent(target.tab, target.backend)) throw new Error('Secret context changed')
             await target.backend.connection.removeSecret(target.name)
           } } : {})}
           onSave={async (value, scope) => {
-            if (activeTab() !== target.tab || props.app.backendForTab(target.tab) !== target.backend) throw new Error('Secret context changed')
+            if (!secretContextIsCurrent(target.tab, target.backend)) throw new Error('Secret context changed')
             await target.backend.connection.saveSecret(target.name, value, scope)
           }}
           onCancel={() => setSecretEditor(undefined)}
