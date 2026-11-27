@@ -621,8 +621,8 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
     }, 120_000)
   }
 
-  for (const depth of [1, 2]) for (const allText of [false, true]) {
-    it(`boundary/standalone-option-lifecycle/native-depth-${depth}/all-text-${allText}`, async () => {
+  for (const dormantSwitch of [false, true]) for (const depth of [1, 2]) for (const allText of [false, true]) {
+    it(`boundary/standalone-option-lifecycle/${dormantSwitch ? 'dormant-switch' : 'native'}-depth-${depth}/all-text-${allText}`, async () => {
       const connection = new DinksterConnection({ id: asConnectionId('option-lifecycle-live'),
         baseUrl: LIVE_URL!, clientId: `option-lifecycle-${process.pid}` })
       const registry = await connection.fetchSchemas()
@@ -677,17 +677,20 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
       const extra = depth === 1 ? 'first.extra' : 'first.detail.extra'
       const second = depth === 1 ? 'second.sample' : 'second.detail.sample'
       const secondExtra = depth === 1 ? 'second.extra' : 'second.detail.extra'
-      const received = (sibling: boolean, extra: boolean, text: string) => ({
-        description: {}, image: null, mask: null, source: null, strength: extra ? 0.53 : sibling ? 0.8 : 0.2,
-        layers: [{ key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null }],
-        mode: { key: extra && !allText ? 'image' : 'text', mix: extra ? 0.73 : 0.3,
-          picture: extra && !allText && !sibling ? [0.125, 0.25, 0.5] : null,
-          text: extra && !allText ? null : sibling ? 'sibling lifecycle caption' : text },
-        nested: [{ key: 'n0', weights: [{ key: 'w0', value: 0.3 }] },
-          { key: 'n1', weights: [{ key: 'w0', value: 0.3 }, { key: 'w1', value: 0.3 }] }],
-      })
+      const received = (sibling: boolean, extra: boolean, text: string, imageSelected: boolean) => {
+        const image = (!sibling && imageSelected) || (extra && !allText)
+        return {
+          description: {}, image: null, mask: null, source: null, strength: extra ? 0.53 : sibling ? 0.8 : 0.2,
+          layers: [{ key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null }],
+          mode: { key: image ? 'image' : 'text', mix: extra ? 0.73 : 0.3,
+            picture: image && !sibling ? [0.125, 0.25, 0.5] : null,
+            text: image ? null : sibling ? 'sibling lifecycle caption' : text },
+          nested: [{ key: 'n0', weights: [{ key: 'w0', value: 0.3 }] },
+            { key: 'n1', weights: [{ key: 'w0', value: 0.3 }, { key: 'w1', value: 0.3 }] }],
+        }
+      }
       const run = async (phase: string, doc: WorkflowDocument, primary: string, secondary: string,
-        muted = false, text = '{"seed": 31, "bias": 17, "total": 79}') => {
+        muted = false, text = '{"seed": 31, "bias": 17, "total": 79}', imageSelected = false) => {
         const loaded = loadDocument(JSON.parse(JSON.stringify(doc))).document!
         expect(loaded).toEqual(doc)
         expect(loaded.graphs.detail).toEqual(configured.graphs.detail)
@@ -698,7 +701,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
         if (!compiled.ok) throw new Error('Option lifecycle did not compile')
         const prompt = compiled.artifact.prompt
-        const flattened = phase.includes('flatten') || phase === 'muted-reactivated'
+        const flattened = phase.includes('flatten') || phase === 'muted-reactivated' || phase === 'option-reactivated'
         const targets = flattened && depth === 1 ? [primary, secondary] : [flattened ? primary.split('.')[0]! : 'first']
         const routes = (node: string, port: string) => Object.values(loaded.graphs.root!.links)
           .filter((link) => 'port' in link.from && link.from.node === node && link.from.port === port)
@@ -716,8 +719,9 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
           expect(prompt[secondary]).toBeUndefined()
           expect(prompt.sink!.inputs.number).toEqual({ $absent: { reason: expect.stringContaining('muted') } })
         } else expect(prompt.sink!.inputs.number).toEqual([primary, 6])
-        const expected = { [second]: received(true, false, text), [secondExtra]: received(true, true, text),
-          ...(muted ? {} : { [primary]: received(false, false, text), [secondary]: received(false, true, text) }) }
+        const expected = { [second]: received(true, false, text, false), [secondExtra]: received(true, true, text, false),
+          ...(muted ? {} : { [primary]: received(false, false, text, imageSelected),
+            [secondary]: received(false, true, text, imageSelected) }) }
         for (const id of Object.keys(expected)) expect(prompt[id]!.inputs).toMatchObject({
           radius: 0.1, feather: 0.4, balance: 0.7, count: id === second ? 2 : 3,
         })
@@ -761,28 +765,31 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         }
         throw new Error('Option lifecycle did not complete')
       }
-      await run('baseline', configured, first, extra)
-      const detached = storeFor(configured)
-      edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
-      const sourceId = configured.graphs.root!.nodes.first!.type.slice(1)
-      const privateId = detached.doc.graphs.root!.nodes.first!.type.slice(1)
-      expect(privateId).not.toBe(sourceId)
-      expect(configured.graphs[privateId]).toBeUndefined()
-      expect(detached.doc.graphs[privateId]).toEqual({ ...configured.graphs[sourceId]!,
-        id: privateId, name: `${configured.graphs[sourceId]!.name} (Unique)` })
-      expect(detached.doc.view.graphs[privateId]).toEqual(configured.view.graphs[sourceId] ?? { nodes: {} })
-      expect(detached.doc.graphs[sourceId]).toEqual(configured.graphs[sourceId])
-      const wire = Object.values(detached.doc.graphs.root!.links).find((entry) =>
-        'port' in entry.to && entry.to.node === 'first' && entry.to.port === caption)!
-      edit(detached, 'link.disconnect', { graphId: 'root', linkId: wire.id })
-      edit(detached, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: caption, value: 'detached native caption' })
-      const privateEdit = detached.doc
-      for (let step = 0; step < 3; step++) expect(detached.undo()).toBe(true)
-      expect(detached.doc).toEqual(configured)
-      for (let step = 0; step < 3; step++) expect(detached.redo()).toBe(true)
-      expect(detached.doc).toEqual(privateEdit)
-      await run('detached-edit', privateEdit, first, extra, false, 'detached native caption')
+      if (!dormantSwitch) {
+        await run('baseline', configured, first, extra)
+        const detached = storeFor(configured)
+        edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
+        const sourceId = configured.graphs.root!.nodes.first!.type.slice(1)
+        const privateId = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+        expect(privateId).not.toBe(sourceId)
+        expect(configured.graphs[privateId]).toBeUndefined()
+        expect(detached.doc.graphs[privateId]).toEqual({ ...configured.graphs[sourceId]!,
+          id: privateId, name: `${configured.graphs[sourceId]!.name} (Unique)` })
+        expect(detached.doc.view.graphs[privateId]).toEqual(configured.view.graphs[sourceId] ?? { nodes: {} })
+        expect(detached.doc.graphs[sourceId]).toEqual(configured.graphs[sourceId])
+        const wire = Object.values(detached.doc.graphs.root!.links).find((entry) =>
+          'port' in entry.to && entry.to.node === 'first' && entry.to.port === caption)!
+        edit(detached, 'link.disconnect', { graphId: 'root', linkId: wire.id })
+        edit(detached, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: caption, value: 'detached native caption' })
+        const privateEdit = detached.doc
+        for (let step = 0; step < 3; step++) expect(detached.undo()).toBe(true)
+        expect(detached.doc).toEqual(configured)
+        for (let step = 0; step < 3; step++) expect(detached.redo()).toBe(true)
+        expect(detached.doc).toEqual(privateEdit)
+        await run('detached-edit', privateEdit, first, extra, false, 'detached native caption')
+      }
       for (const mode of ['active', 'muted', 'bypassed'] as const) {
+        if (dormantSwitch && mode !== 'muted') continue
         const session = storeFor(configured)
         if (mode !== 'active') edit(session, 'node.setMode', { graphId: 'root', nodeIds: ['first'], mode })
         const before = session.doc, root = before.graphs.root!, node = root.nodes.first!, body = before.graphs[node.type.slice(1)]!
@@ -820,8 +827,26 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
           root: { ...root, nextOrdinal: flattened.graphs.root!.nextOrdinal } } })
         expect(session.redo()).toBe(true)
         expect(session.doc).toEqual(flattened)
-        await run(`${mode}-flatten`, flattened, primaryId, secondaryId, mode === 'muted')
+        if (!dormantSwitch) await run(`${mode}-flatten`, flattened, primaryId, secondaryId, mode === 'muted')
         if (mode === 'muted') {
+          if (dormantSwitch) {
+            const reopened = storeFor(loadDocument(JSON.parse(JSON.stringify(flattened))).document!)
+            expect(reopened.doc).toEqual(flattened)
+            edit(reopened, 'node.setMode', { graphId: 'root', nodeIds: replacements.map((entry) => entry.id), mode: 'active' })
+            if (depth === 2) edit(reopened, 'occurrence.localize', { graphId: 'root', nodeId: primary.id })
+            const targetGraph = depth === 1 ? 'root' : reopened.doc.graphs.root!.nodes[primary.id]!.type.slice(1)
+            for (const nodeId of depth === 1 ? [primaryId, secondaryId] : ['sample', 'extra']) {
+              edit(reopened, 'dynamic.selectOption', { graphId: targetGraph, nodeId, construct: 'mode', option: 'image' })
+            }
+            const switched = reopened.doc
+            const steps = 1 + depth + Number(allText)
+            for (let step = 0; step < steps; step++) expect(reopened.undo()).toBe(true)
+            expect(reopened.doc).toEqual(flattened)
+            for (let step = 0; step < steps; step++) expect(reopened.redo()).toBe(true)
+            expect(reopened.doc).toEqual(switched)
+            await run('option-reactivated', switched, primaryId, secondaryId, false, undefined, true)
+            continue
+          }
           edit(session, 'node.setMode', { graphId: 'root', nodeIds: replacements.map((entry) => entry.id), mode: 'active' })
           await run('muted-reactivated', session.doc, primaryId, secondaryId)
         }
