@@ -12,6 +12,8 @@ import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { activeProjectId } from './projects.js'
+import { ASSET_DRAG_TYPE, draggableMediaAsset, type AssetDrag } from './asset-browser/drag.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
 
@@ -25,6 +27,7 @@ function assetState(state: CollectionPanelState, message: AssetMessage, widen?: 
 
 export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly onOpenStorage?: () => void }) {
   const message = useAppMessage()
+  const project = activeProjectId()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
   const [loading, setLoading] = createSignal(true)
   const [discoveryError, setDiscoveryError] = createSignal<string>()
@@ -79,16 +82,20 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
       if (timer !== undefined) clearTimeout(timer)
     })
   })
-
   const adapters = createMemo(() => [
     mountAssetSource(props.connection, mounts().map((mount) => mount.id)),
     ...mounts().map((mount) => mountAssetSource(props.connection, mount.id)),
   ])
-  const sources = createMemo((): readonly CollectionSource[] => adapters().map((adapter) => ({
-    ...assetCollectionSource(adapter, { assetUrl: (digest) => props.connection.assetUrl(digest) }),
-    label: adapter.id === 'all-mounts' ? message('assets.mounts.all') : adapter.label,
-    filters: [],
-  })))
+  const sources = createMemo((): readonly CollectionSource[] => adapters().map((adapter) => {
+    const source = assetCollectionSource(adapter, { assetUrl: (digest) => props.connection.assetUrl(digest) })
+    const owner = props.baseUrl ?? ''
+    return {
+      ...source,
+      label: adapter.id === 'all-mounts' ? message('assets.mounts.all') : adapter.label,
+      filters: [],
+      page: async (request) => ({ ...await source.page(request), owner }),
+    }
+  }))
 
   return <div class="assets-panel" data-testid="assets-overlay">
     <Show when={outputUnconfigured()}>
@@ -114,6 +121,16 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
       </div>
     }}</For>
       <CollectionPanel sources={sources()} pageSize={60} pagination="scroll" recursive={recursive()} sort={sort()}
+        drag={{
+          enabled: (entry, owner) => owner === (props.baseUrl ?? '') && activeProjectId() === project && draggableMediaAsset(entry) !== undefined,
+          start: (entry, event, owner) => {
+            const asset = draggableMediaAsset(entry)
+            if (!asset || !event.dataTransfer || owner !== (props.baseUrl ?? '') || activeProjectId() !== project) { event.preventDefault(); return }
+            const data: AssetDrag = { project, baseUrl: owner, asset }
+            event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(data))
+            event.dataTransfer.effectAllowed = 'copy'
+          },
+        }}
         refreshTick={refreshTick} modeKey={VIEW_PREFERENCE_KEY} searchPriority="primary"
         searchLabel={message('assets.search')} searchPlaceholder={message('assets.search')}
         toolbarActions={<ProductSelect testId="asset-sort-select" ariaLabel={message('assets.order.label')} selectedId={sort()}

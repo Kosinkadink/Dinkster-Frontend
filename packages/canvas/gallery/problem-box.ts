@@ -405,7 +405,7 @@ export function problemBoxGallery(
     },
     {
       id: 'stops-a-run',
-      caption: 'What stops a run. A missing model offers Locate or replace; Review download replaces it when the download review can open without a run. A required input never connected reads "Image is required."; mask is optional with nothing plugged in, so it has no outline and no line. A value failing a check with no fix offers Edit field.',
+      caption: 'What stops a run. A missing model offers Download models and Locate or replace. Download models opens the review without a run. A required input never connected reads "Image is required."; mask is optional with nothing plugged in, so it has no outline and no line. A value failing a check with no fix offers Edit field.',
       scene: scene([
         { id: 'load', schema: loadModel, x: column(0) },
         { id: 'caption', schema: captionImage, x: column(1) },
@@ -414,7 +414,7 @@ export function problemBoxGallery(
       badges: { load: [errors(1)], caption: [errors(1)], resize: [errors(1)] },
       rowMarks: { load: { model: 'error' }, caption: { image: 'error' }, resize: { width: 'error' } },
       boxes: [
-        { nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', 'Model file is missing.', ['Locate or replace'])] },
+        { nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', 'Model file is missing.', ['Download models', 'Locate or replace'])] },
         { nodeId: 'caption', nodeTitle: 'Caption image', lines: [line('error', 'image', 'Image is required.')] },
         { nodeId: 'resize', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] },
       ],
@@ -476,15 +476,15 @@ export function problemBoxGallery(
     ...[
       {
         id: 'model-missing-review',
-        caption: 'A missing model with a download source to review. Review download opens consent for this model only; it does not queue the workflow. Locate or replace opens the field.',
+        caption: 'A missing model with a download source to review. Download models opens the review for this model only; it does not queue the workflow. Locate or replace opens the field.',
         message: 'sdxl_base.safetensors is not in a model folder this project uses on Local engine.',
-        actions: ['Review download', 'Locate or replace'],
+        actions: ['Download models', 'Locate or replace'],
       },
       {
         id: 'model-missing-no-source',
-        caption: 'A missing model with no download source. Only Locate or replace is offered.',
+        caption: 'A missing model with no download source. Download models opens the review to choose a source. Locate or replace opens the field.',
         message: 'sdxl_base.safetensors is not in a model folder this project uses on Local engine.',
-        actions: ['Locate or replace'],
+        actions: ['Download models', 'Locate or replace'],
       },
       {
         id: 'model-hidden',

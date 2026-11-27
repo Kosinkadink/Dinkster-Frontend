@@ -673,6 +673,7 @@ function compileImpl(
     readonly values: Map<NodeId, Readonly<Record<string, Json>>>
     /** nodeId -> input addresses projected through boundaries from outer graphs. */
     readonly extraIn: Map<NodeId, ProjectedAddress[]>
+    readonly extraOut: Map<NodeId, Set<string>>
   }
   // Node ids may contain every separator character, including NUL. Encode the
   // segment array itself so distinct occurrence paths cannot share a cache
@@ -681,7 +682,7 @@ function compileImpl(
   const topologyKey = (path: readonly NodeId[], defId: string): string => JSON.stringify([defId, path])
   const occCtxByPath = new Map<string, OccCtx>()
   const newOccCtx = (defId: GraphDefId, path: readonly NodeId[]): OccCtx => {
-    const ctx: OccCtx = { defId, path, overlays: new Map(), values: new Map(), extraIn: new Map() }
+    const ctx: OccCtx = { defId, path, overlays: new Map(), values: new Map(), extraIn: new Map(), extraOut: new Map() }
     occCtxByPath.set(pathKey(path), ctx)
     return ctx
   }
@@ -808,16 +809,18 @@ function compileImpl(
   const withExtraConnectivity = (
     base: Connectivity,
     ins: readonly ProjectedAddress[] | undefined,
+    outs: ReadonlySet<string> | undefined,
   ): Connectivity => {
-    if (!ins?.length) return base
-    const inKeys = new Set(ins.map(({ address }) => portAddressKey(address.port)))
+    if (!ins?.length && !outs?.size) return base
+    const inKeys = new Set((ins ?? []).map(({ address }) => portAddressKey(address.port)))
     return {
       isInputConnected: (p) => inKeys.has(portAddressKey(p)) || base.isInputConnected(p),
-      isOutputConnected: base.isOutputConnected,
+      isOutputConnected: (p) => outs?.has(p) === true || base.isOutputConnected(p),
       inputPorts: () => [
         ...(base.inputPorts?.() ?? []),
-        ...ins.map(({ address }) => address.port),
+        ...(ins ?? []).map(({ address }) => address.port),
       ],
+      outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(outs ?? [])])],
     }
   }
 
@@ -827,8 +830,9 @@ function compileImpl(
     const overlay = ctx.overlays.get(node.id)
     const valuesOverlay = ctx.values.get(node.id)
     const extraIn = ctx.extraIn.get(node.id)
+    const extraOut = ctx.extraOut.get(node.id)
     const runtimeId = occurrenceKey({ instancePath: ctx.path, node: node.id })
-    if (doc.occurrenceTopologies === undefined && overlay === undefined && valuesOverlay === undefined && extraIn === undefined) {
+    if (doc.occurrenceTopologies === undefined && overlay === undefined && valuesOverlay === undefined && extraIn === undefined && extraOut === undefined) {
       return elabOf(ctx.defId, node, schema)
     }
     const hit = occElabCache.get(runtimeId)
@@ -840,7 +844,7 @@ function compileImpl(
           ...(node.additionalInputs !== undefined ? { additionalInputs: node.additionalInputs } : {}),
           ...(overlay !== undefined ? { dynamic: overlay } : node.dynamic !== undefined ? { dynamic: node.dynamic } : {}),
         }
-    const connectivity = withExtraConnectivity(connectivityFor(ctx.path, ctx.defId)(node.id), extraIn)
+    const connectivity = withExtraConnectivity(connectivityFor(ctx.path, ctx.defId)(node.id), extraIn, extraOut)
     const elab = buildElab(
       `${ctx.defId}/${node.id} @ ${runtimeId}`,
       node.id,
@@ -1107,7 +1111,7 @@ function compileImpl(
     delivery?: ParentDeliveryIdentity,
     boundaryRoute: readonly BoundaryRouteLeg[] = [],
     openRegion?: string,
-  ): ResolvedOutput | ResolvedStructuralSource | ResolvedKnownValue | 'muted' | { readonly bypass: BypassAt } | undefined {
+  ): ResolvedOutput | ResolvedStructuralSource | ResolvedKnownValue | 'muted' | 'absent' | { readonly bypass: BypassAt } | undefined {
     const def = graphOf(defId)
     if (ref.node === DINKSTER_REGION_PSEUDO_NODE) {
       sink.push(diag('error', 'compile', 'compile.region.invalidIndex', `'$region.${ref.port}' is available only as the immediate region index source`))
@@ -1206,6 +1210,7 @@ function compileImpl(
       sink.push(diag('error', 'compile', 'compile.port.unknownOutput', `'${node.type}' has no output '${ref.port}'`, { anchor: anchorOf(path, node.id) }))
       return undefined
     }
+    if (output.kept !== undefined) return 'absent'
     if (hasSyntheticAncestor(output.ancestry)) {
       sink.push(diag('error', 'compile', 'compile.port.unmaterialized', `${node.type}.${output.spec.id}: dynamic output member is not materialized`, { anchor: anchorOf(path, node.id) }))
       return undefined
@@ -1466,6 +1471,7 @@ function compileImpl(
           }
           const resolved = resolveOutputPort(at.path, at.defId, endpoint, sink, delivery)
           if (resolved === 'muted') return { steps: [{ kind: 'terminal', terminal: { kind: 'muted', reason: `producer '${endpoint.node}' is muted or in an inactive occurrence`, ...(lastMuted !== undefined ? { node: lastMuted } : {}) } }] }
+          if (resolved === 'absent') return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `output '${endpoint.node}.${endpoint.port}' is no longer part of its node`, absent: true } }] }
           if (!resolved) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `producer endpoint ${JSON.stringify(endpoint)} cannot deliver` } }] }
           return 'bypass' in resolved
             ? { steps: [{ kind: 'recurse', at: { kind: 'bypass', bypass: resolved.bypass } }] }
@@ -1646,6 +1652,25 @@ function compileImpl(
         const constructs = projectConstructs(child, { values: node.values, ...(instanceDynamic !== undefined ? { dynamic: instanceDynamic } : {}) }, resolveChildNode, childCtx.overlays)
         for (const [target, dynamic] of constructs.dynamic) childCtx.overlays.set(target, dynamic)
         for (const [target, values] of constructs.values) childCtx.values.set(target, values)
+        const outerOutputs = new Set([
+          ...(connectivityFor(path, defId)(node.id).outputPorts?.() ?? []),
+          ...(ctx.extraOut.get(node.id) ?? []),
+        ])
+        for (const address of outerOutputs) {
+          const match = matchBoundaryItem([
+            ...boundaryItems(child.boundary, 'outputs'),
+            ...boundaryItems(child.boundary, 'inputs').filter((item) => item.binds.kind === 'construct'),
+          ], { port: asPortId(address) })
+          if (!match.ok) continue
+          const binding = match.item.binds
+          const port = binding.kind === 'construct'
+            ? innerConstructAddress(child, binding, match.item.id, address, resolveChildNode)
+            : binding.kind === 'port' ? binding.port : undefined
+          if (port === undefined || binding.kind !== 'construct' && binding.kind !== 'port') continue
+          let ports = childCtx.extraOut.get(binding.node)
+          if (!ports) childCtx.extraOut.set(binding.node, (ports = new Set()))
+          ports.add(port)
+        }
         // Concrete input connectivity also crosses the boundary. DynamicSlot
         // reads link existence during elaboration, before ordinary endpoint
         // lowering, so project every primary and fan-out target now.
@@ -2191,10 +2216,10 @@ function compileImpl(
         const routeDiagnostics: Diagnostic[] = []
         let src: ResolvedOutput | undefined
         let baked: { readonly value: Json; readonly typeId?: string; readonly passedAutomatic?: PassedAutomatic } | undefined
-        if (structuralSrc && !('bypass' in structuralSrc) && !('structuralSource' in structuralSrc) && !('knownValue' in structuralSrc)) {
+        if (structuralSrc && structuralSrc !== 'absent' && !('bypass' in structuralSrc) && !('structuralSource' in structuralSrc) && !('knownValue' in structuralSrc)) {
           src = structuralSrc
         } else {
-          const routeStart: RouteAt = structuralSrc
+          const routeStart: RouteAt = structuralSrc && structuralSrc !== 'absent'
             ? 'bypass' in structuralSrc
               ? { kind: 'bypass', bypass: structuralSrc.bypass }
               : 'knownValue' in structuralSrc
@@ -2908,6 +2933,7 @@ function compileImpl(
     }
     if (!source) return fail('cannot be resolved')
     if (source === 'muted') return fail('is driven by a muted occurrence')
+    if (source === 'absent') return fail('is no longer part of its node')
     const resolved = 'bypass' in source
       ? projectRoute({ kind: 'bypass', bypass: source.bypass }, 'exact', diags)
       : 'structuralSource' in source

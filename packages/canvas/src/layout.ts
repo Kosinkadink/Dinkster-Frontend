@@ -151,7 +151,7 @@ export interface DynamicAnnotations {
   readonly inactive?: true
   /**
    * A row no longer part of the node, kept only for the wire on its output
-   * (ElaboratedInput.kept): drawn inactive, not editable, no new wire starts
+   * (ElaboratedInput.kept or ElaboratedOutput.kept): drawn inactive, not editable, no new wire starts
    * or ends on it. The text says why.
    */
   readonly kept?: string
@@ -1362,13 +1362,13 @@ export function layoutNode(
     return { construct, member, ...(members.length <= spec.minMembers ? { disabledReason: 'The group already has its fewest members.' } : {}) }
   }
   const rowRemoval = (item: ElaboratedInput | ElaboratedOutput, chain: readonly string[]): { remove?: MemberRemoval } => {
-    if (item.kind === 'input' && item.kept !== undefined || item.origin.kind !== 'member' || item.origin.ghost === true || chain.at(-1) !== groupBoxKey(item.origin.construct)) return {}
+    if (item.kept !== undefined || item.origin.kind !== 'member' || item.origin.ghost === true || chain.at(-1) !== groupBoxKey(item.origin.construct)) return {}
     const remove = removalOf(item.origin.construct, item.origin.key)
     return remove === undefined ? {} : { remove }
   }
   /** Reserve the cross's place on offered members too, so their fields align. */
   const removable = (item: ElaboratedInput | ElaboratedOutput, chain: readonly string[]): boolean => {
-    if (!tokens.memberRemoveCross || item.kind === 'input' && item.kept !== undefined || item.origin.kind !== 'member' || chain.at(-1) !== groupBoxKey(item.origin.construct)) return false
+    if (!tokens.memberRemoveCross || item.kept !== undefined || item.origin.kind !== 'member' || chain.at(-1) !== groupBoxKey(item.origin.construct)) return false
     const spec = constructs.get(item.origin.construct)
     return spec?.kind === 'group' && typeof spec.grows === 'string'
   }
@@ -1427,8 +1427,8 @@ export function layoutNode(
       ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
       ...(frames !== undefined ? { materialize: frames } : {}),
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
-      ...(selectorDisplay?.[item.address.port] === 'inactive' || (item.kind === 'input' && item.kept !== undefined) ? { inactive: true } : {}),
-      ...(item.kind === 'input' && item.kept !== undefined ? { kept: item.kept } : {}),
+      ...(selectorDisplay?.[item.address.port] === 'inactive' || item.kept !== undefined ? { inactive: true } : {}),
+      ...(item.kept !== undefined ? { kept: item.kept } : {}),
       ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }
