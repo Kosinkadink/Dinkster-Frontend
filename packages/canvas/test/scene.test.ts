@@ -133,6 +133,18 @@ describe('buildScene', () => {
       root: { ...occurrences.graphs.root!, links: {} },
     } }
     expect(parentRecord('first', disconnected)).toEqual(subset)
+    const junction: WorkflowDocument = { ...occurrences, graphs: { ...occurrences.graphs,
+      body: { ...occurrences.graphs.body!,
+        reroutes: { junction: { id: asRerouteId('junction') } },
+        links: { feed: { id: asLinkId('feed'), from: { reroute: asRerouteId('junction') },
+          to: { node: asNodeId('sink'), port: asPortId('value') } } },
+        boundary: boundaryOf([{ id: 'incoming', binds: {
+          kind: 'port', node: asNodeId('sink'), port: asPortId('value'), viaReroute: asRerouteId('junction'),
+        } }], []),
+      },
+    } }
+    expect(parentRecord('first', junction)).toEqual(record)
+    expect(parentRecord('second', junction)).toEqual(otherRecord)
   })
 
   it('keeps mapped Save wires on their real inputs through folding and undo', () => {

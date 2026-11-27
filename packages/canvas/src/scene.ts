@@ -589,9 +589,7 @@ export function boundaryNodesInGroup(scene: Scene, group: SceneGroup): Array<'in
     .map((node) => node.side)
 }
 
-type ProjectedTypeConstraint = NonNullable<NonNullable<Parameters<typeof solveGraphTypes>[2]>['projectedInputs']>[number] & {
-  readonly identity: EffectiveLinkIdentity
-}
+type ProjectedTypeConstraint = NonNullable<NonNullable<Parameters<typeof solveGraphTypes>[2]>['projectedInputs']>[number]
 
 function projectTypeThroughRegionInputs(
   document: WorkflowDocument,
@@ -620,14 +618,15 @@ function projectTypeThroughRegionInputs(
   return projected
 }
 
-/** Resolve parent producers outward so each drilled graph receives only its occurrence's constraints. */
-function projectedTypeConstraints(
+/** Resolve parent producers outward for occurrence-local solving and boundary display. */
+function projectedParentTypes(
   document: WorkflowDocument,
   resolve: SchemaResolver,
   topology: EffectiveOccurrenceTopology,
   graphId: string,
-): readonly ProjectedTypeConstraint[] {
+): { readonly constraints: readonly ProjectedTypeConstraint[]; readonly types: ReadonlyMap<EffectiveLinkIdentity, TypeExpr> } {
   const resolveDocumentNode = documentNodeResolver(document, resolve)
+  const types = new Map<EffectiveLinkIdentity, TypeExpr>()
   type ProjectionSolve = {
     readonly graph: GraphDef
     readonly result: SolveResult
@@ -638,16 +637,18 @@ function projectedTypeConstraints(
     effective: EffectiveOccurrenceTopology | undefined,
     targetGraphId: string,
   ): readonly ProjectedTypeConstraint[] => (effective?.projectedParentLinks ?? []).flatMap((link) => {
-    if (link.to.graphId !== targetGraphId || !isPortEndpoint(link.to.endpoint)) return []
+    if (link.to.graphId !== targetGraphId) return []
     const solved = solveProjectionGraph(link.from.graphId, link.from.instancePath)
     if (solved === undefined) return []
     return traceEndpointAll(solved.graph, link.from.endpoint, buildRerouteIndex(solved.graph)).flatMap((trace) => {
       if (trace.kind !== 'output') return []
       const type = solved.result.portTypeOf(trace.ref.node, 'output', trace.ref.port)
-      return type === undefined ? [] : [{
-        identity: link.identity,
-        type: projectTypeThroughRegionInputs(document, link, type),
-        to: link.to.endpoint as PortRef,
+      if (type === undefined) return []
+      const projected = projectTypeThroughRegionInputs(document, link, type)
+      types.set(link.identity, projected)
+      return !isPortEndpoint(link.to.endpoint) ? [] : [{
+        type: projected,
+        to: link.to.endpoint,
         label: `projected ${JSON.stringify(link.identity)}`,
         variableSource: solved.variableSources.get(trace.ref.node)!,
       }]
@@ -729,7 +730,7 @@ function projectedTypeConstraints(
     cache.set(key, solved)
     return solved
   }
-  return constraintsOf(topology, graphId)
+  return { constraints: constraintsOf(topology, graphId), types }
 }
 
 /** A field row whose stored value the host checks. */
@@ -1168,9 +1169,9 @@ export function buildScene(input: BuildSceneInput): Scene {
   // visible pin receives the solver's display type. Keeping this substitution
   // here (rather than teaching layout about graph constraints) preserves the
   // document -> elaboration -> solving -> rendering dependency direction.
-  const parentConstraints = effective === undefined ? []
-    : projectedTypeConstraints(input.document, input.resolve, effective, def.id)
-  const parentInputTypes = new Map(parentConstraints.map((constraint) => [constraint.identity, constraint.type]))
+  const { constraints: parentConstraints, types: parentInputTypes } = effective === undefined
+    ? { constraints: [], types: new Map<EffectiveLinkIdentity, TypeExpr>() }
+    : projectedParentTypes(input.document, input.resolve, effective, def.id)
   const solvedTypes = solveGraphTypes(effectiveGraph, input.resolve, {
     resolveNode: (node) => resolveNode(input.graphId, node, sourcePath),
     connectivityOf,
