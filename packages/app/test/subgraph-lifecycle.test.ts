@@ -1064,7 +1064,9 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     }
   })
 
-  it.each([1, 2] as const)('keeps whole-group members and choice ownership through separate lifecycle changes at depth %s', async (depth) => {
+  it.each(([1, 2] as const).flatMap((depth) =>
+    (['detach', 'active', 'muted', 'bypassed', 'loop'] as const).map((operation) => [depth, operation] as const)))
+  ('keeps whole-group members and choice ownership at depth %s through %s', async (depth, operation) => {
     const doc = boundarySample(depth)
     Object.assign(doc.graphs.root!.nodes.first!, {
       values: { strength: 0.2, count: 3, 'layers.layer0.strength': 0.2, 'layers.layer1.strength': 0.8,
@@ -1074,6 +1076,10 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     Object.assign(doc.graphs.root!.nodes.second!, {
       values: { strength: 0.8, count: 2, 'layers.layer0.strength': 0.9, 'mode.mix': 0.8 },
       dynamic: { layers: { members: ['layer0'] }, mode: { selected: 'image' } },
+    })
+    Object.assign(doc.graphs.root!.links, {
+      memberInput: { id: 'memberInput', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'layers.layer0.image' } },
+      memberOutput: { id: 'memberOutput', from: { node: 'first', port: 'layers.layer0.result' }, to: { node: 'sink', port: 'number' } },
     })
     const suffix = depth === 1 ? '.sample' : '.detail.sample'
     const promptOf = (current: WorkflowDocument) => {
@@ -1092,50 +1098,72 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
     expect(original[`second${suffix}`]!.outputMembers?.layers).toEqual(['layer0', 'layer1', 'layer2'])
     expect(original[`second${suffix}`]!.inputs['layers.layer2.strength']).toBe(0.9)
     expect(original[`second${suffix}`]!.slotVariants?.mode).toBe('image')
-    const detached = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
-      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveBoundarySample),
-    }))
-    expect(detached.dispatch({ command: 'occurrence.localize', params: { graphId: 'root', nodeId: 'first' } }).ok).toBe(true)
-    const localized = detached.doc
-    expect(localized.graphs.root!.nodes.first!.type).not.toBe(doc.graphs.root!.nodes.first!.type)
-    expect(promptOf(localized)).toEqual(original)
-    expect(detached.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: 'first',
-      values: { 'layers.layer0.strength': 0.7, 'mode.mix': 0.73 } } }).ok).toBe(true)
-    const edited = detached.doc
-    expect(detached.dispatch({ command: 'dynamic.selectOption', params: {
-      graphId: 'root', nodeId: 'first', construct: 'mode', option: 'image',
-    } }).ok).toBe(true)
-    const selected = detached.doc
-    for (const current of [selected, loadDocument(JSON.parse(JSON.stringify(selected))).document!]) {
-      const prompt = promptOf(current)
-      expect(prompt[`first${suffix}`]).toEqual({ ...first, slotVariants: { ...first.slotVariants, mode: 'image' },
-        inputs: Object.fromEntries(Object.entries({ ...first.inputs, 'layers.layer2.strength': 0.7, 'mode.mix': 0.73 })
-          .filter(([key]) => key !== 'mode.text')) })
-      expect(prompt[`second${suffix}`]).toEqual(original[`second${suffix}`])
-      expect(current.graphs.root!.nodes.first!.values['mode.text']).toBe('first text')
-      expect(current.graphs.root!.nodes.second).toEqual(doc.graphs.root!.nodes.second)
-      expect(current.graphs.detail).toEqual(doc.graphs.detail)
-      expect(current.graphs.portrait).toEqual(doc.graphs.portrait)
-    }
-    for (const expected of [edited, localized, doc]) {
-      expect(detached.undo()).toBe(true)
-      expect(detached.doc).toEqual(expected)
-    }
-    expect(promptOf(detached.doc)).toEqual(original)
-    for (let step = 0; step < 3; step++) expect(detached.redo()).toBe(true)
-    expect(detached.doc).toEqual(selected)
-    expect(promptOf(loadDocument(JSON.parse(JSON.stringify(detached.doc))).document!)).toEqual(promptOf(selected))
-
-    for (const mode of ['active', 'muted', 'bypassed', 'loop'] as const) {
+    expect(first.inputs['layers.layer2.image']).toEqual(['imageA', 0])
+    expect(original.sink!.inputs.number).toEqual([`first${suffix}`, 3])
+    if (operation === 'detach') {
+      const detached = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+        kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveBoundarySample),
+      }))
+      expect(detached.dispatch({ command: 'occurrence.localize', params: { graphId: 'root', nodeId: 'first' } }).ok).toBe(true)
+      const localized = detached.doc
+      expect(localized.graphs.root!.nodes.first!.type).not.toBe(doc.graphs.root!.nodes.first!.type)
+      expect(promptOf(localized)).toEqual(original)
+      expect(detached.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: 'first',
+        values: { 'layers.layer0.strength': 0.7, 'mode.mix': 0.73 } } }).ok).toBe(true)
+      const edited = detached.doc
+      expect(detached.dispatch({ command: 'dynamic.selectOption', params: {
+        graphId: 'root', nodeId: 'first', construct: 'mode', option: 'image',
+      } }).ok).toBe(true)
+      const selected = detached.doc
+      for (const current of [selected, loadDocument(JSON.parse(JSON.stringify(selected))).document!]) {
+        const prompt = promptOf(current)
+        expect(prompt[`first${suffix}`]).toEqual({ ...first, slotVariants: { ...first.slotVariants, mode: 'image' },
+          inputs: Object.fromEntries(Object.entries({ ...first.inputs, 'layers.layer2.strength': 0.7, 'mode.mix': 0.73 })
+            .filter(([key]) => key !== 'mode.text')) })
+        expect(prompt[`second${suffix}`]).toEqual(original[`second${suffix}`])
+        expect(current.graphs.root!.nodes.first!.values['mode.text']).toBe('first text')
+        expect(current.graphs.root!.nodes.second).toEqual(doc.graphs.root!.nodes.second)
+        expect(current.graphs.detail).toEqual(doc.graphs.detail)
+        expect(current.graphs.portrait).toEqual(doc.graphs.portrait)
+      }
+      expect(detached.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: 'first',
+        values: {}, unset: ['mode.mix'] } }).ok).toBe(true)
+      const outerCleared = detached.doc
+      const privateGraph = selected.graphs.root!.nodes.first!.type.slice(1)
+      expect(detached.dispatch({ command: 'node.setValues', params: {
+        graphId: privateGraph, nodeId: depth === 1 ? 'sample' : 'detail', values: { 'mode.mix': 0.79 },
+      } }).ok).toBe(true)
+      const privateEdited = detached.doc
+      for (const current of [privateEdited, loadDocument(JSON.parse(JSON.stringify(privateEdited))).document!]) {
+        const prompt = promptOf(current)
+        expect(prompt[`first${suffix}`]!.inputs['mode.mix']).toBe(0.79)
+        expect(prompt[`second${suffix}`]).toEqual(original[`second${suffix}`])
+        expect(current.graphs.root!.nodes.second).toEqual(doc.graphs.root!.nodes.second)
+        expect(current.graphs.detail).toEqual(doc.graphs.detail)
+        expect(current.graphs.portrait).toEqual(doc.graphs.portrait)
+        expect(prompt.sink!.inputs.number).toEqual([`first${suffix}`, 3])
+      }
+      for (const expected of [outerCleared, selected, edited, localized, doc]) {
+        expect(detached.undo()).toBe(true)
+        expect(detached.doc).toEqual(expected)
+      }
+      expect(promptOf(detached.doc)).toEqual(original)
+      for (let step = 0; step < 5; step++) expect(detached.redo()).toBe(true)
+      expect(detached.doc).toEqual(privateEdited)
+      expect(promptOf(loadDocument(JSON.parse(JSON.stringify(detached.doc))).document!)).toEqual(promptOf(privateEdited))
+    } else {
+      const mode = operation
       const before = { ...doc, graphs: { ...doc.graphs, root: { ...doc.graphs.root!, nodes: { ...doc.graphs.root!.nodes,
         first: { ...doc.graphs.root!.nodes.first!, ...(mode === 'loop' ? { region: { kind: 'map', elementPorts: ['strength'] } } : { mode }) },
       } } } } as WorkflowDocument
       const result = await flatten(before, 'root', [], 'first', resolveBoundarySample)
       if (mode === 'bypassed' || mode === 'loop') {
         expect(result.ok).toBe(false)
+        expect(result.reports.map((entry) => entry.code)).toContain(mode === 'bypassed'
+          ? 'subgraph.flatten.modeUnsupported' : 'subgraph.flatten.regionUnsupported')
         expect(result.session.doc).toEqual(before)
         expect(result.session.canUndo).toBe(false)
-        continue
+        return
       }
       expect(result.ok, JSON.stringify(result.reports)).toBe(true)
       const flattened = result.session.doc
@@ -1147,6 +1175,13 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
         expect(Object.entries(prompt).filter(([id, entry]) => entry.class_type === 'Boundary sample' && !id.startsWith('second.'))
           .map(([id]) => id)).toEqual(mode === 'active' ? [receiver] : [])
         if (mode === 'active') expect(prompt[receiver]).toEqual(first)
+        expect(prompt.sink!.inputs.number).toEqual(mode === 'active' ? [receiver, 3] : undefined)
+        const awakened = { ...current, graphs: { ...current.graphs, root: { ...current.graphs.root!, nodes: {
+          ...current.graphs.root!.nodes, [replacements[0]!.id]: { ...current.graphs.root!.nodes[replacements[0]!.id]!, mode: 'active' },
+        } } } } as WorkflowDocument
+        const awakePrompt = promptOf(awakened)
+        expect(awakePrompt[receiver]).toEqual(first)
+        expect(awakePrompt.sink!.inputs.number).toEqual([receiver, 3])
         expect(prompt[`second${suffix}`]).toEqual(original[`second${suffix}`])
         expect(current.graphs.root!.nodes.second).toEqual(doc.graphs.root!.nodes.second)
         expect(current.graphs.detail).toEqual(doc.graphs.detail)
