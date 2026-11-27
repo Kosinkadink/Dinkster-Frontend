@@ -68,7 +68,7 @@ import { ImportAssetResolutionDialog } from './ImportAssetResolutionDialog.js'
 import { ModalSurface } from './ModalSurface.js'
 import { attachDomTooltips, resolveCanvasTooltip, TooltipController, type DomTooltipTarget } from './tooltips.js'
 import { activateProblem, ProblemsPanel, type ProblemFixActions } from './ProblemsPanel.js'
-import { numberProblemFixLabel } from './number-problem-fixes.js'
+import { numberProblemFixLabel, numberProblemFixLabels } from './number-problem-fixes.js'
 import { useSelectionContext } from './selection-context.js'
 import { RegionIterationInspector } from './RegionIterationInspector.js'
 import { regionIterationInventory } from './region-iteration.js'
@@ -1774,6 +1774,7 @@ export function App(props: {
       if (fix === undefined) return undefined
       return {
         label: numberProblemFixLabel(fix, message),
+        labels: numberProblemFixLabels(fix, message),
         disabled: fix.state === 'storing',
         run: () => {
           if (fix.state === 'stale') app.numberProblemFixes.recheck(tab, fix.key)
@@ -1792,6 +1793,7 @@ export function App(props: {
       const storing = fixes.some((fix) => fix.state === 'storing')
       return {
         label: message(storing ? 'problemFix.storing' : 'problemFix.fixAll'),
+        labels: [message('problemFix.fixAll'), message('problemFix.storing')],
         disabled: storing,
         run: () => app.numberProblemFixes.apply(tab, fixes),
       }

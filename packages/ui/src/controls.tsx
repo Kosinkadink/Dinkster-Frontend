@@ -16,6 +16,21 @@ import { ProductShortcut, productShortcutKeys } from './shortcut.js'
 import githubMark from '../../../branding/providers/github-mark.svg?url'
 import googleMark from '../../../branding/providers/google-mark.svg?url'
 
+/** Reserve the widest translated state label without adding it to the accessible name. */
+export function ProductActionLabel(props: {
+  readonly labels?: readonly string[] | undefined
+  readonly children: JSX.Element
+}) {
+  return (
+    <Show when={props.labels?.length} fallback={props.children}>
+      <span class="dinkster-action-label">
+        <For each={props.labels}>{(label) => <span class="dinkster-action-label-reserve" data-label={label} aria-hidden="true" />}</For>
+        <span>{props.children}</span>
+      </span>
+    </Show>
+  )
+}
+
 export type ProductRole = keyof typeof rules.buttonRoles
 export type ProductFill = keyof typeof rules.buttonFills
 

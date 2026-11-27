@@ -52,6 +52,7 @@ export function activateProblem(app: AppState, diagnostic: Diagnostic, openAsset
 
 export interface ProblemFixAction {
   readonly label: string
+  readonly labels?: readonly string[]
   readonly disabled?: boolean
   readonly run: () => void | Promise<void>
 }
@@ -229,7 +230,7 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
           {message('problems.selection.only')}
         </label>
         <Show when={packDiagnostics().length === 0 && !(props.importedNodes?.() ?? []).some((node) => node.status === 'installable') ? props.fixes?.all() : undefined}>{(action) => (
-          <ProductButton variant="secondary" size="compact" disabled={action().disabled}
+          <ProductButton variant="secondary" size="compact" labels={action().labels} disabled={action().disabled}
             onPointerDown={(event) => event.preventDefault()}
             onClick={(event) => void runFix(action(), event.currentTarget)}>{action().label}</ProductButton>
         )}</Show>
@@ -350,7 +351,7 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                           <div class="problem-detail">
                             <code>{diagnostic().code}</code>
                             <Show when={props.fixes?.forProblem(diagnostic())}>{(action) => (
-                              <ProductButton type="button" variant="secondary" size="compact" disabled={action().disabled}
+                              <ProductButton type="button" variant="secondary" size="compact" labels={action().labels} disabled={action().disabled}
                                 onPointerDown={(event) => event.preventDefault()}
                                 onClick={(event) => void runFix(action(), event.currentTarget)}>{action().label}</ProductButton>
                             )}</Show>

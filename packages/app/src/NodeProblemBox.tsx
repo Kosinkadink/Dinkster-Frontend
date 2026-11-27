@@ -7,7 +7,7 @@
 import { ProblemBox, type ProblemBoxViewLine } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
 import type { ProblemBoxAction, ProblemBoxLine } from './problem-box.js'
-import { numberProblemFixLabel } from './number-problem-fixes.js'
+import { numberProblemFixLabel, numberProblemFixLabels } from './number-problem-fixes.js'
 
 export function NodeProblemBox(props: {
   readonly x: number
@@ -48,6 +48,7 @@ export function NodeProblemBox(props: {
       : [{
         id: line.numberFix.state === 'stale' ? 'check-number-fix' : 'apply-number-fix',
         label: numberProblemFixLabel(line.numberFix, message),
+        labels: numberProblemFixLabels(line.numberFix, message),
         disabled: line.numberFix.state === 'storing',
       }],
   }))

@@ -8,12 +8,14 @@
  */
 import { createEffect, For, Show } from 'solid-js'
 import { CircleX, TriangleAlert } from 'lucide-solid'
+import { ProductActionLabel } from './controls.js'
 
 export type ProblemBoxKind = 'error' | 'warning'
 
 export interface ProblemBoxViewAction {
   readonly id: string
   readonly label: string
+  readonly labels?: readonly string[]
   readonly disabled?: boolean
 }
 
@@ -105,7 +107,7 @@ export function ProblemBox(props: {
                       disabled={action.disabled}
                       onClick={() => props.onAction?.(line, action.id)}
                     >
-                      {action.label}
+                      <ProductActionLabel labels={action.labels}>{action.label}</ProductActionLabel>
                     </button>
                   )}
                 </For>

@@ -14,6 +14,11 @@ export function numberProblemFixLabel(fix: NumberProblemFix, message: typeof t =
     : message('problemFix.useNumber', { value: String(fix.offered.after) })
 }
 
+export function numberProblemFixLabels(fix: NumberProblemFix, message: typeof t = t): readonly string[] {
+  return [message('problemFix.useNumber', { value: String(fix.offered.after) }),
+    message('problemFix.storing'), message('problemFix.checkAgain')]
+}
+
 const keyOf = (fix: StoredNumberFix): string => JSON.stringify([
   fix.part.graphId, fix.part.instancePath ?? [], fix.part.nodeId, fix.valueKey,
 ])

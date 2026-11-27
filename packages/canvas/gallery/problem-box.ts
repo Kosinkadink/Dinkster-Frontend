@@ -35,7 +35,7 @@ export interface ProblemBoxGalleryLine {
   readonly rowName?: string
   readonly message: string
   /** Action labels at the right end of the line, wrapping when needed. */
-  readonly actions: readonly { readonly label: string; readonly disabled?: boolean }[]
+  readonly actions: readonly { readonly label: string; readonly labels?: readonly string[]; readonly disabled?: boolean }[]
 }
 
 export interface ProblemBoxGalleryBox {
@@ -310,7 +310,7 @@ export function problemBoxGallery(
       badges: { pick: [warnings(1)] }, rowMarks: { pick: { item: 'warning' } },
       boxes: [{ nodeId: 'pick', nodeTitle: 'Get item', lines: [{
         ...line('warning', 'item', card.message),
-        actions: [{ label: card.action, disabled: 'disabled' in card && card.disabled }],
+        actions: [{ label: card.action, labels: ['Use the last item', 'Storing...', 'Check again'], disabled: 'disabled' in card && card.disabled }],
       }] }],
       width: 'narrow' in card ? LEFT * 2 + 200 : BOXED,
     })),

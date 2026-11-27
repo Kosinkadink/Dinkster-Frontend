@@ -231,8 +231,10 @@ export function ProblemBoxGallery(props: { theme: 'dark' | 'light' }) {
             <figure class="dinkster-canvas-example dinkster-problem-fixes-example" data-testid={offered ? 'fix-all-offered' : 'fix-all-unavailable'}>
               <ProductPanel>
                 <ProblemsPanel app={app} diagnostics={() => [item, other]} compatSkips={() => []} fixes={{
-                  forProblem: (problem) => ({ label: problem === item ? 'Use the last item' : offered ? 'Use 10000' : 'Edit field', run: () => {} }),
-                  all: () => offered ? { label: 'Fix all', run: () => {} } : undefined,
+                  forProblem: (problem) => ({ label: problem === item ? 'Use the last item' : offered ? 'Use 10000' : 'Edit field',
+                    labels: problem === item ? ['Use the last item', 'Storing...', 'Check again']
+                      : offered ? ['Use 10000', 'Storing...', 'Check again'] : [], run: () => {} }),
+                  all: () => offered ? { label: 'Fix all', labels: ['Fix all', 'Storing...'], run: () => {} } : undefined,
                 }} />
               </ProductPanel>
               <figcaption class="dinkster-metadata">{offered
