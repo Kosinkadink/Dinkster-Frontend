@@ -2871,7 +2871,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           // A run saves to the project's output mount and never falls back to the machine's.
           const projectMount = settings.activeOutputMount
           renderer.setWidgetFacts({ SAVE_TARGET: {
-            ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready').map((mount) => mount.id),
+            ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready' && !mount.saveError).map((mount) => mount.id),
             ...(projectMount === undefined ? {} : { projectMount }),
           } })
         }).catch(() => { if (live) renderer.setWidgetFacts({}) })

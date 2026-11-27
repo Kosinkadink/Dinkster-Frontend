@@ -117,7 +117,7 @@ import { BoardGallery } from './board.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
 import { SettingsSectionGallery } from './settings-section.js'
-import { SelectGallery } from './select.js'
+import { FieldAlignmentGallery, SelectGallery } from './select.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -228,7 +228,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models', '#settings-section', '#setup-components'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -245,6 +245,8 @@ function Gallery() {
             ? 'Settings groups'
             : route() === '#dropdowns'
             ? 'Dropdowns'
+            : route().endsWith('field-alignment')
+            ? 'Field alignment'
             : route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
@@ -552,6 +554,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#dropdowns'}>
               <SelectGallery />
+            </Match>
+            <Match when={route() === '#field-alignment' || route() === '#site-field-alignment'}>
+              <FieldAlignmentGallery />
             </Match>
             <Match when={route() === '#controls'}>
               <Section
@@ -1779,7 +1784,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models', '#settings-section', '#setup-components'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'
@@ -1796,7 +1801,7 @@ function GalleryRoot() {
   })
   return (
     <Show
-      when={route().startsWith('#site-')}
+      when={route().startsWith('#site-') && route() !== '#site-field-alignment'}
       fallback={
         <Switch fallback={<Gallery />}>
           <Match when={route() === '#window-toolbar'}>

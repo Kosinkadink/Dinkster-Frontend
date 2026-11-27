@@ -50,8 +50,8 @@ describe('import destination', () => {
     const pending = new Promise<void>((resolve) => { loaded = resolve })
     const connection = {
       onMountsChanged: () => () => {},
-      fetchMountSettings: async () => { await pending; return { mountChangesAllowed: false, restartRequired: true, outputMount: 'output', mounts: [mount('plates'), mount('pending'), mount('readonly', 'read')] } },
-      fetchMountLocations: async () => { await pending; return { mounts: [{ id: 'plates', path: '/configured/NOT-ACTIVE' }], activeMounts: [mount('plates'), { ...mount('pending'), state: 'pending' }, mount('other-project'), mount('readonly', 'read')] } },
+      fetchMountSettings: async () => { await pending; return { mountChangesAllowed: false, restartRequired: true, outputMount: 'output', mounts: [mount('plates'), mount('pending'), mount('readonly', 'read'), mount('denied-live'), { ...mount('denied-pending'), saveError: 'Cannot save here: Permission denied' }] } },
+      fetchMountLocations: async () => { await pending; return { mounts: [{ id: 'plates', path: '/configured/NOT-ACTIVE' }], activeMounts: [mount('plates'), { ...mount('pending'), state: 'pending' }, mount('other-project'), mount('readonly', 'read'), { ...mount('denied-live'), saveError: 'Cannot save here: Permission denied' }, mount('denied-pending')] } },
     }
     const [value, setValue] = createSignal<UploadDestinationChoice>({ mount: 'plates', folder: 'previous', remember: false })
     const root = document.createElement('div')

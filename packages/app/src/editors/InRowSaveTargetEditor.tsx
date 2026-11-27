@@ -56,7 +56,7 @@ export const InRowSaveTargetImplementation: Component<WidgetEditorImplementation
     })
   } else setError(message('mountWidget.error'))
 
-  const writable = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready') ?? []
+  const writable = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready' && !entry.saveError) ?? []
   const mounts = (): CanvasTargetMounts => {
     if (error() !== undefined) return 'failed'
     if (settings() === undefined) return 'loading'
