@@ -1,6 +1,10 @@
 import { expect, nativeTest as test, mockProjectPacks, setShellRegion } from './fixtures.js'
 
 test('panel sizes use available window space without changing the opposite panel or stored preferences', async ({ page }, info) => {
+  await page.route('**/api/**', (route) => route.fulfill({ status: 404 }))
+  await page.route('**/api/mounts', (route) => route.fulfill({ json: { mounts: [] } }))
+  await page.route('**/api/assets/catalog*', (route) => route.fulfill({ json: { assets: [] } }))
+  await page.route('**/api/docs?*', (route) => route.fulfill({ json: { docs: [] } }))
   await mockProjectPacks(page)
   await page.route('**/api/nodes*', (route) => route.fulfill({ json: {
     schemaVersion: 1, epoch: 1, dinkster: { version: 'shell-resize', schemaWire: 2 }, nodes: {},
@@ -50,24 +54,27 @@ test('panel sizes use available window space without changing the opposite panel
   expect((await canvas.boundingBox())!.width).toBeGreaterThanOrEqual(200)
   await page.screenshot({ path: info.outputPath('right-maximum.png') })
 
+  await setShellRegion(page, 'left', false)
+  await setShellRegion(page, 'right', false)
   await setShellRegion(page, 'bottom', true)
   await drag('bottom-resize', 0, -1080)
   const bottom = page.getByTestId('bottom-panel')
   const bottomHeight = (await bottom.boundingBox())!.height
   expect(bottomHeight).toBeGreaterThan(800)
-  expect((await canvas.boundingBox())!.height).toBeGreaterThanOrEqual(160)
-  expect((await canvas.boundingBox())!.height).toBeLessThan(162)
+  const canvasStage = page.locator('.canvas-stage').first()
+  expect((await canvasStage.boundingBox())!.height).toBeGreaterThanOrEqual(160)
+  expect((await canvasStage.boundingBox())!.height).toBeLessThan(162)
   await page.screenshot({ path: info.outputPath('bottom-maximum.png') })
   await page.reload()
   await expect.poll(async () => (await bottom.boundingBox())?.height).toBe(bottomHeight)
   await page.setViewportSize({ width: 1920, height: 640 })
   await expect.poll(async () => (await bottom.boundingBox())!.height).toBeLessThan(500)
-  expect((await canvas.boundingBox())!.height).toBeGreaterThanOrEqual(160)
+  expect((await canvasStage.boundingBox())!.height).toBeGreaterThanOrEqual(160)
   await page.setViewportSize({ width: 1920, height: 1080 })
   await expect.poll(async () => (await bottom.boundingBox())!.height).toBe(bottomHeight)
 
   // External setting edits keep oversized preferences, just like pointer resizing.
-  await setShellRegion(page, 'right', false)
+  await setShellRegion(page, 'left', true)
   await page.evaluate(() => {
     const settings = window.__dinksterTest!.app.settings
     settings.set('shell.layout.left.width', 1600)

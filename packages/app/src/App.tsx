@@ -2185,11 +2185,14 @@ export function App(props: {
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
         : { single: Math.max(0, Math.floor(available - gap)), both: Math.max(0, Math.floor(available - 2 * gap)) })
-      setBottomSpace(Math.max(REGION_SIZE_BOUNDS.bottom.min, Math.floor(bodyElement.clientHeight - 160 - gap)))
+      const tabHeight = Math.max(0, ...Array.from(bodyElement.querySelectorAll<HTMLElement>('.editor-group > .tab-strip'),
+        (strip) => strip.getBoundingClientRect().height))
+      setBottomSpace(Math.max(REGION_SIZE_BOUNDS.bottom.min, Math.floor(bodyElement.clientHeight - tabHeight - 160 - gap)))
     }
     const observer = new ResizeObserver(measure)
     observer.observe(bodyElement)
     observer.observe(sidebar)
+    if (regionElement) observer.observe(regionElement)
     measure()
     onCleanup(() => observer.disconnect())
   })
