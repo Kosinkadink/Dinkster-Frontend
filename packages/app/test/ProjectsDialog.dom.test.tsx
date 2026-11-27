@@ -161,9 +161,9 @@ describe('ProjectsDialog', () => {
     actionButton(rows(mounted.root)[0]!, 'Account link').click()
     await flush()
     if (pendingStage !== 'choices') {
-      const select = document.querySelector<HTMLSelectElement>('select')!
-      select.value = accountId
-      select.dispatchEvent(new Event('change', { bubbles: true }))
+      document.querySelector<HTMLButtonElement>('[role="combobox"]')!.click()
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) => entry.textContent === 'Retired account choice')!
+      option.click()
       preflight = true
       const save = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Save link')!
       expect(save.disabled).toBe(false)

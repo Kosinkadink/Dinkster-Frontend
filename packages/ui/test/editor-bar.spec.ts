@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { chooseOption } from '../../e2e/choices.js'
 
 test('project menu lists the current project, at most eight others, and its actions', async ({
   page,
@@ -12,7 +13,7 @@ test('project menu lists the current project, at most eight others, and its acti
   const menu = page.getByRole('menu', { name: 'Projects', exact: true })
   const status = page.getByRole('status')
 
-  await page.getByLabel('Other projects').selectOption('many')
+  await chooseOption(page.getByLabel('Other projects'), 'More than 8 projects')
   await trigger.click()
   await expect(
     menu.getByRole('menuitemcheckbox', { name: 'Film grain tests' }),
@@ -66,7 +67,7 @@ test('project menu lists the current project, at most eight others, and its acti
   await page.keyboard.press('Enter')
   await expect(status).toHaveText('Switched to p-0')
 
-  await page.getByLabel('Other projects').selectOption('loading')
+  await chooseOption(page.getByLabel('Other projects'), 'Loading')
   await trigger.click()
   await expect(menu.getByRole('menuitem')).toHaveText([
     'All projects',
@@ -74,7 +75,7 @@ test('project menu lists the current project, at most eight others, and its acti
   ])
   await page.keyboard.press('Escape')
 
-  await page.getByLabel('Other projects').selectOption('failed')
+  await chooseOption(page.getByLabel('Other projects'), 'Could not be loaded')
   await trigger.click()
   await expect(menu).toContainText('Projects could not be loaded')
   await menu.getByRole('menuitem', { name: 'All projects' }).click()
@@ -107,8 +108,18 @@ test('the left bar account menu opens beside the bar, upward from its trigger', 
     ['signed-in', 'Account menu: Alex Rivers', 'Account menu'],
     ['signing-in', 'Signing in', 'Signing in'],
   ] as const) {
-    await page.getByLabel('Account', { exact: true }).selectOption(state)
+    await chooseOption(
+      page.getByLabel('Account', { exact: true }),
+      state === 'signed-in' ? 'Signed in' : 'Signing in',
+    )
     const trigger = rail.getByRole('button', { name, exact: true })
+    await trigger.scrollIntoViewIfNeeded()
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    )
     await trigger.click()
     const menu = page.getByRole('menu', { name: menuName, exact: true })
     await expect(menu).toBeVisible()
@@ -122,6 +133,17 @@ test('the left bar account menu opens beside the bar, upward from its trigger', 
     await expect(trigger).toHaveCSS('border-radius', '999px')
     await page.keyboard.press('Escape')
     await expect(trigger).toBeFocused()
+    for (const key of ['ArrowDown', 'ArrowUp']) {
+      const before = await page.evaluate(() => [window.scrollX, window.scrollY])
+      await trigger.press(key)
+      const items = menu.getByRole('menuitem')
+      await expect(key === 'ArrowDown' ? items.first() : items.last()).toBeFocused()
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+      await expect(menu).toBeVisible()
+      expect(await page.evaluate(() => [window.scrollX, window.scrollY])).toEqual(before)
+      await page.keyboard.press('Escape')
+      await expect(trigger).toBeFocused()
+    }
   }
 })
 
@@ -147,7 +169,12 @@ test('the logo sits over the left bar and the panel switches sit at the right en
   await expect(logo.locator('svg')).toHaveCount(0)
   await expect(project.locator('svg')).toHaveCount(2)
   for (const platform of ['browser', 'win32', 'linux', 'darwin']) {
-    await page.getByLabel('Platform', { exact: true }).selectOption(platform)
+    await chooseOption(
+      page.getByLabel('Platform', { exact: true }),
+      { browser: 'Browser', win32: 'Windows', linux: 'Linux', darwin: 'macOS' }[
+        platform
+      ]!,
+    )
     const mark = (await logo.boundingBox())!
     const start = (await project.boundingBox())!.x
     if (platform === 'darwin') {
@@ -181,7 +208,7 @@ test('the logo sits over the left bar and the panel switches sit at the right en
     (await logo.boundingBox())!.x,
   )
   await page.getByLabel('Left bar', { exact: true }).check()
-  await page.getByLabel('Platform', { exact: true }).selectOption('linux')
+  await chooseOption(page.getByLabel('Platform', { exact: true }), 'Linux')
   const arrow = project.locator('svg').last()
   const rest = await arrow.evaluate((node) => getComputedStyle(node).color)
   await project.hover()

@@ -6,8 +6,9 @@
  * busy toggles on someone else's request, no stale accept/cancel dispatch.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { createSignal, type CommandInvocation } from '@dinkster/core'
-import type { AssetGuessCandidate, AssetGuessMatch, DinksterSubmitResult, MissingAsset } from '@dinkster/client'
+import { asConnectionId, createSignal, type CommandInvocation } from '@dinkster/core'
+import { DinksterConnection, type AssetGuessCandidate, type AssetGuessMatch, type DinksterSubmitResult, type MissingAsset, type ModelDownloadJob, type WebSocketLike } from '@dinkster/client'
+import { ModelDownloadsController, modelDownloadTotals } from '../src/model-downloads.js'
 import {
   assetGuessCandidateToRef,
   installAssetConsent,
@@ -60,6 +61,351 @@ const consentCallbacks = () => ({
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
 describe('installAssetConsent ownership', () => {
+  it('checks selected downloads against each filesystem without inventing unavailable space', async () => {
+    const requirements = ['first', 'second', 'other'].map((name) => ({ name: `${name}.safetensors`, kind: 'model/vae' }))
+    let spaces: unknown[] = []
+    const starts: string[] = []
+    const connection = new DinksterConnection({ id: asConnectionId('download-space'), baseUrl: '/engine', clientId: 'test', project: 'studio',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        if (String(url).includes('/plan?')) {
+          const requirement = JSON.parse(String(init?.body)) as { name: string }
+          const index = requirements.findIndex((row) => row.name === requirement.name)
+          return new Response(JSON.stringify({ ...requirements[index], project: 'studio', status: 'consent-required', planId: String(index),
+            provider: 'huggingface', source: 'https://huggingface.co/example/model', repo: 'example/model',
+            revision: 'a'.repeat(40), file: requirement.name, sha256: 'b'.repeat(64), license: 'test',
+            size: [311, 701, 37][index], destination: `/models/${index}/${requirement.name}`, mount: `mount-${index}`,
+            ...(spaces[index] === undefined ? {} : { destinationSpace: spaces[index] }),
+          }))
+        }
+        if (init?.method === 'POST') {
+          starts.push(String(url))
+          return new Response('{}', { status: 409 })
+        }
+        return new Response(JSON.stringify({ instance: 'engine', jobs: [] }))
+      } })
+    const available = (filesystem: string, freeBytes: number) => ({ status: 'available', filesystem, freeBytes })
+    const controller = new ModelDownloadsController(connection, 'studio')
+    const review = async () => {
+      for (const requirement of requirements) await controller.review(requirement)
+      return modelDownloadTotals(controller.rows.get())
+    }
+    try {
+      controller.ensure(requirements)
+      spaces = [available('shared', 1100), available('shared', 1000), available('other', 10000)]
+      expect(await review()).toEqual({ count: 3, bytes: 1049, freeBytes: 11000, insufficient: true })
+      await controller.download(requirements)
+      expect(starts).toEqual([])
+      spaces = [available('shared', 1012), available('shared', 1012), available('other', 37)]
+      expect(await review()).toEqual({ count: 3, bytes: 1049, freeBytes: 1049, insufficient: false })
+      spaces = [available('shared', 0), { status: 'unavailable' }, undefined]
+      expect(await review()).toEqual({ count: 3, bytes: 1049, freeBytes: undefined, insufficient: true })
+      spaces = [{ status: 'unavailable' }, undefined, available('other', 37)]
+      expect(await review()).toEqual({ count: 3, bytes: 1049, freeBytes: undefined, insufficient: false })
+      expect(modelDownloadTotals(controller.rows.get().slice(2))).toEqual({ count: 1, bytes: 37, freeBytes: 37, insufficient: false })
+      expect(modelDownloadTotals([])).toEqual({ count: 0, bytes: 0, freeBytes: undefined, insufficient: false })
+      await controller.download([requirements[2]!])
+      expect(starts).toHaveLength(1)
+    } finally { controller.dispose() }
+  })
+
+  it('shows only authoritative hidden identities and ignores a dismissed model action', async () => {
+    const named = { name: 'requested.safetensors', kind: 'model/vae' }
+    const models = ['a', 'b'].map((letter) => ({ ...named, asset: {
+      digest: `blake3:${letter.repeat(64)}`, name: named.name, size: 8192,
+      mediaType: 'application/octet-stream', virtualPath: 'models/requested.safetensors',
+    } }))
+    const identities = models.map((_, index) => `local-revision:${String(index + 1).repeat(64)}`)
+    const hidden = new Set(identities)
+    const mutations: { url: string; identity: string }[] = []
+    const connection = new DinksterConnection({ id: asConnectionId('hidden-downloads'), baseUrl: '/engine', clientId: 'test', project: 'studio',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        if (init?.method === 'DELETE') {
+          const { identity } = JSON.parse(String(init.body)) as { identity: string }
+          mutations.push({ url: String(url), identity })
+          hidden.delete(identity)
+          return new Response(JSON.stringify({ settings: { version: 1, locations: [], downloadLocation: null },
+            locations: [], revision: 'revision', project: 'studio', changesAllowed: true,
+            restartRequired: false, pendingRemovals: [], hiddenModels: [] }))
+        }
+        if (String(url).includes('/plan?')) {
+          const body = JSON.parse(String(init?.body)) as { asset: { digest: string } }
+          const index = models.findIndex((model) => model.asset.digest === body.asset.digest)
+          return new Response(JSON.stringify(hidden.has(identities[index]!)
+            ? { status: 'model-hidden', hiddenIdentities: [identities[index]] }
+            : { ...named, status: 'local' }))
+        }
+        return new Response(JSON.stringify({ instance: 'engine', jobs: [] }))
+      } })
+    const controller = new ModelDownloadsController(connection, 'studio')
+    const slot = slotOf<AssetConsentRequest>()
+    const open = () => installAssetConsent({ models, slot,
+      unhideModel: async (identity) => { await connection.unhideModel(identity) },
+      modelDownloads: { connection, controller, project: 'studio' } })
+    try {
+      open()
+      await slot.value!.reviewModel!(0)
+      await slot.value!.reviewModel!(1)
+      const dismissed = slot.value!
+      slot.set(undefined)
+      open()
+      await dismissed.showModel!(0)
+      expect(mutations).toEqual([])
+      await slot.value!.showModel!(0)
+      expect(mutations).toEqual([{ url: '/engine/api/models/hidden/studio', identity: identities[0] }])
+      expect(slot.value!.models?.map((row) => row.plan?.status)).toEqual(['local', 'model-hidden'])
+      expect(hidden.has(identities[1]!)).toBe(true)
+      expect(slot.value!.retry).toBeUndefined()
+    } finally { slot.set(undefined); controller.dispose() }
+  })
+
+  it('keeps exact hashes and name-only requests separate for same-named model downloads', async () => {
+    const named = { name: 'weights.safetensors', kind: 'model/vae' }
+    const asset = { digest: `blake3:${'a'.repeat(64)}`, name: named.name, size: 8192,
+      mediaType: 'application/octet-stream', virtualPath: 'models/weights.safetensors' }
+    const first = { ...named, asset }
+    const second = { ...named, asset: { ...asset, digest: `blake3:${'b'.repeat(64)}` } }
+    const selection = { ...named, project: 'studio', provider: 'huggingface',
+      source: 'https://huggingface.co/example/model/resolve/main/weights.safetensors',
+      repo: 'example/model', revision: 'c'.repeat(40), file: named.name,
+      sha256: 'd'.repeat(64), size: asset.size, license: 'apache-2.0',
+      destination: '/models/weights.safetensors', mount: 'models' }
+    const jobs = [{ ...selection, digest: second.asset.digest, jobId: 'second', status: 'downloading', received: 317 }]
+    const plans: unknown[] = []
+    const requests: string[] = []
+    let locallyReady = false
+    const connection = new DinksterConnection({ id: asConnectionId('exact-downloads'), baseUrl: '/engine', clientId: 'test', project: 'studio',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        requests.push(String(url))
+        let payload: unknown = { instance: 'engine', jobs }
+        if (String(url).includes('/plan?')) {
+          const body = JSON.parse(String(init?.body)) as { asset?: typeof asset }
+          plans.push(body)
+          payload = locallyReady ? { ...named, status: 'local' } : { ...selection, status: 'consent-required', planId: body.asset ? 'first-plan' : 'named-plan',
+            ...(body.asset ? { digest: body.asset.digest } : {}) }
+        }
+        return new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
+      } })
+    const controller = new ModelDownloadsController(connection, 'studio')
+    const slot = slotOf<AssetConsentRequest>()
+    const install = () => installAssetConsent({ models: [first, second, named], slot,
+      modelDownloads: { connection, controller, project: 'studio' } })
+    try {
+      install()
+      for (let index = 0; index < 3; index++) await slot.value!.reviewModel!(index)
+      expect(plans).toEqual([
+        { ...named, asset, project: 'studio', scope: 'local' },
+        { ...named, project: 'studio', scope: 'local' },
+      ])
+      expect(slot.value!.models?.map((row) => row.job?.jobId ?? (row.plan?.status === 'consent-required' ? row.plan.planId : undefined)))
+        .toEqual(['first-plan', 'second', 'named-plan'])
+      slot.set(undefined)
+      install()
+      expect(slot.value!.models?.map((row) => row.requirement.asset?.digest)).toEqual([asset.digest, second.asset.digest, undefined])
+      expect(slot.value!.models?.[1]?.job?.received).toBe(317)
+      expect(requests.every((url) => url.startsWith('/engine/api/models/downloads'))).toBe(true)
+      expect(slot.value!.retry).toBeUndefined()
+      const { result, retries } = rejection([missing(asset.digest), missing(second.asset.digest)])
+      installAssetConsent({ result: { ...result, assetsMissing: { ...result.assetsMissing, models: [named] } },
+        modelReferences: [first, second, first], slot,
+        modelDownloads: { connection, controller, project: 'studio' }, ...consentCallbacks() })
+      expect(slot.value!.assets).toEqual([])
+      expect(slot.value!.models?.map((row) => row.requirement)).toEqual([named, first, second])
+      await slot.value!.retry!([asset.digest, second.asset.digest])
+      expect(retries).toHaveLength(0)
+      slot.set(undefined)
+      jobs.splice(0)
+      locallyReady = true
+      const retryWithAssets = vi.fn(async () => submitOk)
+      const media = missing(`blake3:${'e'.repeat(64)}`)
+      installAssetConsent({ result: { ...result, retryWithAssets, assetsMissing: { ...result.assetsMissing,
+        assets: [...result.assetsMissing.assets, media],
+      } }, modelReferences: [first, second], slot,
+        modelDownloads: { connection, project: 'studio' }, ...consentCallbacks() })
+      expect(slot.value!.assets).toEqual([])
+      for (let index = 0; index < 2; index++) await slot.value!.reviewModel!(index)
+      expect(retryWithAssets).not.toHaveBeenCalled()
+      const readyModels = slot.value!
+      await readyModels.retry!([asset.digest, second.asset.digest, media.digest])
+      expect(retryWithAssets).not.toHaveBeenCalled()
+      expect(slot.value!.assets).toEqual([media])
+      expect(slot.value!.models).toBeUndefined()
+      const mediaConsent = slot.value!
+      await readyModels.retry!([media.digest])
+      expect(slot.value).toBe(mediaConsent)
+      expect(retryWithAssets).not.toHaveBeenCalled()
+      await mediaConsent.retry!([asset.digest, second.asset.digest, media.digest])
+      expect(retryWithAssets).toHaveBeenCalledExactlyOnceWith([media.digest])
+      expect(slot.value).toBeUndefined()
+    } finally {
+      slot.set(undefined)
+      controller.dispose()
+    }
+  })
+
+  it('keeps a batch live across dismissal, queues busy folders and stops only the chosen model', async () => {
+    const requirements = [
+      { name: 'weights.safetensors', kind: 'model/vae' },
+      { name: 'weights.safetensors', kind: 'model/checkpoint' },
+      { name: 'three.safetensors', kind: 'model/vae' },
+      { name: 'four.safetensors', kind: 'model/vae' },
+      { name: 'five.safetensors', kind: 'model/vae' },
+      { name: 'six.safetensors', kind: 'model/vae' },
+    ]
+    const selections = requirements.map((requirement, index) => ({
+      ...requirement, project: 'studio', provider: 'huggingface' as const,
+      source: `https://huggingface.co/example/model/resolve/main/${requirement.name}`,
+      repo: 'example/model', revision: 'a'.repeat(40), file: requirement.name,
+      sha256: 'b'.repeat(64), size: 8192, license: 'apache-2.0',
+      destination: `/models/${index === 1 ? 0 : index}/${requirement.name}`, mount: `folder-${index === 1 ? 0 : index}`,
+      status: 'consent-required' as const, planId: `plan-${index}`,
+    }))
+    const jobs = new Map<string, ModelDownloadJob>()
+    const complete = (id: string): void => {
+      const job = jobs.get(id)!
+      jobs.set(id, { ...job, status: 'completed', received: job.size, path: job.destination, reused: false, renamed: false,
+        asset: { digest: `blake3:${'c'.repeat(64)}`, name: job.name, size: job.size,
+          mediaType: 'application/octet-stream', virtualPath: `models/${job.name}` } })
+    }
+    let lastStartBusy = true
+    let discoveryFails = false
+    let disabledFolder = false
+    let folderEnabled = false
+    let acceptStart!: () => void
+    let observeStart!: () => void
+    const startObserved = new Promise<void>((resolve) => { observeStart = resolve })
+    const startAccepted = new Promise<void>((resolve) => { acceptStart = resolve })
+    let observeBusy!: () => void
+    let refuseStart!: () => void
+    const busyObserved = new Promise<void>((resolve) => { observeBusy = resolve })
+    const startRefused = new Promise<void>((resolve) => { refuseStart = resolve })
+    const connection = new DinksterConnection({ id: asConnectionId('downloads'), baseUrl: '/engine', clientId: 'test', project: 'studio',
+      webSocketFactory: () => ({}) as WebSocketLike,
+      fetchFn: async (url, init) => {
+        const path = new URL(url, 'http://localhost').pathname
+        if (path.endsWith('/plan')) {
+          const requested = JSON.parse(String(init?.body)) as { name: string; kind: string }
+          if (disabledFolder && requested.name === requirements[1]!.name && requested.kind === requirements[1]!.kind)
+            return new Response(JSON.stringify(folderEnabled ? { ...requested, status: 'local' } : {
+              status: 'folder-disabled', disabledLocations: ['existing-models'], detail: 'Folder is disabled',
+            }))
+          return new Response(JSON.stringify(selections.find((selection) => selection.name === requested.name && selection.kind === requested.kind)))
+        }
+        if (path.endsWith('/start')) {
+          const body = JSON.parse(String(init?.body)) as { planId: string; consent: boolean }
+          const selection = selections.find((selection) => selection.planId === body.planId)!
+          const active = [...jobs.values()].filter((job) => job.status === 'downloading')
+          if (!body.consent) return new Response('{}', { status: 403 })
+          if (selection.planId === 'plan-5' && lastStartBusy) {
+            lastStartBusy = false
+            observeBusy()
+            await startRefused
+            return new Response(JSON.stringify({ error: 'model-download-busy' }), { status: 409 })
+          }
+          if (active.length >= 4 || active.some((job) => job.mount === selection.mount))
+            return new Response(JSON.stringify({ error: 'model-download-busy' }), { status: 409 })
+          const job = { ...selection, jobId: selection.planId, status: 'downloading' as const, received: 1024 }
+          jobs.set(job.jobId, job)
+          if (selection.planId === 'plan-0') { observeStart(); await startAccepted }
+          return new Response(JSON.stringify(job), { status: 202 })
+        }
+        if (path.endsWith('/downloads')) {
+          if (discoveryFails) throw new Error('Temporary observation failure')
+          return new Response(JSON.stringify({ instance: 'engine-one', jobs: [...jobs.values()] }))
+        }
+        const id = path.split('/').at(-1)!
+        const job = jobs.get(id)!
+        if (init?.method === 'DELETE') jobs.set(id, { ...job, status: 'cancelled' })
+        return new Response(JSON.stringify(jobs.get(id)))
+      },
+    })
+    const controller = new ModelDownloadsController(connection, 'studio')
+    const slot = slotOf<AssetConsentRequest>()
+    const open = () => installAssetConsent({ models: requirements, slot,
+      enableLocation: async (location) => { if (location === 'existing-models') folderEnabled = true },
+      modelDownloads: { connection, project: 'studio', controller } })
+    try {
+      open()
+      for (let index = 0; index < requirements.length; index++) await slot.value!.reviewModel!(index)
+      discoveryFails = true
+      await slot.value!.downloadModels!([0, 1, 2, 3, 4, 5])
+      expect(slot.value!.models!.every((row) => row.queued)).toBe(true)
+      expect(jobs.size).toBe(0)
+      discoveryFails = false
+      const starting = controller.refresh()
+      await startObserved
+      controller.invalidate(requirements[0]!)
+      acceptStart()
+      await starting
+      expect(slot.value!.models!.map((row) => row.queued ? 'waiting' : row.job?.status)).toEqual([
+        'downloading', 'waiting', 'downloading', 'downloading', 'downloading', 'waiting',
+      ])
+      const dismissed = slot.value!
+      slot.set(undefined)
+      jobs.set('plan-2', { ...jobs.get('plan-2')!, received: 3072 })
+      await controller.refresh()
+      expect(slot.value).toBeUndefined()
+      open()
+      expect(slot.value!.models![2]!.job?.received).toBe(3072)
+      expect(slot.value!.retry).toBeUndefined()
+      await slot.value!.cancelModel!(1)
+      expect(slot.value!.models![1]!.queued).toBe(false)
+      expect(jobs.has('plan-1')).toBe(false)
+      await slot.value!.cancelModel!(0)
+      const refused = controller.refresh()
+      await busyObserved
+      controller.invalidate(requirements[5]!)
+      refuseStart()
+      await refused
+      expect(slot.value!.models![5]!.queued).toBeUndefined()
+      expect(slot.value!.models![5]!.plan).toBeUndefined()
+      expect(slot.value!.models![5]!.error).toBeUndefined()
+      await controller.refresh()
+      expect(jobs.has('plan-5')).toBe(false)
+      await slot.value!.reviewModel!(5)
+      await slot.value!.downloadModel!(5)
+      expect(slot.value!.models!.map((row) => row.job?.status)).toEqual([
+        'cancelled', undefined, 'downloading', 'downloading', 'downloading', 'downloading',
+      ])
+      expect(slot.value!.models![2]!.job?.received).toBe(3072)
+      await dismissed.cancelModel!(2)
+      expect(jobs.get('plan-2')?.status).toBe('downloading')
+
+      complete('plan-2')
+      await controller.refresh()
+      expect(slot.value!.models![2]!.job?.status).toBe('completed')
+      await slot.value!.reviewModel!(2)
+      expect(slot.value!.models![2]!.plan?.status).toBe('consent-required')
+      expect(slot.value!.models![2]!.job).toBeUndefined()
+
+      complete('plan-5')
+      await controller.refresh()
+      const submitted = rejection([])
+      installAssetConsent({ result: { ...submitted.result, assetsMissing: { ...submitted.result.assetsMissing, models: [requirements[5]!] } },
+        slot, modelDownloads: { connection, project: 'studio', controller }, ...consentCallbacks() })
+      expect(slot.value!.models![0]!.job).toBeUndefined()
+      await slot.value!.retry!([])
+      expect(submitted.retries).toHaveLength(0)
+      await slot.value!.reviewModel!(0)
+      expect(slot.value!.models![0]!.plan?.status).toBe('consent-required')
+
+      disabledFolder = true
+      controller.invalidate(requirements[1]!)
+      open()
+      await slot.value!.reviewModel!(1)
+      await slot.value!.enableModelLocation!(1, 'unrelated-folder')
+      expect(slot.value!.models![1]!.plan?.status).toBe('folder-disabled')
+      const staleFolderReview = slot.value!
+      open()
+      await staleFolderReview.enableModelLocation!(1, 'existing-models')
+      expect(slot.value!.models![1]!.plan?.status).toBe('folder-disabled')
+      await slot.value!.enableModelLocation!(1, 'existing-models')
+      expect(slot.value!.models![1]!.plan?.status).toBe('local')
+      expect(slot.value!.models![1]!.job).toBeUndefined()
+      expect(submitted.retries).toHaveLength(0)
+      expect(jobs.has('plan-1')).toBe(false)
+    } finally { slot.set(undefined); controller.dispose() }
+  })
+
   it('reviews and transfers one model without holding any submission retry', async () => {
     const slot = slotOf<AssetConsentRequest>()
     const requirement = { name: 'requested.safetensors', kind: 'model/vae' }
@@ -172,6 +518,80 @@ describe('installAssetConsent ownership', () => {
     expect(retries).toHaveLength(0)
     expect(reviewedSources).toEqual([undefined, source])
     slot.set(undefined)
+  })
+
+  it('replans the selected set without accepting stale destinations or moving active downloads', async () => {
+    const slot = slotOf<AssetConsentRequest>()
+    const exact = { digest: `blake3:${'c'.repeat(64)}`, name: 'exact.safetensors', size: 137,
+      mediaType: 'application/x-safetensors', virtualPath: 'models/vae/exact.safetensors' }
+    const requirements = [{ name: exact.name, kind: 'model/vae', asset: exact },
+      { name: 'base.safetensors', kind: 'model/checkpoint' }]
+    const source = 'https://huggingface.co/studio/vae/resolve/main/exact.safetensors'
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let hold = false
+    let arrived!: () => void
+    const arrival = new Promise<void>((resolve) => { arrived = resolve })
+    const plans = new Map<string, Record<string, unknown>>()
+    const jobs: ModelDownloadJob[] = []
+    const connection = new DinksterConnection({ id: asConnectionId('destination-test'), baseUrl: '', project: 'studio', clientId: 'test',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        const path = new URL(url, 'http://localhost').pathname
+        if (path.endsWith('/plan')) {
+          const body = JSON.parse(String(init?.body)) as { name: string; kind: string; location?: string; source?: string; asset?: typeof exact }
+          const location = body.location ?? 'default'
+          const planId = `${location}-${body.name}`
+          const plan = { name: body.name, kind: body.kind, project: 'studio', provider: 'huggingface',
+            source: body.source ?? 'https://huggingface.co/studio/base', repo: 'studio/models', revision: 'a'.repeat(40),
+            file: body.name, sha256: 'b'.repeat(64), size: body.asset?.size ?? 251, license: 'apache-2.0',
+            ...(body.asset ? { digest: body.asset.digest } : {}),
+            mount: `${location}-${body.kind}`, destination: `/${location}/${body.kind}/${body.name}`, planId,
+            status: 'consent-required', destinationSpace: { status: 'available', filesystem: location, freeBytes: location === 'small' ? 200 : 1000 } }
+          plans.set(planId, plan)
+          if (hold) { hold = false; arrived(); await held }
+          return new Response(JSON.stringify(plan))
+        }
+        if (path.endsWith('/start')) {
+          const { planId } = JSON.parse(String(init?.body)) as { planId: string }
+          const plan = plans.get(planId)!
+          const job = { ...plan, jobId: planId, status: 'downloading', received: 13 } as unknown as ModelDownloadJob
+          jobs.push(job)
+          return new Response(JSON.stringify(job))
+        }
+        return new Response(JSON.stringify({ instance: 'engine', jobs }))
+      } })
+    const controller = new ModelDownloadsController(connection, 'studio')
+    try {
+      installAssetConsent({ slot, models: requirements, modelDownloads: { connection, project: 'studio', controller } })
+      slot.value!.selectModelSource!(0, source)
+      await slot.value!.reviewModel!(0)
+      await slot.value!.reviewModel!(1)
+      const stale = slot.value!
+      hold = true
+      const small = stale.selectModelLocation!('small')
+      await arrival
+      expect(slot.value!.models!.every((row) => row.plan === undefined)).toBe(true)
+      const large = slot.value!.selectModelLocation!('large')
+      release()
+      await Promise.all([small, large])
+      await stale.selectModelLocation!('obsolete')
+      expect(slot.value!.modelDownloadLocation).toBe('large')
+      expect(slot.value!.models!.map((row) => row.plan?.status === 'consent-required' ? row.plan.destination : undefined))
+        .toEqual(['/large/model/vae/exact.safetensors', '/large/model/checkpoint/base.safetensors'])
+      const reviewed = slot.value!.models![0]!
+      expect(reviewed.requirement.asset).toEqual(exact)
+      expect(reviewed.plan).toMatchObject({ digest: exact.digest, source })
+      await slot.value!.selectModelLocation!('small')
+      expect(modelDownloadTotals(slot.value!.models!).insufficient).toBe(true)
+      await slot.value!.downloadModels!([0, 1])
+      expect(slot.value!.models!.every((row) => row.job === undefined)).toBe(true)
+      await slot.value!.selectModelLocation!('large')
+      await slot.value!.downloadModel!(0)
+      expect(slot.value!.models![0]!.job?.destination).toBe('/large/model/vae/exact.safetensors')
+      await slot.value!.selectModelLocation!('small')
+      expect(slot.value!.models![0]!.job).toMatchObject({ destination: '/large/model/vae/exact.safetensors', received: 13 })
+      expect(slot.value!.models![1]!.plan).toMatchObject({ destination: '/small/model/checkpoint/base.safetensors' })
+    } finally { release(); slot.set(undefined); controller.dispose() }
   })
 
   it('requires reviewed model consent, stops on dismissal, and retries only after verified completion', async () => {

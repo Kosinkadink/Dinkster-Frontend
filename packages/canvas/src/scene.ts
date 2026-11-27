@@ -8,6 +8,10 @@
 import {
   asNodeId,
   asPortId,
+  belongsToGroup,
+  initialGroupMembership,
+  type GroupMembership,
+  type GroupItemGeometry,
   boundaryBindingKey,
   buildBypassCandidates,
   buildGraphConnectivity,
@@ -16,6 +20,7 @@ import {
   companionSourcesOf,
   DINKSTER_REGION_PSEUDO_NODE,
   defaultBoundaryLabels,
+  diagnosticBlocksExecution,
   documentNodeResolver,
   documentPrimitiveResolver,
   primitiveOf,
@@ -93,6 +98,7 @@ import {
   type WidgetMeasure,
 } from './layout.js'
 import { canvasPaintTokens, type DesignTokens } from './tokens.js'
+import { boundaryItems } from '@dinkster/core'
 
 interface PositionedSceneCacheEntry {
   readonly graph: GraphDef
@@ -101,10 +107,12 @@ interface PositionedSceneCacheEntry {
   readonly documentExt: WorkflowDocument['ext']
   readonly view: WorkflowDocument['view']['graphs'][string]
   readonly seedControllerEnabled: boolean | undefined
+  readonly buttonNoticeHeights: BuildSceneInput['buttonNoticeHeights']
   readonly tokens: DesignTokens
   readonly measure: TextMeasurer
   readonly widgetMeasure: WidgetMeasure
   readonly generation: unknown
+  readonly editorControls: BuildSceneInput['editorControls']
   readonly scene: Scene
 }
 
@@ -384,9 +392,11 @@ export interface SceneLink {
   /**
    * The solver PROVED this edge's endpoint types incompatible. 'unknown'
    * verdicts (generic or wildcard endpoints) deliberately do not mark:
-   * uncertainty is normal, only demonstrated conflict earns error paint.
+   * uncertainty is normal, only demonstrated conflict earns problem paint.
    */
   readonly mismatch?: true
+  /** Strongest problem attributed to a mismatching edge. */
+  readonly mismatchKind?: 'error' | 'warning'
   /** Solver diagnostics attributed to this proven-mismatch noodle. */
   readonly diagnostics?: readonly Diagnostic[]
   /** The net's user-facing name (drawn as a midpoint label). */
@@ -465,6 +475,7 @@ export interface SceneNetStub {
   readonly role: 'source' | 'sink'
   /** Solver-proven mismatch for this sink, or any sink for a source tag. */
   readonly mismatch?: true
+  readonly mismatchKind?: 'error' | 'warning'
   readonly nodeId: string
   readonly portId: string
   /** Pin center the tag points at, world coords. */
@@ -497,11 +508,7 @@ export const NET_STUB_PAD_X = canvasPaintTokens.net.paddingX
 export const netStubId = (netId: string, role: 'source' | 'sink', ref: PortRef): string =>
   JSON.stringify(['netView', netId, role, ref.node, ref.port])
 
-/**
- * A visual group rectangle (view state passed through verbatim). Groups have
- * NO stored membership: which nodes a group carries is derived spatially at
- * interaction time via `nodesInGroup`.
- */
+/** A visual group rectangle, separate from its persisted membership. */
 export interface SceneGroup {
   readonly id: string
   readonly title: string
@@ -522,6 +529,7 @@ export interface Scene {
   readonly reroutes: readonly SceneReroute[]
   readonly netStubs: readonly SceneNetStub[]
   readonly groups: readonly SceneGroup[]
+  readonly groupMembership?: GroupMembership
   /** Boundary pseudo-nodes (subgraph definitions only; empty elsewhere). */
   readonly boundaryNodes: readonly SceneBoundaryNode[]
   /**
@@ -534,39 +542,42 @@ export interface Scene {
   readonly occurrence?: { readonly owner: OccurrenceRef; readonly bodyGraph: GraphDefId }
 }
 
-/**
- * Node ids a group carries: node CENTER inside the group bounds. Derived at
- * interaction time (drag start), never stored, so membership can never go
- * stale. Boundary pseudo-nodes use the same center rule.
- */
-export function nodesInGroup(scene: Scene, group: SceneGroup): string[] {
-  const out: string[] = []
-  for (const node of scene.nodes) {
-    const cx = node.x + node.layout.width / 2
-    const cy = node.y + node.layout.height / 2
-    if (cx >= group.x && cx <= group.x + group.width && cy >= group.y && cy <= group.y + group.height) {
-      out.push(node.id)
-    }
-  }
-  return out
+/** Full rendered bounds used when creating a group or explicitly dropping an item. */
+export function groupItemGeometry(scene: Scene): GroupItemGeometry[] {
+  return [
+    ...scene.nodes.map((node) => ({ kind: 'nodes' as const, id: node.id, x: node.x, y: node.y, width: node.layout.width, height: node.layout.height })),
+    ...scene.reroutes.map((item) => ({ kind: 'reroutes' as const, id: item.id, x: item.x, y: item.y, width: 0, height: 0 })),
+    ...scene.boundaryNodes.map((node) => ({ kind: 'boundary' as const, id: node.side, x: node.x, y: node.y, width: node.layout.width, height: node.layout.height })),
+    ...scene.groups.map((group) => ({ kind: 'groups' as const, ...group })),
+  ]
 }
 
-/** Reroute ids a group carries: the junction point is inside its bounds. */
+const membershipOf = (scene: Scene): GroupMembership => scene.groupMembership ?? initialGroupMembership(groupItemGeometry(scene))
+
+/** Persisted descendants, not nodes a moving group happens to cover. */
+export function nodesInGroup(scene: Scene, group: SceneGroup): string[] {
+  const membership = membershipOf(scene)
+  return scene.nodes.filter((node) => belongsToGroup(membership, 'nodes', node.id, group.id)).map((node) => node.id)
+}
+
+/** Persisted descendant reroutes. */
 export function reroutesInGroup(scene: Scene, group: SceneGroup): string[] {
+  const membership = membershipOf(scene)
   return scene.reroutes
-    .filter((r) => r.x >= group.x && r.x <= group.x + group.width && r.y >= group.y && r.y <= group.y + group.height)
+    .filter((r) => belongsToGroup(membership, 'reroutes', r.id, group.id))
     .map((r) => r.id)
 }
 
+export function groupsInGroup(scene: Scene, group: SceneGroup): string[] {
+  const membership = membershipOf(scene)
+  return scene.groups.filter((item) => belongsToGroup(membership, 'groups', item.id, group.id)).map((item) => item.id)
+}
 
-/** Boundary pseudo-node sides a group carries, using the node-center rule. */
+/** Persisted descendant boundary panels. */
 export function boundaryNodesInGroup(scene: Scene, group: SceneGroup): Array<'inputs' | 'outputs'> {
+  const membership = membershipOf(scene)
   return scene.boundaryNodes
-    .filter((node) => {
-      const cx = node.x + node.layout.width / 2
-      const cy = node.y + node.layout.height / 2
-      return cx >= group.x && cx <= group.x + group.width && cy >= group.y && cy <= group.y + group.height
-    })
+    .filter((node) => belongsToGroup(membership, 'boundary', node.side, group.id))
     .map((node) => node.side)
 }
 
@@ -730,6 +741,8 @@ export interface BuildSceneInput {
   readonly seedControllerEnabled?: boolean
   /** What the editor holds for lookup calls; absent where lookups are off (frozen views, previews). */
   readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
+  /** Ephemeral measured result boxes, by visible node and elaborated button id. */
+  readonly buttonNoticeHeights?: Readonly<Record<string, Readonly<Record<string, number>>>>
   /** Graph definition to render (the root, or a subgraph being edited). */
   readonly graphId: string
   readonly resolve: SchemaResolver
@@ -744,6 +757,8 @@ export interface BuildSceneInput {
   readonly widgetMeasure: WidgetMeasure
   /** Enables position-only root-scene reuse until rendering capabilities change. */
   readonly layoutGeneration?: unknown
+  /** Measured editor controls, by scene node and value key. */
+  readonly editorControls?: Readonly<Record<string, Readonly<Record<string, number>>>>
   /** Concrete drilled owner plus the integration capability gate. */
   readonly occurrence?: {
     readonly owner: OccurrenceRef
@@ -986,8 +1001,9 @@ export function buildScene(input: BuildSceneInput): Scene {
       positioned?.graph === def && graphMatchesSnapshot(positioned.graphSnapshot, def) &&
       positioned.graphs === input.document.graphs && positioned.documentExt === input.document.ext &&
       positioned.seedControllerEnabled === input.seedControllerEnabled &&
+      positioned.buttonNoticeHeights === input.buttonNoticeHeights &&
       positioned.tokens === input.tokens && positioned.measure === input.measure && positioned.widgetMeasure === input.widgetMeasure &&
-      positioned.generation === input.layoutGeneration && onlyNodePositionsChanged(positioned.view, view)) {
+      positioned.generation === input.layoutGeneration && positioned.editorControls === input.editorControls && onlyNodePositionsChanged(positioned.view, view)) {
     const scene = repositionScene(positioned.scene, def, view)
     positionedSceneCache.set(def, { ...positioned, view, scene })
     return scene
@@ -1036,22 +1052,34 @@ export function buildScene(input: BuildSceneInput): Scene {
     }
     if (isPortEndpoint(toEndpoint)) markConnected(toEndpoint, 'in')
   }
-  for (const net of effective === undefined ? Object.values(def.nets) : []) {
+  for (const net of Object.values(def.nets)) {
+    // A definition net's source tag remains a connection even in an
+    // occurrence with no effective sink deliveries.
     markConnected(net.source, 'out')
-    for (const sink of net.sinks) markConnected(sink, 'in')
+    if (effective === undefined) for (const sink of net.sinks) markConnected(sink, 'in')
   }
   // Boundary bindings are connections too: a bound port inside a collapsed
   // section must keep its pin so the boundary noodle never dangles. Family
   // forwarding has no single pin; its noodle anchors dynamically below.
   // Concrete occurrences use only their unsuppressed effective deliveries.
+  const wirelessByNode = new Map<string, Set<string>>()
+  for (const item of def.boundary ? boundaryItems(def.boundary, 'inputs') : []) {
+    if (item.wireHidden !== true) continue
+    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+      if (binding.kind !== 'port') continue
+      let ports = wirelessByNode.get(binding.node)
+      if (!ports) wirelessByNode.set(binding.node, (ports = new Set()))
+      ports.add(binding.port)
+    }
+  }
   if (def.boundary && effective === undefined) {
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (b.kind === 'port')
           markConnected({ node: b.node, port: b.port }, 'in')
       }
     }
-    for (const item of def.boundary.outputs) {
+    for (const item of boundaryItems(def.boundary, 'outputs')) {
       if (item.binds.kind === 'port')
         markConnected({ node: item.binds.node, port: item.binds.port }, 'out')
       else if (item.binds.kind === 'widgetTap') {
@@ -1216,6 +1244,9 @@ export function buildScene(input: BuildSceneInput): Scene {
     const sectionOverrides = view?.sections
       ? Object.fromEntries(Object.entries(view.sections).map(([id, s]) => [id, s.collapsed]))
       : undefined
+    const lineFolds = view?.lines
+      ? Object.fromEntries(Object.entries(view.lines).map(([id, line]) => [id, line.folded]))
+      : undefined
     const occurrenceDynamic = input.occurrenceView?.dynamic.get(node.id)
     const occurrenceValues = input.occurrenceView?.values?.get(node.id)
     const occurrenceControllers = input.occurrenceView?.controllers?.get(node.id)
@@ -1243,14 +1274,18 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(view?.collapsed === true ? { minimized: true as const } : {}),
           ...(view?.size ? { size: view.size } : {}),
           ...(sectionOverrides ? { sectionOverrides } : {}),
+          ...(lineFolds ? { lineFolds } : {}),
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
           ...(view?.textLines ? { textBoxLines: view.textLines } : {}),
           ...(view?.editors
             ? { editorUnfolded: Object.fromEntries(Object.entries(view.editors).map(([key, e]) => [key, e.unfolded])) }
             : {}),
           ...(view?.pictureHeights ? { pictureHeights: view.pictureHeights } : {}),
+          ...(input.editorControls?.[node.id] === undefined ? {} : { editorControls: input.editorControls[node.id]! }),
           ...(view?.histogramVisibility ? { histogramVisibility: view.histogramVisibility } : {}),
+          ...(input.buttonNoticeHeights?.[node.id] === undefined ? {} : { buttonNoticeHeights: input.buttonNoticeHeights[node.id] }),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
+          ...(wirelessByNode.has(node.id) ? { wirelessInputs: wirelessByNode.get(node.id)! } : {}),
           ...(elaborated !== undefined ? { elaborated } : {}),
         })
       : missingLayout(
@@ -1516,6 +1551,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         port: end.port,
       },
       type: pin.type,
+      ...(pin.kept !== undefined ? { kept: true as const } : {}),
     }
   }
 
@@ -1636,7 +1672,10 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(types.every((type) => tracedMaybeAbsent(c.from, type)) ? { maybeAbsent: true as const } : {}),
       ...(types.every((type) => tracedSourceMuted(c.from, type)) ? { sourceMuted: true as const } : {}),
       ...(from.kept === true ? { dimmed: true as const } : {}),
-      ...(c.mismatch === true ? { mismatch: true as const } : {}),
+      ...(c.mismatch === true ? {
+        mismatch: true as const,
+        mismatchKind: c.diagnostics?.some(diagnosticBlocksExecution) ? 'error' as const : 'warning' as const,
+      } : {}),
       ...(c.diagnostics !== undefined && c.diagnostics.length > 0 ? { diagnostics: c.diagnostics } : {}),
       ...(c.netId !== undefined ? { netId: c.netId } : {}),
       ...(c.netName !== undefined ? { netName: c.netName } : {}),
@@ -1648,14 +1687,14 @@ export function buildScene(input: BuildSceneInput): Scene {
   // Named nets expose one authorable Set view at the source and one Get view
   // per sink. collapsedNets controls noodles only; the endpoint views remain.
   const netStubs: SceneNetStub[] = []
-  const mismatchedNetSinkIds = new Set(
-    links.filter((link) => link.netId !== undefined && link.mismatch === true).map((link) => link.id),
+  const mismatchedNetSinks = new Map(
+    links.filter((link) => link.netId !== undefined && link.mismatch === true).map((link) => [link.id, link.mismatchKind!]),
   )
   for (const net of Object.values(def.nets)) {
     const sinkMismatches = net.sinks.map((_, i) =>
-      mismatchedNetSinkIds.has(netDeliveryLinkId(net.id, i)),
+      mismatchedNetSinks.get(netDeliveryLinkId(net.id, i)),
     )
-    const push = (role: 'source' | 'sink', ref: PortRef, mismatch: boolean): void => {
+    const push = (role: 'source' | 'sink', ref: PortRef, mismatchKind: 'error' | 'warning' | undefined): void => {
       const node = byId.get(ref.node)
       if (!node) return
       const direction = role === 'source' ? 'out' : 'in'
@@ -1682,7 +1721,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         netId: net.id,
         name: net.name,
         role,
-        ...(mismatch ? { mismatch: true as const } : {}),
+        ...(mismatchKind === undefined ? {} : { mismatch: true as const, mismatchKind }),
         nodeId: ref.node,
         portId: ref.port,
         pinX,
@@ -1697,7 +1736,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         ...(canonicalTypeIdOf(pin.type) !== undefined ? { typeName: canonicalTypeIdOf(pin.type)! } : {}),
       })
     }
-    push('source', net.source, sinkMismatches.some(Boolean))
+    push('source', net.source, sinkMismatches.includes('error') ? 'error' : sinkMismatches.includes('warning') ? 'warning' : undefined)
     for (const [i, sink] of net.sinks.entries()) push('sink', sink, sinkMismatches[i]!)
   }
 
@@ -1734,7 +1773,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const fieldValues: Record<string, Json> = {}
     const fieldControllers: Record<string, NonNullable<NodeData['controllers']>[string]> = {}
     const fieldOwners = new Map<string, { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }>()
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       const binds = item.binds
       if (binds.kind !== 'port' || item.promoted !== true) continue
       const inner = def.nodes[binds.node]
@@ -1763,8 +1802,13 @@ export function buildScene(input: BuildSceneInput): Scene {
     const outsideSpaces = new Map<string, NonNullable<BoundarySlotInfo['editorSpaces']>>()
     const panelView = graphView?.inputsPanel
     if (derived !== undefined && fieldOwners.size > 0) {
-      // The entered node's chosen views, so a field drawn as a slider there
-      // is a slider here too.
+      // A nested promotion can own its value and chosen view farther out
+      // than the immediately entered node.
+      const fieldRepresentations: Record<string, string> = {}
+      for (const [id, owner] of fieldOwners) {
+        const chosen = input.document.view.graphs[owner.graphId]?.nodes[owner.nodeId]?.views?.[owner.valueKey]
+        if (chosen !== undefined) fieldRepresentations[id] = chosen
+      }
       const ownerView = ownerNode !== undefined && ownerGraph !== undefined
         ? input.document.view.graphs[ownerGraph.id]?.nodes[ownerNode.id]
         : undefined
@@ -1775,13 +1819,14 @@ export function buildScene(input: BuildSceneInput): Scene {
         : resolveNode(def.id, fieldNode)) ?? derived
       const outside = layoutNode(fieldSchema, fieldNode, input.tokens, measure, input.widgetMeasure, {
         ...(input.seedControllerEnabled !== undefined ? { seedControllerEnabled: input.seedControllerEnabled } : {}),
-        ...(ownerView?.views !== undefined ? { widgetRepresentations: ownerView.views } : {}),
+        widgetRepresentations: fieldRepresentations,
         ...(ownerView?.textLines !== undefined ? { textBoxLines: ownerView.textLines } : {}),
         // The panel's own folds, not the subgraph node's outside; each starts folded.
         editorsStartFolded: true,
         ...(panelView?.editors !== undefined
           ? { editorUnfolded: Object.fromEntries(Object.entries(panelView.editors).map(([key, e]) => [key, e.unfolded])) } : {}),
         ...(panelView?.pictureHeights !== undefined ? { pictureHeights: panelView.pictureHeights } : {}),
+        ...(input.editorControls?.[boundarySceneId('inputs')] === undefined ? {} : { editorControls: input.editorControls[boundarySceneId('inputs')]! }),
       })
       for (const row of outside.rows) {
         if (row.kind === 'editorSpace' && fieldOwners.has(row.inputId)) {
@@ -1858,8 +1903,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       type: { kind: 'concrete', name: 'INT' },
       regionIndex: true,
     }]
-    const inputsLayout = layoutBoundaryNode('inputs', [...slotsOf(def.boundary.inputs, 'inputs'), ...regionIndexSlots], input.tokens, measure, fieldsSubtitle)
-    const outputsLayout = layoutBoundaryNode('outputs', slotsOf(def.boundary.outputs, 'outputs'), input.tokens, measure)
+    const inputsLayout = layoutBoundaryNode('inputs', [...slotsOf(boundaryItems(def.boundary, 'inputs'), 'inputs'), ...regionIndexSlots], input.tokens, measure, fieldsSubtitle)
+    const outputsLayout = layoutBoundaryNode('outputs', slotsOf(boundaryItems(def.boundary, 'outputs'), 'outputs'), input.tokens, measure)
 
     // Default positions hug the content bounds; a persisted position wins.
     let minX = Infinity
@@ -1993,7 +2038,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         candidate.kind === 'widget' ? head !== undefined && candidate.valueKey === head : candidate.kind === 'ports' && candidate.output?.portId === itemId)
       return row === undefined ? undefined : { x: inputsNode.x + inputsNode.layout.width, y: inputsNode.y + row.y + input.tokens.rowHeight / 2 }
     }
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       const from = item.wireHidden === true ? pinlessRowAnchor(item.id) : boundaryPin(inputsNode, item.id)
       if (!from) continue
       const pinType = inputsNode.layout.pins.find((p) => p.portId === item.id)?.type
@@ -2004,7 +2049,16 @@ export function buildScene(input: BuildSceneInput): Scene {
       bindings.forEach((b, i) => {
         const projected = projectedAnchors('in', item, b)
         const fallback = innerAnchor(b, 'in')
-        const targets = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
+        // A local driver replaces the boundary value in this occurrence.
+        // Its declaration binding is not a second delivery to draw.
+        const locallyDriven = effective?.links.some((link) => {
+          if (link.to.graphId !== def.id || fallback === undefined) return false
+          const to = link.to.endpoint
+          return fallback.end.kind === 'reroute'
+            ? isRerouteRef(to) && to.reroute === fallback.end.reroute
+            : fallback.end.kind === 'port' && isPortEndpoint(to) && to.node === fallback.end.node && to.port === fallback.end.port
+        }) === true
+        const targets = projected.length > 0 ? projected : fallback === undefined || locallyDriven ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,
@@ -2024,7 +2078,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       })
     }
     // The inner fields of an input drawn without its wire carry the mark.
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       const label = markLabels.get(item.id)
       if (label === undefined) continue
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
@@ -2037,7 +2091,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         nodes[index] = { ...target, layout: { ...target.layout, rows } }
       }
     }
-    for (const item of def.boundary.outputs) {
+    for (const item of boundaryItems(def.boundary, 'outputs')) {
       const to = boundaryPin(outputsNode, item.id)
       if (!to) continue
       const pinType = outputsNode.layout.pins.find((p) => p.portId === item.id)?.type
@@ -2078,6 +2132,7 @@ export function buildScene(input: BuildSceneInput): Scene {
 
   const result: Scene = {
     graphId: input.graphId, nodes, links, reroutes, netStubs, groups, boundaryNodes,
+    ...(graphView?.groupMembership === undefined ? {} : { groupMembership: graphView.groupMembership }),
     diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...automaticDiagnostics],
     ...(input.occurrence !== undefined ? { occurrence: { owner: input.occurrence.owner, bodyGraph: def.id } } : {}),
   }
@@ -2092,10 +2147,12 @@ export function buildScene(input: BuildSceneInput): Scene {
         nodes: Object.fromEntries(Object.entries(view.nodes).map(([id, node]) => [id, { ...node }])),
       },
       seedControllerEnabled: input.seedControllerEnabled,
+      buttonNoticeHeights: input.buttonNoticeHeights,
       tokens: input.tokens,
       measure: input.measure,
       widgetMeasure: input.widgetMeasure,
       generation: input.layoutGeneration,
+      editorControls: input.editorControls,
       scene: result,
     })
   }
@@ -2128,12 +2185,12 @@ function missingConnections(
     for (const sink of net.sinks) mark(ins, sink)
   }
   if (def.boundary) {
-    for (const item of def.boundary.inputs) {
+    for (const item of boundaryItems(def.boundary, 'inputs')) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
         if (b.kind === 'port') mark(ins, { node: b.node, port: b.port })
       }
     }
-    for (const item of def.boundary.outputs) {
+    for (const item of boundaryItems(def.boundary, 'outputs')) {
       const b = item.binds
       if (b.kind === 'port') mark(outs, { node: b.node, port: b.port })
       else if (b.kind === 'widgetTap' && b.node === nodeId) taps.add(b.tap)

@@ -297,13 +297,6 @@ describe('runsSource', () => {
     expect(neverStarted.actions).toEqual([{ id: 'delete', label: 'Delete record' }])
   })
 
-  it('an unmatchable query returns empty WITHOUT calling the server', async () => {
-    const { backend } = (await nativeSetup())
-    const list = vi.spyOn(backend.connection, 'listHistory')
-    expect(await runsSource(app).page({ query: 'xyz', limit: 24 })).toEqual({ owner: backend.id, items: [], total: 0 })
-    expect(list).not.toHaveBeenCalled()
-  })
-
 })
 
 describe('openRunWorkflow', () => {
@@ -414,7 +407,7 @@ describe('delete and clear', () => {
   it('delete failures land in Problems', async () => {
     const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'deleteHistoryRun').mockRejectedValue(new Error('boom'))
-    expect(await app.deleteHistoryRun('run-1', backend.id)).toBe(false)
+    await expect(app.deleteHistoryRun('run-1', backend.id)).rejects.toThrow('boom')
     expect(app.problems.get().some((d) => d.code === 'history.deleteFailed')).toBe(true)
   })
 
@@ -446,10 +439,10 @@ describe('delete and clear', () => {
     expect(app.store.executions.get()).toBe(executions)
   })
 
-  it('clear failures land in Problems and report zero', async () => {
+  it('clear failures land in Problems and reject', async () => {
     const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'clearHistory').mockRejectedValue(new Error('boom'))
-    expect(await app.clearRunHistory(backend.id)).toBe(0)
+    await expect(app.clearRunHistory(backend.id)).rejects.toThrow('boom')
     expect(app.problems.get().some((d) => d.code === 'history.clearFailed')).toBe(true)
   })
 })

@@ -116,6 +116,26 @@ test.beforeEach(async ({ page }) => {
   await waitForWorkspaceReady(page)
 })
 
+test('a finished run menu remains usable after a late log', async ({ page }, info) => {
+  await queueAndComplete(page)
+  const execution = await latestExecution(page)
+  const row = page.getByTestId('execution-row').first()
+  await row.getByRole('button', { name: /^More for / }).click()
+  const inspect = page.getByRole('menuitem', { name: 'Inspect run', exact: true })
+  await expect(inspect).toBeVisible()
+  await page.screenshot({ path: info.outputPath('run-menu-before-log.png') })
+  await page.evaluate((execution) => {
+    const store = window.__dinksterTest!.app.store as Pick<import('@dinkster/client').ExecutionStore, 'apply'>
+    store.apply({ kind: 'log', execution: execution.ref as import('@dinkster/core').ExecutionRef, timestamp: Date.now(),
+      level: 'info', message: 'Late completed-run diagnostic', seq: 1000000 })
+  }, execution)
+  await page.screenshot({ path: info.outputPath('run-menu-after-log.png') })
+  await expect(inspect).toBeVisible()
+  await inspect.click()
+  await expect(row.getByTestId('run-inspection')).toBeVisible()
+  await expect(row.getByTestId('run-details').locator('.execution-status')).toHaveText('Completed')
+})
+
 test('execution row opens a frozen view pinned to that execution', async ({ page }) => {
   await queueAndComplete(page)
   await page.getByTestId('execution-row').first().locator('.execution-open').click()
@@ -223,7 +243,7 @@ test('a frozen view without its compile-time schemas warns instead of borrowing 
   await expect(page.getByTestId('frozen-schema-missing')).not.toBeVisible()
 })
 
-test('runtime error surfaces as a node badge with the exact traceback', async ({ page }) => {
+test('runtime error opens the shared box and keeps its traceback in Log', async ({ page }) => {
   await queueAndComplete(page)
 
   // Inject a runtime error through the normalized-event path (same shape the
@@ -264,13 +284,15 @@ test('runtime error surfaces as a node badge with the exact traceback', async ({
   await identityViewport(page)
   await settlePaint(page)
   await page.mouse.click(...xy(await pointOn(page, 'n1', { kind: 'badge', index: 0 })))
-  const popover = page.getByTestId('badge-popover')
-  await expect(popover).toBeVisible()
-  await expect(popover).toHaveAttribute('data-badge', 'core.error')
-  const detail = popover.getByTestId('badge-error-detail')
-  await expect(detail).toContainText('BoomError: preview exploded')
-  await expect(detail.locator('.traceback').first()).toContainText('File "nodes.py", line 42, in preview')
-  await expect(detail).toContainText('images')
+  const box = page.getByTestId('problem-box')
+  await expect(box).toBeVisible()
+  await expect(box.getByTestId('problem-box-line')).toContainText('preview exploded')
+  await expect(box).not.toContainText('BoomError')
+  await expect(box.locator('.traceback')).toHaveCount(0)
+  await box.getByRole('button', { name: 'Show in Log', exact: true }).click()
+  await expect(page.getByTestId('execution-log-panel')).toBeVisible()
+  await expect(page.getByTestId('execution-log-row').locator('.traceback').first()).toContainText('File "nodes.py", line 42, in preview')
+  await expect(page.getByTestId('execution-log-panel')).toContainText('images')
 
   // The same diagnostic is listed in Problems (execution-level view).
   await expect(page.getByTestId('problems-panel')).toContainText('preview exploded')
@@ -301,10 +323,10 @@ test('a run error loses its color once the failed node changes, and undo brings 
   await identityViewport(page)
   await settlePaint(page)
   await page.mouse.click(...xy(await pointOn(page, 'n1', { kind: 'badge', index: 0 })))
-  const popover = page.getByTestId('badge-popover')
-  await expect(popover).toHaveAttribute('data-badge', 'core.error.lastRun')
-  await expect(popover.getByTestId('badge-last-run')).toHaveText('From the last run. Changed since.')
-  await expect(popover.getByTestId('badge-error-detail')).toContainText('BoomError: preview exploded')
+  const box = page.getByTestId('problem-box')
+  await expect(box).toHaveAttribute('data-kind', 'error')
+  await expect(box.locator('.problem-box-notice')).toHaveText('From the last run. Changed since.')
+  await expect(box.getByTestId('problem-box-line')).toContainText('preview exploded')
   await page.keyboard.press('Escape')
 
   // Undo back to the document that ran.

@@ -40,6 +40,7 @@
 import type {
   CollabClientOp,
   CollabDenial,
+  CollabDocumentKind,
   CollabConnection,
   CollabConnectionEvent,
   CollabServerOp,
@@ -173,7 +174,8 @@ export async function createCollabSession(
     readonly scope: string
     readonly documentId: string
     readonly snapshot: unknown
-    readonly documentKind?: 'workflow' | 'image'
+    readonly documentKind?: CollabDocumentKind
+    readonly title?: string
   },
   fetchFn: FetchLike = defaultFetch,
   options: CollabSessionRequestOptions = {},
@@ -184,6 +186,20 @@ export async function createCollabSession(
     body: JSON.stringify(args),
   })
   return (await jsonOrThrow(res, 'create session')) as CollabSessionDescriptor
+}
+
+export async function renameCollabSession(
+  baseUrl: string,
+  sessionId: string,
+  title: string,
+  fetchFn: FetchLike = defaultFetch,
+  options: CollabSessionRequestOptions = {},
+): Promise<CollabSessionDescriptor> {
+  const res = await managementRequest(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/title`, fetchFn, options,
+    { operation: 'rename-session', sessionId }, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+    })
+  return (await jsonOrThrow(res, 'rename session')) as CollabSessionDescriptor
 }
 
 /** GET /api/sessions?scope= -> one scope's descriptors. */
@@ -661,6 +677,11 @@ export class CollabHttpConnection implements CollabConnection {
       // ephemeral noise that could flood the sole descriptor out of the cap,
       // and both are meaningless to a subscriber that was never connected.
       if (this.buffered !== undefined && event.kind !== 'presence' && event.kind !== 'disconnected') {
+        if (event.kind === 'session-title' || event.kind === 'session-permissions') {
+          // Only the latest metadata matters before adoption; never crowd out the descriptor.
+          const previous = this.buffered.findIndex((candidate) => candidate.kind === event.kind)
+          if (previous !== -1) this.buffered.splice(previous, 1)
+        }
         this.buffered.push(event)
         if (this.buffered.length > PRE_SUBSCRIBE_BUFFER_CAP) {
           // Evict the oldest OP, never a descriptor or session_closed: a
@@ -720,6 +741,14 @@ export class CollabHttpConnection implements CollabConnection {
       }
       case 'session_closed': {
         this.emit({ kind: 'session-closed' })
+        return
+      }
+      case 'session_title': {
+        this.emit({ kind: 'session-title', title: frame.title as string })
+        return
+      }
+      case 'session_permissions': {
+        this.emit({ kind: 'session-permissions', canEdit: frame.canEdit as boolean })
         return
       }
       default:

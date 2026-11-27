@@ -13,9 +13,10 @@
   "shape": { "small": 4, "control": 6, "card": 8, "capsule": 999 },
   "interaction": {
     "compactControlHeight": 32,
-    "primaryInputHeight": 40,
+    "primaryInputHeight": 32,
     "canvasInputHeight": 24,
-    "focusRingWidth": 2,
+    "focusRingWidth": 1,
+    "indicatorWidth": 2,
     "disabledOpacity": 0.45,
     "unfocusedOpacity": 0.5
   },
@@ -29,9 +30,15 @@
     "low": "0 4px 12px rgba(0, 0, 0, 0.28)",
     "high": "0 12px 32px rgba(0, 0, 0, 0.42)"
   },
+  "modalBackdrop": "color-mix(in srgb, var(--dinkster-surface-canvas) 72%, transparent)",
   "layout": {
     "borderWidth": 1,
     "topBarHeight": 44,
+    "shortcutCompactHeight": 18,
+    "shortcutSettingsHeight": 22,
+    "shortcutCompactTextSize": 11,
+    "shortcutSettingsTextSize": 12,
+    "shortcutRadius": 5,
     "toolbarFullRowWidth": 406,
     "toolbarExpandedRowWidth": 940,
     "toolbarMinimumWidthLinux": 384,
@@ -49,7 +56,9 @@
     "sidebarBreakpoint": 768,
     "contentMaxWidth": 720,
     "tableMaxWidth": 960,
+    "dialogMaxWidth": 400,
     "dialogWideMaxWidth": 960,
+    "confirmationMaxWidth": 460,
     "pagePadding": 32,
     "menuWidth": 240,
     "emptyStateMaxWidth": 480,
@@ -61,9 +70,12 @@
     "macWindowControlsY": 14,
     "iconSize": 16,
     "railIconSize": 20,
+    "navigationRowHeight": 40,
     "menuRowHeight": 28,
     "scrollbarSize": 8,
-    "problemBoxMaxHeight": 400
+    "problemBoxMaxHeight": 400,
+    "fixesReviewWidth": 360,
+    "fixesReviewMaxHeight": 320
   },
   "siteLayout": {
     "shellMaxWidth": 1040,

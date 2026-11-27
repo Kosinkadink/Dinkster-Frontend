@@ -127,7 +127,6 @@ it('does not expose obsolete environment management when an older Desktop host s
   document.body.append(host)
   const bridge = {
     locale: async () => 'en',
-    status: async () => ({ phase: 'running' as const, detail: 'Ready' }),
     info: vi.fn(),
     exportSnapshot: vi.fn(),
     importSnapshot: vi.fn(),
@@ -167,9 +166,9 @@ it.each(['Linux x86_64', 'MacIntel'])('creates documents with Alt shortcuts and 
   await vi.waitFor(() => expect(host.querySelector('[data-testid="templates-page"]')).not.toBeNull())
   host.querySelector<HTMLButtonElement>('[data-testid="new-tab"] button')!.click()
   await vi.waitFor(() => expect(host.querySelectorAll('[role="menuitem"]')).toHaveLength(2))
-  expect([...host.querySelectorAll('[role="menuitem"] .dinkster-key')].map((key) => key.textContent)).toEqual(['Alt', 'N', 'Alt', 'T'])
+  expect([...host.querySelectorAll('[role="menuitem"] kbd')].map((key) => key.textContent)).toEqual(['Alt+N', 'Alt+T'])
   app.keybindings.set('workflow.new', 'Alt+Shift+N')
-  await vi.waitFor(() => expect([...host.querySelectorAll('[role="menuitem"] .dinkster-key')].map((key) => key.textContent)).toEqual(['Alt', 'Shift', 'N', 'Alt', 'T']))
+  await vi.waitFor(() => expect([...host.querySelectorAll('[role="menuitem"] kbd')].map((key) => key.textContent)).toEqual(['Alt+Shift+N', 'Alt+T']))
 })
 
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {
@@ -223,7 +222,7 @@ it('does not register disabled template surfaces and withdraws enabled surfaces'
   await vi.waitFor(expectDisabled)
 })
 
-it('shows Learn for any connected guide catalog and rejects stale availability', async () => {
+it('keeps the project name and Help from the stopped first frame while guide catalogs change', async () => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{"mounts":[]}', {
     headers: { 'Content-Type': 'application/json' },
   }))
@@ -243,15 +242,30 @@ it('shows Learn for any connected guide catalog and rejects stale availability',
   const status = guides.connection.status as Signal<ConnectionStatus>
   const host = document.createElement('div')
   document.body.append(host)
-  dispose = render(() => <App app={app} />, host)
+  active.supervisor.set({ protocol: 1, state: 'stopped', role: 'home', installations: 1 })
+  dispose = render(() => <App app={app} initialProjectName="Bookshop diorama" />, host)
   const toggle = () => host.querySelector<HTMLButtonElement>('[data-testid="learn-toggle"]')
-  expect(toggle()).toBeNull()
+  const firstHelp = toggle()
+  expect(firstHelp).not.toBeNull()
+  expect(host.querySelector('[data-testid="projects-button"]')).toBeNull()
+  expect(host.textContent).toContain('Bookshop diorama')
+  expect(host.querySelector('[data-testid="engine-banner"]')).toBeNull()
+  expect(host.querySelector('[data-testid="engine-start"]')).not.toBeNull()
+  active.supervisor.set({ protocol: 1, state: 'starting', progress: { done: 2, total: 5 } })
+  expect(host.querySelector('[data-testid="engine-run-control"]')?.textContent).toContain('Starting engine40%')
+  active.supervisor.set({ protocol: 1, state: 'ready' })
+  expect(host.querySelector('[data-testid="engine-start"]')).toBeNull()
+  expect(host.textContent).not.toContain('Starting engine')
+  expect(host.querySelector('[data-testid="queue-button"]')).not.toBeNull()
+  expect(toggle()).toBe(firstHelp)
+  expect(host.textContent).toContain('Bookshop diorama')
   status.set('connected')
   await vi.waitFor(() => expect(guides.schemaState.get().status).toBe('ready'))
-  expect(toggle()).toBeNull()
+  expect(toggle()).toBe(firstHelp)
   vi.mocked(guides.connection.listDocs).mockResolvedValue({ docs: [guide] })
   guides.refreshDiagnostics()
-  await vi.waitFor(() => expect(toggle()).not.toBeNull())
+  await vi.waitFor(() => expect(guides.guidesAvailable.get()).toBe(true))
+  expect(toggle()).toBe(firstHelp)
   expect(app.backendForTab(app.activeTab()!)).toBe(active)
 
   let resolveOld!: (page: DocsPage) => void
@@ -259,18 +273,20 @@ it('shows Learn for any connected guide catalog and rejects stale availability',
   guides.refreshDiagnostics()
   vi.mocked(guides.connection.listDocs).mockResolvedValue({ docs: [] })
   guides.refreshDiagnostics()
-  await vi.waitFor(() => expect(toggle()).toBeNull())
+  await vi.waitFor(() => expect(guides.guidesAvailable.get()).toBe(false))
   resolveOld({ docs: [guide] })
   await Promise.resolve()
-  expect(toggle()).toBeNull()
+  expect(toggle()).toBe(firstHelp)
+  expect(guides.guidesAvailable.get()).toBe(false)
 
   vi.mocked(guides.connection.listDocs).mockResolvedValue({ docs: [guide] })
   guides.refreshDiagnostics()
-  await vi.waitFor(() => expect(toggle()).not.toBeNull())
+  await vi.waitFor(() => expect(guides.guidesAvailable.get()).toBe(true))
   guides.refreshDiagnostics()
   status.set('disconnected')
   await Promise.resolve()
-  expect(toggle()).toBeNull()
+  expect(toggle()).toBe(firstHelp)
+  expect(host.textContent).toContain('Bookshop diorama')
   expect(guides.guidesAvailable.get()).toBe(false)
 })
 

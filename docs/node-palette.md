@@ -5,37 +5,55 @@ blueprints, and utilities. Double-clicking empty canvas opens it with its
 top edge centered on that point. Dropping a link on empty canvas opens the
 same surface with compatible entries, and double-clicking a link can open it
 with both endpoint filters; every spawn point uses the same top-centered
-anchor, shifted only as needed to keep the whole surface visible.
+anchor, clamped as if the surface occupied the full available height. Its top
+stays fixed while results change and shorter results move only the bottom;
+canvas-bounds changes recalculate containment.
 
 ## Search and browsing
 
-The palette uses the host-owned `SearchInput`, `SearchResultGroup`,
-`SearchResultRow`, and `SearchState` vocabulary. The input owns an option-only
+The palette uses `ProductSearch` for the field, kind tabs, one-line results,
+type menus, key hints and beside-list preview. The input owns an option-only
 listbox through `aria-controls` and `aria-activedescendant`. Up/Down changes
 the active result, Enter chooses it, and Escape closes the palette. The active
 row stays visible while the result region scrolls. Pointer movement can
 highlight another row, but rows scrolling under a stationary pointer do not
 replace keyboard selection.
 
-Categories are an expandable navigation browser, not an ARIA tree. Kind
-chips, `kind:`, `in:`, and `out:` query tokens, and the searchable Input and
-Output type dialogs narrow the same canonical entry set. Multi-select type
-filters match canonical and legacy type names case-insensitively, use OR
-within one direction, and use AND between input and output directions. A
+Before typing, Recent lists the last placements and Categories opens a list
+with a way back. Named kind tabs, `kind:`, `in:`, and `out:` query tokens,
+and Takes and Gives menus narrow the same canonical entry set. Multi-select type
+filters add removable requirement chips in pick order. The shared menus filter
+canonical labels as you type, keep every type available regardless of the
+current results, and let Enter pick the highlighted enabled type. Requirements
+match canonical and legacy type names case-insensitively and require every
+selected input and output type, just like repeated typed filters. Empty-field
+Backspace removes the last chip without clearing other requirements. A
 no-match state is announced outside the empty listbox. If the live catalog
 changes while a no-match query is open, the first new match becomes active.
-Catalog refreshes preserve focus on an existing category and keep its expanded
-children open while updating counts and adding or removing other categories.
+Catalog refreshes update entries and category counts without closing search.
 
 ## Preview and placement
 
-The preview shows the highlighted entry's rendered node, description, and
-deprecation or experimental status, and lists the rows a new node of that
-type shows, with canonical types, optionality and widget kind. Group members
-carry an `autogrow` badge, choice dropdowns a `combo` badge and type choice
-pins a `slot` badge (see [Node body](node-body.md)); hidden inputs are not
-listed. Blueprint boundary hints are labelled as declared because the body is
-not fetched before activation.
+The preview shows the highlighted entry's rendered node, name, description,
+category and pack, with deprecation or experimental status. The drawing shows
+ports directly instead of repeating an interface list below it. Blueprint
+boundary hints are labelled as declared; bodies are not fetched before activation.
+
+A dropped wire appears as a removable type chip; compatible node rows name
+the connection target. Removing the chip keeps the query and clears only the
+pending connection. Uninstalled nodes come from the shared registry catalog
+and open the same validated install prompt as Ctrl+K. They are never offered
+for wire-drop or link-splice placement.
+
+List and file forms appear directly beneath their type with plain names.
+Menu and chip markers use a circle or list diamond. The either-input shape
+appears only on nodes and previews. A list
+filter or dropped list wire also finds matching inputs that accept a whole
+list; scalar-only inputs remain incompatible with list wires. File input
+requirements include inputs reachable through the engine's single decoding
+step, so an image file also finds a plain image input. Output requirements
+do not invent file outputs from plain values. Blueprint boundary hints use
+the same file-decoding and type-discovery rules.
 
 Browsing and highlighting never mutate the workflow. Ordinary node,
 subgraph, and blueprint choices arm the existing pointer-following placement
@@ -49,26 +67,25 @@ While acceptance is pending, the document and selection remain unchanged.
 A refusal shows the canvas command notice without adding a node. A later
 selection or navigation is not replaced by a delayed insertion result.
 
-The root and type-filter dialogs reuse `.floating-surface` chrome and
-`placeFloatingSurface` containment. The host owns markup, tokens, focus,
-ARIA, overflow, and Canvas interaction. Entries supply typed schema,
-blueprint, and action data only.
+The shared search owns chrome, keyboard navigation and ARIA; the canvas host
+owns point-anchor containment through `placeFloatingSurface` and canvas
+interaction. Entries supply typed schema, blueprint, and action data only.
 
 Host-owned labels, filter text, announcements, empty states, and preview
 headings use the active application locale and update while the palette or a
-type-filter dialog remains open. Node names, descriptions, categories, ports,
+type menu remains open. Node names, descriptions, categories, ports,
 types, tooltips and widget kinds remain pack-provided data.
 
-At narrow widths, categories and results stack vertically and the schema
-preview is hidden so browsing and keyboard placement remain reachable. Hidden
-preview controls are excluded from the modal Tab loop.
+At narrow widths, the shared search hides the preview so browsing and keyboard
+placement remain reachable. Hidden preview controls are excluded from the
+modal focus loop.
 
 ## Verification
 
 Component tests cover listbox ownership, active-descendant keyboard flow,
-empty-to-populated catalog changes, category disclosure, type-filter focus,
+empty-to-populated catalog changes, category browsing, type filters,
 modal focus containment, live locale changes, and edge placement. Browser tests
 cover long content, schema preview, case-insensitive type filtering, categories,
-type-filter dialogs, live locale changes, keyboard tail scrolling, no-match
+type menus, live locale changes, keyboard tail scrolling, no-match
 state, no mutation before activation, placement cancellation, and 1600x950,
 1366x768, and 360x640 containment.

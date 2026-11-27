@@ -4,9 +4,10 @@ import { asConnectionId, asGraphDefId, asLinkId, asNodeId, asPortId, compile, do
 import type { ExecutionState } from '@dinkster/client'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, representedPreviewAssetForNode, withRecordedAutomaticValues, retainProvenExecution, selectedPreviewAssetForNode } from '../src/scene-overlays.js'
+import { deriveProblemProjection, executionProblemDiagnostics } from '../src/problem-display.js'
 import type { PreviewLoader, PreviewSource } from '../src/node-previews.js'
 
-// The derivation reads scene.nodes (id/isSubgraph/node.type), execution
+// The derivation reads scene.nodes (id/isSubgraph/node.type/layout.rows), execution
 // nodes/outputs/previews/artifact, and schema type/pack/deprecation;
 // fixtures carry exactly those (cast through unknown - full scenes would
 // drag in layout/link state irrelevant to overlay content).
@@ -17,6 +18,7 @@ const scene = (nodes: { id: string; type?: string; isSubgraph?: boolean; regionK
       isSubgraph: n.isSubgraph ?? false,
       regionKind: n.regionKind,
       node: { type: n.type ?? 'core.plain', values: {}, mode: n.mode },
+      layout: { rows: [] },
     })),
   }) as unknown as Scene
 
@@ -1261,6 +1263,25 @@ describe('deriveSceneOverlays', () => {
     expect(m.runLogsByNode.has('n3')).toBe(false)
   })
 
+  it('counts a coded warning only on Problems while preserving uncoded and captured warning tabs', () => {
+    const warning = { level: 'warning' as const, code: 'unpack_count_mismatch',
+      message: 'Expected 3 items; received 1', timestamp: 1, runtimeNodeId: 'n1', seq: 1 }
+    for (const other of [undefined, { ...warning, code: undefined, seq: 2 },
+      { ...warning, origin: 'stderr' as const, seq: 2 }]) {
+      const state = exec({
+        warnings: [warning], logs: [warning, ...(other === undefined ? [] : [other])],
+        artifact: { provenance: { toSource: { n1: 'n1' }, fromSource: { n1: ['n1'] } } },
+      })
+      const diagnostics = executionProblemDiagnostics(state)
+      const nodeProblems = deriveProblemProjection({ diagnostics, graphId: 'root', instancePath: [] }).nodes
+      const overlays = deriveSceneOverlays({ ...base, scene: scene([{ id: 'n1' }]), exec: state, nodeProblems })
+      expect(overlays.badges.n1).toEqual([
+        ...(other === undefined ? [] : [logWarningBadge(1)]), PROBLEM_WARNING_BADGE,
+      ])
+      expect(overlays.runLogsByNode.get('n1')).toEqual(state.logs)
+    }
+  })
+
   it('projects blocked and expanded runtime facts onto their canvas nodes', () => {
     const m = deriveSceneOverlays({
       ...base,
@@ -2035,13 +2056,13 @@ describe('last run automatic warnings', () => {
 
   it('finds a field promoted to a subgraph node through each boundary it crosses', () => {
     const view = { ...automaticScene({ sub: { fps: 'worked-out', frame_rate: 'worked-out' } }), diagnostics: [] } as unknown as Scene
-    const port = (id: string, node: string, inner: string) => ({ id, binds: { kind: 'port', node, port: inner } })
+    const port = (id: string, node: string, inner: string) => ({ kind: 'input', id, binds: { kind: 'port', node, port: inner } })
     const execution = run({ r1: 'sub.mid.inner' }, [
       { runtimeNodeId: 'r1', inputId: 'frame_rate', value: 24, workedOut: false },
     ], {
       g0: { nodes: { sub: { type: '#outer' } } },
-      outer: { nodes: { mid: { type: '#middle' } }, boundary: { inputs: [port('fps', 'mid', 'rate')] } },
-      middle: { nodes: { inner: { type: 'Video' } }, boundary: { inputs: [port('rate', 'inner', 'frame_rate')] } },
+      outer: { nodes: { mid: { type: '#middle' } }, boundary: { body: [port('fps', 'mid', 'rate')] } },
+      middle: { nodes: { inner: { type: 'Video' } }, boundary: { body: [port('rate', 'inner', 'frame_rate')] } },
     })
 
     expect(lastRunAutomaticDiagnostics({ scene: view, execution, instancePath: [] }).map((d) => d.anchor?.port))

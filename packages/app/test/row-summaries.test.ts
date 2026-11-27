@@ -3,12 +3,15 @@
  * painter over the core widget views, and what pointing at the row reads
  * out. Text is measured at 6 px a character.
  */
-import { createRegistryPainter, defaultTokens, widgetValueText, type LayoutRow, type WidgetPaintArgs } from '@dinkster/canvas'
+import { createRegistryPainter, defaultTokens, paintToolboxIcon, widgetValueText, type CanvasIconName, type LayoutRow, type WidgetPaintArgs } from '@dinkster/canvas'
 import { registerCatalog, type Json, type WidgetSpec } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import english from '../src/locales/en.json'
 import { resolveCanvasTooltip, WIDGET_READOUT_ITEMS, type CanvasTooltipContext } from '../src/tooltips.js'
+import { assetRowThumbnails, type PreviewLoader } from '../src/node-previews.js'
+import { wiredEditorSummaries } from '../src/InNodeEditorSpaces.js'
+import { createSaveTargetScene } from '../../canvas/gallery/save-target-box.js'
 
 beforeAll(() => {
   registerCatalog('en', english)
@@ -22,17 +25,21 @@ const painter = createRegistryPainter(registry)
 const LABEL = 'v'
 
 function fakeCtx() {
-  const texts: { text: string; font: string; color: string }[] = []
+  const texts: { text: string; font: string; color: string; x: number }[] = []
   const fills: string[] = []
+  const images: unknown[] = []
+  const imageRects: { x: number; width: number }[] = []
+  const paths: string[] = []
   const ctx = {
     fillStyle: '', strokeStyle: '', lineWidth: 1, font: '12px system-ui', globalAlpha: 1, textAlign: 'left',
     beginPath() {}, save() {}, restore() {}, translate() {}, scale() {}, arc() {}, moveTo() {}, lineTo() {},
-    stroke() {}, rect() {}, clip() {}, roundRect() {}, fill() {}, setLineDash() {}, closePath() {},
+    stroke(path?: { d: string }) { if (path) paths.push(path.d) }, rect() {}, clip() {}, roundRect() {}, fill() {}, setLineDash() {}, closePath() {},
+    drawImage(image: unknown, x: number, _y: number, width: number) { images.push(image); imageRects.push({ x, width }) },
     fillRect() { fills.push(String(this.fillStyle)) },
     measureText: (text: string) => ({ width: text.length * 6 }),
-    fillText(text: string) { texts.push({ text, font: this.font, color: String(this.fillStyle) }) },
+    fillText(text: string, x: number) { texts.push({ text, font: this.font, color: String(this.fillStyle), x }) },
   }
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, fills }
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, texts, fills, images, imageRects, paths }
 }
 
 const deepFreeze = <T>(value: T): T => {
@@ -77,6 +84,123 @@ const floatList = specOf('LIST', {}, { element: { widgetType: 'FLOAT', options: 
 const stringList = specOf('LIST', {}, { element: { widgetType: 'STRING', options: {} } })
 const videoEdit = specOf('VIDEO_EDIT', { features: ['trim', 'crop'] })
 
+describe('closed file rows', () => {
+  it('keeps empty file text muted and italic with a thumbnail-only host summary', () => {
+    const spec = specOf('ASSET', { accept: ['image/png'] })
+    const painted = fakeCtx()
+    painter({ ctx: painted.ctx, row: rowOf(spec), value: null, x: 0, y: 0, width: 460,
+      rowHeight: 24, connected: false, tokens: defaultTokens, editorSummary: {},
+    })
+    expect(painted.texts.find((call) => call.text === 'Choose image')).toMatchObject({ color: defaultTokens.colors.label })
+    expect(painted.texts.find((call) => call.text === 'Choose image')?.font).toContain('italic')
+    expect(painted.images).toEqual([])
+  })
+
+  it.each([false, true])('separates pictures from the previous entry and groups them with their name (wired %s)', (wired) => {
+    const value = [image('a.png'), { ...(image('sound.wav') as Record<string, Json>), mediaType: 'audio/wav' }, image('clip.webm')]
+    const spec = specOf('ASSET')
+    const painted = fakeCtx()
+    const bitmap = {} as CanvasImageSource
+    painter({ ctx: painted.ctx, row: rowOf(spec), value, x: 0, y: 0, width: 600,
+      rowHeight: 24, connected: wired, tokens: defaultTokens,
+      editorSummary: { thumbnails: [bitmap, undefined, bitmap] },
+      ...(wired ? { companion: { value, state: 'expected' as const } } : {}),
+    })
+    for (const [index, name] of ['a.png', 'clip.webm'].entries()) {
+      const picture = painted.imageRects[index]!
+      expect(painted.texts.find((call) => call.text === name)!.x - picture.x - picture.width).toBe(4)
+    }
+    const sound = painted.texts.find((call) => call.text === 'sound.wav')!
+    // Nine characters and the comma at 6 px each, then an 8 px entry gap.
+    expect(painted.imageRects[1]!.x - (sound.x + 10 * 6)).toBe(8)
+    expect(painted.images).toHaveLength(2)
+  })
+
+  it('keeps previews attached to each field and each carried name, including unknown and sound values', () => {
+    const first = image('a.png')
+    const second = image('b.png', 'b')
+    const audio = { ...(image('sound.wav', 'c') as Record<string, Json>), mediaType: 'audio/wav' }
+    const bitmap = {} as CanvasImageSource
+    const loader: PreviewLoader = {
+      sourceFor: () => undefined,
+      peekSource: () => undefined,
+      inputAssetSource: (digest) => ({ key: digest, load: async () => ({ image: bitmap }) }),
+      resolve: (source) => source.key === (first as Record<string, Json>)['digest'] ? { image: bitmap } : undefined,
+      resolveFrame: () => undefined,
+    }
+    const images = (value: Json) => assetRowThumbnails(value, loader, registry)
+    const row = rowOf(specOf('ASSET'))
+    const rows = ['stored', 'incoming', 'unknown', 'sound'].map((id) => ({ ...row, inputId: id, valueKey: id }))
+    const result = wiredEditorSummaries([{ id: 'n', layout: { rows }, node: { values: { stored: first, incoming: first, unknown: first, sound: audio } } }], {
+      wired: (_id, key) => key === 'incoming' || key === 'unknown',
+      carried: (_id, key) => key === 'incoming' ? [second, audio, first] : undefined,
+    }, 'Not known', images)
+    expect(result).toEqual({ n: {
+      stored: { thumbnails: [bitmap] },
+      incoming: { value: [second, audio, first], thumbnails: [null, undefined, bitmap] },
+    } })
+    expect(images(audio)).toBeUndefined()
+    expect(images(null)).toBeUndefined()
+    expect(images([])).toBeUndefined()
+    expect(images(image(''))).toBeUndefined()
+    expect(assetRowThumbnails([audio, first, first, first], loader, registry, 40)).toEqual([undefined, bitmap, bitmap, null])
+    expect(assetRowThumbnails([audio, first, first, first], loader, registry, 41)).toEqual([undefined, bitmap, bitmap, bitmap])
+  })
+
+  it.each([
+    [['image/png', 'image/jpeg'], undefined, 'image'],
+    [['video/mp4'], undefined, 'film'],
+    [['audio/wav'], undefined, 'audio-lines'],
+    [['model/gltf-binary'], undefined, 'box'],
+    [[], 'model/checkpoint', 'box'],
+    [[], 'media/model3d', 'box'],
+    [['image/png', 'audio/wav'], undefined, 'file'],
+    [[], undefined, 'file'],
+  ] as const)('shows the icon of accepted kinds %j (%s), even without a file', (accept, kind, icon) => {
+    const spec = specOf('ASSET', { accept: [...accept] }, kind === undefined ? {} : { kind })
+    const { ctx, paths } = fakeCtx()
+    const expected = fakeCtx()
+    paintToolboxIcon(expected.ctx, icon as CanvasIconName, 0, 0, 16, '#fff')
+    for (const value of [null, image('shot.png')]) {
+      paths.length = 0
+      painter({ ctx, row: rowOf(spec), value, x: 0, y: 0, width: 600, rowHeight: 24, connected: false, tokens: defaultTokens })
+      expect(paths.slice(0, expected.paths.length)).toEqual(expected.paths)
+    }
+  })
+
+  it('fits each thumbnail with its name, reserves pending pictures, and drops pictures for count-only summaries', () => {
+    const first = {} as CanvasImageSource
+    const second = {} as CanvasImageSource
+    const value = [image('a.png'), image('b.png', 'b'), image('c.png', 'c'), image('d.png', 'd')]
+    const spec = specOf('ASSET')
+    const render = (width: number, thumbnails: NonNullable<WidgetPaintArgs['editorSummary']>, companion?: WidgetPaintArgs['companion']) => {
+      const result = fakeCtx()
+      painter({ ctx: result.ctx, row: rowOf(spec), value, x: 0, y: 0, width, rowHeight: 24,
+        connected: companion !== undefined, tokens: defaultTokens, editorSummary: thumbnails,
+        ...(companion === undefined ? {} : { companion }),
+      })
+      return { text: result.texts.filter((call) => call.text !== LABEL).map((call) => call.text).join(''), images: result.images }
+    }
+    for (const companion of [undefined, { value, state: 'expected' as const }]) {
+      const full = render(600, { thumbnails: [first, second, undefined, null] }, companion)
+      expect(full).toEqual({ text: 'a.png, b.png, c.png, d.png', images: [first, second] })
+      const pending = render(250, { thumbnails: [null, second, undefined, null] }, companion)
+      const ready = render(250, { thumbnails: [first, second, undefined, second] }, companion)
+      expect(pending.text).toBe(ready.text)
+      expect(ready.text).toContain('+')
+      const narrow = Array.from({ length: 20 }, (_, index) => render(90 + index * 4, { thumbnails: [first, second, first, second] }, companion))
+      expect(narrow.find((shown) => shown.text === '4 assets')).toEqual({ text: '4 assets', images: [] })
+    }
+    const long = [image('a-very-long-checkpoint-name.png'), image('b.png', 'b')]
+    const result = fakeCtx()
+    painter({ ctx: result.ctx, row: rowOf(spec), value: long, x: 0, y: 0, width: 260, rowHeight: 24,
+      connected: false, tokens: defaultTokens, editorSummary: { thumbnails: [first, second] },
+    })
+    expect(result.texts.map((call) => call.text).join('')).toContain('... +1')
+    expect(result.images).toEqual([first])
+  })
+})
+
 describe('a closed row shows its stored value for each retained kind', () => {
   it.each([
     ['MULTI_COMBO empty', specOf('MULTI_COMBO', { options: samplers }), [], 'No selections'],
@@ -105,7 +229,6 @@ describe('a closed row shows its stored value for each retained kind', () => {
     ['BOUNDING_BOX below zero', specOf('BOUNDING_BOX'), { x: -4, y: 0, width: 8, height: 8 }, 'Invalid value'],
     ['IMAGECOMPARE', specOf('IMAGECOMPARE'), null, 'Open image comparison'],
     ['CAMERA_ANGLE_VIEW', specOf('CAMERA_ANGLE_VIEW'), 'front', 'Open camera angle'],
-    ['RESOLUTION_PREVIEW', specOf('RESOLUTION_PREVIEW'), null, 'Resolution preview'],
     ['SAVE_TARGET default', specOf('SAVE_TARGET'), null, 'Default output'],
     ['SAVE_TARGET', specOf('SAVE_TARGET'), { mount: 'renders', prefix: 'session/frame' }, 'renders/session/frame'],
     ['VIDEO_EDIT empty', videoEdit, {}, 'No edits'],
@@ -186,6 +309,32 @@ describe('a value that does not fit gives way in order', () => {
 })
 
 describe('a value arriving down a wire uses the same summary', () => {
+  it('composes mapped Save inputs from their own wires, defaults and stored values without revealing dormant values', () => {
+    const measure = (spec: WidgetSpec) => {
+      const viewId = registry.kind(spec.widgetType)!.defaultView(spec)
+      const view = registry.viewsFor(spec.widgetType).find((view) => view.id === viewId)!
+      return { viewId, rows: view.measure(spec).rows }
+    }
+    const scene = createSaveTargetScene(defaultTokens, (text) => text.length * 6, measure,
+      { x: 0, y: 0 }, { mount: 'stored-mount', prefix: 'stored/name' }, { mapped: true })
+    const node = scene.nodes.find((node) => node.node.values['filename_prefix'] === 'stored/name')!
+    const summary = (wired: readonly string[], arriving: Readonly<Record<string, Json>>) => wiredEditorSummaries([node], {
+      wired: (_node, id) => wired.includes(id), carried: (_node, id) => arriving[id],
+    }, 'Not known yet')[node.id]?.['target']
+    expect(summary(['mount'], { mount: 'incoming-mount' })?.value).toEqual({ mount: 'incoming-mount', prefix: 'stored/name' })
+    expect(summary(['filename_prefix'], { filename_prefix: 'incoming/name' })?.value).toEqual({ mount: 'stored-mount', prefix: 'incoming/name' })
+    expect(summary(['mount', 'filename_prefix'], { mount: null, filename_prefix: '' })?.value).toEqual({ prefix: '' })
+    expect(summary(['mount'], {})).toEqual({ text: 'Not known yet', placeholder: true, value: null })
+    expect(summary(['filename_prefix'], {})).toEqual({ text: 'Not known yet', placeholder: true, value: null })
+    expect(summary([], {})?.value).toEqual({ mount: 'stored-mount', prefix: 'stored/name' })
+    const defaults = wiredEditorSummaries([{ ...node, node: { values: {} } }], {
+      wired: () => false, carried: () => undefined,
+    }, 'Not known yet')
+    expect(defaults[node.id]?.['target']?.value).toEqual({ prefix: 'ComfyUI' })
+    expect(node.node.values).toMatchObject({ mount: 'stored-mount', filename_prefix: 'stored/name' })
+    expect(node.node.values).not.toHaveProperty('target')
+  })
+
   it('shows the known incoming list, not the stored one, and keeps the estimate mark', () => {
     const stored = ['dpmpp_2m', 'euler', 'dpmpp_2m_sde']
     const spec = specOf('MULTI_COMBO', { options: samplers })
@@ -235,20 +384,20 @@ describe('pointing at a row reads out its whole value without changing it', () =
     expect(readout(stringList, items(4), undefined, 6)).toEqual(['Value: 4 items', '1. item 1', '2. item 2', '3. item 3', '4. item 4'])
     expect(readout(stringList, items(5), undefined, 6)).toEqual(['Value: 5 items', '1. item 1', '2. item 2', '3. item 3', 'and 2 more'])
     expect(readout(stringList, ['a', 'b', 'c'], { value: ['only'], state: 'expected' }, 6)).toEqual([
-      'Current expected value: 1 item', '1. only',
-      'Dormant stored value under connection: 3 items', '1. a', 'and 2 more',
+      'Arriving: 1 item', '1. only',
+      'Stored: 3 items. Used again when the wire is removed.', '1. a', 'and 2 more',
     ])
     for (const count of [4, 30]) {
       expect(readout(stringList, ['saved a', 'saved b', 'saved c'], { value: items(count), state: 'expected' }, 6)).toEqual([
-        `Current expected value: ${count} items`, '1. item 1', `and ${count - 1} more`,
-        'Dormant stored value under connection: 3 items', 'and 3 more',
+        `Arriving: ${count} items`, '1. item 1', `and ${count - 1} more`,
+        'Stored: 3 items. Used again when the wire is removed.', 'and 3 more',
       ])
     }
     expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 3)).toEqual([
-      'Current expected value: 4 items', 'Dormant stored value under connection: 1 item',
+      'Arriving: 4 items', 'Stored: 1 item. Used again when the wire is removed.',
     ])
     expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 2)).toEqual([
-      'Current expected value: 4 items',
+      'Arriving: 4 items',
     ])
     expect(readout(stringList, ['saved'], { value: items(4), state: 'expected' }, 1)).toEqual([])
   })
@@ -260,18 +409,18 @@ describe('pointing at a row reads out its whole value without changing it', () =
       companion: { state: 'expected', value: ['long first item', 'long second item', 'short third item', 'last item'] },
     }
     const tip = resolveCanvasTooltip(target, { detailed: false }, context)!
-    const measure = (text: string) => text.includes('long ') ? 4 : text.startsWith('Dormant stored') ? 2 : 1
+    const measure = (text: string) => text.includes('long ') ? 4 : text.startsWith('Stored:') ? 2 : 1
     expect(tip.fit!(10, measure).lines).toEqual([
-      'Current expected value: 4 items', '1. long first item', 'and 3 more',
-      'Dormant stored value under connection: 3 items', 'and 3 more',
+      'Arriving: 4 items', '1. long first item', 'and 3 more',
+      'Stored: 3 items. Used again when the wire is removed.', 'and 3 more',
     ])
     expect(tip.fit!(14, measure).lines).toEqual([
-      'Current expected value: 4 items', '1. long first item', '2. long second item', 'and 2 more',
-      'Dormant stored value under connection: 3 items', 'and 3 more',
+      'Arriving: 4 items', '1. long first item', '2. long second item', 'and 2 more',
+      'Stored: 3 items. Used again when the wire is removed.', 'and 3 more',
     ])
     expect(tip.fit!(6, measure).lines).toEqual([
-      'Current expected value: 4 items', 'and 4 more',
-      'Dormant stored value under connection: 3 items', 'and 3 more',
+      'Arriving: 4 items', 'and 4 more',
+      'Stored: 3 items. Used again when the wire is removed.', 'and 3 more',
     ])
   })
 
@@ -281,16 +430,34 @@ describe('pointing at a row reads out its whole value without changing it', () =
   })
 
   it('reads the full save prefix and names a project-default target without inventing a mount', () => {
-    expect(readout(specOf('SAVE_TARGET'), { mount: 'renders', prefix: 'a-long-session/nested/frame' }))
-      .toEqual(['Value: renders/a-long-session/nested/frame'])
-    expect(readout(specOf('SAVE_TARGET'), { prefix: 'nested/frame' }))
-      .toEqual(['Value: Project default/nested/frame'])
+    const spec = specOf('SAVE_TARGET', { suffix: '.png' })
+    const naming = 'Subfolders and filename stem only. The writer adds numbering and .png.'
+    expect(readout(spec, { mount: 'renders', prefix: 'a-long-session/nested/frame' }))
+      .toEqual(['Value: renders/a-long-session/nested/frame', naming])
+    expect(readout(spec, { prefix: 'nested/frame' }))
+      .toEqual(['Value: Project default/nested/frame', naming])
   })
 
   it('reads the incoming value first and the stored one under it', () => {
     expect(readout(stringList, ['a', 'b', 'c'], { value: ['only'], state: 'expected' })).toEqual([
-      'Current expected value: 1 item', '1. only',
-      'Dormant stored value under connection: 3 items', '1. a', '2. b', '3. c',
+      'Arriving: 1 item', '1. only',
+      'Stored: 3 items. Used again when the wire is removed.', '1. a', '2. b', '3. c',
+    ])
+    const curve = (count: number): Json => ({ interpolation: 'linear', points: Array.from({ length: count }, (_, i) => ({ position: i / (count - 1), value: i % 2 })) })
+    expect(readout(specOf('CURVE'), curve(5), { value: curve(8), state: 'expected' })).toEqual([
+      'Arriving: 8 points, Linear', 'Stored: 5 points, Linear. Used again when the wire is removed.',
+    ])
+  })
+
+  it('keeps the stored-value explanation when items are capped or the room is limited', () => {
+    const stored = Array.from({ length: 25 }, (_, index) => `saved ${index + 1}`)
+    const companion = { value: ['only'], state: 'expected' as const }
+    const full = readout(stringList, stored, companion)!
+    expect(full[2]).toBe('Stored: 25 items. Used again when the wire is removed.')
+    expect(full.at(-1)).toBe('and 5 more')
+    expect(readout(stringList, stored, companion, 6)).toEqual([
+      'Arriving: 1 item', '1. only',
+      'Stored: 25 items. Used again when the wire is removed.', '1. saved 1', 'and 24 more',
     ])
   })
 })

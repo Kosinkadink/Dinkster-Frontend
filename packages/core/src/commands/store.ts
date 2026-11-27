@@ -30,13 +30,17 @@ import {
   type DocumentStoreContract,
   type TransactionRecord,
 } from './contract.js'
-import { applyOwnedOps, getAtPath, type PatchOp } from './patch.js'
+import { applyOwnedOps, getAtPath, invertOps, type PatchOp } from './patch.js'
 import { nodesChangedBy, storeStartState } from './start-state.js'
+import { groupMembershipAfter, type GroupGeometryResolver } from '../group-membership.js'
 
 export type BoundaryPositionResolver = (
   document: WorkflowDocument,
   graphId: string,
 ) => Readonly<Record<BoundarySide, BoundaryNodeViewState>>
+
+/** Natural row-stack height, measured by the renderer without manual-size surplus. */
+export type NodeHeightResolver = (document: WorkflowDocument, graphId: string, nodeId: string) => number | undefined
 
 /** Materialize only missing geometry; layout stays owned by the renderer. */
 export function initializeBoundaryViews(
@@ -383,6 +387,8 @@ export class DocumentStore implements DocumentStoreContract {
     private readonly executionContext: () => CommandExecutionContext = () => ({ kind: 'initial' }),
     private readonly validateCommit?: DocumentCommitPolicy,
     private readonly boundaryPositionsFor?: BoundaryPositionResolver,
+    private readonly nodeHeightFor?: NodeHeightResolver,
+    private readonly groupGeometryFor?: GroupGeometryResolver,
   ) {
     // Ownership boundary (CO1): the store never retains or exposes caller-
     // mutable data. The initial document is validated, deep-copied, and
@@ -520,7 +526,36 @@ export class DocumentStore implements DocumentStoreContract {
       // with nothing stored gets its start key, and a group that grows by hand
       // its minimum members, in the same undo step.
       const resolve = context.kind === 'initial' && !hasErrors(commandDiags) ? context.schemaResolverFor?.(tx.current) : undefined
-      if (resolve !== undefined) storeStartState(tx, resolve, nodesChangedBy(tx.current, tx.forward))
+      if (resolve !== undefined) {
+        storeStartState(tx, resolve, nodesChangedBy(tx.current, tx.forward))
+      }
+      if (context.kind === 'initial' && !hasErrors(commandDiags) && !def.replaysHistory && this.nodeHeightFor) {
+        for (const [graphId, graph] of Object.entries(tx.current.view.graphs)) {
+          if (graph === this.doc.view.graphs[graphId]) continue
+          for (const [nodeId, view] of Object.entries(graph.nodes)) {
+            const before = this.doc.view.graphs[graphId]?.nodes[nodeId]
+            if (!view.size || !before?.size || !jsonSameValue(view.size, before.size) ||
+              (jsonSameValue(view.editors, before.editors) && jsonSameValue(view.sections, before.sections) &&
+                jsonSameValue(view.lines, before.lines))) continue
+            const oldHeight = this.nodeHeightFor(this.doc, graphId, nodeId)
+            const newHeight = this.nodeHeightFor(tx.current, graphId, nodeId)
+            if (oldHeight === undefined || newHeight === undefined || oldHeight === newHeight) continue
+            tx.set(['view', 'graphs', graphId, 'nodes', nodeId, 'size'], {
+              width: view.size.width,
+              height: Math.max(0, Math.max(view.size.height, oldHeight) + newHeight - oldHeight),
+            })
+          }
+        }
+      }
+      if (!hasErrors(commandDiags) && !def.replaysHistory && tx.forward.length > 0 && this.groupGeometryFor) {
+        for (const [graphId, view] of Object.entries(tx.current.view.graphs)) {
+          if (view === this.doc.view.graphs[graphId] && tx.current.graphs[graphId] === this.doc.graphs[graphId]) continue
+          if (!Object.keys(view.groups ?? {}).length && !this.doc.view.graphs[graphId]?.groupMembership) continue
+          const membership = groupMembershipAfter(this.doc, tx.current, graphId, ownedInvocation, this.groupGeometryFor)
+          if (!jsonSameValue(view.groupMembership as unknown as Json, membership as unknown as Json))
+            tx.set(['view', 'graphs', graphId, 'groupMembership'], membership as unknown as Json)
+        }
+      }
       if (!hasErrors(commandDiags) && !def.replaysHistory && tx.forward.length > 0 && this.boundaryPositionsFor) {
         const changedGraphs = new Set(Object.keys(tx.current.graphs).filter((id) =>
           tx.current.graphs[id] !== this.doc.graphs[id] ||
@@ -664,6 +699,32 @@ export class DocumentStore implements DocumentStoreContract {
     this.revisionCounter += 1
     const revision = this.revisionCounter
     this.commit(doc, Object.freeze({ kind: 'redo' as const, record, revision, patch: applied }))
+    return true
+  }
+
+  /**
+   * Replay recorded patches, such as an earlier record's inverse, as one new
+   * undo step on top of whatever was done since. Refused, changing nothing,
+   * when the document no longer holds the values the patches were recorded
+   * against, when they no longer fit it, or when the result breaks an
+   * invariant: an edit made since is never overwritten.
+   */
+  replayRecorded(ops: readonly PatchOp[]): boolean {
+    let replay: ReturnType<typeof replayHistoryOps>
+    try {
+      replay = replayHistoryOps(this.doc, ops, { requireRecordedValues: true })
+    } catch {
+      return false
+    }
+    if (replay.stale || replay.applied.length === 0) return false
+    if (hasErrors(this.validateCommit?.(this.doc, replay.doc, this.historySnapshot()) ?? [])) return false
+    this.publishDispatch(Object.freeze({ command: 'history.replay', params: null }), {
+      ok: true,
+      doc: replay.doc,
+      forward: Object.freeze(replay.applied),
+      inverse: Object.freeze(invertOps(replay.applied)),
+      diagnostics: [],
+    })
     return true
   }
 

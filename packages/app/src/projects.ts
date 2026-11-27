@@ -97,7 +97,7 @@ export async function migrateBrowserProjects(
   for (const project of projects) {
     signal?.throwIfAborted()
     if (!stillCurrent()) throw new Error('Project connection changed during registration')
-    await connection.registerProject(project.id, project.name, signal)
+    await connection.registerProject(project.id, project.name, {}, signal)
   }
   signal?.throwIfAborted()
   if (!stillCurrent()) throw new Error('Project connection changed during registration')

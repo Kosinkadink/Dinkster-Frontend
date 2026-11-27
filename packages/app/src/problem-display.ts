@@ -1,8 +1,10 @@
 import {
   documentResolver,
+  diag,
   diagnosticBlocksExecution,
   inputsOf,
   outputsOf,
+  parseOccurrenceKey,
   subgraphDefIdOf,
   type Diagnostic,
   type DiagnosticOrigin,
@@ -13,6 +15,7 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { outputRowKey, type ProblemKind, type RowProblemMap } from '@dinkster/canvas'
+import type { ExecutionState } from '@dinkster/client'
 
 export interface ProblemSchemaRegistry {
   readonly resolve: (type: string) => NodeSchema | undefined
@@ -38,6 +41,18 @@ export type NodeProblemMap = Readonly<Record<string, readonly NodeProblemLine[]>
 export interface ProblemProjection {
   readonly nodes: NodeProblemMap
   readonly rows: RowProblemMap
+}
+
+/** Run problems share occurrence attribution without making a warning a failed run. */
+export function executionProblemDiagnostics(execution: ExecutionState): readonly Diagnostic[] {
+  return [...execution.errors, ...(execution.warnings ?? []).flatMap((entry) => {
+    if (entry.runtimeNodeId === undefined || entry.code === undefined) return []
+    const source = execution.artifact?.provenance.toSource[entry.runtimeNodeId]
+    return [diag('warning', 'runtime', `runtime.${entry.code}`, entry.message, {
+      anchor: { execution: execution.ref, ...(source === undefined ? {} : { occurrence: parseOccurrenceKey(source) }) },
+      data: { runtimeId: entry.runtimeNodeId },
+    })]
+  })]
 }
 
 /** Preserve every active diagnostic source before graph projection. */
@@ -157,6 +172,22 @@ function diagnosticRow(diagnostic: Diagnostic, nodeId: string, portSideOf: PortS
   return undefined
 }
 
+/** A stale selection explains the same row/source mismatch more precisely. Keep both solver findings, but show one cause. */
+function withoutSupersededTypeProblems(diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
+  const key = (diagnostic: Diagnostic): string | undefined => {
+    const data = diagnostic.data
+    if (diagnostic.severity !== 'warning' || typeof data?.['nodeMessage'] !== 'string' ||
+      typeof data['sourceNode'] !== 'string' || typeof data['sourcePort'] !== 'string') return undefined
+    return JSON.stringify([diagnostic.refs, diagnostic.anchor?.port, diagnostic.anchor?.occurrence, data['sourceNode'], data['sourcePort']])
+  }
+  const selected = new Set(diagnostics.filter((diagnostic) => diagnostic.code === 'solve.slot.staleSpecialization')
+    .map(key).filter((value) => value !== undefined))
+  return diagnostics.filter((diagnostic) => {
+    const cause = diagnostic.code === 'solve.linkMismatch' ? key(diagnostic) : undefined
+    return cause === undefined || !selected.has(cause)
+  })
+}
+
 /**
  * Project current document diagnostics onto nodes in one visible graph: one
  * line per cause, so a cause reported by several sources counts once. Info is
@@ -172,7 +203,7 @@ export function deriveProblemProjection(args: {
 }): ProblemProjection {
   const lines: Record<string, NodeProblemLine[]> = {}
   const seen = new Set<string>()
-  for (const diagnostic of args.diagnostics) {
+  for (const diagnostic of withoutSupersededTypeProblems(args.diagnostics)) {
     if (diagnostic.severity === 'info') continue
     const nodeIds = new Set<string>()
     for (const target of diagnosticNodeTargets(diagnostic, args.document)) {
@@ -285,6 +316,7 @@ export function problemDisplay(
   document: WorkflowDocument | undefined,
   registry: ProblemSchemaRegistry | undefined,
 ): string {
+  if (typeof diagnostic.data?.['nodeMessage'] === 'string') return diagnostic.message
   if (document === undefined || registry === undefined || diagnostic.refs?.length === 0 || diagnostic.refs === undefined) {
     return diagnostic.message
   }
@@ -308,7 +340,7 @@ export interface ProblemGroup {
   readonly diagnostics: readonly Diagnostic[]
 }
 
-export const problemSections = ['execution', 'workflow', 'upgrade', 'packs', 'collaboration'] as const
+export const problemSections = ['execution', 'workflow', 'packs', 'collaboration'] as const
 export type ProblemSection = typeof problemSections[number]
 
 export const problemSectionForOrigin = {
@@ -317,7 +349,7 @@ export const problemSectionForOrigin = {
   compile: 'workflow',
   invariant: 'workflow',
   environment: 'workflow',
-  import: 'upgrade',
+  import: 'workflow',
   schema: 'packs',
   extension: 'packs',
   command: 'packs',
@@ -337,8 +369,9 @@ export function groupProblemDiagnostics(
   document?: WorkflowDocument,
 ): readonly ProblemGroup[] {
   const groups: ProblemGroup[] = []
+  const shown = withoutSupersededTypeProblems(diagnostics)
   for (const section of problemSections) {
-    const entries = diagnostics.filter((diagnostic) => problemSectionOf(diagnostic) === section)
+    const entries = shown.filter((diagnostic) => problemSectionOf(diagnostic) === section)
     if (entries.length === 0) continue
     groups.push({
       key: JSON.stringify([section, document?.lineage ?? null]),

@@ -55,7 +55,7 @@
  * fake connection deterministically.
  */
 
-import type { Json, WorkflowDocument } from '../format/document.js'
+import type { Json, JsonObject, WorkflowDocument } from '../format/document.js'
 import { ownJson } from '../format/json.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { loadDocument } from '../format/migrate.js'
@@ -70,7 +70,8 @@ import type {
 import { predictAllocatedId } from './alloc.js'
 import { isValidActorId } from '../ids.js'
 import { applyOps, type PatchOp } from './patch.js'
-import { DocumentStore, jsonSameValue, replayHistoryOps, type BoundaryPositionResolver, type DocumentCommitPolicy, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
+import { DocumentStore, jsonSameValue, replayHistoryOps, type BoundaryPositionResolver, type NodeHeightResolver, type DocumentCommitPolicy, type HistorySnapshot, type ListenerErrorSink, type PreparedDocumentDispatch } from './store.js'
+import type { GroupGeometryResolver } from '../group-membership.js'
 import { toWirePatch, type DocumentSession, type SessionOp, type WirePatchOp } from './session.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
@@ -158,6 +159,8 @@ export interface SharedSessionOptions {
   readonly onError?: (message: string) => void
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
   readonly boundaryPositionsFor?: BoundaryPositionResolver
+  readonly nodeHeightFor?: NodeHeightResolver
+  readonly groupGeometryFor?: GroupGeometryResolver
   /** Synchronous local command, history and rebased intention policy. */
   readonly validateCommit?: DocumentCommitPolicy
   /** Confirm ownership before adoption; the receipt callback runs after commit, before observers. */
@@ -247,6 +250,8 @@ class SharedDocumentSession implements DocumentSession {
   private readonly maxUndo: number
   private readonly schemaResolverFor: ((doc: WorkflowDocument) => SchemaResolver) | undefined
   private readonly boundaryPositionsFor: SharedSessionOptions['boundaryPositionsFor']
+  private readonly nodeHeightFor: SharedSessionOptions['nodeHeightFor']
+  private readonly groupGeometryFor: SharedSessionOptions['groupGeometryFor']
   private readonly validateCommit: SharedSessionOptions['validateCommit']
   private readonly beforeRemoteDocument: SharedSessionOptions['beforeRemoteDocument']
   private rebasing = false
@@ -324,6 +329,8 @@ class SharedDocumentSession implements DocumentSession {
     this.maxUndo = options?.maxUndo ?? 200
     this.schemaResolverFor = options?.schemaResolverFor
     this.boundaryPositionsFor = options?.boundaryPositionsFor
+    this.nodeHeightFor = options?.nodeHeightFor
+    this.groupGeometryFor = options?.groupGeometryFor
     this.validateCommit = options?.validateCommit
     this.beforeRemoteDocument = options?.beforeRemoteDocument
     this.snapshotPolicy = new SnapshotPublicationPolicy(
@@ -418,6 +425,27 @@ class SharedDocumentSession implements DocumentSession {
   clearHistory(): void {
     this.undoStack.length = 0
     this.redoStack.length = 0
+  }
+
+  replayRecorded(ops: readonly PatchOp[]): boolean {
+    // The same recorded-value guard as undo: a foreign actor's edit to any
+    // recorded path refuses the whole replay instead of being overwritten.
+    let applied: readonly PatchOp[]
+    let document: WorkflowDocument
+    try {
+      const replay = replayHistoryOps(this.store.doc, ops, { requireRecordedValues: true })
+      if (replay.stale || replay.applied.length === 0) return false
+      applied = replay.applied
+      document = replay.doc
+    } catch {
+      return false
+    }
+    if (hasErrors(this.validateCommit?.(this.store.doc, document, this.historySnapshot()) ?? [])) return false
+    const prepared = this.prepareRun({
+      command: sessionPatchCommand.id,
+      params: { ops: toWirePatch(applied) as unknown as Json },
+    }, 'session.replay', true)
+    return prepared.ok && prepared.commit().ok
   }
 
   historySnapshot(): HistorySnapshot {
@@ -574,6 +602,25 @@ class SharedDocumentSession implements DocumentSession {
     const store = this.store
     const prepared = store.prepareDispatch(stamped)
     if (!prepared.ok) return prepared
+    // Keep measured heights in the intention: replay has no live layout authority.
+    const sizes = (definition?.replaysHistory ? [] : prepared.forward).flatMap<Json>((op) => {
+      const [root, graphs, graphId, nodes, nodeId, field] = op.path
+      if (op.op !== 'remove' && op.path.length === 6 && root === 'view' && graphs === 'graphs' &&
+        nodes === 'nodes' && field === 'size') {
+        const before = store.doc.view.graphs[graphId!]?.nodes[nodeId!]
+        const after = prepared.document.view.graphs[graphId!]?.nodes[nodeId!]
+        if (!jsonSameValue(before?.editors, after?.editors) || !jsonSameValue(before?.sections, after?.sections))
+          return [{ command: 'view.setNodeSize', params: { graphId: graphId!, nodeId: nodeId!, size: op.value } }]
+      }
+      return []
+    })
+    const replayInvocation: CommandInvocation = sizes.length === 0 ? stamped : {
+      ...stamped, command: 'batch', params: { invocations: [
+        ...(stamped.command === 'batch' ? (stamped.params as JsonObject)['invocations'] as readonly Json[]
+          : [{ command: stamped.command, params: stamped.params }]),
+        ...sizes,
+      ] },
+    }
     const confirmedRevision = this.confirmedRevision
     const confirmed = this.confirmed
     const freezeHistory = (history: HistorySnapshot): HistorySnapshot => Object.freeze({
@@ -625,7 +672,7 @@ class SharedDocumentSession implements DocumentSession {
             ? { forward: outcome.forward, inverse: outcome.inverse } : undefined
           this.pending.push({
             opId: this.mintOpId(),
-            invocation: stamped,
+            invocation: replayInvocation,
             origin: origin ?? stamped.command,
             predicted: toWirePatch(outcome.forward),
             attempts: [],
@@ -1214,6 +1261,8 @@ class SharedDocumentSession implements DocumentSession {
         : ({ kind: 'initial', ...(this.schemaResolverFor ? { schemaResolverFor: this.schemaResolverFor } : {}) }),
       undefined,
       this.boundaryPositionsFor,
+      this.nodeHeightFor,
+      this.groupGeometryFor,
     )
   }
 

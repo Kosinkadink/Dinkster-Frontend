@@ -1,5 +1,6 @@
 import { For, Show, createSignal, onMount } from 'solid-js'
 import { render } from 'solid-js/web'
+import { formatByteSize, uuidv4 } from '@dinkster/core'
 import {
   ProductButton,
   ProductCheckbox,
@@ -113,6 +114,7 @@ function Environments() {
       variant: string
       supported: boolean
       reason: string
+      gpus?: readonly string[]
       downloadBytes?: number | undefined
     }[]
   >([])
@@ -128,7 +130,7 @@ function Environments() {
     environment?: DesktopEnvironment
   }>()
   const [advanced, setAdvanced] = createSignal(false)
-  let identity = `project-${crypto.randomUUID()}`
+  let identity = `project-${uuidv4()}`
   let sandboxCheck = 0
   const field = (key: Field) => values()[key].trim()
   const bindingState = () =>
@@ -166,7 +168,15 @@ function Environments() {
   const change = (key: Field, value: string) => {
     invalidate()
     setFieldErrors((current) => ({ ...current, [key]: undefined }))
-    setValues((current) => ({ ...current, [key]: value }))
+    const gpus =
+      key === 'variant'
+        ? variants().find((choice) => choice.variant === value)?.gpus
+        : undefined
+    setValues((current) => ({
+      ...current,
+      [key]: value,
+      ...(gpus === undefined ? {} : { gpus: gpus.join(',') }),
+    }))
     if (['root', 'channel', 'mirrors', 'gpus'].includes(key)) clearHardware()
     if (key === 'root') resetSandbox()
     if (key === 'host') {
@@ -448,6 +458,10 @@ function Environments() {
     setValues((current) => ({
       ...current,
       variant: result.plan.selected ?? '',
+      gpus:
+        result.plan.selected && result.plan.gpus
+          ? result.plan.gpus.join(',')
+          : current.gpus,
     }))
     setHardware(
       [
@@ -528,12 +542,9 @@ function Environments() {
             {...attrs}
             value={values()[props.field]}
             disabled={busy()}
-            onChange={(event) => change(props.field, event.currentTarget.value)}
-          >
-            <For each={props.options}>
-              {([value, label]) => <option value={value}>{label}</option>}
-            </For>
-          </ProductSelect>
+            onChange={(value) => change(props.field, value)}
+            options={props.options.map(([value, label]) => ({ value, label }))}
+          />
         )}
       </ProductField>
     )
@@ -637,28 +648,15 @@ function Environments() {
                 {...attrs}
                 value={values().selected}
                 disabled={busy()}
-                onChange={(event) =>
+                onChange={(value) =>
                   select(
                     environments().find(
-                      (entry) => entry.id === event.currentTarget.value,
+                      (entry) => entry.id === value,
                     ),
                   )
                 }
-              >
-                <option value="" selected={!values().selected}>
-                  New local environment
-                </option>
-                <For each={environments().filter((entry) => entry.root)}>
-                  {(entry) => (
-                    <option
-                      value={entry.id}
-                      selected={values().selected === entry.id}
-                    >
-                      {entry.name}
-                    </option>
-                  )}
-                </For>
-              </ProductSelect>
+                options={[{ value: '', label: 'New local environment' }, ...environments().filter((entry) => entry.root).map((entry) => ({ value: entry.id, label: entry.name }))]}
+              />
             )}
           </ProductField>
           <Text field="name" label="Environment name" maxLength={128} />
@@ -818,7 +816,7 @@ function Environments() {
                   <ProductNotice>
                     {choice().reason}
                     {choice().downloadBytes !== undefined
-                      ? ` Download: ${choice().downloadBytes!.toLocaleString()} bytes (reported by dinkster-env).`
+                      ? ` Download: ${formatByteSize(choice().downloadBytes!)} (reported by dinkster-env).`
                       : ''}
                   </ProductNotice>
                 )}
@@ -1024,7 +1022,7 @@ function Environments() {
                   await refresh(host)
                   setValues((current) => ({ ...current, selected: project.id }))
                   setBindingBaseline(bindingState())
-                  identity = `project-${crypto.randomUUID()}`
+                  identity = `project-${uuidv4()}`
                   setNotification({
                     message:
                       'Binding saved. Opening it starts the existing snapshot without installing packages.',
@@ -1087,7 +1085,7 @@ function Environments() {
                         if (saved && result.operation !== 'cleanup')
                           select(saved, field('engine'))
                         setReview({ result })
-                        identity = `project-${crypto.randomUUID()}`
+                        identity = `project-${uuidv4()}`
                         setNotification({
                           message:
                             result.operation === 'cleanup'
@@ -1144,14 +1142,11 @@ function Environments() {
                 {...attrs}
                 value={remote().channel}
                 disabled={busy()}
-                onChange={(event) =>
-                  setRemote({ ...remote(), channel: event.currentTarget.value })
+                onChange={(value) =>
+                  setRemote({ ...remote(), channel: value })
                 }
-              >
-                <For each={channels}>
-                  {([value, label]) => <option value={value}>{label}</option>}
-                </For>
-              </ProductSelect>
+                options={channels.map(([value, label]) => ({ value, label }))}
+              />
             )}
           </ProductField>
           <ProductButton
@@ -1160,7 +1155,7 @@ function Environments() {
             onClick={() =>
               void perform(async (host) => {
                 await host.save({
-                  id: `project-${crypto.randomUUID()}`,
+                  id: `project-${uuidv4()}`,
                   name: remote().name.trim(),
                   channel: remote().channel as 'stable' | 'nightly',
                   engines: [
@@ -1196,12 +1191,7 @@ function Environments() {
               onDismiss={() => {
                 if (!busy()) setRemoving(undefined)
               }}
-            >
-              <ProductNotice>
-                Remove the saved binding for {environment().name}? Environment
-                files, projects and snapshots are not deleted.
-              </ProductNotice>
-              <div class="dinkster-actions">
+              action={
                 <ProductButton
                   intent="remove"
                   fill="solid"
@@ -1222,13 +1212,12 @@ function Environments() {
                 >
                   Remove binding
                 </ProductButton>
-                <ProductButton
-                  disabled={busy()}
-                  onClick={() => setRemoving(undefined)}
-                >
-                  Cancel
-                </ProductButton>
-              </div>
+              }
+            >
+              <ProductNotice>
+                Remove the saved binding for {environment().name}? Environment
+                files, projects and snapshots are not deleted.
+              </ProductNotice>
             </ProductDialog>
           )}
         </Show>
@@ -1316,7 +1305,7 @@ function environmentDetails(result: EnvironmentResult): string {
   if (result.space) {
     const space = result.space
     const bytes = (value: number | null) =>
-      value === null ? 'unavailable' : `${value.toLocaleString()} bytes`
+      value === null ? 'unavailable' : formatByteSize(value)
     label.push(
       `Environment: ${space.project}`,
       `Shared store: ${space.store ?? 'unavailable'}`,

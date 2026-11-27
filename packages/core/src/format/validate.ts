@@ -205,6 +205,23 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
   }
   c.optBool(v['promoted'], `${path}.promoted`)
   if (v['wireHidden'] !== undefined && v['wireHidden'] !== true) c.fail(`${path}.wireHidden`, 'must be true when present')
+  if (v['tooltip'] !== undefined) c.str(v['tooltip'], `${path}.tooltip`, { nonEmpty: true })
+  const limits = v['limits']
+  if (limits !== undefined && c.obj(limits, `${path}.limits`)) {
+    const bounds = limits as Record<string, unknown>
+    if (Object.keys(bounds).some((key) => key !== 'min' && key !== 'max')) c.fail(`${path}.limits`, 'only min and max are allowed')
+    if (bounds['min'] === undefined && bounds['max'] === undefined) c.fail(`${path}.limits`, 'must set min, max or both (omit for no limits)')
+    if (bounds['min'] !== undefined) c.num(bounds['min'], `${path}.limits.min`)
+    if (bounds['max'] !== undefined) c.num(bounds['max'], `${path}.limits.max`)
+    if (side === 'outputs') c.fail(`${path}.limits`, 'invalid on boundary outputs')
+  }
+  const visible = v['visible']
+  if (visible !== undefined && c.obj(visible, `${path}.visible`)) {
+    const formula = visible as Record<string, unknown>
+    if (Object.keys(formula).some((key) => key !== 'formula')) c.fail(`${path}.visible`, 'only formula is allowed')
+    c.str(formula['formula'], `${path}.visible.formula`, { nonEmpty: true })
+    if (side === 'outputs') c.fail(`${path}.visible`, 'invalid on boundary outputs')
+  }
   const binds = v['binds']
   if (
     v['promoted'] !== undefined &&
@@ -215,6 +232,47 @@ function checkBoundaryItem(c: ShapeChecker, v: unknown, path: string, side: 'inp
     c.fail(`${path}.promoted`, 'invalid unless the boundary binds a concrete input port; a forwarded construct always carries its fields')
   }
   c.optExt(v['ext'], `${path}.ext`)
+}
+
+/**
+ * The boundary body: inputs and outputs at their places among sections and
+ * lines. A line holds two to four inputs; section ids are unique.
+ */
+function checkBoundaryEntries(c: ShapeChecker, entries: readonly unknown[], path: string, sectionIds: Set<string>): void {
+  entries.forEach((entry, i) => {
+    const p = `${path}[${i}]`
+    if (!c.obj(entry, p)) return
+    const kind = entry['kind']
+    if (kind === 'input' || kind === 'output') {
+      checkBoundaryItem(c, entry, p, kind === 'input' ? 'inputs' : 'outputs')
+      if (entry['ownRow'] !== undefined && (kind !== 'output' || entry['ownRow'] !== true))
+        c.fail(`${p}.ownRow`, 'must be true when present, and only on an output')
+    } else if (kind === 'section') {
+      if (c.str(entry['id'], `${p}.id`, { nonEmpty: true })) {
+        if (sectionIds.has(entry['id'])) c.fail(`${p}.id`, `duplicate section id '${entry['id']}'`)
+        sectionIds.add(entry['id'])
+      }
+      c.optStr(entry['displayName'], `${p}.displayName`)
+      if (entry['collapsedByDefault'] !== undefined && entry['collapsedByDefault'] !== true)
+        c.fail(`${p}.collapsedByDefault`, 'must be true when present')
+      if (entry['openName'] !== undefined && entry['openName'] !== false) c.fail(`${p}.openName`, 'must be false when present')
+      if (c.arr(entry['rows'], `${p}.rows`)) checkBoundaryEntries(c, entry['rows'], `${p}.rows`, sectionIds)
+    } else if (kind === 'line') {
+      if (c.arr(entry['rows'], `${p}.rows`)) {
+        if (entry['rows'].length < 2 || entry['rows'].length > 4) c.fail(`${p}.rows`, 'a line holds two to four inputs')
+        entry['rows'].forEach((row, j) => {
+          const rp = `${p}.rows[${j}]`
+          if (!c.obj(row, rp)) return
+          if (row['kind'] !== 'input') c.fail(`${rp}.kind`, "a line holds only inputs ('input')")
+          else checkBoundaryItem(c, row, rp, 'inputs')
+          if ((row['binds'] as Record<string, unknown> | undefined)?.['kind'] === 'construct')
+            c.fail(`${rp}.binds`, 'a whole group, choice, type choice or described row takes a line of its own')
+        })
+      }
+    } else {
+      c.fail(`${p}.kind`, "must be 'input', 'output', 'section' or 'line'")
+    }
+  })
 }
 
 function checkDynamicPortState(c: ShapeChecker, st: unknown, p: string): void {
@@ -481,11 +539,11 @@ function checkGraphDef(c: ShapeChecker, v: unknown, path: string): void {
   if (v['valueSources'] !== undefined) c.fail(`${path}.valueSources`, 'value sources are no longer supported; use primitive nodes')
   if (v['selectors'] !== undefined) c.fail(`${path}.selectors`, 'selectors are no longer supported; use a Switch node')
   if (v['boundary'] !== undefined && c.obj(v['boundary'], `${path}.boundary`)) {
-    for (const side of ['inputs', 'outputs'] as const) {
-      const items = v['boundary'][side]
-      if (c.arr(items, `${path}.boundary.${side}`)) {
-        items.forEach((it, i) => checkBoundaryItem(c, it, `${path}.boundary.${side}[${i}]`, side))
-      }
+    const boundary = v['boundary']
+    if (boundary['body'] === undefined && (boundary['inputs'] !== undefined || boundary['outputs'] !== undefined)) {
+      c.fail(`${path}.boundary`, `subgraph '${String(v['name'] ?? v['id'])}' stores its inputs and outputs as two separate lists, which this version does not read; its boundary must be one ordered body`)
+    } else if (c.arr(boundary['body'], `${path}.boundary.body`)) {
+      checkBoundaryEntries(c, boundary['body'], `${path}.boundary.body`, new Set())
     }
   }
   c.int(v['nextOrdinal'], `${path}.nextOrdinal`, 0)
@@ -550,6 +608,11 @@ function checkNodeView(c: ShapeChecker, v: unknown, path: string): void {
       if (c.obj(s, `${path}.sections.${k}`)) c.bool(s['collapsed'], `${path}.sections.${k}.collapsed`)
     }
   }
+  if (v['lines'] !== undefined && c.obj(v['lines'], `${path}.lines`)) {
+    for (const [k, line] of Object.entries(v['lines'])) {
+      if (c.obj(line, `${path}.lines.${k}`)) c.bool(line['folded'], `${path}.lines.${k}.folded`)
+    }
+  }
   checkEditorViews(c, v, path)
   c.optStr(v['color'], `${path}.color`)
   c.optExt(v['ext'], `${path}.ext`)
@@ -587,6 +650,13 @@ function checkGraphView(c: ShapeChecker, v: unknown, path: string): void {
   }
   if (v['groups'] !== undefined && c.obj(v['groups'], `${path}.groups`)) {
     for (const [k, g] of Object.entries(v['groups'])) checkGroupView(c, k, g, `${path}.groups.${k}`)
+  }
+  if (v['groupMembership'] !== undefined && c.obj(v['groupMembership'], `${path}.groupMembership`)) {
+    for (const kind of ['nodes', 'reroutes', 'groups', 'boundary']) {
+      const members = v['groupMembership'][kind]
+      if (c.obj(members, `${path}.groupMembership.${kind}`))
+        for (const [id, parent] of Object.entries(members)) c.str(parent, `${path}.groupMembership.${kind}.${id}`, { nonEmpty: true })
+    }
   }
   if (v['groupSeq'] !== undefined) c.int(v['groupSeq'], `${path}.groupSeq`, 0)
   if (v['collapsedNets'] !== undefined && c.arr(v['collapsedNets'], `${path}.collapsedNets`)) {

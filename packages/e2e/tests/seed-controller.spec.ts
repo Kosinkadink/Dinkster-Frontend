@@ -120,7 +120,7 @@ test('an open field\'s side part selects a persistent after-run mode, and undo r
   await expect.poll(() => state(page)).toMatchObject({ controller: 'fixed', displayed: 'fixed' })
 })
 
-documentTest('20 rapid INT increments commit exact declared steps and undo individually', {
+documentTest('20 rapid INT increments follow the declared step grid and undo individually', {
   annotation: { type: 'mock-legacy-discovery' },
 }, async ({ page }) => {
   await page.evaluate(async () => {
@@ -151,10 +151,11 @@ documentTest('20 rapid INT increments commit exact declared steps and undo indiv
   const before = await page.screenshot({ animations: 'disabled' })
   const point = await incrementPoint(page, 'seed')
   for (let index = 0; index < 20; index++) await page.mouse.click(point.x, point.y)
+  // The off-grid 100 first steps to 102, then nineteen more steps reach 159.
   await expect.poll(() => page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
     return { value: tab.store.doc.graphs.g0!.nodes.n0!.values.seed, revision: tab.store.revision }
-  })).toEqual({ value: 160, revision: 20 })
+  })).toEqual({ value: 159, revision: 20 })
   const after = await page.screenshot({ animations: 'disabled' })
   await test.info().attach('rapid-seed-before', { body: before, contentType: 'image/png' })
   await test.info().attach('rapid-seed-after', { body: after, contentType: 'image/png' })
@@ -206,8 +207,10 @@ documentTest('completed runs advance promoted controller values on each subgraph
           },
           links: {}, nets: {}, reroutes: {}, nextOrdinal: 2,
           boundary: {
-            inputs: [{ id: 'seed', binds: { kind: 'port', node: 'leaf', port: 'seed' }, promoted: true }],
-            outputs: [{ id: 'out', binds: { kind: 'port', node: 'leaf', port: 'out' } }],
+            body: [
+              { kind: 'input', id: 'seed', binds: { kind: 'port', node: 'leaf', port: 'seed' }, promoted: true },
+              { kind: 'output', id: 'out', binds: { kind: 'port', node: 'leaf', port: 'out' } },
+            ],
           },
         },
       },

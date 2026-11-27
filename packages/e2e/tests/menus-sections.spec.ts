@@ -79,11 +79,11 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   }
   await page.goto('/')
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
-  await waitForWorkspaceReady(page)
   await identityViewport(page)
 })
 
@@ -379,6 +379,9 @@ test('oversized root and child menus stay in a short viewport, flip left, and re
   await page.addStyleTag({ content: '.context-menu .menu-item { padding-top: 30px; padding-bottom: 30px; }' })
   await page.getByRole('button', { name: 'Toggle right rail' }).click()
   await page.getByRole('button', { name: 'Hide minimap' }).click()
+  // The seed's migration notice can cover the node header in this short viewport.
+  const notice = page.getByTestId('fixes-notice')
+  if (await notice.isVisible()) await notice.getByRole('button', { name: 'Dismiss', exact: true }).click()
   const canvas = await page.getByTestId('graph-canvas').boundingBox()
   expect(canvas).not.toBeNull()
   await page.evaluate(({ canvasWidth, canvasHeight }) => {
@@ -710,11 +713,11 @@ documentTest('FR14 a disabled menu item cannot be invoked by mouse or Enter, and
   await expect(reset).toHaveClass(/disabled/)
   const before = await revision(page)
 
-  // Mouse: mousedown on the disabled row invokes nothing; the menu stays
-  // open. (force: the row carries aria-disabled, which Playwright's
-  // actionability check refuses to click - the point IS clicking it.)
-  await reset.click({ force: true })
+  // Exercise the disabled guard on the actual mouse handler without geometry checks.
+  await reset.dispatchEvent('mousedown', { button: 0 })
   await expect(menu(page)).toBeVisible()
+  expect((await activeDoc(page)).graphs['g0']!.nodes['s0']!.values['w']).toBe(20)
+  expect(await revision(page)).toBe(before)
 
   // Hover may highlight it (pointer honesty), but Enter still refuses.
   await reset.hover()
@@ -756,7 +759,7 @@ documentTest('create empty subgraph drills in and one undo removes the definitio
   await menuItem(page, 'core.canvas.createSubgraph').click()
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.graphStack.get().at(-1))).toBe('g0')
-  expect(await page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0 as any)?.boundary)).toEqual({ inputs: [], outputs: [] })
+  expect(await page.evaluate(() => (window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0 as any)?.boundary)).toEqual({ body: [] })
   await page.keyboard.press('Control+z')
   await expect(page.getByTestId('graph-breadcrumb')).not.toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0)).toBeUndefined()

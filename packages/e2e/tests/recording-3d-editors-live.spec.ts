@@ -62,8 +62,8 @@ async function run(page: Page): Promise<{ clientId: string; jobId: string }> {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.connection.status.get())).toBe('connected')
   await waitForWorkspaceReady(page)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.connection.status.get())).toBe('connected')
 })
 
 test('Record Audio in the node records a fake microphone and executes its stored clip after reopening', async ({ page, request }, info) => {

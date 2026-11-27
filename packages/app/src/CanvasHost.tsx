@@ -9,11 +9,11 @@
  */
 
 import { createEffect, createMemo, createSignal as createSolidSignal, on, onCleanup, onMount, Show, For, Index, untrack, type JSX } from 'solid-js'
-import type { ExecutionLogEntry, ExecutionState, LookupClient } from '@dinkster/client'
+import type { ExecutionLogEntry, ExecutionState, LookupClient, PreviewData } from '@dinkster/client'
 import {
   buildScene,
+  groupItemGeometry,
   boundarySceneId,
-  CANVAS_DETAIL_MIN_SCALE,
   CanvasRenderer,
   canvasColorsForTheme,
   canvasTypePaintForTheme,
@@ -33,6 +33,8 @@ import {
   updateSceneNodePositions,
   updateSceneNodeValues,
   memberAt,
+  memberRemovalAt,
+  rowSideEdges,
   IN_NODE_EDITORS,
   type Hit,
   type GhostLink,
@@ -40,6 +42,7 @@ import {
   type LinkDropContext,
   type CompanionDisplay,
   type CompanionMap,
+  type EditorSummaryMap,
   type PresenceActor,
   type StoredValueRow,
   type LayoutRow,
@@ -56,9 +59,14 @@ import {
   type OccurrenceLinkIntention,
   type OccurrenceMutationPlanner,
   type BoundaryExposureSource,
+  type ButtonPaint,
+  type ButtonPaintMap,
+  BUTTON_CANCEL_ZONE,
   outputRowKey,
   problemBoxPlacement,
 } from '@dinkster/canvas'
+import { buttonKey, createButtonPresses, type ButtonBox, type ButtonPlace, type ButtonState } from './button-presses.js'
+import { ButtonAskForm, ButtonBoxView, ButtonLinkConfirm, type ScreenRect } from './ButtonOverlays.js'
 import { canvasMeasures } from './canvas-measures.js'
 import { VideoPreview } from './VideoPreview.js'
 import type { VideoPreferences } from './video-preview.js'
@@ -67,9 +75,13 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { CanvasColorArriving } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart } from '@dinkster/ui'
 import {
   defaultValuesOf,
+  hasKnownLinkDropAnchorType,
+  initialGroupMembership,
+  buildRerouteIndex,
+  portRefKey,
   initialDynamicStateOf,
   ruleProblemRefs,
   documentResolver,
@@ -96,6 +108,7 @@ import {
   occurrencesForView,
   autoConnectTarget,
   canonicalJson,
+  jsonSameValue,
   canonicalTypeIdOf,
   nodeSearchFields,
   searchVisibilityOf,
@@ -104,6 +117,7 @@ import {
   planOccurrenceLinkMutation,
   samePortRef,
   serializeSelection,
+  type AskRequest,
   type AssetRef,
   type CommandInvocation,
   type CommandOutcome,
@@ -130,6 +144,7 @@ import {
   type WidgetSpec,
   type WidgetView,
   type WorkflowDocument,
+  widgetRepresentationChoices,
 } from '@dinkster/core'
 import { Check, CheckCircle2, Dice5, FileUp, LoaderCircle, Lock, Minus, Plus, Snowflake, TriangleAlert, X } from 'lucide-solid'
 import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
@@ -144,13 +159,14 @@ import { liveExactnessFor } from './companion-display.js'
 import { drawnAnewInputs, RunStandingMemory, runStandingFor } from './run-problem-standing.js'
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
-import { createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
+import { assetRowThumbnails, createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
 import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
-import { RowFocusOverlay, type RowFocusState } from './editors/RowFocusOverlay.js'
+import { RowFocusOverlay, type RowFocusState, type RowRepresentation } from './editors/RowFocusOverlay.js'
+import type { RowBox } from './editors/row-placement.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
 import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics, retainProvenExecution, withRecordedAutomaticValues, type SelectedInputPreview } from './scene-overlays.js'
-import { composeCanvasProblemDiagnostics, deriveProblemProjection, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
-import { problemBoxLines, problemBoxRows, type ProblemBoxLine } from './problem-box.js'
+import { composeCanvasProblemDiagnostics, deriveProblemProjection, executionProblemDiagnostics, problemDisplay, type NodeProblemKind, type NodeProblemMap } from './problem-display.js'
+import { problemBoxLines, problemBoxRows, runtimeProblemBoxLines, type ProblemBoxLine } from './problem-box.js'
 import { NodeProblemBox } from './NodeProblemBox.js'
 import { BlueprintBodyCache, blueprintFailureDiagnostic, insertBlueprintIntoTab } from './blueprints.js'
 import { pasteClipboardIntoTab } from './clipboard-paste.js'
@@ -158,20 +174,23 @@ import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { pendingClipboardText, writeClipboardText } from './clipboard-text.js'
 import { useAppMessage } from './locale.js'
 import { useSignal } from './solid-adapter.js'
+import { catalogNodeKey, runSearchAction } from './universal-search.js'
 import { isNativeTextScopeTarget, shortcutSuppressed } from './settings.js'
 import { bookmarkJumpMode, bookmarkJumpPlan, bookmarkMarkerWorldPoint, bookmarkSaveMode, bookmarkViewFromViewport, bookmarkViewportForView, createCameraAnimator, viewportCenteredOnNode, type BookmarkJumpPlan } from './bookmark-camera.js'
 import { Icon } from './Icon.js'
 import { autoSpecialization } from './dynamic-slot.js'
+import { FixesNotice } from './FixesNotice.js'
 import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap.js'
 import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
+import { NodeCatalogRecovery } from './NodeCatalogRecovery.js'
 import { ContextMenu } from './ContextMenu.js'
-import { canvasMenuContext, curveHistogramMenuGroup, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
+import { canvasMenuContext, curveHistogramMenuGroup, memberRemovalInvocation, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
 import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
 import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
-import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type WidgetEditorState } from './WidgetEditor.js'
+import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type EditorTarget, type WidgetEditorState } from './WidgetEditor.js'
 import { GLSL_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
 import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
@@ -193,13 +212,16 @@ import {
   type CanvasSemanticSource,
   type CanvasSemanticTarget,
 } from './CanvasSemanticNavigator.js'
-import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceInteractive, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
+import { AudioRecordSpace, CAMERA_ANGLE_PARTS, CameraAngleSpace, createAudioRecorders, CurveSpace, editorSpaceItems, latestCurveHistogram, NodeEditorSpaceOverlay, SaveTargetSpace, WebcamSpace, wiredEditorSummaries, type EditorSpaceItem, type EditorWires } from './InNodeEditorSpaces.js'
 import { Load3dSpace } from './InNodeLoad3dSpace.js'
 import { ImageCompareSpace } from './InNodeImageCompareSpace.js'
-import { imageCompareFrames } from './image-compare-frames.js'
+import { imageCompareFrames, IMAGE_COMPARE_SIDES, readImageCompareInput, type ImageCompareSide } from './image-compare-frames.js'
+import { readEditorCurve } from './in-node-editor-source.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
+import { formatByteSize } from './collections.js'
+import { boundaryItems } from '@dinkster/core'
 
 type WidgetLayoutRow = Extract<Hit, { kind: 'widget' }>['row']
 
@@ -503,6 +525,7 @@ export function linkSpliceInvocations(
   schema: NodeSchema,
   splice: LinkDoubleClickContext,
 ): CommandInvocation[] {
+  if (!hasKnownLinkDropAnchorType(splice.fromType) || !hasKnownLinkDropAnchorType(splice.toType)) return []
   const input = autoConnectTarget(schema, splice.fromType, 'in')
   const output = autoConnectTarget(schema, splice.toType, 'out')
   if (!input || !output) return []
@@ -800,7 +823,7 @@ export function selectionDeleteInvocation(args: {
     if (link.from.kind === 'boundary' && link.to.kind === 'port') {
       const boundaryFrom = link.from
       const primaryDeleted = boundaryFrom.side === 'inputs' &&
-        deletedNodes.has(def.boundary?.inputs.find((item) => item.id === boundaryFrom.item)?.binds.node ?? '')
+        deletedNodes.has(boundaryItems(def.boundary, 'inputs').find((item) => item.id === boundaryFrom.item)?.binds.node ?? '')
       if (deletedNodes.has(link.to.node) || primaryDeleted) continue
       boundaryOps.push({
         command: 'boundary.unbind',
@@ -847,7 +870,7 @@ export function selectionDeleteInvocation(args: {
       if (!deletedNodes.has(net.source.node)) continue
       for (const sink of net.sinks) if (!deletedNodes.has(sink.node)) freedNodes.add(sink.node)
     }
-    for (const item of def.boundary?.inputs ?? []) {
+    for (const item of boundaryItems(def.boundary, 'inputs') ?? []) {
       if (item.binds.kind === 'unbound') continue
       if (!deletedNodes.has(item.binds.node)) continue
       for (const binding of item.alsoBinds ?? []) {
@@ -935,7 +958,6 @@ export function NodeMediaOverlay(props: {
   readonly videoPreferences?: VideoPreferences | undefined
   readonly onVideoPreferences?: (preferences: VideoPreferences) => void
 }) {
-  const interactive = () => props.scale >= defaultTokens.mediaControlMinScale
   const style = () => overlayClipStyle(props.rect, props.canvas)
   const forwardWheel = (event: WheelEvent): void => {
     event.preventDefault()
@@ -953,16 +975,17 @@ export function NodeMediaOverlay(props: {
   }
   return (
     <div class="node-media-overlay" data-node-id={props.ownerId} data-media-kind={props.media.kind} style={style()} onWheel={forwardWheel}>
-      <Show when={props.media.kind !== 'video' && interactive() && props.media.download}>
-        {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
-      </Show>
-      <Show when={props.media.kind === 'video'} fallback={
-        <AudioTransport media={props.media} interactive={interactive()} onActiveChange={(active) => props.onActiveChange?.(active)}
-          onMediaError={() => props.onMediaError?.()} />
-      }>
-        <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
-          overview={!interactive()} onActiveChange={props.onActiveChange} onMediaError={props.onMediaError} />
-      </Show>
+      <div class="node-media-world" style={{ width: `${props.rect.width / props.scale}px`, height: `${props.rect.height / props.scale}px`, transform: `scale(${props.scale})` }}>
+        <Show when={props.media.kind !== 'video' && props.media.download}>
+          {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
+        </Show>
+        <Show when={props.media.kind === 'video'} fallback={
+          <AudioTransport media={props.media} interactive onActiveChange={(active) => props.onActiveChange?.(active)} />
+        }>
+          <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
+            onActiveChange={props.onActiveChange} onMediaError={props.onMediaError} />
+        </Show>
+      </div>
     </div>
   )
 }
@@ -993,7 +1016,6 @@ export function NodeModel3dOverlay(props: {
   let container: HTMLDivElement | undefined
   let viewer: { dispose(): void } | undefined
   let mountToken = 0
-  const interactive = () => props.scale >= defaultTokens.mediaControlMinScale
   const source = createMemo(() => props.media.src)
   const close = (): void => {
     mountToken += 1
@@ -1038,8 +1060,8 @@ export function NodeModel3dOverlay(props: {
       data-media-kind="model3d"
       style={overlayClipStyle(props.rect, props.canvas)}
     >
-      <Show when={active()} fallback={
-        <Show when={interactive()}>
+      <div class="node-media-world" style={{ width: `${props.rect.width / props.scale}px`, height: `${props.rect.height / props.scale}px`, transform: `scale(${props.scale})` }}>
+        <Show when={active()} fallback={
           <div class="node-model3d-actions">
             <Show when={props.media.download}>
               {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
@@ -1051,23 +1073,23 @@ export function NodeModel3dOverlay(props: {
               onClick={() => void open()}
             >Orbit</ProductButton>
           </div>
+        }>
+          <div class="node-model3d-viewport" ref={(value) => { container = value }}>
+            <Show when={failed()}>
+              <div class="node-media-failed">3D viewer unavailable</div>
+            </Show>
+            <ProductButton size="compact"
+              type="button"
+              class="node-model3d-close"
+              aria-label="Close 3D orbit view"
+              onClick={close}
+            >Close</ProductButton>
+            <Show when={props.media.download}>
+              {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
+            </Show>
+          </div>
         </Show>
-      }>
-        <div class="node-model3d-viewport" ref={(value) => { container = value }}>
-          <Show when={failed()}>
-            <div class="node-media-failed">3D viewer unavailable</div>
-          </Show>
-          <ProductButton size="compact"
-            type="button"
-            class="node-model3d-close"
-            aria-label="Close 3D orbit view"
-            onClick={close}
-          >Close</ProductButton>
-          <Show when={props.media.download}>
-            {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
-          </Show>
-        </div>
-      </Show>
+      </div>
     </div>
   )
 }
@@ -1100,6 +1122,7 @@ export function NodeOutputPager(props: {
   readonly width?: number
   readonly height?: number
   readonly rect: EditorWorldRect
+  readonly scale: number
   readonly canvas: HTMLCanvasElement
   readonly onPrevious: () => void
   readonly onNext: () => void
@@ -1109,7 +1132,8 @@ export function NodeOutputPager(props: {
   const message = useAppMessage()
   const mediaKind = () => props.mediaKind ?? 'image'
   const style = () => ({
-    left: `${props.rect.x}px`, top: `${props.rect.y}px`, width: `${props.rect.width}px`, height: `${props.rect.height}px`,
+    left: `${props.rect.x}px`, top: `${props.rect.y}px`, width: `${props.rect.width / props.scale}px`, height: `${props.rect.height / props.scale}px`,
+    transform: `scale(${props.scale})`, 'transform-origin': '0 0',
   })
   let root!: HTMLDivElement
   const page = (action: () => void): void => {
@@ -1203,12 +1227,13 @@ export function NodeOutputPager(props: {
 export function visibleOutputPagerRect(
   rect: EditorWorldRect,
   canvas: { readonly left: number; readonly top: number; readonly width: number; readonly height: number },
+  scale = 1,
 ): EditorWorldRect | undefined {
   const left = Math.max(rect.x, canvas.left)
   const top = Math.max(rect.y, canvas.top)
   const right = Math.min(rect.x + rect.width, canvas.left + canvas.width)
   const bottom = Math.min(rect.y + rect.height, canvas.top + canvas.height)
-  if (right - left < 150 || bottom - top < 72) return undefined
+  if (right - left < 150 * scale || bottom - top < 72 * scale) return undefined
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
@@ -1367,12 +1392,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const backendsTick = useSignal(props.app.backendsTick)
   const tabTargets = useSignal(props.app.tabTargets)
   const settingsTick = useSignal(props.app.settings.changed)
+  const detailMinScale = (): number => (settingsTick(), props.app.settings.get<number>('canvas.detailMinPercent') / 100)
   const extensionRevision = useSignal(props.app.extensionRevision)
   const selectionScopesChanged = useSignal(props.app.selectionScopesChanged)
   const comparisonCompilesChanged = useSignal(props.app.comparisonCompilesChanged)
   const collabTabs = useSignal(props.app.collabTabs)
   const modalPanel = useSignal(props.app.modalPanel)
   const diagnosticFocus = useSignal(props.app.diagnosticFocus)
+  const boundaryFocus = useSignal(props.app.boundaryFocus)
   const problems = useSignal(props.app.problems)
   const reviewReplacements = (): boolean => (settingsTick(), props.app.settings.get<boolean>('execution.reviewUpgrades'))
   // Scene/widget diagnostics for THIS editor instance. The app-level
@@ -1494,7 +1521,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   })
   let semanticTargetSelected: (target: CanvasSemanticTarget) => boolean = () => false
   let activateSemanticTarget: (target: CanvasSemanticTarget) => void = () => {}
-  let focusSemanticPin: (item: CanvasSemanticItem | undefined) => void = () => {}
+  let focusSemanticTarget: (item: CanvasSemanticItem | undefined) => void = () => {}
+  let semanticPinPoint: (item: CanvasSemanticItem) => { x: number; y: number } | undefined = () => undefined
   let focusCanvas = (): void => {}
   const [editorViewport, setEditorViewport] = createSolidSignal({ x: 0, y: 0, scale: 1 })
   const [canvasClientRect, setCanvasClientRect] = createSolidSignal({ left: 0, top: 0, width: 0, height: 0 })
@@ -1507,12 +1535,44 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }[]>([])
   const [activeCanvasMedia, setActiveCanvasMedia] = createSolidSignal<ReadonlySet<string>>(new Set())
   const [editorSpaces, setEditorSpaces] = createSolidSignal<readonly EditorSpaceItem[]>([])
+  const [editorSummaries, setEditorSummaries] = createSolidSignal<EditorSummaryMap>({})
+  const [editorDrafts, setEditorDrafts] = createSolidSignal<ReadonlyMap<string, {
+    readonly nodeId: string; readonly valueKey: string; readonly value: Json
+  }>>(new Map())
+  const [editorMeasurements, setEditorMeasurements] = createSolidSignal<{
+    readonly scope: string
+    readonly controls: Readonly<Record<string, Readonly<Record<string, number>>>>
+  }>({ scope: '', controls: {} })
+  const measureEditorControls = (item: EditorSpaceItem, height: number): void => {
+    const tab = activeTab()
+    if (tab === undefined) return
+    const scope = `${tab.id}:${currentGraphId(tab)}:${(viewInstancePath(tab) ?? []).join('/')}`
+    setEditorMeasurements((previous) => {
+      const controls = previous.scope === scope ? previous.controls : {}
+      if (controls[item.nodeId]?.[item.row.valueKey] === height) return previous
+      return { scope, controls: { ...controls, [item.nodeId]: { ...controls[item.nodeId], [item.row.valueKey]: height } } }
+    })
+  }
   let editorPictureHeights: Pick<InteractionController, 'previewPictureHeight' | 'commitPictureHeight'> | undefined
-  const editorSpaceByKey = createMemo(() => new Map(editorSpaces().map((item) => [item.key, item])))
+  const [resizingNode, setResizingNode] = createSolidSignal<SceneNode>()
+  const liveEditorSpaces = createMemo(() => editorSpaces().map((item) => {
+    const node = resizingNode()
+    if (node?.id !== item.nodeId) return item
+    const row = node.layout.rows.find((row) => row.kind === 'editorSpace' && row.valueKey === item.row.valueKey)
+    if (row?.kind !== 'editorSpace') return item
+    return {
+      ...item, row,
+      node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
+      space: { x: row.inset, y: row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height - defaultTokens.rowGeometry.fieldInsetY },
+    }
+  }))
+  const editorSpaceByKey = createMemo(() => new Map(liveEditorSpaces().map((item) => [item.key, item])))
   /** Every node's box in the order the canvas draws them, so a later one is drawn in front. */
   const [nodeBoxes, setNodeBoxes] = createSolidSignal<readonly { readonly id: string; readonly box: EditorWorldRect }[]>([])
   const [nodeDrag, setNodeDrag] = createSolidSignal<ReadonlyMap<string, { readonly dx: number; readonly dy: number }>>()
   const dragged = (box: EditorWorldRect, nodeId: string): EditorWorldRect => {
+    const resized = resizingNode()
+    if (resized?.id === nodeId) box = { x: resized.x, y: resized.y, width: resized.layout.width, height: resized.layout.height }
     const offset = nodeDrag()?.get(nodeId)
     return offset === undefined ? box : { ...box, x: box.x + offset.dx, y: box.y + offset.dy }
   }
@@ -1533,10 +1593,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const audioRecorders = createAudioRecorders()
   const visibleEditorSpaceKeys = (): readonly string[] => {
     const viewport = editorViewport()
-    if (!editorSpaceInteractive(viewport.scale)) return []
+    if (viewport.scale < detailMinScale()) return []
     const canvas = canvasClientRect()
     return boundedVisibleOverlayKeys(
-      editorSpaces(),
+      liveEditorSpaces(),
       (item) => item.key,
       (item) => mediaScreenRect(item.node, item.space, viewport, canvas) !== undefined,
       (item) => selectedNodeIds().has(item.nodeId),
@@ -1577,7 +1637,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     activeTabId()
     setActiveCanvasMedia(new Set<string>())
   })
-  const mediaPreviewById = createMemo(() => new Map(mediaPreviews().map((item) => [item.id, item])))
+  const livePreview = <T extends { readonly id: string; readonly node: EditorWorldRect; readonly preview: EditorWorldRect }>(item: T): T => {
+    const node = resizingNode()
+    const preview = node?.layout.preview
+    return node?.id !== item.id || preview === undefined ? item : {
+      ...item,
+      node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
+      preview: splitPreviewRect(preview, defaultTokens.previewCaptionHeight).media,
+    }
+  }
+  const mediaPreviewById = createMemo(() => new Map(mediaPreviews().map((item) => [item.id, livePreview(item)])))
   const [outputPages, setOutputPages] = createSolidSignal<ReadonlyMap<string, number>>(new Map())
   const [outputImagePreviews, setOutputImagePreviews] = createSolidSignal<readonly {
     readonly id: string
@@ -1596,12 +1665,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     ])
     setActiveCanvasMedia((current) => retainActiveOverlayKeys(current, live))
   })
-  const outputImagePreviewByKey = createMemo(() => new Map(outputImagePreviews().map((item) => [item.output.key, item])))
+  const outputImagePreviewByKey = createMemo(() => new Map(outputImagePreviews().map((item) => [item.output.key, livePreview(item)])))
   const outputImagePreviewFor = (key: string) => outputImagePreviewByKey().get(key)
   const [outputViewerKey, setOutputViewerKey] = createSolidSignal<string>()
   const visibleMediaPreviewIds = (): readonly string[] => {
     const viewport = editorViewport()
-    if (viewport.scale < CANVAS_DETAIL_MIN_SCALE) return []
+    if (viewport.scale < detailMinScale()) return []
     const canvas = canvasClientRect()
     const active = activeCanvasMedia()
     const selected = selectedNodeIds()
@@ -1614,7 +1683,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
   const visibleOutputPreviewKeys = (): readonly string[] => {
     const viewport = editorViewport()
-    if (viewport.scale < CANVAS_DETAIL_MIN_SCALE) return []
+    if (viewport.scale < detailMinScale()) return []
     const canvas = canvasClientRect()
     const active = activeCanvasMedia()
     const selected = selectedNodeIds()
@@ -1623,10 +1692,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       outputImagePreviews().filter((item) => item.output.count > 1 || item.download !== undefined || item.output.batch !== undefined || item.output.refusal !== undefined || item.output.images[item.output.index]?.virtualPath !== undefined),
       (item) => item.output.key,
       (item) => {
-        if (item.output.batch === undefined && viewport.scale < defaultTokens.mediaControlMinScale) return false
         const rect = mediaScreenRect(item.node, item.preview, viewport, canvas)
         // A refusal's alert is not drawn, so it needs no room for controls.
-        return rect !== undefined && (item.output.refusal !== undefined || visibleOutputPagerRect(rect, canvas) !== undefined)
+        return rect !== undefined && (item.output.refusal !== undefined || visibleOutputPagerRect(rect, canvas, viewport.scale) !== undefined)
       },
       (item) => active.has(`pager:${item.output.key}`) || selected.has(item.id) || viewer === item.output.key,
     )
@@ -1718,9 +1786,180 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   onCleanup(retractWidgetFocus)
   let editorClickAway: (() => unknown) | undefined
   let openAssetWidgetAt = (_clientX: number, _clientY: number): void => {}
-  let moveEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _direction: 1 | -1): void => {}
+
+  // Declared buttons: their presses, the boxes they leave, and the list,
+  // form, editor or address they open at the button.
+  const [askForm, setAskForm] = createSolidSignal<{ place: ButtonPlace; request: AskRequest; answer: (values: Readonly<Record<string, Json>> | undefined) => void }>()
+  const [linkConfirm, setLinkConfirm] = createSolidSignal<{ place: ButtonPlace; url: string; answer: (open: boolean) => void }>()
+  const [buttonHover, setButtonHover] = createSolidSignal<{ place: ButtonPlace; box: ButtonBox }>()
+  const [sceneVersion, setSceneVersion] = createSolidSignal(0)
+  let clientRectToWorld = (_rect: DOMRect): { x: number; y: number; width: number; height: number } | undefined => undefined
+  /** A button's line in world space; a menu button's is its whole node. */
+  let buttonWorldRect = (_place: ButtonPlace, _notice = false): { x: number; y: number; width: number; height: number } | undefined => undefined
+  /**
+   * The field a press's list or form opens on: the button's own cell inside
+   * its row's insets, as a field sharing a line opens on its cell. A menu
+   * button has no row, so its field is a row's height under its node, where
+   * the menu's work shows.
+   */
+  let buttonFieldBox = (_place: ButtonPlace): RowBox | undefined => undefined
+  const buttonScreenRect = (place: ButtonPlace, notice = false): ScreenRect | undefined => {
+    sceneVersion()
+    const rect = buttonWorldRect(place, notice)
+    if (rect === undefined) return undefined
+    const viewport = editorViewport()
+    const canvas = canvasClientRect()
+    return {
+      x: canvas.left + rect.x * viewport.scale + viewport.x,
+      y: canvas.top + rect.y * viewport.scale + viewport.y,
+      width: rect.width * viewport.scale,
+      height: rect.height * viewport.scale,
+    }
+  }
+  /** Settles once: with the user's answer, or undefined when the press is cancelled. */
+  const answerOnce = <T,>(signal: AbortSignal, open: (answer: (value: T | undefined) => void) => void, close: () => void): Promise<T | undefined> =>
+    new Promise((resolve) => {
+      let settled = false
+      const answer = (value: T | undefined): void => {
+        if (settled) return
+        settled = true
+        signal.removeEventListener('abort', onAbort)
+        close()
+        resolve(value)
+      }
+      const onAbort = (): void => answer(undefined)
+      if (signal.aborted) { resolve(undefined); return }
+      signal.addEventListener('abort', onAbort, { once: true })
+      open(answer)
+    })
+  /** The button each open press editor answers to, so it closes when its node goes. */
+  const pressEditorPlaces = new WeakMap<EditorTarget, ButtonPlace>()
+  /** The field editor an Ask form's row opened, which closes with the form. */
+  let askRowTarget: EditorTarget | undefined
+  const buttonBodyRegions = new WeakMap<Tab, Map<string, (scene: Scene) => Scene>>()
+  const buttonPresses = createButtonPresses(props.app, {
+    projectScene: (place, scene) => buttonBodyRegions.get(place.tab)?.get(JSON.stringify([
+      place.tab.store.doc.lineage, place.graphId, place.instancePath ?? [],
+    ]))?.(scene) ?? scene,
+    edit: (request, signal) => {
+      let target: Extract<EditorTarget, { kind: 'local' }> | undefined
+      return answerOnce<Json>(signal, (answer) => {
+        // A list opens in place, as a choice row's does: the button's row becomes its filter.
+        const view = props.app.widgetRegistryForTab(request.place.tab).kind(request.spec.widgetType)?.defaultView(request.spec)
+        const box = editsRowsInPlace() && view === 'core.select' && request.spec.remote === undefined
+          ? buttonFieldBox(request.place)
+          : undefined
+        const rect = box?.rect ?? buttonWorldRect(request.place)
+        if (rect === undefined) { answer(undefined); return }
+        target = { kind: 'local', commit: answer, cancel: () => answer(undefined), ...(request.list ? { list: request.list } : {}) }
+        pressEditorPlaces.set(target, request.place)
+        setEditor({
+          tab: request.place.tab,
+          graphId: request.place.graphId,
+          label: request.label,
+          target,
+          spec: request.spec,
+          multiline: false,
+          rect,
+          ...(box === undefined ? {} : { inRow: { ...box, storedAtOpen: request.initial ?? null } }),
+          initial: request.initial,
+          ...(request.stagedFile ? { stagedFile: request.stagedFile } : {}),
+        })
+      }, () => { if (target !== undefined && untrack(editor)?.target === target) setEditor(undefined) })
+    },
+    // One form and one address question show at a time: a newer one closes the older as Cancel would.
+    ask: (place, request, signal) => {
+      let entry: ReturnType<typeof askForm>
+      return answerOnce<Readonly<Record<string, Json>>>(
+        signal,
+        (answer) => {
+          untrack(askForm)?.answer(undefined)
+          entry = { place, request, answer }
+          setAskForm(entry)
+        },
+        () => {
+          if (untrack(askForm) !== entry) return
+          setAskForm(undefined)
+          if (askRowTarget !== undefined && untrack(editor)?.target === askRowTarget) setEditor(undefined)
+        },
+      )
+    },
+    confirmLink: async (place, url, signal) => {
+      let entry: ReturnType<typeof linkConfirm>
+      return await answerOnce<boolean>(
+        signal,
+        (answer) => {
+          untrack(linkConfirm)?.answer(false)
+          entry = { place, url, answer: (open: boolean) => answer(open) }
+          setLinkConfirm(entry)
+        },
+        () => { if (untrack(linkConfirm) === entry) setLinkConfirm(undefined) },
+      ) === true
+    },
+  })
+  // A list or editor a press opened closes, as Cancel would, when its node leaves the view.
+  createEffect(() => {
+    const current = editor()
+    const place = current === undefined ? undefined : pressEditorPlaces.get(current.target)
+    if (current !== undefined && place !== undefined && buttonScreenRect({ ...place, menu: true }) === undefined) {
+      untrack(() => current.target.kind === 'local' && current.target.cancel())
+    }
+  })
+  // An editor a press opened and something else replaced hands nothing back.
+  let lastEditor: WidgetEditorState | undefined
+  createEffect(() => {
+    const current = editor()
+    if (lastEditor !== undefined && lastEditor !== current && lastEditor.target.kind === 'local') lastEditor.target.cancel()
+    lastEditor = current
+  })
+  const buttonPlaceOf = (tab: Tab, nodeId: string, button: string, menu = false, label?: string): ButtonPlace => {
+    const instancePath = viewInstancePath(tab)
+    return {
+      tab, graphId: currentGraphId(tab), nodeId, button,
+      ...(label !== undefined ? { label } : {}),
+      ...(menu ? { menu: true as const } : {}),
+      ...(instancePath !== undefined && instancePath.length > 0 ? { instancePath } : {}),
+    }
+  }
+  /** A read-only view of a run draws its buttons off. */
+  const READ_ONLY_BUTTON = 'Buttons work in the editable workflow, not in this read-only view.'
+  const buttonAvailabilityOf = (place: ButtonPlace) =>
+    place.tab.execution !== undefined ? { enabled: false as const, reason: READ_ONLY_BUTTON } : buttonPresses.availability(place)
+  // A form or address whose node left the view is closed, as Cancel would.
+  createEffect(() => {
+    const form = askForm()
+    if (form !== undefined && buttonScreenRect({ ...form.place, menu: true }) === undefined) untrack(() => form.answer(undefined))
+    const confirm = linkConfirm()
+    if (confirm !== undefined && buttonScreenRect(confirm.place) === undefined) untrack(() => confirm.answer(false))
+  })
+  const shownOnThisGraph = (place: ButtonPlace): boolean => {
+    const tab = activeTab()
+    return tab !== undefined && (place.tab === tab || props.app.liveTabContinuing(place.tab.store) === tab) && place.graphId === currentGraphId(tab) &&
+      JSON.stringify(place.instancePath ?? []) === JSON.stringify(viewInstancePath(tab) ?? [])
+  }
+  const buttonBoxHeights = new WeakMap<ButtonBox, number>()
+  const [buttonBoxMeasureVersion, setButtonBoxMeasureVersion] = createSolidSignal(0)
+  const buttonNoticeHeights = createMemo(() => {
+    buttonBoxMeasureVersion()
+    const heights: Record<string, Record<string, number>> = {}
+    const scale = editorViewport().scale
+    for (const state of buttonPresses.states().values()) {
+      if (state.box === undefined || state.place.menu || !shownOnThisGraph(state.place)) continue
+      const height = buttonBoxHeights.get(state.box)
+      if (height !== undefined) (heights[state.place.nodeId] ??= {})[state.place.button] = height / scale
+    }
+    return heights
+  }, undefined, { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) })
+  const measureButtonBox = (box: ButtonBox, height: number): void => {
+    if (buttonBoxHeights.get(box) === height) return
+    buttonBoxHeights.set(box, height)
+    setButtonBoxMeasureVersion((version) => version + 1)
+  }
+  let moveEditorRow = (_from: { readonly nodeId: string } & ({ readonly valueKey: string } | { readonly buttonId: string }), _direction: 1 | -1): void => {}
+  let onRowFocusKey = (_event: KeyboardEvent): void => {}
   let editsRowsInPlace = (): boolean => false
-  let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }): void => {}
+  let focusEditorRow = (_from: { readonly nodeId: string; readonly valueKey: string }, _options: { readonly markOnly?: boolean; readonly tooltipOnly?: boolean } = {}): void => {}
+  let rowRepresentationOf = (_tab: Tab, _node: SceneNode, _row: WidgetLayoutRow): RowRepresentation | undefined => undefined
   let showRowNote = (_from: { readonly nodeId: string; readonly valueKey: string }, _note: JSX.Element): void => {}
   interface ControllerMenuState {
     readonly x: number
@@ -1908,6 +2147,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly owner: string
     readonly nodeId: string
     readonly nodeTitle: string
+    readonly runLevel?: 'error' | 'warning' | 'info'
     readonly lines: readonly ProblemBoxLine[]
     readonly highlighted?: string | undefined
   } | undefined>(undefined)
@@ -1915,10 +2155,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [problemBoxTick, setProblemBoxTick] = createSolidSignal(0)
   let problemBoxElement: HTMLDivElement | undefined
   /** The box a pointer press outside closed, so the same press on its tab does not reopen it. */
-  let problemBoxPointerClose: { readonly nodeId: string; readonly at: number } | undefined
+  let problemBoxPointerClose: { readonly nodeId: string; readonly runLevel?: 'error' | 'warning' | 'info'; readonly at: number } | undefined
   let problemBoxHost: {
     readonly place: (nodeId: string) => ReturnType<typeof problemBoxPlacement>
-    readonly lines: (nodeId: string) => readonly ProblemBoxLine[]
+    readonly lines: (nodeId: string, runLevel?: 'error' | 'warning' | 'info') => readonly ProblemBoxLine[]
     readonly title: (nodeId: string) => string
     readonly owner: () => string | undefined
     readonly highlightRow: (highlight: { readonly nodeId: string; readonly row: string } | undefined) => void
@@ -1933,15 +2173,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   }
 
   /** Opens the node's box, optionally with one line highlighted; false when the node has no line to show. */
-  const openProblemBox = (nodeId: string, pick?: (line: ProblemBoxLine) => boolean): boolean => {
+  const openProblemBox = (nodeId: string, pick?: (line: ProblemBoxLine) => boolean, runLevel?: 'error' | 'warning' | 'info'): boolean => {
     const host = problemBoxHost
     const owner = host?.owner()
     if (!host || owner === undefined) return false
-    const lines = host.lines(nodeId)
+    const lines = host.lines(nodeId, runLevel)
     const picked = pick === undefined ? undefined : lines.find(pick)
     if (lines.length === 0 || (pick !== undefined && picked === undefined)) return false
     setBadgePopover(undefined)
-    setProblemBox({ owner, nodeId, nodeTitle: host.title(nodeId), lines, ...(picked === undefined ? {} : { highlighted: picked.key }) })
+    setProblemBox({ owner, nodeId, nodeTitle: host.title(nodeId), lines, ...(runLevel === undefined ? {} : { runLevel }), ...(picked === undefined ? {} : { highlighted: picked.key }) })
     host.highlightRow(picked?.row === undefined ? undefined : { nodeId, row: picked.row })
     return true
   }
@@ -1952,7 +2192,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const onPointer = (event: PointerEvent): void => {
       const open = problemBox()
       if (open === undefined || (problemBoxElement?.contains(event.target as Node | null) ?? false)) return
-      problemBoxPointerClose = { nodeId: open.nodeId, at: performance.now() }
+      problemBoxPointerClose = { nodeId: open.nodeId, ...(open.runLevel === undefined ? {} : { runLevel: open.runLevel }), at: performance.now() }
       closeProblemBox()
     }
     window.addEventListener('keydown', onKey)
@@ -2094,14 +2334,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [dismissedErrorNodes, setDismissedErrorNodes] = createSolidSignal<
     ReadonlyMap<string, ReadonlySet<string>>
   >(new Map())
-  /** Log records of one node at one level, for the bottom-badge popover. */
-  const nodeRunLogs = (nodeId: string, level: 'info' | 'warning'): readonly ExecutionLogEntry[] =>
-    (runLogsByNode().get(nodeId) ?? []).filter((entry) => entry.level === level)
+  const [dismissedLogTabs, setDismissedLogTabs] = createSolidSignal<ReadonlyMap<string, ReadonlySet<string>>>(new Map())
   /** Hide this run's error badge on the node; the error report is untouched. */
   const dismissNodeError = (nodeId: string): void => {
     const tab = activeTab()
     const exec = tab ? props.app.executionForTab(tab) : undefined
     setBadgePopover(undefined)
+    closeProblemBox()
     if (!exec) return
     setDismissedErrorNodes((current) => {
       const next = new Map(current)
@@ -2117,6 +2356,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
    */
   const openExecutionLogForNode = (nodeId: string): void => {
     setBadgePopover(undefined)
+    closeProblemBox()
     const ids = new Set<string>()
     for (const entry of runLogsByNode().get(nodeId) ?? []) {
       if (entry.runtimeNodeId !== undefined) ids.add(entry.runtimeNodeId)
@@ -2179,6 +2419,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   // (query, highlight, filters, clamping) lives in NodePalette and dies
   // with it when the anchor clears.
   const [palette, setPalette] = createSolidSignal<PaletteAnchor | undefined>(undefined)
+  const searchCatalog = useSignal(props.app.searchCatalog)
+  createEffect(on(() => palette() !== undefined, (open) => {
+    if (open) props.app.searchCatalogRequests.set(props.app.searchCatalogRequests.get() + 1)
+  }))
   const [linkDoubleClickMenu, setLinkDoubleClickMenu] = createSolidSignal<{ x: number; y: number; context: LinkDoubleClickContext } | undefined>(undefined)
   /**
    * When the link menu opened. A midpoint single click opens it on release,
@@ -2322,6 +2566,22 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }
       }
     }
+    if (tab !== undefined && tab.execution === undefined) {
+      const installed = new Set(entries.map((entry) => entry.type))
+      for (const entry of searchCatalog()) {
+        const schema = entry.schema
+        if (installed.has(schema.type) || reg?.packs?.has(entry.pack.name) || searchVisibilityOf(schema) !== 'normal') continue
+        installed.add(schema.type)
+        entries.push({
+          type: schema.type, name: schema.displayName, category: schema.category, kind: 'node', schema,
+          ...(schema.description === undefined ? {} : { description: schema.description }),
+          pack: entry.pack.displayName, fields: nodeSearchFields(schema),
+          install: { kind: 'host', action: 'node.previewInstall', params: {
+            type: schema.type, backendId: props.app.backendForTab(tab).id, schemaKey: catalogNodeKey(entry),
+          } },
+        })
+      }
+    }
     return entries.sort((a, b) => a.name.localeCompare(b.name))
   }
 
@@ -2331,6 +2591,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     clearPaletteGhost() // any pending noodle dies with its palette
     if (restoreCanvasFocus) queueMicrotask(() => canvasEl.focus())
   }
+
+  const catalogSetupRequested = useSignal(props.app.nodeCatalogSetupRequested)
+  createEffect(() => { if (catalogSetupRequested()) closePalette() })
 
   // Canvas overlays cannot rely on focus-scoped handlers: focus may move to
   // a rail control (or elsewhere). One capture-phase pair supplies dismissal
@@ -2344,7 +2607,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     const isInside = (event: Event, selector: string): boolean =>
       event.composedPath().some((item) => item instanceof Element && item.matches(selector))
-    const EDITOR_SURFACES = '.widget-editor, .widget-in-row-field, .combo-dropdown, .color-editor, .asset-editor, .product-select-listbox, .suggestion-surface, .modal-surface[data-modal^="widget-"]'
+    const EDITOR_SURFACES = '.widget-editor, .widget-in-row-field, .combo-dropdown, .color-editor, .asset-editor, .product-select-listbox, .dinkster-canvas-side-representation-list, .suggestion-surface, .modal-surface[data-modal^="widget-"]'
     const AUDIO_SLIDER = '.node-media-overlay .product-slider'
     // An editor can refuse host dismissal while an effect is in flight (an
     // asset upload batch must not keep uploading into a closed overlay).
@@ -2436,10 +2699,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // An expanded product listbox owns the first Escape. Its trigger keeps
       // DOM focus, so the capture-phase host must defer to the target handler.
       if (editorOpen && isInside(event, '.product-select[aria-expanded="true"]')) return
+      if (editorOpen && isInside(event, '.dinkster-canvas-side-representation-list')) return
       // So does the open mount list in a save target's box: it closes before the box.
       if (editorOpen && isInside(event, '.dinkster-canvas-target-choice[aria-expanded="true"]')) return
-      // An expanded palette type filter owns the first Escape and restores its trigger focus.
-      if (paletteOpen && isInside(event, '.palette-type-filter[data-expanded="true"]')) return
+      // A shared type menu owns the first Escape and restores its trigger focus.
+      if (paletteOpen && isInside(event, '.dinkster-menu-popover')) return
       // A suggestion surface is part of the live text editor, not a
       // request to close that editor. Let its target handler close only the
       // surface; the ordinary host-owned editor Escape path resumes once the
@@ -2505,6 +2769,34 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     updateTheme()
     createEffect(() => renderer.setRenamingNode(nodePrompt()?.nodeId))
+    createEffect(() => {
+      const summaries = { ...editorSummaries() }
+      const tab = activeTab()
+      if (tab !== undefined) {
+        const native = props.app.backendForTab(tab).protocol === 'dinkster'
+        const scene = renderer.getScene()
+        const panel = scene.boundaryNodes.find((node) => node.side === 'inputs' && node.fields !== undefined)
+        const panelFace = panel === undefined ? undefined : boundaryFieldNode(panel)
+        for (const node of [...scene.nodes, ...(panelFace === undefined ? [] : [panelFace])]) {
+          for (const row of node.layout.rows) {
+            if (row.kind !== 'widget' || !['core.audioRecord', 'core.webcam', 'core.load3d'].includes(row.viewId)) continue
+            const wired = node.id === panelFace?.id ? Object.hasOwn(panel!.fields!.wired, row.inputId)
+              : renderer.fieldCompanion(node.id, row.valueKey) !== undefined
+            const recorder = row.viewId === 'core.audioRecord'
+              ? audioRecorders.find(`${tab.id}:${currentGraphId(tab)}:${node.id}:${row.valueKey}`) : undefined
+            const failed = !wired && recorder?.hasProblem === true
+            const problem = failed ? 'error' as const : !native && (!wired || row.viewId === 'core.load3d') ? 'warning' as const : undefined
+            if (problem !== undefined) summaries[node.id] = { ...summaries[node.id], [row.valueKey]: { ...summaries[node.id]?.[row.valueKey], problem } }
+          }
+        }
+      }
+      for (const [key, draft] of editorDrafts()) {
+        const item = editorSpaceByKey().get(key)
+        if (item === undefined || item.wired || item.field.readOnly || item.field.disabled) continue
+        summaries[draft.nodeId] = { ...summaries[draft.nodeId], [draft.valueKey]: { value: draft.value } }
+      }
+      renderer.setEditorSummaries(summaries)
+    })
     const themeObserver = new MutationObserver(updateTheme)
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     onCleanup(() => themeObserver.disconnect())
@@ -2598,6 +2890,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     createEffect(() => {
       settingsTick()
       renderer.setGridVisible(props.app.settings.get('canvas.grid.visible'))
+      renderer.setDetailMinScale(detailMinScale())
       if (!props.app.settings.get<boolean>('canvas.smoothWheelZoom')) renderer.cancelViewportAnimation()
       repaintMinimap?.()
     })
@@ -2663,6 +2956,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       rerouteIds: [...controller.getRerouteSelection()],
       groupIds: [...controller.getGroupSelection()],
       geometry: geometryOfLifecycleScene(scene),
+      ...(scene.groupMembership !== undefined ? { groupMembership: scene.groupMembership } : {}),
     })
     const canExtractSubgraph = (): boolean => hasExtractSelection(lifecycleSelection())
     const canFlattenSubgraph = (): boolean => {
@@ -2805,6 +3099,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       return item?.action !== undefined ? item as MenuActionItem : undefined
     }
     lifecycleSelectNodes = (ids) => controller.setSelection(ids)
+    /** A node's own menu buttons, run like body buttons; an off one says why. */
+    const nodeMenuButtonGroups = (tab: Tab, target: MenuTarget, schema: NodeSchema | undefined): ResolvedMenuGroup[] => {
+      if (target.kind !== 'node' || schema?.menu === undefined) return []
+      const items = schema.menu.filter((button) => button.visible !== false).map((button): MenuActionItem => {
+        const availability = buttonAvailabilityOf(buttonPlaceOf(tab, target.nodeId, button.id, true))
+        return {
+          id: `node.button.${button.id}`,
+          label: button.label,
+          ...(availability.enabled ? {} : { disabled: true, hint: availability.reason }),
+          action: { kind: 'host', action: 'pressNodeMenuButton', params: { nodeId: target.nodeId, button: button.id } },
+        }
+      })
+      return items.length === 0 ? [] : [{ group: '00-node-buttons', items }]
+    }
+
     const openCanvasMenu = (
       target: MenuTarget,
       worldX: number,
@@ -2871,6 +3180,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ? props.app.previewSelectionExecutionScopes(tab, menuNodeIds)
         : undefined
       const resolvedGroups = [
+        // The node's own buttons come first: the menu scrolls past its height.
+        ...nodeMenuButtonGroups(tab, target, targetSchema),
         ...resolveNodeMenuGroups(
           props.app.menuRegistry,
           ctx,
@@ -2961,7 +3272,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     const lookupNodeKey = (tab: Tab, nodeId: string): string =>
       JSON.stringify([tab.id, currentGraphId(tab), viewInstancePath(tab) ?? [], nodeId])
-    const [sceneVersion, setSceneVersion] = createSolidSignal(0)
     /** The open row's lookup fields, read from the scene as it is rebuilt. */
     const rowLookupsOf = (tab: Tab, nodeId: string, inputId: string): RowLookups | undefined => {
       const itemOf = () => {
@@ -3010,7 +3320,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const right = left + width / viewport.scale
       const bottom = top + height / viewport.scale
       const open = untrack(editor)
-      const openField = open?.inRow?.automatic === undefined || open.tab.id !== tab.id ? undefined : open.target
+      const openField = open?.inRow?.automatic === undefined || open.tab.id !== tab.id || open.target.kind !== 'input' ? undefined : open.target
       lookupDemandFor(lookups).show(renderer.getScene().nodes.flatMap((node) =>
         node.elaborated === undefined || node.x > right || node.y > bottom ||
           node.x + node.layout.width < left || node.y + node.layout.height < top
@@ -3035,6 +3345,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       lookupDemands.clear()
     })
 
+    const removeMember = (tab: Tab, graphId: string, nodeId: string, construct: string, member: string): void => {
+      if (tab.execution !== undefined || refuseFrozenEdit()) return
+      const reg = props.app.registryForTab(tab)
+      const node = tab.store.doc.graphs[graphId]?.nodes[nodeId]
+      const schema = node && reg && documentResolver(tab.store.doc, reg.resolve)(node.type)
+      if (schema === undefined) return
+      const invocation = memberRemovalInvocation(tab.store.doc, schema, graphId, nodeId, construct, member)
+      if (invocation !== undefined) dispatchGesture(tab, invocation)
+    }
     controller = editorPictureHeights = new InteractionController(canvasEl, renderer, {
       dispatch: (invocation) => {
         const tab = activeTab()
@@ -3103,14 +3422,42 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setNodeDrag(offsets)
         publishPresence()
       },
+      onNodeResize: setResizingNode,
       onLinkDragPresence: (origin) => {
         linkOrigin = origin
         publishPresence()
       },
       onWidgetActivate: (hit, screenX, screenY) => openWidgetEditor(hit, undefined, { x: screenX, y: screenY }),
+      onButtonActivate: (hit) => {
+        const tab = activeTab()
+        if (!tab) return
+        const place = buttonPlaceOf(tab, hit.node.id, hit.row.buttonId, false, hit.row.label)
+        // A working button is not pressed again; its right end is Cancel.
+        if (buttonPresses.isBusy(place)) {
+          if (hit.localX >= hit.width - BUTTON_CANCEL_ZONE) buttonPresses.cancel(place)
+          return
+        }
+        const availability = buttonAvailabilityOf(place)
+        if (!availability.enabled) {
+          setButtonHover({ place, box: { tone: 'info', message: availability.reason } })
+          return
+        }
+        setButtonHover(undefined)
+        void buttonPresses.press(place)
+      },
+      onMemberRemove: (hit) => {
+        const tab = activeTab()
+        if (tab) removeMember(tab, currentGraphId(tab), hit.node.id, hit.remove.construct, hit.remove.member)
+      },
       onWiredWidgetActivate: (hit) => {
         const color = usedWiredColor(hit.row, arrivingCompanions[hit.node.id]?.[hit.row.valueKey]?.value)
         if (color !== undefined) showRowNote({ nodeId: hit.node.id, valueKey: hit.row.valueKey }, <CanvasColorArriving arriving={color.arriving} used={color.used} />)
+        else if (renderer.fieldCompanion(hit.node.id, hit.row.valueKey)?.state === 'nothing') {
+          const values = hit.node.node.values
+          const stored = Object.hasOwn(values, hit.row.valueKey) ? values[hit.row.valueKey] : effectiveWidgetDefault(hit.row.spec)
+          showRowNote({ nodeId: hit.node.id, valueKey: hit.row.valueKey }, <CanvasRowAbsence state="nothing" stored={formatWidgetValue(stored, hit.row.spec)} />)
+        }
+        else focusEditorRow({ nodeId: hit.node.id, valueKey: hit.row.valueKey })
       },
       onWidgetRowAffordanceActivate: (hit) => {
         const tab = activeTab()
@@ -3134,7 +3481,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onControllerActivate: (hit, screenX, screenY) => {
         const tab = activeTab()
-        if (!tab || refuseFrozenEdit() || hit.row.controllerMode === undefined) return
+        if (!tab || refuseFrozenEdit() || hit.row.controllerMode === undefined || hit.row.readOnly || hit.row.disabled) return
         if (companionInputs.get(hit.node.id)?.has(hit.row.inputId)) return
         const rect = canvasEl.getBoundingClientRect()
         props.tooltips?.hide()
@@ -3157,14 +3504,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         closePalette()
         setEditor(undefined)
         setMenu(undefined)
-        if (badge.id.startsWith('core.problem.')) {
+        const runLevel = badge.id === 'core.error' || badge.id === 'core.error.lastRun' ? 'error'
+          : badge.id === 'core.log.warning' ? 'warning' : badge.id === 'core.log.info' ? 'info' : undefined
+        if (badge.id.startsWith('core.problem.') || runLevel !== undefined) {
           // Either problem tab opens the node's one box; a second click on
           // it, which the press outside the box already closed, leaves it closed.
           const closedByThisPress = problemBoxPointerClose?.nodeId === node.id &&
+            problemBoxPointerClose.runLevel === runLevel &&
             performance.now() - problemBoxPointerClose.at < 1000
           problemBoxPointerClose = undefined
-          if (problemBox()?.nodeId === node.id || closedByThisPress) closeProblemBox()
-          else if (!openProblemBox(node.id)) closeProblemBox()
+          if ((problemBox()?.nodeId === node.id && problemBox()?.runLevel === runLevel) || closedByThisPress) closeProblemBox()
+          else if (!openProblemBox(node.id, undefined, runLevel)) closeProblemBox()
           return
         }
         closeProblemBox()
@@ -3237,11 +3587,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           if (line?.key !== openBox.highlighted) setProblemBox({ ...openBox, highlighted: line?.key })
           problemBoxHost?.highlightRow(line?.row === undefined ? undefined : { nodeId: openBox.nodeId, row: line.row })
         }
+        const hoverTab = activeTab()
+        const hoveredButton = target?.kind === 'button' && hoverTab !== undefined
+          ? buttonPlaceOf(hoverTab, target.hit.node.id, target.hit.row.buttonId)
+          : undefined
+        const hoveredOff = hoveredButton === undefined || buttonPresses.isBusy(hoveredButton) ? undefined : buttonAvailabilityOf(hoveredButton)
+        if (hoveredButton !== undefined && hoveredOff !== undefined && !hoveredOff.enabled) {
+          // A turned-off button says why in the same box its results use.
+          props.tooltips?.hideMatching((candidate) => (candidate as { kind?: string } | null | undefined)?.kind !== 'dom', tooltipOwner)
+          setButtonHover({ place: hoveredButton, box: { tone: 'info', message: hoveredOff.reason } })
+          return
+        }
+        setButtonHover(undefined)
         if (!target) { props.tooltips?.hideMatching((candidate) => (candidate as { kind?: string } | null | undefined)?.kind !== 'dom', tooltipOwner); return }
         if (target.kind !== 'badge') {
           let tooltipTarget: unknown = target
           if (target.kind === 'widget' || target.kind === 'controller') {
-            const companion = companionDisplays[target.hit.node.id]?.[target.hit.row.valueKey]
+            const companion = target.kind === 'widget'
+              ? renderer.fieldCompanion(target.hit.node.id, target.hit.row.valueKey)
+              : companionDisplays[target.hit.node.id]?.[target.hit.row.valueKey]
             const linked = companionInputs.get(target.hit.node.id)?.has(target.hit.row.inputId) || scene.links.some((link) =>
               link.to.kind === 'port' && link.to.node === target.hit.node.id &&
               link.to.port === target.hit.row.inputId &&
@@ -3311,10 +3675,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           tooltipOwner,
         )
       },
+      onBoundaryRowSelect: (_side, itemId) => {
+        const tab = activeTab()
+        if (tab) props.app.boundaryFocus.set({ tabId: tab.id, graphId: currentGraphId(tab), item: itemId })
+      },
       onBoundaryRenameRequest: (side, itemId, screenX, screenY) => {
         const tab = activeTab()
         if (!tab || refuseFrozenEdit()) return
-        const item = tab.store.doc.graphs[currentGraphId(tab)]?.boundary?.[side]?.find((i) => i.id === itemId)
+        const item = boundaryItems(tab.store.doc.graphs[currentGraphId(tab)]?.boundary, side).find((i) => i.id === itemId)
         if (!item) return
         closePalette()
         setEditor(undefined)
@@ -3341,14 +3709,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       onLinkDropOnEmpty: (context, worldX, worldY) => {
         if (refuseFrozenEdit()) return // read-only view: no node adds
-        // A wire dragged off a field makes the primitive for that field,
-        // starting with the field's value, instead of opening the search.
-        const tab = activeTab()
-        const fieldPrimitive = tab && fieldDropPrimitive(tab, context)
-        if (tab && fieldPrimitive) {
-          void commitPaletteEntry(fieldPrimitive.entry, { x: 0, y: 0, worldX, worldY, linkDrop: context }, undefined, fieldPrimitive.values)
-          return
-        }
         openPaletteAt(worldX, worldY, context)
         // Keep the dropped noodle visible while the palette is browsed:
         // fixed anchor to drop point, oriented by what the drag was seeking.
@@ -3399,6 +3759,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         // down, through the same command as dragging its grip.
         const memberNode = 'node' in hit && !('bnode' in hit && hit.bnode !== undefined) ? hit.node : undefined
         const member = memberNode === undefined ? undefined : memberAt(memberNode.layout, worldY - memberNode.y)
+        const removal = memberNode === undefined ? undefined : memberRemovalAt(memberNode.layout, worldY - memberNode.y)
+        if (memberNode !== undefined && removal !== undefined) {
+          additionalGroups.push({ group: '45-member-remove', items: [{
+            id: 'core.member.remove', label: 'Remove', disabled: tab.execution !== undefined || removal.disabledReason !== undefined,
+            ...(removal.disabledReason === undefined ? {} : { disabledReason: removal.disabledReason }),
+            action: { kind: 'host', action: 'removeMember', params: { nodeId: memberNode.id, construct: removal.construct, member: removal.member } },
+          }] })
+        }
         if (memberNode !== undefined && member !== undefined) {
           const move = (index: number): CommandInvocation => ({
             command: 'dynamic.moveMember',
@@ -3522,19 +3890,54 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     canvasEl.addEventListener('wheel', camera.cancel, { capture: true })
     onCleanup(() => canvasEl.removeEventListener('wheel', camera.cancel, { capture: true }))
     focusCanvas = () => canvasEl.focus()
-    focusSemanticPin = (item): void => controller.setFocusedPin(
-      item?.target.kind === 'port'
-        ? {
-          nodeId: item.target.nodeId,
-          portId: item.target.id,
-          direction: item.target.direction,
-          ...(item.target.widgetTap === true ? { widgetTap: true as const } : {}),
-        }
-        : undefined,
-    )
+    focusSemanticTarget = (item): void => {
+      const target = item?.target
+      const focused = target?.kind === 'port'
+        ? { nodeId: target.nodeId, pin: { portId: target.id, direction: target.direction,
+          ...(target.widgetTap === true ? { widgetTap: true as const } : {}) } }
+        : target?.kind === 'node' || target?.kind === 'boundary' ? { nodeId: target.id } : undefined
+      controller.setFocusedTarget(focused)
+      if (focused === undefined) return
+      const scene = renderer.getScene()
+      const node = scene.nodes.find((node) => node.id === focused.nodeId) ??
+        scene.boundaryNodes.find((node) => boundarySceneId(node.side) === focused.nodeId)
+      if (node === undefined) return
+      let rect = { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height }
+      if (focused.pin !== undefined) {
+        const pin = node.layout.pins.find((pin) => pin.portId === focused.pin!.portId &&
+          pin.direction === focused.pin!.direction && (pin.widgetTap === true) === (focused.pin!.widgetTap === true))
+        if (pin === undefined) return
+        rect = { x: node.x + (pin.direction === 'in' ? 0 : node.layout.width), y: node.y + pin.y, width: 0, height: 0 }
+      }
+      const viewport = renderer.getViewport()
+      const left = viewport.x + rect.x * viewport.scale
+      const top = viewport.y + rect.y * viewport.scale
+      if (left < 0 || top < 0 || left + rect.width * viewport.scale > canvasEl.clientWidth ||
+          top + rect.height * viewport.scale > canvasEl.clientHeight) {
+        camera.cancel()
+        renderer.setViewport(viewportCenteredOnNode(viewport, rect,
+          { width: canvasEl.clientWidth, height: canvasEl.clientHeight }))
+      }
+    }
+    semanticPinPoint = (item) => {
+      const target = item.target
+      if (target.kind !== 'port') return undefined
+      const scene = renderer.getScene()
+      const node = scene.nodes.find((entry) => entry.id === target.nodeId) ??
+        scene.boundaryNodes.find((entry) => boundarySceneId(entry.side) === target.nodeId)
+      const pin = node?.layout.pins.find((entry) => entry.portId === target.id &&
+        entry.direction === target.direction && (entry.widgetTap === true) === (target.widgetTap === true))
+      if (node === undefined || pin === undefined) return undefined
+      const viewport = renderer.getViewport()
+      const canvas = canvasEl.getBoundingClientRect()
+      return {
+        x: canvas.left + viewport.x + (node.x + (pin.direction === 'in' ? 0 : node.layout.width)) * viewport.scale,
+        y: canvas.top + viewport.y + (node.y + pin.y) * viewport.scale,
+      }
+    }
     semanticTargetSelected = (target): boolean => {
       if (target.kind === 'node' || target.kind === 'boundary') return controller.getSelection().has(target.id)
-      if (target.kind === 'port' || target.kind === 'widget') return controller.getSelection().has(target.nodeId)
+      if (target.kind === 'port' || target.kind === 'widget') return false
       if (target.kind === 'minimize') return false
       if (target.kind === 'link') return controller.getLinkSelection().has(target.id)
       if (target.kind === 'reroute') return controller.getRerouteSelection().has(target.id)
@@ -3611,6 +4014,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     function openPaletteAt(worldX: number, worldY: number, linkDrop?: LinkDropContext): void {
       const vp = renderer.getViewport()
+      const tab = activeTab()
+      const suggestedNode = tab && linkDrop && fieldDropPrimitive(tab, linkDrop)
       // A fresh anchor object every open: NodePalette resets its per-open
       // state (query, highlight, filters) on anchor identity change.
       setPalette({
@@ -3619,6 +4024,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         worldX,
         worldY,
         ...(linkDrop !== undefined ? { linkDrop } : {}),
+        ...(suggestedNode !== undefined ? { suggestedNode } : {}),
       })
     }
     openSplicePalette = (context): void => {
@@ -3770,6 +4176,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         })
       },
       extractSubgraph: () => { beginExtractSubgraph() },
+      removeMember: (params, m) => {
+        if (!params || typeof params !== 'object' || Array.isArray(params)) return
+        const { nodeId, construct, member } = params as JsonObject
+        if (typeof nodeId === 'string' && typeof construct === 'string' && typeof member === 'string') removeMember(m.tab, m.graphId, nodeId, construct, member)
+      },
+      pressNodeMenuButton: (params, m) => {
+        if (!params || typeof params !== 'object' || Array.isArray(params)) return
+        const { nodeId, button } = params as JsonObject
+        if (typeof nodeId !== 'string' || typeof button !== 'string' || m.tab !== activeTab()) return
+        const label = m.tab.store.doc.graphs[m.graphId]?.nodes[nodeId] === undefined ? undefined
+          : registry()?.resolve(m.tab.store.doc.graphs[m.graphId]!.nodes[nodeId]!.type)?.menu?.find((item) => item.id === button)?.label
+        void buttonPresses.press(buttonPlaceOf(m.tab, nodeId, button, true, label))
+      },
       flattenSubgraph: () => { flattenSelectedSubgraph() },
       openPalette: (_params, m) => openPaletteAt(m.worldX, m.worldY),
       deleteSelection: () => deleteSelection(),
@@ -3889,14 +4308,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
 
     /**
-     * The invocations that finish a link-drop insertion: connect the
-     * dangling end to the new node's first compatible ELABORATED port
-     * (dynamic surfaces included - an autogrow member target carries its
-     * own dynamic.materialize, batched like the fixed end's per hazard
-     * N3). Empty when nothing auto-connectable: descriptor hints are
-     * unverified - the pick still inserts, it just lands unconnected.
-     */
-    /**
      * Blueprint insertion: fetch the body (digest-cached), materialize
      * fresh definitions against the CURRENT document, then commit import +
      * instance as ONE batch (one undo step, atomic reject). COPY semantics:
@@ -3945,8 +4356,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           doc: () => tab.store.doc,
           predictedNodeId: () => tab.store.predictedNodeId(graphId),
           resolveType: () => ownerRegistry?.resolve,
-          connect: (nodeId, schema) =>
-            p.linkDrop !== undefined ? linkDropInvocations(p.linkDrop, graphId, nodeId, schema) : [],
+          connect: (nodeId, schema) => {
+            if (p.linkDrop === undefined) return []
+            const connect = linkDropInvocations(p.linkDrop, graphId, nodeId, schema)
+            return connect.length > 0 ? connect : undefined
+          },
           dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
           onInserted: (nodeId) => {
             if (activeTab() === tab) controller.setSelection([nodeId])
@@ -3963,7 +4377,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     clearPaletteGhost = () => controller.setPaletteGhost(undefined)
 
-    const fieldDropPrimitive = (tab: Tab, context: LinkDropContext): { entry: PaletteEntry; values: Record<string, Json> } | undefined => {
+    const fieldDropPrimitive = (tab: Tab, context: LinkDropContext): PaletteAnchor['suggestedNode'] => {
       const into = context.fixedInto
       const reg = registry()
       if (context.seeking !== 'out' || reg === undefined || into === undefined ||
@@ -3978,7 +4392,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (!primitive || !shape) return undefined
       const value = node.values[valueKeyOf(field)] ?? effectiveWidgetDefault(field.spec.widget)
       return {
-        entry: { type: primitive.type, name: primitive.displayName, category: primitive.category, kind: 'node', schema: primitive, fields: [] },
+        type: primitive.type,
         values: value === undefined ? {} : { [shape.value.id]: value },
       }
     }
@@ -4038,6 +4452,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const connect = p.splice !== undefined && schema !== undefined
         ? linkSpliceInvocations(graphId, expectedId, schema, p.splice)
         : p.linkDrop !== undefined ? linkDropInvocations(p.linkDrop, graphId, expectedId, schema) : []
+      if (p.linkDrop !== undefined && connect.length === 0) return
       const target = captureLifecycleTarget(tab, graphId)
       const selectionVersion = selVersion()
       try {
@@ -4073,7 +4488,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         armPaletteEntry(entry)
         return
       }
-      void commitPaletteEntry(entry, p)
+      void commitPaletteEntry(entry, p, undefined,
+        p.linkDrop !== undefined && p.suggestedNode?.type === entry.type ? p.suggestedNode.values : undefined)
     }
 
     // Test bridge: perf/interaction specs drive the focused pane directly.
@@ -4096,6 +4512,83 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
 
     let scene: Scene = { graphId: '', nodes: [], links: [], reroutes: [], netStubs: [], groups: [], boundaryNodes: [], diagnostics: [] }
+    clientRectToWorld = (rect) => {
+      const canvas = canvasEl.getBoundingClientRect()
+      const start = renderer.toWorld(rect.left - canvas.left, rect.top - canvas.top)
+      const end = renderer.toWorld(rect.right - canvas.left, rect.bottom - canvas.top)
+      return { x: start.x, y: start.y, width: end.x - start.x, height: end.y - start.y }
+    }
+    buttonWorldRect = (place, notice) => {
+      if (!shownOnThisGraph(place)) return undefined
+      const node = scene.nodes.find((candidate) => candidate.id === place.nodeId)
+      if (node === undefined) return undefined
+      if (place.menu) return { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height }
+      const row = node.layout.rows.find((item) => item.kind === 'button' && item.buttonId === place.button)
+      if (row === undefined) return undefined
+      // A button can be a cell of a Row line; its list and box span the whole line.
+      const line = node.layout.rows.filter((item) => item.y === row.y && item.kind !== 'ports')
+      const left = Math.min(...line.map((item) => 'inset' in item ? item.inset : 0))
+      const right = Math.max(...line.map((item) => 'inset' in item ? item.inset + ('width' in item && item.width !== undefined ? item.width : node.layout.width - item.inset * 2) : node.layout.width))
+      const gap = defaultTokens.rowGeometry.fieldInsetY * 2
+      const notices = buttonNoticeHeights()[node.id]
+      const before = !notice ? 0 : line.slice(0, line.indexOf(row)).reduce((sum, item) =>
+        sum + (item.kind === 'button' && notices?.[item.buttonId] !== undefined ? notices[item.buttonId]! + gap : 0), 0)
+      return { x: node.x + left, y: node.y + row.y + before, width: right - left, height: notice ? Math.max(...line.map((item) => item.height)) : row.height }
+    }
+    buttonFieldBox = (place) => {
+      const node = shownOnThisGraph(place) ? scene.nodes.find((candidate) => candidate.id === place.nodeId) : undefined
+      if (node === undefined) return undefined
+      const tokens = renderer.getDesignTokens()
+      const { fieldInsetX, fieldInsetY, portRowHeight } = tokens.rowGeometry
+      const row = place.menu ? undefined : node.layout.rows.find((item) => item.kind === 'button' && item.buttonId === place.button)
+      if (!place.menu && row?.kind !== 'button') return undefined
+      const line = row?.kind === 'button'
+        ? { x: node.x + row.inset, y: node.y + row.y, width: row.width ?? node.layout.width - row.inset * 2, height: row.height }
+        : { x: node.x + fieldInsetX, y: node.y + node.layout.height + 4, width: node.layout.width - fieldInsetX * 2, height: portRowHeight }
+      return {
+        rect: { x: line.x, y: line.y + fieldInsetY, width: line.width, height: line.height - fieldInsetY * 2 },
+        look: tokens.nodeLook,
+        nodeTop: node.y,
+        nodeBottom: node.y + node.layout.height,
+        ...(row === undefined ? {} : { sideEdges: rowSideEdges(node.layout.rows, row) }),
+      }
+    }
+    function refreshButtonPaint(tab: Tab | undefined): void {
+      const paint: Record<string, Record<string, ButtonPaint>> = {}
+      if (tab !== undefined) {
+        const states = buttonPresses.states()
+        for (const node of scene.nodes) {
+          for (const row of node.layout.rows) {
+            if (row.kind !== 'button') continue
+            const place = buttonPlaceOf(tab, node.id, row.buttonId)
+            const busy = states.get(buttonKey(place))?.busy
+            const item: ButtonPaint | undefined = busy !== undefined
+              ? { kind: 'busy', text: busy }
+              : buttonAvailabilityOf(place).enabled ? undefined : { kind: 'off' }
+            if (item !== undefined) (paint[node.id] ??= {})[row.buttonId] = item
+          }
+        }
+      }
+      renderer.setButtonPaint(paint satisfies ButtonPaintMap)
+    }
+    createEffect(() => {
+      buttonPresses.states()
+      const tab = activeTab()
+      untrack(() => refreshButtonPaint(tab))
+    })
+    let pressedWithBoxes: readonly ButtonState[] = []
+    const rememberButtonBoxes = (): void => { pressedWithBoxes = [...buttonPresses.states().values()] }
+    const dismissButtonBoxes = (): void => {
+      // Keep the pressed rows still until the gesture has used its hit, and keep its new result.
+      buttonPresses.dismissBoxes(pressedWithBoxes)
+      pressedWithBoxes = []
+    }
+    window.addEventListener('pointerdown', rememberButtonBoxes, { capture: true })
+    window.addEventListener('pointerup', dismissButtonBoxes)
+    onCleanup(() => {
+      window.removeEventListener('pointerdown', rememberButtonBoxes, { capture: true })
+      window.removeEventListener('pointerup', dismissButtonBoxes)
+    })
 
     problemBoxHost = {
       owner: () => {
@@ -4104,12 +4597,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       },
       place: (nodeId) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
-        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport(), canvasEl.clientWidth)
+        return node === undefined ? undefined : problemBoxPlacement(node, renderer.getNodeBadgeLayout(node), renderer.getViewport(), canvasEl.clientWidth, detailMinScale())
       },
-      lines: (nodeId) => {
+      lines: (nodeId, runLevel) => {
         const node = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)
         const tab = activeTab()
         if (node === undefined || tab === undefined) return []
+        if (runLevel !== undefined) {
+          const exec = props.app.executionForTab(tab)
+          if (exec === undefined || (runLevel === 'error'
+            ? dismissedErrorNodes().get(exec.key)?.has(nodeId)
+            : dismissedLogTabs().get(exec.key)?.has(`${nodeId}\u0000${runLevel}`))) return []
+          return runtimeProblemBoxLines(nodeErrors(nodeId), runLogsByNode().get(nodeId) ?? [], runLevel, node.isSubgraph ? [] : problemBoxRows(node))
+        }
         // A runtime cause belongs to the run's own Error tab, not this box.
         const problems = (nodeProblems[nodeId] ?? []).filter((line) =>
           !((runErrorsByNode().has(nodeId) || lastRunNodes.has(nodeId)) && line.diagnostic.origin === 'runtime'))
@@ -4173,6 +4673,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly recordedAutomatic: ExecutionState['automaticValues']
       readonly lookups: LookupClient | undefined
       readonly lookupGeneration: number
+      readonly buttonNoticeHeights: ReturnType<typeof buttonNoticeHeights>
+      readonly editorControls: Readonly<Record<string, Readonly<Record<string, number>>>> | undefined
     } | undefined
     // A frozen tab's run records what its automatic fields used; the record
     // arrives with the finished job, after the snapshot's first scene.
@@ -4236,6 +4738,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const path = viewInstancePath(tab) ?? []
       const key = `${tab.id}:${graphId}`
       const pathKey = path.join('/')
+      const measurements = editorMeasurements()
+      const editorControls = measurements.scope === `${key}:${pathKey}` ? measurements.controls : undefined
       const extensionsGeneration = props.app.extensions.changed.get()
       const seedControllerEnabled = props.app.settings.get<boolean>('features.seedController.enabled')
       const occurrenceOwner = path.length === 0 ? undefined : {
@@ -4252,6 +4756,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const lookupAnswers = lookups === undefined ? undefined : lookupAnswersOf(lookups)
       const currentExtensionRevision = props.app.extensionRevision.get()
       const previousBuild = sceneBuildContext
+      const noticeHeights = buttonNoticeHeights()
       const graphNodes = new Map(Object.entries(doc.graphs[graphId]?.nodes ?? {}))
       const canReuseScene = previousBuild !== undefined &&
         previousBuild.key === key &&
@@ -4263,7 +4768,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.plannerAvailable === plannerAvailable &&
         previousBuild.recordedAutomatic === recordedAutomatic &&
         previousBuild.lookups === lookups &&
-        previousBuild.lookupGeneration === lookupGeneration
+        previousBuild.lookupGeneration === lookupGeneration &&
+        previousBuild.buttonNoticeHeights === noticeHeights &&
+        previousBuild.editorControls === editorControls
       const valuesUpdated = canReuseScene && path.length === 0
         ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => shown?.resolve(type), lookupAnswers)
         : undefined
@@ -4281,6 +4788,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const fresh = buildScene({
           document: doc,
           seedControllerEnabled,
+          buttonNoticeHeights: noticeHeights,
           ...(lookupAnswers === undefined ? {} : { lookupAnswers }),
           graphId,
           resolve,
@@ -4292,6 +4800,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           tokens: defaultTokens,
           measure,
           widgetMeasure,
+          ...(editorControls === undefined ? {} : { editorControls }),
           ...(path.length > 0 || occurrenceView.values.size > 0 ? { occurrenceView } : {}),
           ...(occurrenceOwner !== undefined ? {
             occurrence: { owner: occurrenceOwner, plannerAvailable },
@@ -4329,6 +4838,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         recordedAutomatic,
         lookups,
         lookupGeneration,
+        buttonNoticeHeights: noticeHeights,
+        editorControls,
       }
       // A rebuild can produce a scene identical to the installed one: a
       // workspace-session swap re-reads an equal document, and an edit in
@@ -4368,6 +4879,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // something Solid guarantees, so the rebuild calls the helper directly
       // (untracked: the scene effect must not subscribe to overlay signals).
       untrack(() => refreshSceneOverlays(tab))
+      untrack(() => refreshButtonPaint(tab))
+      if (replaced) setSceneVersion((version) => version + 1)
       // Solver + widget-value diagnostics are derived per-build; replace
       // (never append) so the Problems panel reflects the CURRENT graph
       // state and clears when the condition (a stale DynamicSlot
@@ -4393,8 +4906,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         editorExtensionsGeneration === extensionsGeneration
       // A subgraph's Inputs panel carries field rows too, edited like a node's.
       const fieldNodes = [...scene.nodes, ...scene.boundaryNodes.flatMap((bnode) => boundaryFieldNode(bnode) ?? [])]
+      const editorTarget = ed?.target.kind === 'input' ? ed.target : undefined
+      const editorNode = editorTarget?.kind === 'input' ? fieldNodes.find((node) => node.id === editorTarget.nodeId) : undefined
+      const editorRow = editorNode?.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === editorTarget?.valueKey)
+      const editorDriven = editorNode !== undefined && editorRow?.kind === 'widget' && rowIsDriven(editorNode.id, editorRow)
       if (widgetEditorAnchorAlive(ed, fieldNodes, tab.id, graphId, reg?.mergeableTypes, documentUnchanged) &&
-        inRowValueKept(ed, tab.store.doc)) {
+        !editorDriven && inRowValueKept(ed, tab.store.doc)) {
         // A workspace promotion replaces the Tab wrapper. Rebind in place so
         // the keyed editor keeps its draft and commits to the live store.
         ed!.tab = tab
@@ -4407,6 +4924,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           untrack(hostFocused) && editorRestoresCanvasFocus(ed) && (document.activeElement === document.body ||
             Boolean(canvasEl.parentElement?.querySelector('.widget-popover-layer')?.contains(document.activeElement)))
         setEditor(undefined)
+        if (ed?.target.kind === 'input' && ed.tab.id === tab.id && ed.graphId === graphId) {
+          const target = ed.target
+          const node = fieldNodes.find((item) => item.id === target.nodeId)
+          const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === target.valueKey)
+          if (node !== undefined && row?.kind === 'widget' && (row.readOnly || row.disabled || editorDriven)) {
+            setRowFocus({ ...rowFocusAt(tab, node, row), ...(editorDriven ? {
+              cancellation: 'A wire now feeds this field. Your edit was not kept.',
+            } : {}) })
+          }
+        }
         if (restoreFocus) queueMicrotask(() => {
           if (untrack(editor) === undefined && document.activeElement === document.body) canvasEl.focus()
         })
@@ -4415,10 +4942,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const focus = untrack(rowFocus)
       if (focus !== undefined) {
         const node = fieldNodes.find((item) => item.id === focus.nodeId)
-        const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
-        setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
-          ? undefined
-          : { ...rowFocusAt(tab, node, row), ...(focus.note === undefined ? {} : { note: focus.note }) })
+        if (focus.button !== undefined) {
+          const row = node?.layout.rows.find((item) => item.kind === 'button' && item.buttonId === focus.button!.id)
+          setRowFocus(node === undefined || row?.kind !== 'button' || focus.tabId !== tab.id || focus.graphId !== graphId
+            ? undefined : buttonFocusAt(tab, node, row))
+        } else {
+          const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
+          setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
+            ? undefined
+            : { ...rowFocusAt(tab, node, row), ...(focus.markOnly ? { markOnly: true } : {}), ...(focus.tooltipOnly ? { tooltipOnly: true } : {}), ...(focus.note === undefined ? {} : { note: focus.note }),
+              ...(focus.cancellation === undefined || !rowIsDriven(node.id, row) ? {} : { cancellation: focus.cancellation }) })
+        }
       }
       const openMenu = untrack(menu)
       // Menu items are a semantic snapshot: they also go stale when the
@@ -4440,6 +4974,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (openController !== undefined) {
         const anchorAlive = openController.tab.id === tab.id && fieldNodes.some((node) =>
           node.layout.rows.some((row) => row.kind === 'widget' && row.controllerMode !== undefined &&
+            !row.readOnly && !row.disabled &&
             (row.familyOwner?.graphId ?? graphId) === openController.graphId &&
             (row.familyOwner?.nodeId ?? node.id) === openController.nodeId &&
             (row.familyOwner?.valueKey ?? row.valueKey) === openController.inputId))
@@ -4461,6 +4996,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const link = scene.links.find((candidate) => candidate.id === focusPlan.linkId)
         if (node) {
           controller.setSelection([node.id])
+          setRowFocus(undefined)
+          if (focusRequest?.focusRow !== undefined) {
+            focusEditorRow({ nodeId: node.id, valueKey: focusRequest.focusRow }, { markOnly: true })
+          }
           const input = focusRequest?.openAssetInput
           const row = input === undefined ? undefined : node.layout.rows.find((candidate) =>
             candidate.kind === 'widget' && candidate.valueKey === input)
@@ -4492,8 +5031,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           if (picked !== undefined && input === undefined) {
             queueMicrotask(() => {
               if (activeTab() !== tab || currentGraphId(tab) !== graphId) return
-              openProblemBox(node.id, (line) => line.problem.diagnostic === picked ||
-                (line.problem.diagnostic.code === picked.code && line.problem.diagnostic.message === picked.message))
+              openProblemBox(node.id, (line) => line.problem?.diagnostic === picked ||
+                (line.problem?.diagnostic.code === picked.code && line.problem.diagnostic.message === picked.message),
+                picked.origin === 'runtime' ? 'error' : undefined)
             })
           }
         } else if (link) {
@@ -4600,7 +5140,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setOutputPages((current) => current.size === 0 ? current : new Map())
         setOutputViewerKey(undefined)
         renderer.setCompanions({})
-        renderer.setEditorSummaries({})
+        setEditorSummaries({})
         renderer.setBadges({})
         renderer.setNodeDecorations({})
         minimap.setStates({})
@@ -4672,7 +5212,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           diagnostic.owner === tab.id && (diagnostic.origin === 'compile' || diagnostic.origin === 'validation')),
         scene: instanceDiagnostics(),
         ...(tab.execution && exec?.artifact !== undefined ? { artifact: exec.artifact.diagnostics } : {}),
-        ...(exec === undefined ? {} : { execution: exec.errors }),
+        ...(exec === undefined ? {} : { execution: executionProblemDiagnostics(exec) }),
       })
       const projectedProblems = deriveProblemProjection({
         diagnostics: currentDiagnostics,
@@ -4709,6 +5249,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const dismissed = exec === undefined ? undefined : dismissedErrorNodes().get(exec.key)
           return dismissed === undefined ? {} : { dismissedErrorNodes: dismissed }
         })(),
+        dismissedLogTabs: exec === undefined ? undefined : dismissedLogTabs().get(exec.key),
         rowProblems: projectedProblems.rows,
         resolveSchema: reg?.resolve,
         mirrorPreviews: props.app.settings.get<boolean>('execution.mirrorPreviews'),
@@ -4855,13 +5396,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setNodeDecorations(decorations.presentation)
       renderer.setRowMarks(model.rowProblems)
       const nodeOutputTexts = lens.id === 'standard' ? model.outputTexts : {}
+      const regions = buttonBodyRegions.get(tab) ?? new Map<string, (scene: Scene) => Scene>()
+      buttonBodyRegions.set(tab, regions)
+      regions.set(JSON.stringify([tab.store.doc.lineage, gid, viewedPath]),
+        (scene) => renderer.sceneWithBodyRegions(scene, model.previews, nodeOutputTexts))
       renderer.setNodeOutputTexts(nodeOutputTexts)
       renderer.setNodePreviews(model.previews)
       // Background overlay updates must not dismiss a still-valid user decision.
       const openBox = problemBox()
       if (openBox !== undefined) {
         const lines = openBox.owner === JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])
-          ? problemBoxHost?.lines(openBox.nodeId) ?? []
+          ? problemBoxHost?.lines(openBox.nodeId, openBox.runLevel) ?? []
           : []
         // The box and its tab go together when the node's last problem goes.
         if (lines.length === 0) closeProblemBox()
@@ -4900,7 +5445,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       setEditorSpaces(editorSpaceItems([...renderer.getScene().nodes, ...(panelFace === undefined ? [] : [panelFace])], editorWires))
       setNodeBoxes(renderer.getScene().nodes.map((node) => ({ id: node.id, box: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height } })))
-      renderer.setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown')))
+      setEditorSummaries(wiredEditorSummaries(renderer.getScene().nodes, editorWires, message('inNodeEditor.notKnown'),
+        (value, width) => assetRowThumbnails(value, previewLoader, widgetRegistry(), width)))
       setMediaPreviews(renderer.getScene().nodes.flatMap((node) => {
         if (node.layout.minimized) return []
         const media = model.previews[node.id]
@@ -4968,6 +5514,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       problems() // each compile/submit sweep replaces the active tab's diagnostics
       instanceDiagnostics() // scene/widget diagnostics replace and clear per build
       dismissedErrorNodes() // dismissing a node's error badge removes it now
+      dismissedLogTabs()
       settingsTick() // overlay-affecting settings (execution.mirrorPreviews)
       const tab = activeTab()
       untrack(() => refreshSceneOverlays(tab))
@@ -5003,6 +5550,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // nodes (the Nodes 2.0 above-node control strip). Host-derived like
     // badges: recomputed on selection/document changes, placed by the canvas.
     // Frozen execution views are read-only, so they grow no toolbox.
+    // The row selected in the Boundary panel, marked where it is on screen:
+    // its boundary row and every inner pin or field it goes to.
+    createEffect(() => {
+      docTick()
+      const focus = boundaryFocus()
+      const tab = activeTab()
+      const def = tab && focus?.tabId === tab.id && focus.graphId === currentGraphId(tab)
+        ? tab.store.doc.graphs[focus.graphId] : undefined
+      const find = (side: 'inputs' | 'outputs') => boundaryItems(def?.boundary, side).find((candidate) => candidate.id === focus?.item)
+      const side = find('inputs') !== undefined ? 'inputs' as const : find('outputs') !== undefined ? 'outputs' as const : undefined
+      const item = side === undefined ? undefined : find(side)
+      if (!item || !side) {
+        renderer.setBoundaryFocus(undefined)
+        return
+      }
+      const inputs: Record<string, Set<string>> = {}
+      const outputs: Record<string, Set<string>> = {}
+      for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+        if (binding.kind === 'widgetTap') (inputs[binding.node] ??= new Set()).add(binding.tap)
+        else if (binding.kind !== 'unbound') {
+          ((side === 'inputs' ? inputs : outputs)[binding.node] ??= new Set()).add(binding.port)
+        }
+      }
+      renderer.setBoundaryFocus({ side, item: item.id, inputs, outputs })
+    })
     createEffect(on([selVersion, docTick], () => {
       // A hover belongs to this selection/document, not the next one.
       hoveredToolboxButtonId = undefined
@@ -5029,9 +5601,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }),
       ]
       const rows: ToolboxRow[] = []
-      if (currentGraphId(tab) === tab.store.doc.root && registry()) {
-        const scopes = props.app.previewSelectionExecutionScopes(tab, sel)
-        rows.push(partialExecutionButtons(scopes === undefined ? {
+      if (currentGraphId(tab) === tab.store.doc.root) {
+        backendsTick()
+        const blockedReason = props.app.engineOffReason(tab, message)
+        const scopes = blockedReason === undefined ? props.app.previewSelectionExecutionScopes(tab, sel) : undefined
+        rows.push(partialExecutionButtons(blockedReason !== undefined ? {
+          upTo: blockedReason,
+          between: blockedReason,
+          fromOnwards: blockedReason,
+        } : scopes === undefined ? {
           upTo: message('execution.scopes.checking'),
           between: message('execution.scopes.checking'),
           fromOnwards: message('execution.scopes.checking'),
@@ -5095,6 +5673,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
       if (!tab) return
+      if (hit.row.readOnly || hit.row.disabled) {
+        focusEditorRow({ nodeId: hit.node.id, valueKey: hit.row.valueKey })
+        return
+      }
       // An editor shown in the node folds out under its row and back, as a
       // section opens and closes, also while a run holds the workflow. A
       // field on the Inputs panel folds out on the panel, which keeps its
@@ -5124,7 +5706,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // (companion display), and editing would silently mutate the dormant
       // stored value underneath. Selector rows keep their own value channel
       // and are never driven.
-      if (hit.row.selector === undefined && companionInputs.get(nodeId)?.has(hit.row.address.port)) return
+      if (rowIsDriven(nodeId, hit.row)) {
+        focusEditorRow({ nodeId, valueKey: hit.row.valueKey })
+        return
+      }
       const editorRole = (registry()?.resolve(hit.node.node.type) as { readonly editorRole?: string } | undefined)?.editorRole
       const valueType = canonicalTypeIdOf(hit.row.type)
       if (props.app.openEditorForBinding(tab.id, {
@@ -5234,11 +5819,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           look: tokens.nodeLook,
           nodeTop: hit.node.y,
           nodeBottom: hit.node.y + hit.node.layout.height,
+          sideEdges: rowSideEdges(hit.node.layout.rows, hit.row),
           storedAtOpen: stored ?? null,
           handOff: () => setRowHandedOff(untrack(editor)),
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
           ...(hit.row.controllerMode === undefined ? {} : { controllerMode: hit.row.controllerMode }),
+          ...(rowRepresentationOf(tab, hit.node, hit.row) === undefined ? {} : { representation: rowRepresentationOf(tab, hit.node, hit.row)! }),
           ...(automatic === undefined ? {} : { automatic }),
           ...(rowLookups === undefined ? {} : { lookups: rowLookups }),
         } } : {}),
@@ -5284,7 +5871,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
 
     // A node by id, or the Inputs panel's field face, whose rows take the
     // keyboard like a node's; `wired` holds the panel rows wired outside.
-    const rowNodeOf = (id: string): { node: SceneNode; wired?: Readonly<Record<string, unknown>> } | undefined => {
+    const rowNodeOf = (id: string): { node: SceneNode; wired?: Readonly<Record<string, { readonly value?: Json }>> } | undefined => {
       const scene = renderer.getScene()
       const node = scene.nodes.find((item) => item.id === id)
       if (node !== undefined) return { node }
@@ -5293,6 +5880,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (face?.id === id) return { node: face, wired: bnode.fields!.wired }
       }
       return undefined
+    }
+
+    function rowIsDriven(nodeId: string, row: WidgetLayoutRow): boolean {
+      // Selector choices have a separate stored value even when their parent input is wired.
+      return row.selector === undefined && (companionInputs.get(nodeId)?.has(row.address.port) === true ||
+        Object.hasOwn(rowNodeOf(nodeId)?.wired ?? {}, row.valueKey))
     }
 
     // Tab never leaves the node: past its last stop it goes to the first. A
@@ -5305,14 +5898,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const node = found?.node
       // Zoomed out to the overview, rows cannot be clicked and Tab does nothing.
       if (tab === undefined || tab.execution || node === undefined || renderer.getDetailLevel() === 'overview') return
-      // Every row is a stop. A field or text edited in place opens; any other
-      // row (a toggle, or a row that opens an editor) only takes the focus.
+      // Buttons keep their place even while disabled or working. A field or
+      // text edited in place opens; other rows only take the focus.
       const opensInPlace = (row: WidgetLayoutRow): boolean =>
         (row.viewId === 'core.text' || row.viewId === 'core.line') &&
         widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi === undefined
-      const stops = node.layout.rows.filter((row): row is WidgetLayoutRow =>
-        row.kind === 'widget' && !companionInputs.get(node.id)?.has(row.address.port) && !Object.hasOwn(found?.wired ?? {}, row.valueKey))
-      const index = stops.findIndex((row) => row.valueKey === from.valueKey)
+      const stops = node.layout.rows.filter((row): row is WidgetLayoutRow | Extract<LayoutRow, { kind: 'button' }> =>
+        row.kind === 'button' || (row.kind === 'widget' && !rowIsDriven(node.id, row)))
+      const index = stops.findIndex((row) => row.kind === 'button'
+        ? 'buttonId' in from && row.buttonId === from.buttonId
+        : 'valueKey' in from && row.valueKey === from.valueKey)
       if (index < 0) return
       const row = stops[(index + direction + stops.length) % stops.length]!
       const width = row.width ?? node.layout.width - row.inset * 2
@@ -5325,10 +5920,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const dx = left < 0 ? -left : right > canvasEl.clientWidth ? canvasEl.clientWidth - right : 0
       const dy = top < 0 ? -top : bottom > canvasEl.clientHeight ? canvasEl.clientHeight - bottom : 0
       if (dx !== 0 || dy !== 0) renderer.setViewport({ ...viewport, x: viewport.x + dx, y: viewport.y + dy })
-      if (editsInRow(tab, node, row) || opensInPlace(row)) {
+      if (row.kind === 'button') {
+        setRowFocus(buttonFocusAt(tab, node, row))
+      } else if (editsInRow(tab, node, row) || opensInPlace(row)) {
         setRowFocus(undefined)
         openWidgetEditor(rowHit(node, row))
-      } else focusEditorRow({ nodeId: node.id, valueKey: row.valueKey })
+      } else {
+        canvasEl.focus()
+        focusEditorRow({ nodeId: node.id, valueKey: row.valueKey })
+      }
     }
 
     const rowHit = (node: SceneNode, row: WidgetLayoutRow): Extract<Hit, { kind: 'widget' }> => {
@@ -5340,14 +5940,66 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
     }
 
-    const rowFocusAt = (tab: Tab, node: SceneNode, row: WidgetLayoutRow): RowFocusState => {
+    // A field's switchable looks for the side part, unless the view is a
+    // finished run's, which stays locked, or the row is only offered.
+    rowRepresentationOf = (tab: Tab, node: SceneNode, row: WidgetLayoutRow): RowRepresentation | undefined => {
+      if (tab.execution !== undefined || row.ghost === true || row.materialize !== undefined) return undefined
+      const choices = widgetRepresentationChoices(row.spec, row.representationId)
+      if (choices === undefined) return undefined
+      return {
+        graphId: row.familyOwner?.graphId ?? currentGraphId(tab),
+        nodeId: row.familyOwner?.nodeId ?? node.id,
+        inputId: row.familyOwner?.valueKey ?? row.valueKey,
+        ...choices,
+      }
+    }
+
+    const buttonFocusAt = (tab: Tab, node: SceneNode, row: Extract<LayoutRow, { kind: 'button' }>): RowFocusState => {
+      const place = buttonPlaceOf(tab, node.id, row.buttonId, false, row.label)
+      const box = buttonFieldBox(place)!
+      const busy = buttonPresses.isBusy(place)
+      const availability = buttonAvailabilityOf(place)
+      const disabled = !busy && !availability.enabled
+      const help = disabled && !availability.enabled ? availability.reason : row.tooltip
+      return {
+        ...box, tabId: tab.id, graphId: currentGraphId(tab), nodeId: node.id,
+        button: { id: row.buttonId, label: row.label, disabled, busy },
+        ...(help === undefined ? {} : { help }),
+      }
+    }
+    createEffect(() => {
+      buttonPresses.states()
+      untrack(() => {
+        const focus = rowFocus()
+        const tab = activeTab()
+        const node = focus === undefined ? undefined : rowNodeOf(focus.nodeId)?.node
+        const row = node?.layout.rows.find((item) => item.kind === 'button' && item.buttonId === focus?.button?.id)
+        if (focus?.button !== undefined && tab !== undefined && node !== undefined && row?.kind === 'button') setRowFocus(buttonFocusAt(tab, node, row))
+      })
+    })
+
+    const rowFocusAt = (tab: Tab, node: SceneNode, row: WidgetLayoutRow): Extract<RowFocusState, { valueKey: string }> => {
       const tokens = renderer.getDesignTokens()
       const inset = tokens.rowGeometry.fieldInsetY
       const reg = registry()
       const schema = reg ? documentResolver(tab.store.doc, reg.resolve)(node.node.type) : undefined
       const item = schema?.body.find((candidate) => candidate.kind === 'input' && candidate.id === row.inputId)
-      const help = item?.kind === 'input' ? item.tooltip : undefined
+      const driven = rowIsDriven(node.id, row)
+      const help = [
+        ...(row.readOnly ? ['Read-only'] : []),
+        ...(row.disabled ? [row.disabledReason || 'Disabled'] : []),
+        ...(!driven && item?.kind === 'input' && item.tooltip ? [item.tooltip] : []),
+      ].join('. ') || undefined
       const declared = effectiveWidgetDefault(row.spec)
+      const panelWire = rowNodeOf(node.id)?.wired?.[row.valueKey]
+      const companion = renderer.fieldCompanion(node.id, row.valueKey) ?? (panelWire === undefined ? undefined
+        : panelWire.value === undefined ? { value: null, state: 'unknown' as const } : { value: panelWire.value })
+      const stored = formatWidgetValue(Object.hasOwn(node.node.values, row.valueKey) ? node.node.values[row.valueKey] : declared, row.spec)
+      const arriving = !driven ? undefined
+        : companion === undefined || companion.state === 'nothing' || companion.state === 'unknown'
+          ? <CanvasRowAbsence state={companion?.state === 'nothing' ? 'nothing' : 'unknown'} stored={stored} />
+          : <><CanvasSidePart result={`The wire brings ${formatWidgetValue(companion.value, row.spec)}.`} />
+            <CanvasSidePart result={`Stored ${stored}, used again when the wire is removed.`} /></>
       // The default reads as the closed row would read it, in full.
       let defaultText = declared === undefined
         ? undefined
@@ -5362,8 +6014,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         look: tokens.nodeLook,
         nodeTop: node.y,
         nodeBottom: node.y + node.layout.height,
+        sideEdges: rowSideEdges(node.layout.rows, row),
         ...(defaultText == null ? {} : { defaultText }),
         ...(help === undefined ? {} : { help }),
+        ...(arriving === undefined ? {} : { arriving }),
+        ...(rowRepresentationOf(tab, node, row) === undefined ? {} : { representation: rowRepresentationOf(tab, node, row)! }),
       }
     }
 
@@ -5384,7 +6039,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       canvasEl.focus()
     }
 
-    focusEditorRow = (from) => {
+    focusEditorRow = (from, options = {}) => {
       const tab = activeTab()
       const node = rowNodeOf(from.nodeId)?.node
       const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === from.valueKey)
@@ -5392,17 +6047,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         setRowFocus(undefined)
         return
       }
-      setRowFocus(rowFocusAt(tab, node, row))
-      canvasEl.focus()
+      setRowFocus({ ...rowFocusAt(tab, node, row), ...options })
+      if (!options.tooltipOnly) canvasEl.focus()
     }
 
     // While a row has the focus, Tab moves on, Space and Enter act on the
     // row (a toggle flips, anything else opens), and Escape gives the focus
     // back to the canvas. Every other key does what it does on the canvas.
-    const onRowFocusKey = (event: KeyboardEvent): void => {
+    onRowFocusKey = (event: KeyboardEvent): void => {
       const focus = rowFocus()
+      if (focus?.markOnly) { setRowFocus(undefined); return }
       if (focus === undefined || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return
-      const from = { nodeId: focus.nodeId, valueKey: focus.valueKey }
+      const from = focus.button === undefined
+        ? { nodeId: focus.nodeId, valueKey: focus.valueKey }
+        : { nodeId: focus.nodeId, buttonId: focus.button.id }
       if (event.key === 'Tab') {
         event.preventDefault()
         event.stopPropagation()
@@ -5411,10 +6069,18 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         event.preventDefault()
         event.stopPropagation()
         setRowFocus(undefined)
+        canvasEl.focus()
       } else if ((event.key === 'Enter' || event.key === ' ') && focus.note === undefined) {
         event.preventDefault()
         event.stopPropagation()
         const node = rowNodeOf(focus.nodeId)?.node
+        if (focus.button !== undefined) {
+          if (event.repeat || node === undefined) return
+          const place = buttonPlaceOf(activeTab()!, node.id, focus.button.id, false, focus.button.label)
+          if (buttonPresses.isBusy(place)) buttonPresses.cancel(place)
+          else if (buttonAvailabilityOf(place).enabled) void buttonPresses.press(place)
+          return
+        }
         const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
         if (node === undefined || row?.kind !== 'widget') { setRowFocus(undefined); return }
         // A toggle and an editor's fold keep the focus, so Enter turns them back.
@@ -5426,15 +6092,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // The outline shows only while the keyboard put the focus there.
     const clearRowFocus = (): void => {
       const focus = untrack(rowFocus)
-      closedNote = focus?.note === undefined ? undefined : { nodeId: focus.nodeId, valueKey: focus.valueKey }
+      closedNote = focus?.note === undefined || focus.button !== undefined ? undefined : { nodeId: focus.nodeId, valueKey: focus.valueKey }
       setRowFocus(undefined)
     }
+    const onRowFocusBlur = (event: FocusEvent): void => {
+      // Inspection's Representation control takes focus without leaving the row.
+      if (event.relatedTarget instanceof Element && event.relatedTarget.closest('[data-testid="row-focus"]')) return
+      clearRowFocus()
+    }
     canvasEl.addEventListener('pointerdown', clearRowFocus, true)
-    canvasEl.addEventListener('blur', clearRowFocus)
+    canvasEl.addEventListener('blur', onRowFocusBlur)
     onCleanup(() => {
       canvasEl.removeEventListener('keydown', onRowFocusKey, true)
       canvasEl.removeEventListener('pointerdown', clearRowFocus, true)
-      canvasEl.removeEventListener('blur', clearRowFocus)
+      canvasEl.removeEventListener('blur', onRowFocusBlur)
     })
 
     // A native modal owns the trusted backdrop pointerdown. After it closes,
@@ -5560,7 +6231,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
     armPaletteEntry = (entry): boolean => {
       const tab = activeTab()
-      if (!tab || frozen() || entry.type === '__dinkster.reroute') {
+      if (!tab || frozen() || entry.install !== undefined || entry.type === '__dinkster.reroute') {
         clearArmedPlacement()
         return false
       }
@@ -6050,11 +6721,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (!tab) return
       const graphId = currentGraphId(tab)
       const scopeToken = `clipboard-${++clipboardScopeSeq}`
+      const membership = scene.groupMembership ?? initialGroupMembership(groupItemGeometry(scene))
       const envelope = serializeSelection(tab.store.doc, graphId, {
         nodes: controller.getSelection(),
         reroutes: controller.getRerouteSelection(),
         groups: controller.getGroupSelection(),
-      }, scopeToken)
+      }, scopeToken, membership)
       if (!envelope) return
       const graph = tab.store.doc.graphs[graphId]!
       const endpointTypes = clipboardSceneEndpointTypes(scene)
@@ -6317,6 +6989,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const entry = paletteEntries().find((candidate) =>
           candidate.type === type &&
           candidate.kind === 'node' &&
+          candidate.install === undefined &&
           candidate.schema !== undefined &&
           (expected === undefined || placementSchemaKey(candidate.schema) === expected.schemaKey))
         if (
@@ -6463,7 +7136,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       setOutputViewerKey(undefined)
       semanticTargetSelected = () => false
       activateSemanticTarget = () => {}
-      focusSemanticPin = () => {}
+      focusSemanticTarget = () => {}
+      semanticPinPoint = () => undefined
       focusCanvas = () => {}
     })
   })
@@ -6502,6 +7176,27 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       place()
       onCleanup(() => { observer.disconnect(); children.disconnect() })
     })
+  }
+
+  const missingModels = createMemo(() => {
+    backendsTick()
+    tabTargets()
+    const tab = activeTab()
+    if (!tab || tab.execution) return []
+    const backend = props.app.backendForTab(tab)
+    if (backend.protocol !== 'dinkster' || !backend.templatesEnabled.get()) return []
+    problems()
+    return props.app.missingWorkflowModels(tab)?.models ?? []
+  })
+  const missingModelAmount = (): string => {
+    const assets = [...(registry()?.packs?.values() ?? [])].flatMap((pack) => pack.assets ?? [])
+    const sizes = missingModels().map((model) => {
+      if (model.asset) return model.asset.size
+      const matches = assets.filter((asset) => asset.name === model.name && asset.kind === model.kind)
+      return matches.every((asset) => asset.size === matches[0]?.size) ? matches[0]?.size : undefined
+    })
+    return sizes.every((size) => size !== undefined)
+      ? formatByteSize(sizes.reduce<number>((total, size) => total + size!, 0)) : ''
   }
 
   /** Frozen-tab banner data: execution identity, status, live-sync verdict. */
@@ -6598,7 +7293,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           onActivate={(item) => activateSemanticTarget(item.target)}
           onExit={() => focusCanvas()}
           onFocusChange={(focused) => setSemanticFocused(focused)}
-          onActiveChange={(item) => focusSemanticPin(item)}
+          onActiveChange={(item) => focusSemanticTarget(item)}
+          activePoint={(item) => { void editorViewport(); return semanticPinPoint(item) }}
         />
       </Show>
       <Show when={fileDropSurface()} keyed>
@@ -6735,6 +7431,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }}</For>
       <For each={visibleEditorSpaceKeys()}>{(key) => {
         const item = () => editorSpaceByKey().get(key)
+        const readOnly = () => item()?.field.readOnly === true || item()?.field.disabled === true
         const projected = () => {
           const current = item()
           return current === undefined ? undefined : mediaScreenRect(dragged(current.node, current.nodeId), current.space, editorViewport(), canvasClientRect())
@@ -6753,10 +7450,55 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const graphId = currentGraphId(tab)
           const owner = current.field.familyOwner
           const target = { graphId: owner?.graphId ?? graphId, nodeId: owner?.nodeId ?? current.nodeId, inputId: owner?.valueKey ?? current.valueKey }
-          const commit = (value: Json): void => void props.app.dispatchTo(tab,
-            withMaterializeFrames(target.graphId, target.nodeId, current.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+          const commit = async (value: Json): Promise<boolean> => {
+            const live = item()
+            if (live === undefined || live.field.readOnly || live.field.disabled) return false
+            // A capture started before wiring must not write the now-dormant value.
+            const graph = tab.store.doc.graphs[target.graphId]
+            if (graph === undefined) return false
+            const index = buildRerouteIndex(graph)
+            const port = portRefKey({ node: asNodeId(target.nodeId), port: asPortId(target.inputId) })
+            if (live.wired || index.inputDriverOf.has(port) || index.netSourceOf.has(port)) return false
+            const outcome = await props.app.dispatchTo(tab,
+              withMaterializeFrames(target.graphId, target.nodeId, live.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
+            return outcome.ok
+          }
           return { tab, graphId, current, target, commit }
         }
+        const [arrivingCurve, setArrivingCurve] = createSolidSignal<Json>()
+        const [arrivingImages, setArrivingImages] = createSolidSignal<Readonly<Record<ImageCompareSide, readonly PreviewData[]>>>({ image_a: [], image_b: [] })
+        const arrivalKey = createMemo(() => {
+          docTick()
+          executions()
+          const at = valueTarget()
+          if (at === undefined) return ''
+          const execution = props.app.executionForTab(at.tab)
+          return JSON.stringify([at.tab.id, at.tab.store.doc.lineage, at.tab.store.revision, at.target, viewInstancePath(at.tab),
+            props.app.backendForTab(at.tab).id, at.current.key, at.current.wired, [...at.current.wiredParts],
+            execution?.key, execution?.status, execution?.nodes])
+        })
+        createEffect(on(arrivalKey, () => {
+          const at = valueTarget()
+          setArrivingCurve(undefined)
+          setArrivingImages({ image_a: [], image_b: [] })
+          if (at === undefined) return
+          const abort = new AbortController()
+          onCleanup(() => abort.abort())
+          if (at.current.row.viewId === 'core.curve' && at.current.wired) {
+            void readEditorCurve(props.app, at.tab, at.target, abort.signal).then((value) => {
+              if (!abort.signal.aborted) setArrivingCurve(value)
+            }).catch(() => undefined)
+          } else if (at.current.row.viewId === 'core.imageCompare') {
+            const parts = at.current.field.parts
+            for (const side of IMAGE_COMPARE_SIDES) {
+              const inputId = parts?.reads[side] ?? parts?.writes[side]
+              if (inputId === undefined) continue
+              void readImageCompareInput(props.app, at.tab, { ...at.target, inputId }, abort.signal).then((frames) => {
+                if (!abort.signal.aborted) setArrivingImages((previous) => ({ ...previous, [side]: frames }))
+              }).catch(() => undefined)
+            }
+          }
+        }))
         const recorder = () => {
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.audioRecord') return undefined
@@ -6773,8 +7515,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.curve') return undefined
           const fallback = effectiveWidgetDefault(at.current.field.spec)
-          const value = isCurveValue(at.current.value) ? at.current.value : isCurveValue(fallback) ? fallback : undefined
-          if (value === undefined) return undefined
+          const carried = at.current.value ?? arrivingCurve()
+          const value = isCurveValue(carried) ? carried : !at.current.wired && isCurveValue(fallback) ? fallback : undefined
+          if (value === undefined && !at.current.wired) return undefined
           executions()
           return {
             value,
@@ -6782,6 +7525,54 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             histogram: latestCurveHistogram(props.app.executionForTab(at.tab), viewInstancePath(at.tab) ?? [], at.target.nodeId, at.current.row.inputId),
           }
         }
+        const saveTargetMounts = createMemo(() => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.saveTarget') return undefined
+          const backend = props.app.backendForTab(at.tab)
+          return backend.protocol === 'dinkster' ? backend.connection : undefined
+        })
+        const fetchSaveTargetMounts = createMemo(() => {
+          const connection = saveTargetMounts()
+          return connection === undefined ? undefined : () => connection.fetchMountSettings()
+        })
+        const saveTarget = createMemo(() => {
+          const at = valueTarget()
+          if (at === undefined || at.current.row.viewId !== 'core.saveTarget') return undefined
+          const node = at.tab.store.doc.graphs[at.target.graphId]?.nodes[at.target.nodeId]
+          const schema = node === undefined ? undefined : props.app.registryForTab(at.tab)?.resolve(node.type)
+          const help = node === undefined || schema === undefined ? undefined
+            : elabInputsOf(elaborateInterface(schema, node)).find((input) => input.spec.id === at.target.inputId)?.spec.tooltip
+          const suffix = at.current.field.spec.options['suffix']
+          const commit = async (value: Json): Promise<boolean> => {
+            if (at.current.saveTargetParts === undefined) return at.commit(value)
+            const live = item()
+            const graph = at.tab.store.doc.graphs[at.target.graphId]
+            const node = graph?.nodes[at.target.nodeId]
+            const schema = node === undefined ? undefined : props.app.registryForTab(at.tab)?.resolve(node.type)
+            if (live?.saveTargetParts === undefined || live.field.readOnly || live.field.disabled || graph === undefined || node === undefined || schema === undefined ||
+                typeof value !== 'object' || value === null || Array.isArray(value)) return false
+            const index = buildRerouteIndex(graph)
+            const inputs = elabInputsOf(elaborateInterface(schema, node))
+            const values: Record<string, Json> = {}
+            for (const [part, key] of [['mount', 'mount'], ['name', 'prefix']] as const) {
+              if (!Object.hasOwn(value, key)) continue
+              const inputId = live.field.parts?.writes[part]
+              const input = inputs.find((input) => input.spec.id === inputId)
+              const access = live.saveTargetParts[part]
+              if (inputId === undefined || input === undefined || access.wired || access.readOnly || access.disabled || input.readOnly || input.disabled || input.kept !== undefined) return false
+              const port = portRefKey({ node: asNodeId(at.target.nodeId), port: asPortId(inputId) })
+              if (index.inputDriverOf.has(port) || index.netSourceOf.has(port)) return false
+              values[inputId] = (value as JsonObject)[key]!
+            }
+            if (Object.keys(values).length === 0) return true
+            const outcome = await props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, live.field.materialize,
+              { command: 'node.setValues', params: { graphId: at.target.graphId, nodeId: at.target.nodeId, values } }))
+            return outcome.ok
+          }
+          return { commit, fetchMounts: fetchSaveTargetMounts(),
+            owner: JSON.stringify([at.tab.id, at.target.graphId, viewInstancePath(at.tab)]),
+            help: [help, message('saveTargetWidget.naming', { suffix: typeof suffix === 'string' ? suffix : '' })].filter(Boolean).join('\n\n') }
+        })
         const webcam = () => {
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.webcam') return undefined
@@ -6815,7 +7606,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const sourceKey = JSON.stringify([backend.id, ['model_file', 'model_3d'].map((part) => {
             const at = row(part)
             return at === undefined ? null : node?.values[at] ?? null
-          }), at.current.wiredParts.size > 0 ? props.app.executionForTab(at.tab)?.key ?? null : null])
+          }), at.current.carriedParts, at.current.value, at.current.wired,
+          at.current.wiredParts.size > 0 ? props.app.executionForTab(at.tab)?.key ?? null : null])
           return {
             sourceKey,
             captures: parts === undefined || !Object.hasOwn(parts.writes, 'state'),
@@ -6833,7 +7625,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const at = valueTarget()
           if (at === undefined || at.current.row.viewId !== 'core.imageCompare') return undefined
           executions()
-          return imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+          const streamed = imageCompareFrames(props.app, at.tab, { graphId: at.target.graphId, nodeId: at.target.nodeId, parts: at.current.field.parts })
+          return { image_a: streamed.image_a.length > 0 ? streamed.image_a : arrivingImages().image_a,
+            image_b: streamed.image_b.length > 0 ? streamed.image_b : arrivingImages().image_b }
         }
         const cameraAngle = () => {
           const at = valueTarget()
@@ -6853,6 +7647,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           return {
             fields,
             commit: (part: string, value: number) => {
+              const live = item()
+              if (live === undefined || live.field.readOnly || live.field.disabled) return
               const inputId = row(part)
               if (inputId === undefined) return
               void props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, at.current.field.materialize,
@@ -6876,33 +7672,61 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   : { nodeId: item()!.nodeId, valueKey: item()!.row.valueKey, height }),
                 commit: (height) => editorPictureHeights?.commitPictureHeight(item()!.nodeId, item()!.row.valueKey, height),
               }}>
+              <Show when={`${item()?.field.readOnly === true}:${item()?.field.disabled === true}`} keyed>{(_access) => <>
               <Show when={recorder()}>
-                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} />}
+                {(controller) => <AudioRecordSpace controller={controller()} value={item()?.value} wired={item()?.wired === true} readOnly={readOnly()} />}
               </Show>
               <Show when={webcam()}>
                 {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
-                  wired={item()?.wired === true} carried={item()?.carried} covered={covered()} />}
+                  measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}
+                  wired={item()?.wired === true} readOnly={readOnly()} carried={item()?.carried} covered={covered()} />}
               </Show>
               <Show when={curve()}>
-                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram}
+                {(at) => <CurveSpace value={at().value} commit={at().commit} histogram={at().histogram} wired={item()?.wired === true} readOnly={readOnly()}
                   histogramInput={item()?.row.histogram === undefined ? 'none' : item()!.row.histogram!.connected ? 'wired' : 'unwired'}
                   options={item()?.field.spec.options ?? {}} />}
               </Show>
+              <Show when={saveTarget()}>
+                {(at) => <Show when={at().owner} keyed>{(_owner) => <SaveTargetSpace value={item()?.value ?? (item()?.wired ? undefined : effectiveWidgetDefault(item()!.field.spec))}
+                  parts={item()?.saveTargetParts}
+                  wired={item()?.wired === true} readOnly={item()?.field.readOnly === true} disabled={item()?.field.disabled === true}
+                  fetchMounts={at().fetchMounts} commit={at().commit}
+                  openStorage={() => props.app.commands.get('storage.open')?.run()}
+                  {...(effectiveWidgetDefault(item()!.field.spec) === undefined ? {} : { declared: effectiveWidgetDefault(item()!.field.spec)! })}
+                  help={at().help}
+                  measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}
+                  preview={(value) => {
+                    const current = item()
+                    setEditorDrafts((previous) => {
+                      if (value === undefined ? !previous.has(key) : jsonSameValue(previous.get(key)?.value, value)) return previous
+                      const next = new Map(previous)
+                      if (value === undefined) next.delete(key)
+                      else if (current !== undefined) next.set(key, { nodeId: current.nodeId, valueKey: current.row.valueKey, value })
+                      return next
+                    })
+                  }}
+                  queue={() => {
+                    const command = props.app.commands.get('workflow.queue')
+                    if (command?.enabled?.() !== false) command?.run()
+                  }} />}</Show>}
+              </Show>
               <Show when={load3d()}>
-                {(at) => <Load3dSpace value={item()?.value}
+                {(at) => <Load3dSpace value={item()?.value} wired={item()?.wired === true} readOnly={readOnly()}
+                  measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}
                   sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
                   live={liveModelViews().has(key) && !covered()}
                   onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}
                   openSections={item()?.row.openSections ?? []}
-                  cameraWired={item()?.wiredParts.has('camera_info') === true}
-                  placementWired={item()?.wiredParts.has('model_3d_info') === true} />}
+                  cameraWired={item()?.wired === true || item()?.wiredParts.has('camera_info') === true}
+                  placementWired={item()?.wired === true || item()?.wiredParts.has('model_3d_info') === true} />}
               </Show>
               <Show when={cameraAngle()}>
-                {(at) => <CameraAngleSpace fields={at().fields} commit={at().commit} />}
+                {(at) => <CameraAngleSpace fields={at().fields} readOnly={readOnly()} commit={at().commit} />}
               </Show>
               <Show when={compare() !== undefined}>
                 <ImageCompareSpace frames={compare() ?? { image_a: [], image_b: [] }} pictureHeight={item()?.row.picture?.height ?? 0} />
               </Show>
+              </>}</Show>
             </NodeEditorSpaceOverlay>
           </Show>
         )
@@ -6913,7 +7737,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const current = item()
           if (current === undefined) return undefined
           const rect = mediaScreenRect(current.node, current.preview, editorViewport(), canvasClientRect())
-          return rect === undefined || current.output.refusal !== undefined ? rect : visibleOutputPagerRect(rect, canvasClientRect())
+          return rect === undefined || current.output.refusal !== undefined ? rect : visibleOutputPagerRect(rect, canvasClientRect(), editorViewport().scale)
         }
         const page = (index: number): void => {
           const currentItem = item()
@@ -6944,6 +7768,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                       virtualPath: current().output.images[current().output.index]!.virtualPath,
                     })}
                     rect={rect()}
+                    scale={editorViewport().scale}
                     canvas={canvasEl}
                     onPrevious={() => page(current().output.index - 1)}
                     onNext={() => page(current().output.index + 1)}
@@ -6995,13 +7820,24 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               aria-pressed={item().pressed}
               disabled={item().disabled}
               onClick={() => item().activate?.()}
-              onFocus={(event) => {
-                const target = item().target
+              onFocus={() => {
+                const target = item().target as { readonly kind: 'widget'; readonly hit: { readonly node: SceneNode; readonly row: WidgetLayoutRow } } | undefined
                 if (target === undefined) return
-                const rect = event.currentTarget.getBoundingClientRect()
-                props.tooltips?.show(target, { x: rect.left, y: rect.bottom + 8, above: rect.top - 8 }, undefined, true, tooltipOwner)
+                focusEditorRow({ nodeId: target.hit.node.id, valueKey: target.hit.row.valueKey }, { tooltipOnly: true })
+                props.tooltips?.show(target, {
+                  x: 0, y: 0, boundary: canvasEl,
+                  paintedRect: () => {
+                    const viewport = editorViewport()
+                    const canvas = canvasEl.getBoundingClientRect()
+                    const hit = (item().target as typeof target)!.hit
+                    const { node, row } = hit
+                    return new DOMRect(canvas.left + node.x * viewport.scale + viewport.x,
+                      canvas.top + (node.y + row.y) * viewport.scale + viewport.y,
+                      node.layout.width * viewport.scale, row.height * viewport.scale)
+                  },
+                }, undefined, true, tooltipOwner)
               }}
-              onBlur={() => props.tooltips?.hide()}
+              onBlur={() => { if (rowFocus()?.tooltipOnly) setRowFocus(undefined); props.tooltips?.hide() }}
             >{item().label}</ProductButton>
             )
           }}</For>
@@ -7110,7 +7946,24 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         />
       </Show>
       <CanvasCornerControls
-        ref={(element) => { cornerControlsEl = element }}
+        ref={(element) => {
+          cornerControlsEl = element
+          onMount(() => {
+            const stage = element.closest<HTMLElement>('.canvas-stage')!
+            const measure = (): void => {
+              const inset = stage.getBoundingClientRect().bottom - element.getBoundingClientRect().top
+              stage.style.setProperty('--canvas-corner-inset', `${inset}px`)
+            }
+            const observer = new ResizeObserver(measure)
+            observer.observe(element)
+            observer.observe(stage)
+            measure()
+            onCleanup(() => {
+              observer.disconnect()
+              stage.style.removeProperty('--canvas-corner-inset')
+            })
+          })
+        }}
         minimapRef={(element) => { minimapEl = element }}
         size={(settingsTick(), props.app.settings.get<string>('canvas.minimap.size'))}
         minimapVisible={minimapVisible()}
@@ -7134,6 +7987,29 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         onZoomBy={(factor) => zoomCanvas?.(factor)}
         onZoomTo={(scale) => zoomCanvasTo?.(scale)}
       />
+
+      <Show when={missingModels().length > 0}>
+        <div ref={placeFrozenLine} class="frozen-banner" data-testid="missing-models-banner" role="status">
+          <span class="frozen-words">
+            <Icon icon={TriangleAlert} />
+            <span class="frozen-label">{message('modelPresence.missingSummary', { count: missingModels().length })}</span>
+            <Show when={missingModelAmount()}>{(amount) => <span class="frozen-sync">{amount()}</span>}</Show>
+          </span>
+          <span class="canvas-chrome-divider" aria-hidden="true" />
+          <ProductButton variant="ghost" type="button" class="canvas-chrome-button frozen-action"
+            onClick={() => {
+              const tab = activeTab()
+              if (!tab) return
+              const backend = props.app.backendForTab(tab)
+              props.app.openModelDownloads(backend, missingModels(), { tab, workflowTitle: tab.title,
+                missing: missingModels(),
+                stillCurrent: () => backend.protocol === 'dinkster' && backend.templatesEnabled.get(),
+              })
+            }}
+          >{message('modelDownloads.title')}</ProductButton>
+        </div>
+      </Show>
+      <Show when={activeTab()?.id} keyed>{(_id) => <FixesNotice app={props.app} tab={activeTab()!} />}</Show>
 
       <Show when={frozenInfo()}>
         {(f) => (
@@ -7214,8 +8090,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             entries={paletteEntries}
             recentTypes={recentNodeTypes}
             widgetRegistry={widgetRegistry()}
+            catalogRecovery={registry()?.schemas.size === 0 && activeTab() !== undefined
+              ? <Show when={props.app.backendForTab(activeTab()!)} keyed>{(backend) => <NodeCatalogRecovery app={props.app} backend={backend} />}</Show>
+              : undefined}
             bounds={() => canvasClientRect()}
-            onCommit={(entry) => paletteCommit(entry)}
+            onCommit={async (entry) => {
+              if (entry.install !== undefined) {
+                const anchor = palette()
+                if (await runSearchAction(props.app, entry.install) && palette() === anchor) closePalette()
+              } else paletteCommit(entry)
+            }}
+            onRemoveLinkDrop={() => {
+              const anchor = palette()
+              if (anchor === undefined) return
+              const { linkDrop: _drop, ...ordinary } = anchor
+              clearPaletteGhost()
+              setPalette(ordinary)
+            }}
             onHelp={(entry) => {
               const tab = activeTab()
               if (tab && props.app.openNodeHelp(tab, entry.type)) closePalette()
@@ -7272,6 +8163,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   nodeId={box().nodeId}
                   nodeTitle={box().nodeTitle}
                   lines={box().lines}
+                  lastRun={box().runLevel === 'error' && lastRunNodes.has(box().nodeId)}
                   highlighted={box().highlighted}
                   onPointLine={(line) => {
                     const open = problemBox()
@@ -7282,11 +8174,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   onAction={(line, action) => {
                     const open = problemBox()
                     if (!open) return
-                    if (action === 'edit-field' && line.row !== undefined) {
+                    if (action === 'show-log') {
+                      openExecutionLogForNode(open.nodeId)
+                    } else if (action === 'dismiss-run') {
+                      if (open.runLevel === 'error') dismissNodeError(open.nodeId)
+                      else {
+                        const tab = activeTab()
+                        const exec = tab === undefined ? undefined : props.app.executionForTab(tab)
+                        closeProblemBox()
+                        if (exec !== undefined) setDismissedLogTabs((current) => {
+                          const next = new Map(current)
+                          next.set(exec.key, new Set([...(next.get(exec.key) ?? []), `${open.nodeId}\u0000${open.runLevel}`]))
+                          return next
+                        })
+                      }
+                    } else if (action === 'edit-field' && line.row !== undefined) {
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, line.row)
                     } else if (action === 'locate-asset') {
-                      const data = line.problem.diagnostic.data
+                      const data = line.problem!.diagnostic.data
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, data!['input'] as string,
                         typeof data?.['digest'] === 'string' ? data['digest'] : undefined)
@@ -7294,8 +8200,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                       const tab = activeTab()
                       if (tab === undefined) return
                       closeProblemBox()
-                      if (action === 'review-model') props.app.reviewModelDownload(tab, line.problem.diagnostic)
-                      else props.app.openModelStorage(tab, line.problem.diagnostic)
+                      if (action === 'review-model') props.app.reviewModelDownload(tab, line.problem!.diagnostic)
+                      else props.app.openModelStorage(tab, line.problem!.diagnostic)
                     }
                   }}
                 />
@@ -7309,10 +8215,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         {(p) => (
           <BadgePopover
             anchor={p()}
-            errors={nodeErrors}
-            nodeLogs={nodeRunLogs}
-            onDismissError={dismissNodeError}
-            onOpenExecutionLog={openExecutionLogForNode}
             problems={problemMessages}
             subgraphInfo={subgraphInfoFor}
             deprecationInfo={deprecationInfoFor}
@@ -7395,7 +8297,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
 
       <Show when={rowFocus()}>
-        {(focus) => <RowFocusOverlay focus={focus()} viewport={editorViewport} boundary={canvasEl.parentElement!} />}
+        {(focus) => <RowFocusOverlay focus={focus()} viewport={editorViewport} boundary={canvasEl.parentElement!} onKeyDown={onRowFocusKey} onClose={(restoreFocus) => {
+          setRowFocus(undefined)
+          if (restoreFocus) canvasEl.focus()
+        }} onRepresentation={(id) => {
+          const representation = focus().representation
+          const tab = activeTab()
+          if (representation === undefined || tab === undefined || tab.id !== focus().tabId) return
+          void props.app.dispatchTo(tab, { command: 'view.setWidgetRepresentation', params: {
+            graphId: representation.graphId,
+            nodeId: representation.nodeId,
+            inputId: representation.inputId,
+            representation: id,
+          } })
+        }} />}
       </Show>
 
       <Show when={editor()} keyed>
@@ -7416,6 +8331,93 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               if (editorRestoresCanvasFocus(ed)) queueMicrotask(() => canvasEl.focus())
             }}
           />
+        )}
+      </Show>
+
+      <For each={[...buttonPresses.states().values()].filter((state) => state.box !== undefined && shownOnThisGraph(state.place))}>
+        {(state) => (
+          <Show when={buttonScreenRect(state.place, true)}>
+            {(rect) => <ButtonBoxView box={state.box!} under={rect()} {...(state.place.menu ? {} : {
+              gap: defaultTokens.rowGeometry.fieldInsetY * editorViewport().scale,
+              onHeight: (height: number) => measureButtonBox(state.box!, height),
+            })} />}
+          </Show>
+        )}
+      </For>
+      {/* A menu button has no row to draw its work on, so it shows under its node with Cancel. */}
+      <For each={[...buttonPresses.states().values()].filter((state) => state.place.menu && state.box === undefined && shownOnThisGraph(state.place))}>
+        {(state) => (
+          <Show when={buttonScreenRect(state.place)}>
+            {(rect) => (
+              <ButtonBoxView
+                box={{ tone: 'info', message: `${state.busy ?? state.place.label ?? state.place.button}...` }}
+                under={rect()}
+                testId="button-menu-working"
+                onCancel={() => buttonPresses.cancel(state.place)}
+              />
+            )}
+          </Show>
+        )}
+      </For>
+      <Show when={buttonHover()} keyed>
+        {(hover) => (
+          <Show when={shownOnThisGraph(hover.place) ? buttonScreenRect(hover.place) : undefined}>
+            {(rect) => <ButtonBoxView box={hover.box} under={rect()} testId="button-reason" />}
+          </Show>
+        )}
+      </Show>
+      <Show when={askForm()} keyed>
+        {(form) => (
+          <Show when={(sceneVersion(), buttonFieldBox(form.place))}>
+            {(box) => (
+              <ButtonAskForm
+                request={form.request}
+                box={box()}
+                menu={form.place.menu === true}
+                viewport={editorViewport}
+                boundary={canvasEl.parentElement!}
+                widgetKind={(type) => props.app.widgetRegistryForTab(form.place.tab).kind(type)}
+                editRow={(row, at, value, set) => {
+                  const world = clientRectToWorld(at.row)
+                  const formWorld = clientRectToWorld(at.form)
+                  if (world === undefined || formWorld === undefined) return
+                  const spec = row.widget
+                  // The rows a node edits in place open in place here too; the form stands for the node.
+                  const view = spec === undefined ? undefined : props.app.widgetRegistryForTab(form.place.tab).kind(spec.widgetType)?.defaultView(spec)
+                  const inRow = view !== undefined && editsRowsInPlace() && spec?.remote === undefined &&
+                    ['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor', 'core.select'].includes(view)
+                  // A form drawn at normal size while zoomed out spans more of the world than it covers on screen.
+                  const zoom = Math.max(1, editorViewport().scale)
+                  askRowTarget = { kind: 'local', commit: set, cancel: () => {} }
+                  setEditor({
+                    tab: form.place.tab,
+                    graphId: form.place.graphId,
+                    label: row.displayName ?? row.id,
+                    target: askRowTarget,
+                    spec,
+                    multiline: false,
+                    rect: inRow ? { x: world.x, y: world.y, width: at.row.width / zoom, height: at.row.height / zoom } : world,
+                    ...(inRow ? { inRow: {
+                      look: box().look,
+                      nodeTop: formWorld.y,
+                      nodeBottom: formWorld.y + formWorld.height,
+                      storedAtOpen: value ?? null,
+                      ...(row.tooltip === undefined ? {} : { help: row.tooltip }),
+                    } } : {}),
+                    initial: value,
+                  })
+                }}
+                onAnswer={form.answer}
+              />
+            )}
+          </Show>
+        )}
+      </Show>
+      <Show when={linkConfirm()} keyed>
+        {(confirm) => (
+          <Show when={buttonScreenRect(confirm.place)}>
+            {(rect) => <ButtonLinkConfirm url={confirm.url} under={rect()} onAnswer={confirm.answer} />}
+          </Show>
         )}
       </Show>
     </>

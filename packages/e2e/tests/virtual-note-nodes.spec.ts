@@ -73,8 +73,8 @@ test('notes render, persist, copy atomically, and never reach the backend', asyn
 
   await page.mouse.dblclick(700, 600)
   await page.getByTestId('palette-search').fill('Markdown Note')
-  await expect(page.locator('[data-node-type="dinkster.markdown_note"]')).toBeVisible()
-  await page.locator('[data-node-type="dinkster.markdown_note"]').click()
+  await expect(page.locator('[data-key="entry:dinkster.markdown_note"]')).toBeVisible()
+  await page.locator('[data-key="entry:dinkster.markdown_note"]').click()
   await page.mouse.click(700, 600)
   await expect
     .poll(() =>

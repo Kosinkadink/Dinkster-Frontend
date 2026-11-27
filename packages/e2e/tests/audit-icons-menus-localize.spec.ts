@@ -44,7 +44,7 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
         },
         shared: {
           id: 'shared', name: 'Shared', nodes: {}, links: {}, nets: {}, reroutes: {},
-          boundary: { inputs: [], outputs: [] }, nextOrdinal: 0,
+          boundary: { body: [] }, nextOrdinal: 0,
         },
         loopBody: {
           id: 'loopBody', name: 'Loop body',
@@ -54,10 +54,10 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
           },
           links: {}, nets: {}, reroutes: {},
           boundary: {
-            inputs: [{ id: 'state', binds: { kind: 'port', node: 'state', port: 'value' } }],
-            outputs: [
-              { id: 'result', binds: { kind: 'port', node: 'state', port: 'FLOAT' } },
-              { id: 'continue', binds: { kind: 'port', node: 'condition', port: 'BOOLEAN' } },
+            body: [
+              { kind: 'input', id: 'state', binds: { kind: 'port', node: 'state', port: 'value' } },
+              { kind: 'output', id: 'result', binds: { kind: 'port', node: 'state', port: 'FLOAT' } },
+              { kind: 'output', id: 'continue', binds: { kind: 'port', node: 'condition', port: 'BOOLEAN' } },
             ],
           },
           nextOrdinal: 2,
@@ -94,9 +94,9 @@ test('icons, shortcut pills, localize, linked counts, and region tooltips compos
 
   await page.mouse.click(...Object.values(await nodePoint(page, 'first')) as [number, number], { button: 'right' })
   await expect(page.locator('[data-item-id="core.node.localize"] [data-testid="menu-icon"] svg')).toBeVisible()
-  await expect(page.locator('[data-item-id="core.subgraph.extract"] [data-testid="menu-shortcut"]')).toHaveText('ctrl+shift+e')
-  await expect(page.locator('[data-item-id="core.subgraph.flatten"] [data-testid="menu-shortcut"]')).toHaveText('ctrl+shift+f')
-  await expect(page.locator('[data-item-id="core.node.delete"] [data-testid="menu-shortcut"]')).toHaveText('delete')
+  await expect(page.locator('[data-item-id="core.subgraph.extract"] [data-testid="menu-shortcut"]')).toHaveText('Ctrl+Shift+E')
+  await expect(page.locator('[data-item-id="core.subgraph.flatten"] [data-testid="menu-shortcut"]')).toHaveText('Ctrl+Shift+F')
+  await expect(page.locator('[data-item-id="core.node.delete"] [data-testid="menu-shortcut"]')).toHaveText('Delete')
   await page.locator('[data-item-id="core.node.localize"]').hover()
   await page.keyboard.press('Enter')
 

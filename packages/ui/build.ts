@@ -2,6 +2,7 @@ import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import components from '@dinkster/branding/components' with { type: 'json' }
 import { semanticCssRoot } from '@dinkster/core/tokens'
+import { canvasPaintTokens, defaultTokens } from '@dinkster/canvas'
 
 const root = new URL('./', import.meta.url)
 const dist = new URL('dist/', root)
@@ -16,6 +17,8 @@ const geometry = Object.fromEntries(
     `${value}px`,
   ]),
 )
+geometry['search-pin-size'] = `${defaultTokens.pinRadius * 2}px`
+geometry['search-list-pin-size'] = `${defaultTokens.pinRadius * 2 * canvasPaintTokens.pin.diamondScale}px`
 const siteGeometry = Object.fromEntries(
   Object.entries(components.siteLayout).map(([key, value]) => [
     `site-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`,

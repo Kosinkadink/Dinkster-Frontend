@@ -23,6 +23,7 @@ import {
 } from '../src/schema/elaborate.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import type { BodyRow, GroupSpec, InputSpec, NodeSchema } from '../src/schema/model.js'
+import { boundaryItems, boundaryOf } from '../src/format/document.js'
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -670,7 +671,7 @@ describe('dynamic.compact', () => {
     const g = graph({
       id: 'g0',
       nodes: { n1: node('n1', { dynamic: state }) },
-      boundary: { inputs: [{ id: 'in', binds: { kind: 'port', ...port('n1', 'images.m1') } }], outputs: [] },
+      boundary: boundaryOf([{ id: 'in', binds: { kind: 'port', ...port('n1', 'images.m1') } }], []),
     })
     const store = makeStore(doc({ g0: g }))
     store.dispatch({ command: 'dynamic.compact', params: { graphId: 'g0', nodeId: 'n1' } })
@@ -986,7 +987,7 @@ describe('materializeFramesOf', () => {
 })
 
 describe('a count that shrinks', () => {
-  it('removes the wires, nets and forwards on the outputs of the members past it, in the same undo step', () => {
+  it('keeps wired later outputs, nets and forwards in the same undo step', () => {
     const field = (id: string): InputSpec => ({
       ...socketInput(id, 'INT'), widget: { widgetType: 'INT', options: {}, default: 1 },
     })
@@ -1005,17 +1006,18 @@ describe('a count that shrinks', () => {
         link('out', port('n1', 'items.item2.image'), 'c'),
       ]),
       nets: { net: { id: asNetId('net'), name: 'second', source: port('n1', 'items.item1.image'), sinks: [port('n2', 'd')] } },
-      boundary: { inputs: [], outputs: [
+      boundary: boundaryOf([], [
         { id: 'first', binds: { kind: 'widgetTap', node: asNodeId('n1'), tap: asPortId('items.item0.amount') } },
         { id: 'third', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('items.item2.image') } },
-      ] },
+        { id: 'fourth', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('items.item3.image') } },
+      ]),
     }) })
     const store = new DocumentStore(initial, coreCommandRegistry(), 200, undefined,
       () => ({ kind: 'initial', schemaResolverFor: () => (type) => type === 'Batch' ? schema : undefined }))
     expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'count', value: 1 } }).ok).toBe(true)
-    expect(Object.keys(store.doc.graphs['g0']!.links)).toEqual(['kept'])
-    expect(store.doc.graphs['g0']!.nets).toEqual({})
-    expect(store.doc.graphs['g0']!.boundary!.outputs.map((item) => item.id)).toEqual(['first'])
+    expect(store.doc.graphs['g0']!.links).toEqual(initial.graphs['g0']!.links)
+    expect(store.doc.graphs['g0']!.nets).toEqual(initial.graphs['g0']!.nets)
+    expect(store.doc.graphs['g0']!.boundary).toEqual(initial.graphs['g0']!.boundary)
     expect(store.undo()).toBe(true)
     expect(store.doc).toEqual(initial)
     // A count that grows removes nothing.

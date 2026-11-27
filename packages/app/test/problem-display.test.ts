@@ -1,16 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import {
+  asConnectionId,
   asGraphDefId,
   asLineageId,
   asNodeId,
   asPortId,
+  asPromptId,
+  compile,
+  DinksterNormalizer,
   diag,
   type DiagnosticOrigin,
   type NodeSchema,
   type WorkflowDocument,
 } from '@dinkster/core'
 import { outputRowKey } from '@dinkster/canvas'
-import { composeCanvasProblemDiagnostics, deriveNodeProblems, deriveProblemProjection, groupProblemDiagnostics, problemDisplay } from '../src/problem-display.js'
+import { ExecutionStore } from '@dinkster/client'
+import { composeCanvasProblemDiagnostics, deriveNodeProblems, deriveProblemProjection, executionProblemDiagnostics, groupProblemDiagnostics, problemDisplay } from '../src/problem-display.js'
+import { problemBoxLines } from '../src/problem-box.js'
 
 const schema: NodeSchema = {
   type: 'Sampler',
@@ -70,6 +76,47 @@ const diagnostic = (refs?: Parameters<typeof diag>[4]) =>
   diag('error', 'command', 'link.connect', "link.connect: unknown port 'model'", refs)
 
 describe('problemDisplay', () => {
+  it('keeps coded run warnings on their occurrence through replay and log eviction without failing the run', () => {
+    const doc = subgraphDocument()
+    const compiled = compile({ document: { ...doc, graphs: { ...doc.graphs,
+      inner: { ...doc.graphs.inner!, boundary: { body: [] } },
+    } }, revision: 1, resolve: (type) => type === schema.type ? { ...schema,
+      body: schema.body.map((row) => row.kind === 'input' ? { ...row, optional: true } : row),
+    } : undefined, scope: { kind: 'partial', targets: [{ instancePath: [asNodeId('instance')], node: asNodeId('nested') }] },
+      connection: asConnectionId('local'), schemaHash: 'test', graphFeatures: ['regions'] })
+    expect(compiled.ok, JSON.stringify(compiled)).toBe(true)
+    if (!compiled.ok) throw new Error('compile failed')
+    const store = new ExecutionStore()
+    const normalizer = new DinksterNormalizer(asConnectionId('local'), () => 1)
+    const execution = { connection: asConnectionId('local'), prompt: asPromptId('run') }
+    const warning = { type: 'node_event', jobId: 'run', nodeId: 'instance.nested', event: 'log', seq: 1,
+      data: { level: 'warning', code: 'unpack_count_mismatch', message: 'Expected 3 items; received 1' } }
+    for (const event of normalizer.normalize(warning)) store.apply(event)
+    for (const event of normalizer.normalize(warning)) store.apply(event)
+    for (const event of normalizer.normalize({ ...warning, seq: 2,
+      data: { ...warning.data, origin: 'stderr', message: 'Captured warning' } })) store.apply(event)
+    for (const event of normalizer.normalize({ ...warning, seq: 3,
+      data: { level: 'warning', message: 'Uncoded warning' } })) store.apply(event)
+    store.apply({ kind: 'completed', execution, timestamp: 2 })
+    store.register(execution, compiled.artifact)
+    for (let seq = 4; seq < 2005; seq++) store.apply({ kind: 'log', execution, timestamp: 3,
+      seq, level: 'info', message: 'Progress' })
+    for (const event of normalizer.normalize({ ...warning, seq: 0,
+      data: { ...warning.data, message: 'Old replay' } })) store.apply(event)
+    const state = store.get(execution)!
+    expect(state.status).toBe('completed')
+    expect(state.errors).toEqual([])
+    expect(state.logs.some((entry) => entry.code === 'unpack_count_mismatch')).toBe(false)
+    const diagnostics = executionProblemDiagnostics(state)
+    expect(diagnostics).toEqual([expect.objectContaining({ severity: 'warning',
+      code: 'runtime.unpack_count_mismatch', message: 'Expected 3 items; received 1',
+      anchor: { execution, occurrence: { instancePath: ['instance'], node: 'nested' } },
+    })])
+    const projection = deriveProblemProjection({ diagnostics, document: doc, graphId: 'inner', instancePath: ['instance'] })
+    expect(projection.nodes.nested).toEqual([expect.objectContaining({ kind: 'warning' })])
+    expect(deriveProblemProjection({ diagnostics, document: doc, graphId: 'g0', instancePath: [] }).nodes.nested).toBeUndefined()
+  })
+
   it('prefers a user title while preserving actor-suffixed raw ids', () => {
     const d = diagnostic({ refs: [{ graphId: 'g0', nodeId: 'n5-a1b2' }] })
     expect(problemDisplay(d, document('My sampler'), registry)).toBe(
@@ -92,21 +139,67 @@ describe('problemDisplay', () => {
     expect(shown).toContain('output "Generated image" (image)')
   })
 
+  it('keeps a solver sentence already named for the reader without adding ids or a second title', () => {
+    const d = diag('warning', 'schema', 'solve.linkMismatch', 'My sampler: Model input needs MODEL, but Load image sends an image.', {
+      refs: [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'model', direction: 'input' }],
+      data: { nodeMessage: 'Model input needs MODEL, but Load image sends an image.' },
+    })
+    expect(problemDisplay(d, document('My sampler'), registry)).toBe(d.message)
+    const ordinary = diag('error', 'validation', 'field.invalid', 'Model is missing.', { refs: d.refs!, data: { nodeMessage: 3 } })
+    const projection = deriveProblemProjection({ diagnostics: [d, ordinary], graphId: 'g0', instancePath: [] })
+    expect(deriveProblemProjection({ diagnostics: [d], graphId: 'g0', instancePath: [] }).rows)
+      .toEqual({ 'n5-a1b2': { model: 'warning' } })
+    const lines = problemBoxLines(projection.nodes['n5-a1b2']!, [{ key: 'model', name: 'Model input', field: true }], (row) => row,
+      (line) => problemDisplay(line.diagnostic, document('My sampler'), registry))
+    expect(lines).toMatchObject([
+      { kind: 'error', row: 'model', rowName: 'Model input', message: problemDisplay(ordinary, document('My sampler'), registry), actions: ['edit-field'] },
+      { kind: 'warning', row: 'model', message: d.data!['nodeMessage'], actions: ['edit-field'] },
+    ])
+    expect(lines[1]?.rowName).toBeUndefined()
+  })
+
 })
 
 describe('groupProblemDiagnostics', () => {
-  it('maps every origin to the five ordered user actions, including information notices', () => {
+  it.each([false, true])('shows one selected-type cause on both surfaces, reversed=%s', (reversed) => {
+    const refs = [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'model', direction: 'input' as const }]
+    const data = { sourceNode: 'producer', sourcePort: 'latent' }
+    const mismatch = diag('warning', 'schema', 'solve.linkMismatch', 'Choose model: Source needs an image, but Load latent sends latent data.', {
+      refs, data: { ...data, nodeMessage: 'Source needs an image, but Load latent sends latent data.' },
+    })
+    const selected = diag('warning', 'schema', 'solve.slot.staleSpecialization', 'Choose model: Source is set to image, but Load latent sends latent data.', {
+      refs, data: { ...data, nodeMessage: 'Source is set to image, but Load latent sends latent data.' },
+    })
+    const diagnostics = reversed ? [selected, mismatch] : [mismatch, selected]
+    expect(groupProblemDiagnostics(diagnostics)[0]?.diagnostics).toEqual([selected])
+    const projection = deriveProblemProjection({ diagnostics, graphId: 'g0', instancePath: [] })
+    expect(projection.nodes['n5-a1b2']).toEqual([{ kind: 'warning', row: 'model', diagnostic: selected }])
+    expect(projection.rows).toEqual({ 'n5-a1b2': { model: 'warning' } })
+    expect(problemBoxLines(projection.nodes['n5-a1b2']!, [{ key: 'model', name: 'source', field: true }], (row) => row))
+      .toMatchObject([{ row: 'model', message: selected.data!['nodeMessage'], actions: ['edit-field'], problem: { diagnostic: selected } }])
+    expect(diagnostics).toHaveLength(2)
+    for (const other of [
+      { ...mismatch, data: { ...mismatch.data, sourceNode: 'other' } },
+      { ...mismatch, data: { ...mismatch.data, sourcePort: 'other' } },
+      { ...mismatch, refs: [{ ...refs[0]!, portId: 'other' }] },
+      { ...mismatch, refs: [{ ...refs[0]!, graphId: 'other' }] },
+      { ...mismatch, anchor: { occurrence: { node: asNodeId('n5-a1b2'), instancePath: [asNodeId('other')] } } },
+      { ...mismatch, severity: 'error' as const },
+    ]) expect(groupProblemDiagnostics([other, selected])[0]?.diagnostics).toEqual([other, selected])
+  })
+
+  it('maps every origin to the four ordered user actions, including information notices', () => {
     const expected = {
       runtime: 'execution', validation: 'execution',
       compile: 'workflow', invariant: 'workflow', environment: 'workflow',
-      import: 'upgrade', schema: 'packs', extension: 'packs', command: 'packs', collab: 'collaboration',
+      import: 'workflow', schema: 'packs', extension: 'packs', command: 'packs', collab: 'collaboration',
     } satisfies Record<DiagnosticOrigin, string>
     const origins = Object.keys(expected) as DiagnosticOrigin[]
     for (const origin of origins) {
       expect(groupProblemDiagnostics([diag('info', origin, 'test', 'Notice')])[0]?.title).toBe(expected[origin])
     }
     const groups = groupProblemDiagnostics(origins.reverse().map((origin) => diag('info', origin, origin, 'Notice')))
-    expect(groups.map((group) => group.title)).toEqual(['execution', 'workflow', 'upgrade', 'packs', 'collaboration'])
+    expect(groups.map((group) => group.title)).toEqual(['execution', 'workflow', 'packs', 'collaboration'])
     expect(groups.every((group) => group.severity === 'info')).toBe(true)
     expect(groupProblemDiagnostics([])).toEqual([])
   })

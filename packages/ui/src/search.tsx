@@ -8,7 +8,9 @@ import {
   type JSX,
 } from 'solid-js'
 import { DraftingCompass, ChevronRight, Search, X, type LucideIcon } from 'lucide-solid'
+import { parseAssetTypeId, parseListTypeId, parseStreamTypeId } from '@dinkster/core'
 import { ProductIcon, ProductSwitch } from './controls.js'
+import { ProductShortcut } from './shortcut.js'
 
 /** A kind of result, shown as a named tab; Tab steps through them. */
 export interface ProductSearchKind {
@@ -56,17 +58,77 @@ export interface ProductSearchGroup {
   readonly note?: string
 }
 
-/** One key hint along the bottom. */
+/** Alternative shortcuts for one action along the bottom. */
 export interface ProductSearchHint {
   readonly keys: readonly string[]
   readonly label: string
 }
 
-/** The chip at the start of the field, such as the type a dropped wire carries. */
+/** A requirement before the query, such as the type a dropped wire carries. */
 export interface ProductSearchChip {
   readonly label: string
+  readonly name: string
+  readonly direction: 'takes' | 'gives'
+  /** The wire's paint, supplied by the caller from its type palette. */
+  readonly color?: string
+  readonly shape?: 'circle' | 'diamond'
   readonly removeLabel: string
   readonly onRemove: () => void
+}
+
+/** Plain words for a search type; canonical ids remain the filter values. */
+export function productSearchTypeName(type: string): string {
+  const list = parseListTypeId(type)
+  if (list !== undefined) return `${productSearchTypeName(list)} list`
+  const asset = parseAssetTypeId(type)
+  if (asset !== undefined) return `${productSearchTypeName(asset)} file`
+  const stream = parseStreamTypeId(type)
+  if (stream !== undefined) return `${productSearchTypeName(stream)} stream`
+  return type
+}
+
+/** A type's list and file forms stay directly beneath it, including nested forms. */
+export function productSearchTypeOptions(types: Iterable<string>): string[] {
+  const children = new Map<string, Set<string>>()
+  const add = (type: string) => {
+    const parent = parseListTypeId(type) ?? parseAssetTypeId(type) ?? parseStreamTypeId(type)
+    if (parent !== undefined) add(parent)
+    const group = children.get(parent ?? '') ?? new Set<string>()
+    group.add(type)
+    children.set(parent ?? '', group)
+  }
+  for (const type of types) add(type)
+  const rank = (type: string) => parseListTypeId(type) !== undefined ? 0 : parseAssetTypeId(type) !== undefined ? 1 : 2
+  const ordered: string[] = []
+  const append = (parent: string) => {
+    for (const type of [...(children.get(parent) ?? [])].sort((a, b) => rank(a) - rank(b) || productSearchTypeName(a).localeCompare(productSearchTypeName(b)))) {
+      ordered.push(type)
+      append(type)
+    }
+  }
+  append('')
+  return ordered
+}
+
+/** Inputs put the wire pin before the type word; outputs put it after. */
+export function ProductSearchTypeLabel(props: {
+  label: string
+  direction: 'takes' | 'gives'
+  color?: string | undefined
+  shape?: 'circle' | 'diamond' | undefined
+}) {
+  const dot = () => (
+    <svg class="dinkster-search-chip-dot" data-shape={props.shape ?? 'circle'} viewBox="0 0 8 8" aria-hidden="true">
+      <Show when={props.shape === 'diamond'} fallback={<circle cx="4" cy="4" r="4" fill={props.color ?? 'currentColor'} />}>
+        <path d="M4 0 8 4 4 8 0 4Z" fill={props.color ?? 'currentColor'} />
+      </Show>
+    </svg>
+  )
+  return <span class="dinkster-search-type-label" data-direction={props.direction}>
+    <Show when={props.direction === 'takes'}>{dot()}</Show>
+    <span>{props.label}</span>
+    <Show when={props.direction === 'gives'}>{dot()}</Show>
+  </span>
 }
 
 /** The keys of every row the keyboard can reach, in the order they are drawn. */
@@ -168,7 +230,7 @@ export function ProductSearch(props: {
   query: string
   onQuery: (text: string) => void
   placeholder?: string
-  chip?: ProductSearchChip
+  chips?: readonly ProductSearchChip[]
   kinds?: readonly ProductSearchKind[]
   kind?: string
   onKind?: (id: string) => void
@@ -182,6 +244,8 @@ export function ProductSearch(props: {
   onClose?: () => void
   /** Words to mark in titles; the query when absent. */
   markQuery?: string
+  /** Recovery for the whole catalog, above any usable rows. Suppresses no-match copy. */
+  notice?: JSX.Element
   /** Shown in the list's place while it has no rows. */
   empty?: { title: string; detail?: string }
   hints?: readonly ProductSearchHint[]
@@ -217,7 +281,7 @@ export function ProductSearch(props: {
     const row = currentRow()
     const count = rows().filter((item) => (item.kind ?? 'result') === 'result').length
     return row === undefined
-      ? props.empty?.title ?? ''
+      ? props.notice === undefined ? props.empty?.title ?? '' : ''
       : `${count} results. ${row.title}.`
   }
   const stepKind = (step: 1 | -1): boolean => {
@@ -242,29 +306,33 @@ export function ProductSearch(props: {
       const key = current()
       if (key !== undefined) props.onActivate(key)
     } else if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) {
-      if (stepKind(event.shiftKey ? -1 : 1)) event.preventDefault()
+      if (props.notice === undefined && stepKind(event.shiftKey ? -1 : 1)) event.preventDefault()
     } else if (event.key === 'Escape' && props.onClose !== undefined) {
       event.preventDefault()
       event.stopPropagation()
       props.onClose()
     } else if (
       event.key === 'Backspace' &&
-      props.chip !== undefined &&
-      input.selectionStart === 0 &&
-      input.selectionEnd === 0
+      props.query === '' &&
+      (props.chips?.length ?? 0) > 0
     ) {
       event.preventDefault()
-      props.chip.onRemove()
+      props.chips!.at(-1)!.onRemove()
     }
   }
   createEffect(() => {
     const key = current()
     if (key === undefined) return
-    queueMicrotask(() =>
-      list
-        ?.querySelector<HTMLElement>(`#${CSS.escape(optionId(key))}`)
-        ?.scrollIntoView?.({ block: 'nearest' }),
-    )
+    queueMicrotask(() => {
+      const row = list?.querySelector<HTMLElement>(`#${CSS.escape(optionId(key))}`)
+      if (row === undefined || row === null) return
+      const bounds = row.getBoundingClientRect()
+      const top = list.getBoundingClientRect().top + list.clientTop
+      const bottom = top + list.clientHeight
+      // Reveal results without scrolling the host and dismissing its menus.
+      if (bounds.top < top) list.scrollTop += bounds.top - top
+      else if (bounds.bottom > bottom) list.scrollTop += bounds.bottom - bottom
+    })
   })
   /**
    * The floating preview's top stays level with the top of the results, so
@@ -334,14 +402,14 @@ export function ProductSearch(props: {
                 <Show when={row.detailIcon}>
                   {(icon) => <ProductIcon icon={icon()} />}
                 </Show>
-                {detail()}
+                <span>{detail()}</span>
               </span>
             )}
           </Show>
           <Show when={row.keys}>
             {(chips) => (
               <span class="dinkster-search-row-keys">
-                <For each={chips()}>{(key) => <kbd class="dinkster-key">{key}</kbd>}</For>
+                <ProductShortcut keys={chips()} />
               </span>
             )}
           </Show>
@@ -376,17 +444,17 @@ export function ProductSearch(props: {
       <div class="dinkster-search-panel">
         <div class="dinkster-search-field">
           <ProductIcon icon={Search} />
-          <Show when={props.chip}>
+          <For each={props.chips}>
             {(chip) => (
-              <span class="dinkster-search-chip">
-                <span>{chip().label}</span>
+              <span class="dinkster-search-chip" role="group" aria-label={chip.name} title={chip.name}>
+                <ProductSearchTypeLabel label={chip.label} direction={chip.direction} color={chip.color} shape={chip.shape} />
                 <button
                   type="button"
                   class="dinkster-search-chip-remove"
-                  aria-label={chip().removeLabel}
+                  aria-label={chip.removeLabel}
                   onPointerDown={(event) => event.preventDefault()}
                   onClick={() => {
-                    chip().onRemove()
+                    chip.onRemove()
                     input.focus()
                   }}
                 >
@@ -394,7 +462,7 @@ export function ProductSearch(props: {
                 </button>
               </span>
             )}
-          </Show>
+          </For>
           <input
             ref={(element) => {
               input = element
@@ -449,6 +517,8 @@ export function ProductSearch(props: {
           </div>
         </Show>
         <div class="dinkster-search-body">
+          <div class="dinkster-search-results">
+          <Show when={props.notice}>{(notice) => <div class="dinkster-search-notice">{notice()}</div>}</Show>
           <div
             ref={list}
             id={listId}
@@ -456,7 +526,7 @@ export function ProductSearch(props: {
             role="listbox"
             aria-label={props.label}
           >
-            <For each={props.groups}>
+            <For each={props.groups.filter((group) => group.rows.length > 0 || group.note !== undefined)}>
               {(group) => {
                 const heading = `${id}-group-${encodeURIComponent(group.key).replace(/%/gu, '_')}`
                 return (
@@ -464,9 +534,9 @@ export function ProductSearch(props: {
                     class="dinkster-search-group"
                     data-group={group.key}
                     role="group"
-                    aria-labelledby={group.label === undefined ? undefined : heading}
+                    aria-labelledby={group.label === undefined || group.rows.length === 0 ? undefined : heading}
                   >
-                    <Show when={group.label}>
+                    <Show when={group.rows.length > 0 ? group.label : undefined}>
                       {(label) => (
                         <div class="dinkster-search-group-heading" id={heading}>
                           <span>{label()}</span>
@@ -484,16 +554,17 @@ export function ProductSearch(props: {
                 )
               }}
             </For>
-            <Show when={keys().length === 0 && props.empty}>
-              {(empty) => (
-                <div class="dinkster-search-empty">
-                  <p class="dinkster-search-empty-title">{empty().title}</p>
-                  <Show when={empty().detail}>
-                    {(detail) => <p class="dinkster-search-note">{detail()}</p>}
-                  </Show>
-                </div>
-              )}
-            </Show>
+          </div>
+          <Show when={keys().length === 0 && props.notice === undefined && props.empty}>
+            {(empty) => (
+              <div class="dinkster-search-empty">
+                <p class="dinkster-search-empty-title">{empty().title}</p>
+                <Show when={empty().detail}>
+                  {(detail) => <p class="dinkster-search-note">{detail()}</p>}
+                </Show>
+              </div>
+            )}
+          </Show>
           </div>
           <Show when={props.preview !== undefined && props.previewPlace !== 'floating'}>
             <aside class="dinkster-search-preview" data-testid="search-preview">
@@ -506,7 +577,9 @@ export function ProductSearch(props: {
             <For each={props.hints}>
               {(hint) => (
                 <span class="dinkster-search-hint">
-                  <For each={hint.keys}>{(key) => <kbd class="dinkster-key">{key}</kbd>}</For>
+                  <For each={hint.keys}>
+                    {(keys) => <ProductShortcut keys={keys} />}
+                  </For>
                   <span>{hint.label}</span>
                 </span>
               )}

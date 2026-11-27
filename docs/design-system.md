@@ -157,10 +157,25 @@ every core tab once.
   blank waiting, centred loading, or a failure notice with a retry button above
   any retained answer. Pass the helper as `page`, the retry `read`, a
   `loadingLabel` and a content render function. Its parent supplies the content
-  area's height; arriving content fades over 200ms unless motion is reduced.
+  area's height; arriving content fades and rises 6px over 240ms unless motion
+  is reduced.
+  For other regions fed by the same `page`, `ProductPageAnswer` takes that
+  helper and a content render function, showing only the retained or arriving
+  answer without another loading sign, error or retry. Keep known headings and
+  actions outside both pieces so they stay mounted through reads and refreshes.
+  Both accept `arrival="fade"` (200ms) or `arrival="rise"` (240ms, 6px upward
+  settling). Both default to rise; callers do not need to choose an arrival.
+  Reduced motion disables both animations.
   `pending` covers the whole read, `value` retains the previous answer during
   refresh, and `error` exposes a failed read. A newer `load` supersedes an older
   completion; Solid owner disposal cancels timers and ignores late answers.
+  A project list can use `ProductProjectListHeader` with an `id` outside the
+  loading region and `ProductProjectRows` with that `labelledBy` inside it;
+  `ProductProjectList` composes both for callers that load them together.
+  Both loading components also accept persistent JSX children that read
+  `page.value()` reactively, preserving interactive rows and focus through
+  refresh completion; render functions instead replace the complete answer.
+  Project fact values also accept these shared answer regions.
 - `ProductButton` names `intent` as add/remove/neutral and `fill` as
   solid/outline, and accepts native button attributes. `ProductIconButton` is
   the quiet, square icon-only control with a required accessible label and the
@@ -186,15 +201,15 @@ every core tab once.
   messages are off; field problems are shown by `ProductField`.
   Changing to another record mounts a new form.
 - `ProductMenu` owns click, outside-click, focus-leave and Escape dismissal,
-  keyboard item movement and opener focus restoration; `fill="quiet"` gives its text trigger the shared borderless quiet fill and retains its hover fill while open, while absent preserves the outlined trigger. Items keep their buttons
+  keyboard item movement and opener focus restoration; optional `filter={{ label, placeholder }}` opens with a shared text field that matches item labels case-insensitively. The first enabled match is highlighted; Up/Down move that highlight and Enter selects, while focus stays in the field. Descriptions do not affect matches, Home/End retain text editing in the field, and reopening clears the query. `fill="quiet"` gives its text trigger the shared borderless quiet fill and retains its hover fill while open, while absent preserves the outlined trigger. Items keep their buttons
   by position, so a host that passes new item objects while the menu is open
   (a count arriving) does not move focus or close it. Disabled items are
   skipped; a disabled-only menu remains keyboard-dismissable. The menu aligns
-  to its trigger's left edge, or to its right edge when it would not fit, and
+  to its trigger's left edge by default, or to its right edge with `align="end"` or when it would not fit, and
   then uses the app's viewport algorithm from `@dinkster/core/floating-surface`
   to clamp and to flip above when needed. Scroll outside or resize dismisses
   the menu rather than leaving a stale anchor. Its document listeners exist
-  only while it is open. Item text follows its intent; optional `description` is a muted second line associated as the item's accessible description, without changing its label. Removal callbacks open a
+  only while it is open. Item text follows its intent; optional non-interactive `labelContent` replaces visible trigger or item text while `label` and `triggerName` retain their accessible names, and `title` supplies the trigger tooltip. Optional `description` is a muted second line associated as the item's accessible description, without changing its label. Removal callbacks open a
   confirmation. Use `iconOnly` with an icon for compact folder actions; the
   label remains the trigger and menu's accessible name. `ProductAccountMenu` shows the person's initial and name on a
   borderless trigger (the initial alone below the breakpoint), reads out name
@@ -849,7 +864,7 @@ narrow node, with incoming values, problems and the pointer readout.
 The default `widgetRowLook: 'raised-editors'` keeps a value typed in its row,
 color included, in an inset field, and raises every row that opens an editor:
 asset, recording, camera, 3D model, crop, compare, save target, video edit,
-list, colors, curve, camera angle and resolution preview. A raised row has a
+list, colors, curve and camera angle. A raised row has a
 lucide icon for its kind and an opening chevron; an output mount is drawn as a
 choice row. A row whose editor is parked (`PARKED_EDITOR_VIEWS`, today the
 compositor's layers) opens nothing, so it is drawn inset with its summary as

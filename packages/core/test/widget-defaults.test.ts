@@ -35,6 +35,9 @@ describe('effectiveWidgetDefault', () => {
     expect(effectiveWidgetDefault(spec('CURVE', {
       default: { interpolation: 'linear', points: [{ position: 0, value: 2 }] },
     }))).toEqual({ interpolation: 'linear', points: [{ position: 0, value: 2 }] })
+    expect(effectiveWidgetDefault(spec('CURVE', {
+      default: { interpolation: 'step', points: [{ position: 0.2, value: 3 }, { position: 0.7, value: -2 }] },
+    }))).toEqual({ interpolation: 'step', points: [{ position: 0.2, value: 3 }, { position: 0.7, value: -2 }] })
     // Falsy explicit defaults are still explicit.
     expect(effectiveWidgetDefault(spec('INT', { default: 0, options: { min: 5 } }))).toBe(0)
     expect(effectiveWidgetDefault(spec('BOOLEAN', { default: false }))).toBe(false)

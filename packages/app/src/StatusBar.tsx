@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { noEngineOpen, type MemoryStatus } from '@dinkster/client'
-import { ProductRunActivity, ProductRunIcon } from '@dinkster/ui'
+import { formatByteSize } from '@dinkster/core'
+import { ProductFixesCount, ProductRunActivity, ProductRunIcon } from '@dinkster/ui'
 import Workflow from 'lucide-solid/icons/workflow'
 import Snowflake from 'lucide-solid/icons/snowflake'
 import Download from 'lucide-solid/icons/download'
@@ -15,38 +16,29 @@ import { ProductButton } from './ProductControls.js'
 import { useAppMessage } from './locale.js'
 import type { PanelIndicator } from './panels.js'
 import { useSignal } from './solid-adapter.js'
-
-function formatBytes(bytes: number | null | undefined): string {
-  if (bytes === null || bytes === undefined) return 'Not reported'
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
-  const sign = bytes < 0 ? '-' : ''
-  let value = Math.abs(bytes)
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++ }
-  return `${sign}${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`
-}
+import type { SetupStatus } from './SetupForm.js'
 
 interface BackgroundTask { readonly key: string; readonly backend: string; readonly text: string }
 
-function BackendTasks(props: { readonly backend: Backend; readonly update: (tasks: readonly BackgroundTask[]) => void }) {
+function BackendTasks(props: { readonly app: AppState; readonly backend: Backend; readonly update: (tasks: readonly BackgroundTask[]) => void }) {
   const message = useAppMessage()
   const composition = useSignal(props.backend.composition)
   const supervisor = useSignal(props.backend.supervisor)
   const connection = useSignal(props.backend.connection.status)
-  const [downloads, setDownloads] = createSignal<readonly BackgroundTask[]>([])
+  const downloadTasks = useSignal(props.app.modelDownloadTasks)
+  const downloads = () => connection() !== 'connected' ? [] : (downloadTasks().get(props.backend) ?? []).map((task) => ({
+    key: task.key, backend: props.backend.label,
+    text: task.queued ? message('shell.status.downloadWaiting', { name: task.name })
+      : message('shell.status.download', { name: task.name, received: formatByteSize(task.received), total: formatByteSize(task.size) }),
+  }))
   const [scans, setScans] = createSignal<readonly BackgroundTask[]>([])
   createEffect(() => {
-    if (connection() !== 'connected') { setDownloads([]); setScans([]); return }
+    if (connection() !== 'connected') { setScans([]); return }
     let live = true
     let timer: ReturnType<typeof setTimeout> | undefined
     const poll = async () => {
       await Promise.all([
-        props.backend.connection.fetchModelDownloads().then(({ jobs }) => {
-          if (live) setDownloads(jobs.filter((job) => !['completed', 'cancelled', 'failed'].includes(job.status)).map((job) => ({
-            key: job.jobId, backend: props.backend.label,
-            text: message('shell.status.download', { name: job.name, received: formatBytes(job.received), total: formatBytes(job.size) }),
-          })))
-        }).catch(() => { if (live) setDownloads([]) }),
+        props.app.modelDownloadsFor(props.backend).refresh(),
         props.backend.connection.fetchMountSettings().then(({ mounts }) => {
           if (live) setScans(mounts.filter((mount) => mount.state === 'pending' || mount.state === 'scanning').map((mount) => ({
             key: mount.id, backend: props.backend.label,
@@ -91,11 +83,11 @@ function MemoryItem(props: { readonly backend: Backend; readonly connected: () =
     return [{ device, name: measurement.gpuName ?? device, used, total: measurement.totalBytes, share: used / measurement.totalBytes }]
   }).sort((a, b) => b.share - a.share))
   const stale = () => sample() !== undefined && connection() === 'connected' && now() - received() > 6000
-  const label = () => `${message('shell.panel.memory.title')}: ${cards().map((card) => `${card.name}: ${formatBytes(card.used)} / ${formatBytes(card.total)}`).join('; ')}${stale() ? ` (${message('shell.status.memoryStale')})` : ''}`
+  const label = () => `${message('shell.panel.memory.title')}: ${cards().map((card) => `${card.name}: ${formatByteSize(card.used)} / ${formatByteSize(card.total)}`).join('; ')}${stale() ? ` (${message('shell.status.memoryStale')})` : ''}`
   return <Show when={props.connected() && connection() === 'connected' && cards()[0]}>{(card) =>
     <ProductButton variant="ghost" size="compact" class="status-item status-memory" data-testid="status-memory"
       data-stale={stale() ? '' : undefined} aria-label={label()} data-tooltip-label={label()} onClick={props.open}>
-      <span aria-hidden="true">{formatBytes(card().used)} / {formatBytes(card().total)}</span>
+      <span aria-hidden="true">{formatByteSize(card().used)} / {formatByteSize(card().total)}</span>
       <svg class="status-memory-track" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true"><rect width={Math.max(0, Math.min(1, card().share)) * 100} height="4" /></svg>
     </ProductButton>
   }</Show>
@@ -111,6 +103,7 @@ export function StatusBar(props: {
   readonly placement: () => string | undefined
   readonly transient: () => string | undefined
   readonly extensions: JSX.Element
+  readonly setupStatus?: () => SetupStatus | undefined
   readonly openPanel: (id: string) => void
   readonly openRuns: () => void
   readonly openAppLog: () => void
@@ -120,6 +113,14 @@ export function StatusBar(props: {
   const backends = useSignal(props.app.backends)
   const backendTick = useSignal(props.app.backendsTick)
   const settings = useSignal(props.app.settings.changed)
+  const adjustmentNotices = useSignal(props.app.adjustmentNotices)
+  // After its cross, the notice leaves only this count until the workflow is saved or closed.
+  const adjusted = () => {
+    const tab = props.tab()
+    const notice = tab === undefined ? undefined : adjustmentNotices().get(tab.id)
+    if (notice === undefined || !notice.dismissed) return 0
+    return notice.adjustments.reduce((total, adjustment) => total + adjustment.count, 0)
+  }
   const [tasks, setTasks] = createSignal<ReadonlyMap<string, readonly BackgroundTask[]>>(new Map())
   const allTasks = createMemo(() => [...tasks().values()].flat())
   const workflowTab = () => {
@@ -151,9 +152,20 @@ export function StatusBar(props: {
   const runLabel = () => `${props.tab()?.title}: ${busy() ? activityLabel() : message('shell.status.noActivity')}${props.tab()?.execution === undefined ? '' : ` - ${message('shell.status.frozen')}`}${runWords() === '' ? '' : ` - ${runWords()}`}`
   const connection = () => {
     backendTick()
-    return noEngineOpen(props.backend().supervisor.get()) ? 'no-engine' : backendConnectionStatus(props.backend())
+    const supervisor = props.backend().supervisor.get()
+    if (noEngineOpen(supervisor) || supervisor?.state === 'stopped') return 'no-engine'
+    if (supervisor?.state === 'starting' || supervisor?.state === 'failed') return supervisor.state
+    return backendConnectionStatus(props.backend())
   }
-  const connectionWords = () => connection() === 'no-engine' ? message('shell.status.noEngine') : connection()
+  const connectionWords = () => {
+    if (props.setupStatus?.() !== undefined) return message(props.setupStatus() === 'setting-up' ? 'shell.status.settingUp' : 'shell.status.notSetUp')
+    switch (connection()) {
+      case 'no-engine': return message('shell.engine.notRunning')
+      case 'starting': return message('shell.engine.starting')
+      case 'failed': return message('shell.engine.failed')
+      default: return connection()
+    }
+  }
   const connectionLabel = () => `${props.backend().label}: ${connectionWords()}`
   const backgroundLabel = () => allTasks().map((task) => `${task.backend}: ${task.text}`).join('; ')
   let footer!: HTMLElement
@@ -171,7 +183,7 @@ export function StatusBar(props: {
     onCleanup(() => { resize.disconnect(); mutation.disconnect() })
   })
   return <>
-    <For each={backends()}>{(backend) => <BackendTasks backend={backend} update={(entries) => setTasks((current) => {
+    <For each={backends()}>{(backend) => <BackendTasks app={props.app} backend={backend} update={(entries) => setTasks((current) => {
       const next = new Map(current); if (entries.length === 0) next.delete(backend.id); else next.set(backend.id, entries); return next
     })} />}</For>
     <footer ref={footer} class="statusbar statusbar-state" data-testid="status-bar" aria-label={message('shell.applicationStatus')}
@@ -182,7 +194,7 @@ export function StatusBar(props: {
         <ProductButton variant="ghost" size="compact" class="status-item status-connection" data-testid="status-connection"
           data-state={connection()} aria-label={connectionLabel()} data-tooltip-label={connectionLabel()} onClick={() => props.openPanel('backends')}>
           <span class="status-connection-dot" aria-hidden="true" /><span class="status-connection-name">{props.backend().label}</span>
-          <Show when={connection() !== 'connected'}><span>{connectionWords()}</span></Show>
+          <Show when={props.setupStatus?.() !== undefined || connection() !== 'connected'}><span>{connectionWords()}</span></Show>
         </ProductButton>
         <Show when={workflowTab()}>
           <ProductButton variant="ghost" size="compact" class="status-item status-run" data-testid="status-run"
@@ -198,12 +210,18 @@ export function StatusBar(props: {
         <Show when={props.problems()}>{(problem) => <ProductButton variant="ghost" size="compact" class="status-item status-problems"
           data-testid="status-problems" data-severity={problem().severity} aria-label={problem().label} data-tooltip-label={problem().label}
           onClick={() => props.openPanel('problems')}>{message('shell.status.problemCount', { count: problem().count })}</ProductButton>}</Show>
+        <Show when={adjusted() > 0}>
+          <span class="status-item status-adjusted" data-testid="status-adjusted">
+            <ProductFixesCount size="compact" count={adjusted()} label={message('fixesNotice.count', { count: adjusted() })}
+              onOpen={() => props.app.reopenAdjustmentNotice(props.tab()!.id)} />
+          </span>
+        </Show>
         <Show when={allTasks().length > 0}><ProductButton variant="ghost" size="compact" class="status-item status-background" data-testid="status-background"
           aria-label={backgroundLabel()} data-tooltip-label={backgroundLabel()} onClick={props.openAppLog}>
           <Icon icon={Download} /><span class="status-background-description">{allTasks().length === 1 ? allTasks()[0]!.text : message('shell.status.tasks', { count: allTasks().length })}</span>
           <span class="status-background-count" aria-hidden="true">{allTasks().length}</span>
         </ProductButton></Show>
-        <Show when={connection() !== 'no-engine' && props.backend().schemaState.get().status !== 'ready'}>
+        <Show when={props.setupStatus?.() === undefined && !['no-engine', 'starting', 'failed'].includes(connection()) && props.backend().connection.status.get() === 'connected' && props.backend().schemaState.get().status !== 'ready'}>
           <span class="status-catalog">{props.backend().schemaState.get().status === 'error' ? message('backendsPanel.schema.unavailable') : message('shell.status.loadingSchemas')}</span>
         </Show>
         <span class="status-extensions" data-testid="status-trailing">{props.extensions}</span>

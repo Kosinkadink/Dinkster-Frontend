@@ -21,7 +21,7 @@ import {
   type Backend,
   type Tab,
 } from '../src/app-state.js'
-import { runsSource, templatesSource, workflowsSource } from '../src/collections.js'
+import { boardsSource, runsSource, templatesSource, workflowsSource } from '../src/collections.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
@@ -114,17 +114,17 @@ async function twoBackends(): Promise<{
 }
 
 describe('owned collection pages', () => {
-  it('a continuation cursor minted by one backend is refused against another', async () => {
+  it.each([['workflow', workflowsSource], ['board', boardsSource]] as const)('%s continuation cursors are refused against another backend', async (kind, source) => {
     const { a, b, tab } = (await twoBackends())
     const listA = vi
       .spyOn(a.connection, 'listLibrary')
       .mockResolvedValue({ records: [record()], cursor: 'pageA2' })
-    const src = workflowsSource(app)
+    const src = source(app)
 
     const page = await src.page({ query: '', limit: 24 })
     expect(page.items[0]!.owner).toBe(a.id)
     expect(page.items[0]!.subtitle).toMatch(/^Modified /)
-    expect(page.items[0]!.details).toContainEqual({ label: 'workflow id', text: 'r1' })
+    expect(page.items[0]!.details).toContainEqual({ label: `${kind} id`, text: 'r1' })
     expect(page.items[0]!.details).toContainEqual({ label: 'backend', text: 'A' })
     expect(page.cursor).toBeDefined()
 
@@ -362,8 +362,10 @@ describe('mid-flight owner loss', () => {
       nodes: { work: { id: 'work', type: 'std.math.add_ints', values: { b: 1 } } },
       links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
       boundary: {
-        inputs: [{ id: 'value', binds: { kind: 'port', node: 'work', port: 'a' } }],
-        outputs: [{ id: 'result', binds: { kind: 'port', node: 'work', port: 'sum' } }],
+        body: [
+          { kind: 'input', id: 'value', binds: { kind: 'port', node: 'work', port: 'a' } },
+          { kind: 'output', id: 'result', binds: { kind: 'port', node: 'work', port: 'sum' } },
+        ],
       },
     }
     template.view.graphs = {

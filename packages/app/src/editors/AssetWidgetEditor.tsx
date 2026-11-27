@@ -1,9 +1,9 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component } from 'solid-js'
-import { assetMultiSelect, type CollectionEntry, type JsonObject } from '@dinkster/core'
+import { assetMultiSelect, formatByteSize, type CollectionEntry, type JsonObject } from '@dinkster/core'
 import type { AssetGuessCandidate } from '@dinkster/client'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
-import { assetSourcesStatus, committableAssetRef, formatSize, mediaAcceptsFile, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
+import { assetSourcesStatus, committableAssetRef, mediaAcceptsFile, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
 import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../asset-browser/localAssetSource.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
@@ -233,10 +233,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   // is not an authoritative model limit, so they render no limit copy
   // (enforcement still applies through assetUploadMaxBytes).
   const assetUploadLimitLabel = classifiedMediaKind === 'media/image'
-    ? '256 MiB per file'
+    ? `${formatByteSize(IMAGE_UPLOAD_MAX_BYTES)} per file`
     : classifiedMediaKind !== undefined || classifiedLatent
-      ? '1 GiB per file'
-      : uploadKind?.startsWith('model/') === true ? undefined : '16 MiB per file'
+      ? `${formatByteSize(MEDIA_UPLOAD_MAX_BYTES)} per file`
+      : uploadKind?.startsWith('model/') === true ? undefined : `${formatByteSize(GENERIC_UPLOAD_MAX_BYTES)} per file`
   // The SCALAR MERGE arm specifically (multi-select whose declaration is
   // NOT list-outer): an empty selection cannot commit `[]` there - the
   // declared type is scalar T, and a bare empty array would compile as raw
@@ -447,7 +447,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         return false
       }
       if (!existing && file.size > assetUploadMaxBytes) {
-        setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatSize(assetUploadMaxBytes)} upload limit`)
+        setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatByteSize(assetUploadMaxBytes)} upload limit`)
         return false
       }
       const choice = destination()
@@ -498,6 +498,34 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       return false
     }
   }
+
+  /**
+   * Upload chosen files in order. Sequential on purpose: parallel uploads
+   * would race the shared error slot. The batch stops at the first failed or
+   * refused file (its error must stay visible) and when the editor closes
+   * mid-flight.
+   */
+  const uploadFiles = (files: readonly File[]): void => {
+    void (async () => {
+      const abort = new AbortController()
+      assetUploadAbort = abort
+      setAssetUploading(true)
+      try {
+        for (const file of assetMulti ? files : files.slice(0, 1)) {
+          if (!live || abort.signal.aborted || !(await pickAsset(file))) break
+        }
+      } finally {
+        if (assetUploadAbort === abort) assetUploadAbort = undefined
+        if (live) {
+          setAssetUploading(false)
+          setDestination(readUploadDestination(String(uploadBackend.id), project))
+          restoreAssetUploadFocus()
+        }
+      }
+    })()
+  }
+  // A button's PasteImage opens the picker with the clipboard image already uploading.
+  if (ed.stagedFile !== undefined) queueMicrotask(() => uploadFiles([ed.stagedFile!]))
 
   const pickBrowsedAsset = (item: AssetBrowserItem): void => {
     // Refuse picks while an upload batch is pending: the staged selection
@@ -698,6 +726,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               before this body sees the event, so the refusal is advertised
               through data-dismiss-blocked. */}
           <div class="widget-editor asset-editor widget-modal-editor" data-testid="asset-editor" data-dismiss-blocked={assetUploading() ? 'uploading' : undefined}>
+            <div class="asset-editor-scroll">
             <div class="asset-editor-context" data-testid="asset-schema-metadata" aria-label="Asset requirements">
               <strong>{assetMulti ? `Multiple ${assetVocabulary().plural}` : `Single ${assetVocabulary().singular}`}</strong>
               <Show when={assetBrowseKind()}>{(kind) => <span>{kind()}</span>}</Show>
@@ -743,7 +772,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                           <strong>{candidate.name}</strong>
                           <span>{candidate.virtualPath}</span>
                         </span>
-                        <span class="asset-match-candidate-size">{candidate.size} bytes</span>
+                        <span class="asset-match-candidate-size">{formatByteSize(candidate.size!)}</span>
                         <code title={candidate.digest}>{candidate.digest}</code>
                       </button>
                     )}
@@ -822,7 +851,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                     : assetSelection()[0]?.name ?? selectedUncommittableModel()?.modelName ?? 'Nothing selected'}</h3>
                 </div>
                 <Show when={!assetMulti ? assetSelection()[0]?.size ?? selectedUncommittableModel()?.variant.size : undefined}>
-                  {(size) => <span>{formatSize(size())}</span>}
+                  {(size) => <span>{formatByteSize(size())}</span>}
                 </Show>
               </header>
               <Show when={!assetMulti && assetSelection().length === 0 && selectedUncommittableModel() === undefined}>
@@ -949,6 +978,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 disabled={assetUploading()} onChange={setDestination} />}
             </Show>
             <Show when={uploadedLocation()}><ProductNotice tone="status">{uploadedLocation()}</ProductNotice></Show>
+            </div>
             <ProductActionFooter
               status={<span role="status">{assetUploading() ? `Uploading ${assetVocabulary().uploadPlural}...` : assetUploadLimitLabel !== undefined ? `Uploads up to ${assetUploadLimitLabel}` : ''}</span>}
             >
@@ -977,27 +1007,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 onChange={(event) => {
                   const files = Array.from(event.currentTarget.files ?? [])
                   event.currentTarget.value = ''
-                  // Sequential on purpose: parallel uploads would race the
-                  // shared error slot. The batch stops at the first failed
-                  // or refused file (its error must stay visible) and when
-                  // the editor closes mid-flight.
-                  void (async () => {
-                    const abort = new AbortController()
-                    assetUploadAbort = abort
-                    setAssetUploading(true)
-                    try {
-                      for (const file of assetMulti ? files : files.slice(0, 1)) {
-                        if (!live || abort.signal.aborted || !(await pickAsset(file))) break
-                      }
-                    } finally {
-                      if (assetUploadAbort === abort) assetUploadAbort = undefined
-                      if (live) {
-                        setAssetUploading(false)
-                        setDestination(readUploadDestination(String(uploadBackend.id), project))
-                        restoreAssetUploadFocus()
-                      }
-                    }
-                  })()
+                  uploadFiles(files)
                 }}
               />
               {/* Cancel stays enabled DURING an upload as the lock's escape

@@ -343,7 +343,7 @@
 .native-panel-window-missing button:hover { background: var(--dinkster-interaction-hover); }
 
 .detached-workspace-state button:focus-visible,
-.native-panel-window-missing button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 1px; }
+.native-panel-window-missing button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
 
 .seed-controller-menu {
   position: absolute;
@@ -561,17 +561,6 @@
   padding-left: 7px;
 }
 
-.badge-log-entry {
-  color: var(--dinkster-text-primary);
-  word-break: break-word;
-}
-
-.badge-log-time {
-  color: var(--dinkster-text-secondary);
-  font-variant-numeric: tabular-nums;
-  margin-right: 6px;
-}
-
 .app-tooltip {
   position: fixed;
   z-index: 30;
@@ -590,27 +579,13 @@
 .app-tooltip-title { color: var(--dinkster-text-primary); font-weight: 600; margin-bottom: 3px; }
 .app-tooltip-detail { color: var(--dinkster-text-secondary); margin-top: 3px; }
 
-[data-tooltip-label][tabindex]:focus-visible {
-  outline: 2px solid var(--dinkster-border-focus);
+[data-tooltip-label][tabindex]:not([data-tooltip-trigger='hover']):focus-visible {
+  outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus);
   outline-offset: 2px;
 }
 
 .memory-stack > [data-tooltip-label]:focus-visible { outline-offset: -2px; }
-.memory-stack:focus-within { box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-border-focus); }
-
-.badge-error {
-  margin: 6px 0;
-  padding: 6px;
-  background: var(--dinkster-danger-background);
-  border: 1px solid var(--dinkster-danger-border);
-  border-radius: 4px;
-}
-
-.badge-error-head {
-  color: var(--dinkster-danger-foreground);
-  margin-bottom: 4px;
-  word-break: break-word;
-}
+.memory-stack:focus-within { box-shadow: 0 0 0 var(--dinkster-focus-ring-width) var(--dinkster-border-keyboard-focus); }
 
 .workflow-tabs .context-menu-cascade,
 .dock-zone .context-menu-cascade,
@@ -648,7 +623,7 @@
 .asset-decision-notice { flex: none; margin: 0; }
 .asset-decision .product-action-buttons > .product-button { white-space: nowrap; }
 .asset-decision-list { display: grid; flex: 1; min-height: 0; margin: 0; padding: var(--dinkster-space-4); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; list-style: none; }
-.asset-decision-list:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-focus); outline-offset: 2px; border-radius: var(--dinkster-radius-control); }
+.asset-decision-list:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 2px; border-radius: var(--dinkster-radius-control); }
 .asset-decision-row { display: flex; min-width: 0; align-items: flex-start; gap: var(--dinkster-space-8); }
 .asset-decision-row .asset-decision-checkbox { min-width: var(--dinkster-input-primary-height); min-height: var(--dinkster-input-primary-height); margin: calc(var(--dinkster-space-4) * -1); }
 .asset-decision-row-copy { display: grid; min-width: 0; flex: 1; gap: var(--dinkster-space-8); cursor: pointer; }

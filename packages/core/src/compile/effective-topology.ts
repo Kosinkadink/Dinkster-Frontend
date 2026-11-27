@@ -1,6 +1,7 @@
 import { diag, type Diagnostic } from '../diagnostics.js'
 import {
   isNodeBoundaryBinding,
+  resolveDynamicAddress,
   boundaryBindingKey,
   boundaryRouteKey,
   suppressedDeliveryKey,
@@ -33,6 +34,7 @@ import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, elaborateInterface, elabInputsOf, elabOutputsOf, type Connectivity } from '../schema/elaborate.js'
 import { documentNodeResolver } from './compile.js'
 import { occurrenceDynamicView } from './occurrence-view.js'
+import { boundaryItems } from '../format/document.js'
 
 export type EffectiveLinkIdentity =
   | { readonly kind: 'definition'; readonly graphId: GraphDefId; readonly linkId: LinkId }
@@ -92,6 +94,39 @@ export function occurrenceEndpointReferencesDefinition(
   if (endpoint.kind === 'body')
     return endpoint.endpoint && 'node' in endpoint.endpoint && endpoint.endpoint.node === nodeId
   return endpoint.route.some((leg) => leg.graph === graphId && leg.binding.node === nodeId)
+}
+
+export function occurrenceMemberReferenced(
+  document: WorkflowDocument,
+  graphId: string,
+  nodeId: string,
+  construct: string,
+  member: string,
+): boolean {
+  const node = document.graphs[graphId]?.nodes[nodeId]
+  const referencesMember = (ref: { readonly node: string; readonly port: string }): boolean => {
+    if (ref.node !== nodeId) return false
+    const resolved = resolveDynamicAddress(ref, node?.dynamic)
+    return resolved.kind === 'resolved' && resolved.references.some((item) =>
+      item.construct === construct && item.member === member)
+  }
+  return Object.values(document.occurrenceTopologies ?? {}).some((topology) =>
+    Object.values(topology.links).some((link) => [link.from, link.to].some((endpoint) => {
+      if (endpoint.kind === 'body') {
+        const end = endpoint.endpoint
+        return topology.bodyGraph === graphId && 'node' in end &&
+          referencesMember({ node: end.node, port: 'tap' in end ? end.tap : end.port })
+      }
+      let parent = document.graphs[document.root]
+      for (const hop of endpoint.occurrence.instancePath) {
+        const instance = parent?.nodes[hop]
+        const childId = instance && subgraphDefIdOf(instance.type)
+        parent = childId === undefined ? undefined : document.graphs[childId]
+      }
+      return parent?.id === graphId && referencesMember({ node: endpoint.occurrence.node, port: endpoint.address.port }) ||
+        endpoint.route.some((leg) => leg.graph === graphId && isNodeBoundaryBinding(leg.binding) &&
+          referencesMember({ node: leg.binding.node, port: leg.binding.kind === 'widgetTap' ? leg.binding.tap : leg.binding.port }))
+    })))
 }
 
 const portsOverlap = (a: string, b: string): boolean =>
@@ -170,7 +205,7 @@ function itemForRoute(
   side: 'from' | 'to',
   boundaryId: string,
 ): BoundaryItem | undefined {
-  const items = side === 'from' ? graph.boundary?.outputs : graph.boundary?.inputs
+  const items = side === 'from' ? boundaryItems(graph.boundary, 'outputs') : boundaryItems(graph.boundary, 'inputs')
   return items?.find((item) => item.id === boundaryId)
 }
 
@@ -287,7 +322,7 @@ function projectedEndpoints(
   side: 'from' | 'to',
   diagnostics: Diagnostic[],
 ): { readonly endpoint: ResolvedOccurrenceEndpoint; readonly route: readonly BoundaryRouteLeg[] }[] {
-  const items = side === 'from' ? at.bodyGraph.boundary?.outputs : at.bodyGraph.boundary?.inputs
+  const items = side === 'from' ? boundaryItems(at.bodyGraph.boundary, 'outputs') : boundaryItems(at.bodyGraph.boundary, 'inputs')
   const candidates = items?.filter((item) => endpoint.port === item.id) ?? []
   if (candidates.length !== 1) return []
   const item = candidates[0]!
@@ -457,13 +492,19 @@ function buildEffectiveOccurrenceTopology(
     const projectedInputs = new Map<NodeId, Set<string>>()
     const projectedInputPorts = new Map<NodeId, Set<string>>()
     const projectedOutputs = new Map<NodeId, Set<string>>()
+    const projectedOutputPorts = new Map<NodeId, Set<string>>()
     const recordProjected = (map: Map<NodeId, Set<string>>, ref: PortRef): void => {
       let addresses = map.get(ref.node)
       if (!addresses) map.set(ref.node, (addresses = new Set()))
       addresses.add(portAddressKey(ref.port))
     }
     for (const link of projectedParentLinks) {
-      if (link.from.graphId === at.bodyGraph.id && isPortEndpoint(link.from.endpoint)) recordProjected(projectedOutputs, link.from.endpoint)
+      if (link.from.graphId === at.bodyGraph.id && isPortEndpoint(link.from.endpoint)) {
+        recordProjected(projectedOutputs, link.from.endpoint)
+        let ports = projectedOutputPorts.get(link.from.endpoint.node)
+        if (!ports) projectedOutputPorts.set(link.from.endpoint.node, (ports = new Set()))
+        ports.add(link.from.endpoint.port)
+      }
       if (link.to.graphId === at.bodyGraph.id && isPortEndpoint(link.to.endpoint)) {
         recordProjected(projectedInputs, link.to.endpoint)
         let ports = projectedInputPorts.get(link.to.endpoint.node)
@@ -480,6 +521,7 @@ function buildEffectiveOccurrenceTopology(
         isInputConnected: (port) => inputs?.has(portAddressKey(port)) || base.isInputConnected(port),
         isOutputConnected: (port) => outputs?.has(portAddressKey(port)) || base.isOutputConnected(port),
         inputPorts: () => [...new Set([...(base.inputPorts?.() ?? []), ...(projectedInputPorts.get(nodeId) ?? [])])],
+        outputPorts: () => [...new Set([...(base.outputPorts?.() ?? []), ...(projectedOutputPorts.get(nodeId) ?? [])])],
       }
     }
     const resolveNode = documentNodeResolver(document, resolver)
@@ -494,7 +536,7 @@ function buildEffectiveOccurrenceTopology(
       const state = node && values && { values, ...(dynamic ? { dynamic } : {}), ...(node.additionalInputs !== undefined ? { additionalInputs: node.additionalInputs } : {}) }
       const elaborated = schema && state && elaborateInterface(schema, state, connectivity(nodeId), { promoteGhosts: false, nodeId })
       const result = {
-        inputs: new Set(elaborated ? elabInputsOf(elaborated).map((input) => portAddressKey(input.address.port)) : []),
+        inputs: new Set(elaborated ? elabInputsOf(elaborated).filter((input) => input.spec.socketless !== true).map((input) => portAddressKey(input.address.port)) : []),
         outputs: new Set(elaborated ? elabOutputsOf(elaborated).map((output) => portAddressKey(output.address.port)) : []),
       }
       ports.set(nodeId, result)

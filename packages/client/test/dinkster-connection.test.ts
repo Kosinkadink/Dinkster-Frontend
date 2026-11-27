@@ -418,13 +418,19 @@ describe('model provider credentials', () => {
 
   it('returns credential and provider-grant refusals without treating either as download consent', async () => {
     let error = 'credential-required'
+    let provider = 'huggingface'
+    let source = 'https://huggingface.co/example/gated/resolve/main/gated.safetensors'
     const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'test',
-      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider: 'huggingface', requirementId: 'opaque' }) })
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required' })
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(409, { error, provider, source, requirementId: 'opaque', token: 'private-canary' }) })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'credential-required', provider, source })
     error = 'provider-grant-required'
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required' })
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'provider-grant-required', provider, source })
     error = 'civitai-access-required'
-    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'civitai-access-required' })
+    provider = 'civitai'
+    source = 'https://civitai.com/models/123'
+    expect(await connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).toEqual({ status: 'civitai-access-required', provider, source })
+    provider = 'untrusted-host'
+    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Malformed model download provider')
     error = 'unrecognized-private-message'
     await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Model download POST failed: 409')
   })
@@ -506,6 +512,26 @@ describe('model download planning and owned jobs', () => {
     await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source)
     expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
       project: selected.project, scope: 'local', source: selected.source })
+    await connection.planModelDownload({ name: selected.name, kind: selected.kind }, undefined, selected.source, 'archive')
+    expect(calls.at(-1)?.body).toEqual({ name: selected.name, kind: selected.kind,
+      project: selected.project, scope: 'local', source: selected.source, location: 'archive' })
+    for (const destinationSpace of [
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 0 },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 310 },
+      { status: 'available', filesystem: 'other-volume', freeBytes: 1000 },
+      { status: 'unavailable' },
+    ]) {
+      payload = { ...selected, status: 'consent-required', planId: 'opaque-plan', destinationSpace }
+      expect(await connection.planModelDownload(selected)).toEqual(payload)
+    }
+    for (const destinationSpace of [null, { status: 'unknown' },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: -1 },
+      { status: 'available', filesystem: 'shared-volume', freeBytes: 0.5 },
+      { status: 'available', freeBytes: 10 },
+    ]) {
+      payload = { ...selected, status: 'consent-required', planId: 'opaque-plan', destinationSpace }
+      await expect(connection.planModelDownload(selected)).rejects.toThrow()
+    }
     const civitai = { ...selected, provider: 'civitai', repo: '19', revision: '72',
       source: 'https://civitai.com/api/download/models/72?fileId=84', status: 'consent-required', planId: 'civitai-plan' }
     payload = civitai
@@ -535,15 +561,21 @@ describe('model download planning and owned jobs', () => {
   it('retains verified actual paths and reuse independently of collision renaming', async () => {
     const asset = { digest: `blake3:${'d'.repeat(64)}`, name: 'existing.safetensors', size: selected.size,
       mediaType: 'application/octet-stream', virtualPath: 'model-files/studio-vae/unconventional/existing.safetensors' }
-    const payload = { ...active, received: selected.size, status: 'completed', asset,
+    let payload = { ...active, received: selected.size, status: 'completed', asset,
       path: '/models/unconventional/existing.safetensors', reused: true, renamed: false, indexingPending: true }
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test',
       webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, payload) })
     expect(await connection.fetchModelDownload('job')).toEqual(payload)
+    const exact = { ...payload, digest: asset.digest }
+    payload = exact
+    expect(await connection.fetchModelDownload('job')).toEqual(exact)
+    payload = { ...exact, asset: { ...asset, digest: `blake3:${'e'.repeat(64)}` } }
+    await expect(connection.fetchModelDownload('job')).rejects.toThrow('Malformed verified model result')
   })
 
   it.each([
     { status: 'local', name: selected.name, kind: selected.kind },
+    { status: 'duplicate' },
     { status: 'destination-required' },
     { status: 'folder-disabled', disabledLocations: ['studio'], detail: 'Folder not enabled for this project' },
     { status: 'picker-required', sources: ['https://huggingface.co/first', 'https://huggingface.co/second'] },
@@ -994,6 +1026,26 @@ describe('local asset catalog and availability', () => {
     await expect(conn.listLocalAssets({ scope: 'local' })).rejects.toThrow('403')
   })
 
+  it('lists any project\'s outputs by its id, newest page first, ending on a null cursor', async () => {
+    const { conn, requests, reply } = harness()
+    const produced = { ...observation, id: 'run-1', origin: { kind: 'produced' }, project: 'music' }
+    const row = { asset, aliases: ['final.png'], observations: [produced] }
+    reply({ assets: [row], cursor: 'page/2' })
+    const first = await conn.listProjectOutputs('music', { limit: 6 })
+    expect(requests.at(-1)?.url).toBe('http://native/api/projects/music/outputs?limit=6')
+    expect(first).toEqual({ assets: [{ asset, aliases: ['final.png'], observations: [produced] }], cursor: 'page/2' })
+    reply({ assets: [], cursor: null })
+    expect(await conn.listProjectOutputs('music', { cursor: 'page/2' })).toEqual({ assets: [] })
+    expect(requests.at(-1)?.url).toBe('http://native/api/projects/music/outputs?cursor=page%2F2')
+    // A row observed in another project, or a missing cursor, is not this project's answer.
+    for (const payload of [{ assets: [row] }, { assets: [{ ...row, observations: [{ ...produced, project: 'film' }] }], cursor: null }]) {
+      reply(payload)
+      await expect(conn.listProjectOutputs('music')).rejects.toThrow('malformed')
+    }
+    reply({ error: 'missing' }, 404)
+    await expect(conn.listProjectOutputs('absent')).rejects.toThrow('404')
+  })
+
   it('checks each exact digest once without project, names, acquisition or writes', async () => {
     const { conn, requests, reply } = harness()
     reply({ assets: [{ digest: other, status: 'missing' }, { digest, status: 'available' }] })
@@ -1259,7 +1311,7 @@ describe('promptToDinksterGraph', () => {
     expect(compiled.artifact.prompt.source).toEqual({
       class_type: 'Splitter', inputs: count === undefined ? {} : { count },
       outputIds: ['before', ...members.map((member) => `parts.${member}`), 'after'],
-      ...(count === undefined && members.length > 0 ? { outputMembers: { parts: members } } : {}),
+      ...(count !== undefined || members.length > 0 ? { outputMembers: { parts: members } } : {}),
     })
     expect(compiled.artifact.prompt.sink?.inputs.a).toEqual(['source', members.length + 1])
     const native = promptToDinksterGraph(compiled.artifact.prompt, resolve)
@@ -2751,6 +2803,7 @@ describe('execution log backfill', () => {
     seq: number,
     level: 'info' | 'warning',
     message: string,
+    code?: string,
   ): Readonly<Record<string, unknown>> & { type: string } => ({
     type: 'node_event',
     event: 'log',
@@ -2759,7 +2812,7 @@ describe('execution log backfill', () => {
     nodeId: 'n1',
     seq,
     clientId: 'cid',
-    data: { level, message, ts: 1000 + seq },
+    data: { level, message, ts: 1000 + seq, ...(code === undefined ? {} : { code }) },
   })
   const journalRecord = (seq: number, name: string, payload: unknown): Record<string, unknown> =>
     ({ seq, name, payload, durable: true, timestamp: 50 + seq })
@@ -2788,7 +2841,7 @@ describe('execution log backfill', () => {
           journalRecord(1, 'run_started', { type: 'run_started', jobId: 'j1', runId: 'r1', seq: 1 }),
           journalRecord(2, 'log', logWire('j1', 'r1', 2, 'info', 'loading model')),
           journalRecord(3, 'progress', { type: 'node_event', event: 'progress', jobId: 'j1', nodeId: 'n1', seq: 3, data: { step: 1, total: 4 } }),
-          journalRecord(4, 'log', logWire('j1', 'r1', 4, 'warning', 'fallback vae')),
+          journalRecord(4, 'log', logWire('j1', 'r1', 4, 'warning', 'Expected 3 items; received 1', 'unpack_count_mismatch')),
         ],
         latestSeq: 4,
         coalescedBelow: 0,
@@ -2798,8 +2851,11 @@ describe('execution log backfill', () => {
     const logs = store.get(ref('j1'))!.logs
     expect(logs.map((l) => [l.seq, l.level, l.message])).toEqual([
       [2, 'info', 'loading model'],
-      [4, 'warning', 'fallback vae'],
+      [4, 'warning', 'Expected 3 items; received 1'],
     ])
+    expect(store.get(ref('j1'))!.warnings).toEqual([expect.objectContaining({
+      runtimeNodeId: 'n1', code: 'unpack_count_mismatch', message: 'Expected 3 items; received 1',
+    })])
     // Replayed lifecycle/progress records are NOT re-applied here: only the
     // journal's log records flow, job state reconciles through replayJob.
     expect(store.get(ref('j1'))!.status).toBe('queued')
@@ -3465,7 +3521,9 @@ describe('workflow library wire', () => {
     { id: 'fork-environment', lastSnapshot: null, lastRunAt: null },
   ])('reads paginated engine projects and preserves library authority during registration and rename (%j)', async (environment) => {
     const project = { id: 'p-film', uid: '48bb018e-5b17-4e68-bd81-c6412c4bcd72', name: 'Engine name', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false,
-      ...(environment === undefined ? {} : { environment }) }
+      lastOpenedAt: environment === null ? null : '2026-11-20T15:00:00Z',
+      ...(environment === null ? {} : { filesFolder: '/home/u/Dinkster/projects/film' }),
+      folder: environment === null ? null : '/home/u/Dinkster/library/output', ...(environment === undefined ? {} : { environment }) }
     const { conn, requests } = submitHarness((url, init) => {
       if (init?.method === 'POST') return jsonResponse(200, { project })
       if (init?.method === 'PATCH') return jsonResponse(200, { project: { ...project, name: 'Renamed', revision: 8 } })
@@ -3482,6 +3540,20 @@ describe('workflow library wire', () => {
     expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 7, patch: { name: 'Renamed' } })
     const { conn: stale } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
     await expect(stale.renameProject('p-film', 'Other', 6)).rejects.toThrow('changed elsewhere')
+  })
+
+  it.each([
+    { kind: 'empty' },
+    { kind: 'workflow', name: 'Film', content: '{ "nodes": [], "title": "Original bytes" }\n' },
+    { kind: 'project', project: 'p-source' },
+  ] as const)('registers a project with its Files destination and starting contents (%j)', async (startWith) => {
+    const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
+      filesFolder: '/work/film', folder: '/work/film/output' }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { project }))
+    const controller = new AbortController()
+    expect(await conn.registerProject('p-film', 'Film', { filesFolder: '/work/film', startWith }, controller.signal)).toEqual(project)
+    expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ id: 'p-film', name: 'Film', filesFolder: '/work/film', startWith })
+    expect(requests[0]?.init?.signal).toBe(controller.signal)
   })
 
   it('reads sanitized account choices and links or unlinks only the revision-selected local project', async () => {
@@ -3538,9 +3610,9 @@ describe('workflow library wire', () => {
     await expect(conn.getProject('p-film')).rejects.toThrow('Malformed library project account link')
   })
 
-  it('reads project needs without dropping unknown workflows and enables only the revision-reviewed project', async () => {
+  it.each([true, false])('reads project needs without dropping unknown workflows and enables only the revision-reviewed project (engine %s)', async (engine) => {
     const project = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 7, deleted: false }
-    const needs = { packs: [{ pack: 'tools-a', version: '1.2.3' }, { pack: 'tools-b', version: null }], installed: [{ pack: 'tools-a', version: '1.0.0' }, { pack: 'tools-c', version: null }], extra: ['extra-c'], unknown: [{ scope: 'local', id: 'unreadable' }] }
+    const needs = { packs: [{ pack: 'tools-a', version: '1.2.3' }, { pack: 'tools-b', version: null }], ...(engine ? { installed: [{ pack: 'tools-a', version: '1.0.0' }, { pack: 'tools-c', version: null }] } : {}), extra: ['extra-c'], unknown: [{ scope: 'local', id: 'unreadable' }] }
     const { conn, requests } = submitHarness((url, init) => {
       if (url.endsWith('/needs')) return jsonResponse(200, needs)
       return jsonResponse(200, { project: { ...project, revision: init?.method === 'PATCH' ? 8 : 7 } })
@@ -3564,7 +3636,7 @@ describe('workflow library wire', () => {
     { packs: [], installed: [], extra: [null], unknown: [] },
     { packs: [], installed: [], extra: [], unknown: [{ scope: 'local' }] },
     { packs: [], installed: [], extra: [] },
-    { packs: [], extra: [], unknown: [] },
+    { packs: [], installed: null, extra: [], unknown: [] },
     { packs: [], installed: [{ pack: 'tools-a', version: 2 }], extra: [], unknown: [] },
     { packs: [], installed: [{ pack: 'tools-a', version: null }, { pack: 'tools-a', version: '1.0' }], extra: [], unknown: [] },
   ])('rejects malformed needs rather than assuming the project needs nothing', async (needs) => {
@@ -3590,6 +3662,7 @@ describe('workflow library wire', () => {
       { id: 'another-environment', lastSnapshot: '', lastRunAt: '2026-11-19T15:00:00Z' },
     ].map((environment) => ({ items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
       environment }], cursor: null })),
+    { items: [{ id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false, folder: '' }], cursor: null },
     { items: [], cursor: 2 },
   ])('rejects malformed project pages instead of silently dropping projects', async (page) => {
     const { conn } = submitHarness(() => jsonResponse(200, page))
@@ -3601,6 +3674,49 @@ describe('workflow library wire', () => {
       id: 'p-other', name: 'Other', created: '2026-11-18T12:34:56Z', revision: 1, deleted: false,
     } }))
     await expect(conn.registerProject('p-film', 'Film')).rejects.toThrow('another project')
+  })
+
+  it('listLibrary asks for the named project, not the connection\'s own', async () => {
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { records: [] }), 'p-open')
+    await conn.listLibrary({ scope: 'local', label: 'workflow', project: 'p-film' })
+    await conn.listLibrary({ scope: 'local' })
+    const queries = requests.map((request) => new URL(request.url).searchParams)
+    expect(queries[0]!.get('project')).toBe('p-film')
+    expect(queries[1]!.has('project')).toBe(false)
+  })
+
+  it('deleteProject sends the revision it read and refuses an answer that is not deleted', async () => {
+    const deleted = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', revision: 4, deleted: true }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { project: deleted }))
+    expect((await conn.deleteProject('p-film', 3)).deleted).toBe(true)
+    expect(requests[0]!.init?.method).toBe('DELETE')
+    expect(requests[0]!.url).toBe('http://test/api/projects/p-film')
+    expect(JSON.parse(String(requests[0]!.init?.body))).toEqual({ revision: 3 })
+    const { conn: kept } = submitHarness(() => jsonResponse(200, { project: { ...deleted, deleted: false } }))
+    await expect(kept.deleteProject('p-film', 3)).rejects.toThrow('did not delete')
+    const { conn: stale } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
+    await expect(stale.deleteProject('p-film', 2)).rejects.toThrow('changed elsewhere')
+  })
+
+  it('restoreProject posts the revision it read and refuses an answer that is still deleted', async () => {
+    const restored = { id: 'p-film', name: 'Film', created: '2026-11-18T12:34:56Z', modified: '2026-11-25T13:00:00Z', revision: 5, deleted: false }
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { project: restored }))
+    expect(await conn.restoreProject('p-film', 4)).toMatchObject({ deleted: false, revision: 5, modified: '2026-11-25T13:00:00Z' })
+    expect(requests[0]!.init?.method).toBe('POST')
+    expect(requests[0]!.url).toBe('http://test/api/projects/p-film/restore')
+    expect(JSON.parse(String(requests[0]!.init?.body))).toEqual({ revision: 4 })
+    const { conn: kept } = submitHarness(() => jsonResponse(200, { project: { ...restored, deleted: true } }))
+    await expect(kept.restoreProject('p-film', 4)).rejects.toThrow('did not restore')
+    const { conn: stale } = submitHarness(() => jsonResponse(409, { error: 'stale' }))
+    await expect(stale.restoreProject('p-film', 3)).rejects.toThrow('changed elsewhere')
+  })
+
+  it('listProjects asks for deleted projects only when told to', async () => {
+    const { conn, requests } = submitHarness(() => jsonResponse(200, { items: [], cursor: null }))
+    await conn.listProjects()
+    await conn.listProjects(undefined, undefined, true)
+    expect(new URL(requests[0]!.url).searchParams.has('includeDeleted')).toBe(false)
+    expect(new URL(requests[1]!.url).searchParams.get('includeDeleted')).toBe('true')
   })
 
   it('listLibrary throws on a rejected cursor (restart from page one)', async () => {
@@ -3774,6 +3890,17 @@ describe('persistent history wire', () => {
     const records = (await conn.listHistory({ scope: 'local' })).records
     expect(records).toEqual([interrupted])
     expect(records[0]?.error?.['phase']).toBe('running')
+  })
+
+  it('keeps a record\'s workflow name and rejects a record whose name is malformed', async () => {
+    const named = { ...run, runId: 'run-named', workflowName: 'Portrait pass' }
+    const { conn } = submitHarness(() => jsonResponse(200, { records: [
+      named, run,
+      { ...run, runId: 'run-empty-name', workflowName: '' },
+      { ...run, runId: 'run-number-name', workflowName: 42 },
+      { ...run, runId: 'run-null-name', workflowName: null },
+    ] }))
+    expect((await conn.listHistory({ scope: 'local' })).records).toEqual([named, run])
   })
 
   it('keeps valid image/video thumbnails and omits malformed optional media without losing history', async () => {

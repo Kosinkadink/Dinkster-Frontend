@@ -227,11 +227,11 @@ test('output noodle dropped on empty opens input-compatible search; Escape cance
   const search = page.getByTestId('palette-search')
   // PreviewImage accepts IMAGE - present.
   await search.fill('preview image')
-  await expect(page.locator('[data-node-type="dinkster.image.preview_image"]')).toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.image.preview_image"]')).toBeVisible()
   // VAEDecode consumes LATENT+VAE, never IMAGE - excluded even when the
   // text would rank it.
   await search.fill('vae decode')
-  await expect(page.locator('[data-node-type="dinkster.latent.vae_decode"]')).not.toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.latent.vae_decode"]')).not.toBeVisible()
 
   // Escape: no node, no link, nothing.
   await search.press('Escape')
@@ -239,6 +239,100 @@ test('output noodle dropped on empty opens input-compatible search; Escape cance
   const doc = await activeDoc(page)
   expect(Object.keys(doc.graphs['g0']!.nodes)).toHaveLength(2)
   expect(Object.keys(doc.graphs['g0']!.links)).toHaveLength(1)
+})
+
+nativeTest('untyped wire drops search by pin side and connect the chosen node without an incidental edit', {
+  tag: '@native-catalog',
+}, async ({ page }, testInfo) => {
+  for (const [type, direction, port, picked, pickedPort] of [
+    ['dinkster.utilities.create_list', 'in', 'inputs.input0', 'dinkster.utilities.primitive_int', 'INT'],
+    ['dinkster.utilities.create_list', 'out', 'list', 'dinkster.utilities.preview_any', 'source'],
+    ['dinkster.utilities.preview_any', 'in', 'source', 'dinkster.utilities.primitive_string', 'STRING'],
+  ] as const) {
+    expect(await page.evaluate(async (type) => window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: `drop-${type}`, root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: { n0: { id: 'n0', type, values: {} } },
+        links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { n0: { position: { x: 150, y: 180 } } } } } },
+    }, 'Untyped wire drop'), type)).toEqual([])
+    await identityViewport(page)
+    const from = await pinPoint(page, 'n0', direction, port)
+    await drag(page, from, EMPTY)
+    const palette = page.getByTestId('node-palette')
+    await expect(palette).toHaveAttribute('data-link-drop', direction === 'in' ? 'out' : 'in')
+    expect(Object.keys((await activeDoc(page)).graphs.g0!.nodes)).toEqual(['n0'])
+    await expect(palette.getByRole('button', { name: 'Remove connection constraint', exact: true }).locator('..'))
+      .toContainText(direction === 'out' ? 'Any list' : 'Any')
+    if (direction === 'out') {
+      await page.getByTestId('palette-search').fill('Int')
+      await expect(page.locator('[data-key="entry:dinkster.utilities.primitive_int"]')).not.toBeVisible()
+      await page.getByTestId('palette-search').fill('List Element')
+      await expect(page.locator('[data-key="entry:dinkster.utilities.list_element"]')).toBeVisible()
+      await page.getByTestId('palette-search').fill('Int')
+      await page.getByRole('button', { name: 'Remove connection constraint', exact: true }).click()
+      await expect(page.locator('[data-key="entry:dinkster.utilities.primitive_int"]')).toBeVisible()
+      await page.getByTestId('palette-search').press('Escape')
+      await drag(page, from, EMPTY)
+    }
+    await page.screenshot({ path: testInfo.outputPath(`untyped-${direction}-${type.split('.').at(-1)}.png`) })
+    await page.getByTestId('palette-search').press('Escape')
+    await expect(palette).not.toBeVisible()
+    expect(Object.values((await activeDoc(page)).graphs.g0!.links)).toEqual([])
+    expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().ghostLink)).toBeUndefined()
+    await drag(page, from, EMPTY)
+    await page.getByTestId('palette-search').fill(picked === 'dinkster.utilities.preview_any' ? 'Preview as Text' : picked.endsWith('_int') ? 'Int' : 'Text')
+    await page.locator(`[data-key="entry:${picked}"]`).click()
+    const doc = await activeDoc(page)
+    const node = await singleAddedNode(page, ['n0'])
+    expect(node.type).toBe(picked)
+    const newEnd = { node: node.id, port: pickedPort }
+    const fixedEnd = { node: 'n0', port }
+    expect(Object.values(doc.graphs.g0!.links)).toEqual([expect.objectContaining({
+      from: direction === 'in' ? newEnd : fixedEnd,
+      to: direction === 'in' ? fixedEnd : newEnd,
+    })])
+    const canvas = await page.getByTestId('graph-canvas').boundingBox()
+    expect(doc.view!.graphs.g0!.nodes[node.id]!.position).toEqual({ x: Math.round(EMPTY.x - canvas!.x), y: Math.round(EMPTY.y - canvas!.y) })
+    await page.screenshot({ path: testInfo.outputPath(`wired-${direction}-${type.split('.').at(-1)}.png`) })
+  }
+  for (const [type, port, value, suggested] of [
+    ['dinkster.sampling.k_sampler', 'seed', 123, 'dinkster.utilities.primitive_int'],
+    ['dinkster.sampling.k_sampler', 'cfg', 3.75, 'dinkster.utilities.primitive_float'],
+    ['dinkster.utilities.primitive_string', 'value', 'wire search text', 'dinkster.utilities.primitive_string'],
+    ['dinkster.sampling.k_sampler', 'sampler_name', 'heun', 'dinkster.utilities.primitive_choice'],
+    ['dinkster.utilities.primitive_boolean', 'value', true, 'dinkster.utilities.primitive_boolean'],
+  ] as const) {
+    expect(await page.evaluate(async ({ type, port, value }) => window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: `field-${type}-${port}`, root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: { n0: { id: 'n0', type, values: { [port]: value } } },
+        links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { n0: { position: { x: 150, y: 180 } } } } } },
+    }, 'Field wire search'), { type, port, value })).toEqual([])
+    await identityViewport(page)
+    const from = await pinPoint(page, 'n0', 'in', port)
+    await drag(page, from, EMPTY)
+    const palette = page.getByTestId('node-palette')
+    await expect(palette).toBeVisible()
+    const first = palette.getByRole('option').first()
+    await expect(first).toHaveAttribute('data-key', `entry:${suggested}`)
+    await expect(first).toHaveAttribute('aria-selected', 'true')
+    expect(Object.keys((await activeDoc(page)).graphs.g0!.nodes)).toEqual(['n0'])
+    await page.screenshot({ path: testInfo.outputPath(`field-${port}.png`) })
+    await page.getByTestId('palette-search').press('Escape')
+    expect(Object.values((await activeDoc(page)).graphs.g0!.links)).toEqual([])
+    await drag(page, from, EMPTY)
+    await page.getByTestId('palette-search').press('Enter')
+    const doc = await activeDoc(page)
+    const added = await singleAddedNode(page, ['n0'])
+    expect(added.type).toBe(suggested)
+    expect(doc.graphs.g0!.nodes[added.id]!.values.value).toBe(value)
+    expect(Object.values(doc.graphs.g0!.links)).toEqual([expect.objectContaining({
+      from: expect.objectContaining({ node: added.id }), to: { node: 'n0', port },
+    })])
+    await page.keyboard.press('Control+z')
+    expect(Object.keys((await activeDoc(page)).graphs.g0!.nodes)).toEqual(['n0'])
+    expect(Object.values((await activeDoc(page)).graphs.g0!.links)).toEqual([])
+  }
 })
 
 nativeTest('native typed Autogrow families filter in both directions and generic targets remain available', {
@@ -260,17 +354,17 @@ nativeTest('native typed Autogrow families filter in both directions and generic
   await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), EMPTY)
   const search = page.getByTestId('palette-search')
   await search.fill('Batch Images')
-  await expect(page.locator('[data-node-type="dinkster.image.batch_images_node"]')).toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.image.batch_images_node"]')).toBeVisible()
   await search.fill('Batch Masks')
-  await expect(page.locator('[data-node-type="dinkster.image.batch_masks_node"]')).not.toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.image.batch_masks_node"]')).not.toBeVisible()
   await search.fill('Batch Latents')
-  await expect(page.locator('[data-node-type="dinkster.latent.batch_latents_node"]')).not.toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.latent.batch_latents_node"]')).not.toBeVisible()
   await search.fill('Preview as Text')
-  await expect(page.locator('[data-node-type="dinkster.utilities.preview_any"]')).toBeVisible()
-  await expect(page.getByTestId('palette-preview').getByTestId('preview-input')).toContainText('Any')
+  await expect(page.locator('[data-key="entry:dinkster.utilities.preview_any"]')).toBeVisible()
+  await expect(page.getByTestId('search-node-preview')).toHaveAttribute('data-preview-ready', 'dinkster.utilities.preview_any')
 
   await search.fill('Batch Images')
-  await page.locator('[data-node-type="dinkster.image.batch_images_node"]').click()
+  await page.locator('[data-key="entry:dinkster.image.batch_images_node"]').click()
   const inserted = await activeDoc(page)
   const batch = Object.values(inserted.graphs['g0']!.nodes).find((node) => node.type === 'dinkster.image.batch_images_node')
   expect(batch?.dynamic?.['images']).toMatchObject({ members: ['image0'] })
@@ -285,9 +379,9 @@ nativeTest('native typed Autogrow families filter in both directions and generic
   await drag(page, await pinPoint(page, 'n0', 'in', 'images'), EMPTY)
   await expect(page.getByTestId('node-palette')).toHaveAttribute('data-link-drop', 'out')
   await page.getByTestId('palette-search').fill('Batch Images')
-  await expect(page.locator('[data-node-type="dinkster.image.batch_images_node"]')).toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.image.batch_images_node"]')).toBeVisible()
   await page.getByTestId('palette-search').fill('Batch Masks')
-  await expect(page.locator('[data-node-type="dinkster.image.batch_masks_node"]')).not.toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.image.batch_masks_node"]')).not.toBeVisible()
 })
 
 test('backdrop pointerdown cancels a link-drop ghost without creating a link or panning', async ({ page }) => {
@@ -314,7 +408,7 @@ test('picking a node inserts it and connects the dangling end - ONE undo step', 
   const previousIds = Object.keys((await activeDoc(page)).graphs.g0!.nodes)
   await drag(page, await pinPoint(page, 'n0', 'out', 'IMAGE'), EMPTY)
   await page.getByTestId('palette-search').fill('preview image')
-  await page.locator('[data-node-type="dinkster.image.preview_image"]').click()
+  await page.locator('[data-key="entry:dinkster.image.preview_image"]').click()
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
 
   const doc = await activeDoc(page)
@@ -355,10 +449,10 @@ test('rewire dropped on empty still disconnects (no palette); a free input then 
   const search = page.getByTestId('palette-search')
   // CLIPTextEncode outputs CONDITIONING, never IMAGE - excluded.
   await search.fill('CLIPTextEncode')
-  await expect(page.locator('[data-node-type="dinkster.conditioning.clip_text_encode"]')).not.toBeVisible()
+  await expect(page.locator('[data-key="entry:dinkster.conditioning.clip_text_encode"]')).not.toBeVisible()
 
   await search.fill('empty image')
-  await page.locator('[data-node-type="dinkster.image.empty_image"]').click()
+  await page.locator('[data-key="entry:dinkster.image.empty_image"]').click()
 
   const doc = await activeDoc(page)
   const added = await singleAddedNode(page, previousIds)
@@ -408,7 +502,7 @@ test('dropped noodle stays visible while the palette is browsed; clears on Escap
   // Committing a pick clears it too (the real link replaces the ghost).
   await drag(page, from, EMPTY)
   await page.getByTestId('palette-search').fill('preview image')
-  await page.locator('[data-node-type="dinkster.image.preview_image"]').click()
+  await page.locator('[data-key="entry:dinkster.image.preview_image"]').click()
   await expect(page.getByTestId('node-palette')).not.toBeVisible()
   expect(await ghost()).toBeUndefined()
 })
@@ -427,7 +521,7 @@ test('subgraphs participate through their boundary-derived schema', async ({ pag
   await drag(page, await pinPoint(page, 'n1', 'in', 'images'), EMPTY)
   await expect(page.getByTestId('node-palette')).toHaveAttribute('data-link-drop', 'out')
   await page.getByTestId('palette-search').fill('Image source')
-  await page.locator('[data-node-type="#g1"]').click()
+  await page.locator('[data-key="entry:#g1"]').click()
 
   const doc = await activeDoc(page)
   const added = await singleAddedNode(page, previousIds)

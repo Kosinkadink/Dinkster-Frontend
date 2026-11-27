@@ -11,6 +11,7 @@ import { buildScene, GROUP_HEADER_HEIGHT, REROUTE_RADIUS, REROUTE_SOCKET_OFFSET,
 import { paintToolboxIcon } from '../src/icons.js'
 import { createRegistryPainter } from '../src/registry-painter.js'
 import { createInNodeEditorScene, inNodeEditorExamples } from '../gallery/in-node-editors.js'
+import { createSaveTargetScene } from '../gallery/save-target-box.js'
 import { canvasGridLayer, CanvasRenderer, dropTargetKey, PIN_DIAMOND_SCALE, PIN_SLICE_DIVIDER_SCREEN_PX, sceneVisualBounds, type CompanionDisplay, type PresenceActor } from '../src/renderer.js'
 import { BYPASSED_BADGE, ERROR_BADGE, MUTED_BADGE, PROBLEM_ERROR_BADGE, PROBLEM_WARNING_BADGE, problemBadge, outputRowKey, SUBGRAPH_BADGE, subgraphBadge } from '../src/badges.js'
 import { hitTest } from '../src/hit.js'
@@ -161,6 +162,25 @@ function mutableCanvas(ctx: CanvasRenderingContext2D, clientWidth: number, clien
 
 const measure: TextMeasurer = (text) => text.length * 6
 const widgetMeasure: WidgetMeasure = () => ({ viewId: 'core.line', rows: 1 })
+
+it('dims a mapped Save header only when both real inputs are wired, open or folded', () => {
+  for (const unfolded of [false, true]) {
+    for (const wiredParts of [[], ['mount'], ['name'], ['mount', 'name']] as const) {
+      const scene = createSaveTargetScene(defaultTokens, measure, () => ({ viewId: 'core.saveTarget', rows: 1 }),
+        { x: 0, y: 0 }, { prefix: 'renders/portrait' }, { mapped: true, unfolded, wiredParts })
+      const { ctx, calls } = recordingCtx()
+      const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens, (args) => {
+        if (args.row.editor) args.ctx.fillText('Save header', args.x, args.y)
+      })
+      try {
+        renderer.setScene(scene)
+        renderer.renderNow()
+        expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Save header')?.globalAlpha)
+          .toBe(wiredParts.length === 2 ? canvasPaintTokens.widget.connectedOpacity : 1)
+      } finally { renderer.dispose() }
+    }
+  }
+})
 
 // Two producers and two LATENT sinks: link 'bad' (IMAGE -> LATENT) is a
 // proven mismatch, link 'good' (LATENT -> LATENT) is healthy.
@@ -485,8 +505,11 @@ describe('typed overview detail', () => {
     const scene = fixtureScene('clean')
     const node = scene.nodes[0]!
     const link = scene.links[0]!
-    for (const [scale, contentDetail] of [[0.49, false], [0.5, true]] as const) {
-      const calls = paintWith(scene, (renderer) => renderer.setViewport({ x: 0, y: 0, scale }))
+    for (const [scale, threshold, contentDetail] of [[0.29, undefined, false], [0.3, undefined, true], [0.5, 0.6, false], [0.6, 0.6, true]] as const) {
+      const calls = paintWith(scene, (renderer) => {
+        renderer.setViewport({ x: 0, y: 0, scale })
+        if (threshold !== undefined) renderer.setDetailMinScale(threshold)
+      })
       expect(calls.some((call) => call.method === 'fillText' && call.args[0] === node.layout.title)).toBe(true)
       expect(calls.some((call) =>
         call.method === 'arc' &&
@@ -497,16 +520,16 @@ describe('typed overview detail', () => {
     }
   })
 
-  it('only paints overview titles that fit their node width', () => {
+  it('keeps short overview titles whole and cuts long titles with three dots', () => {
     const base = fixtureScene('clean')
     const node = base.nodes[0]!
     const fittingTitle = 'ImgSrc'
-    const oversizedTitle = 'This title is wider than its node'
+    const oversizedTitle = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
     const scene = {
       ...base,
       nodes: [
-        { ...node, layout: { ...node.layout, title: fittingTitle } },
-        { ...node, id: 'oversized-title', x: node.x + node.layout.width + 20, layout: { ...node.layout, title: oversizedTitle } },
+        { ...node, layout: { ...node.layout, width: 140, title: fittingTitle } },
+        { ...node, id: 'oversized-title', x: node.x + 160, layout: { ...node.layout, width: 140, title: oversizedTitle } },
       ],
       links: [],
     }
@@ -514,7 +537,7 @@ describe('typed overview detail', () => {
       renderer.setViewport({ x: 0, y: 0, scale: CANVAS_DETAIL_MIN_SCALE - 0.01 }))
 
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === fittingTitle)).toBe(true)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === oversizedTitle)).toBe(false)
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'ABCDEFGHIJKLMN...')).toBe(true)
   })
 
 })
@@ -559,6 +582,19 @@ describe('canvas hover affordance paint', () => {
     } as unknown as SceneNode],
   })
 
+  it.each([false, true])('keeps supplied note text readable and ellipsizes without changing the original, unknown=%s', (unknown) => {
+    const scene = hoverScene()
+    const node = scene.nodes[0]!
+    const text = 'First\nsecond\r\nthird'
+    const note = { kind: 'note' as const, noteId: 'result', y: 20, height: 24, inset: 10, width: 80, text, ...(unknown ? { unknown: true as const } : {}) }
+    const calls = paint({ ...scene, nodes: [{ ...node, layout: { ...node.layout, rows: [note] } }] })
+    const rendered = calls.find((call) => call.method === 'fillText' && call.args[0] === 'First se...')
+    expect(rendered?.args).toEqual(['First se...', 116, 132])
+    expect(rendered?.globalAlpha).toBe(1)
+    expect(rendered?.fillStyle).toBe(defaultTokens.colors.label)
+    expect(note.text).toBe(text)
+  })
+
   it('leaves only the row whose field is open unpainted', () => {
     const scene = hoverScene()
     const node = scene.nodes[0]!
@@ -601,7 +637,7 @@ describe('canvas hover affordance paint', () => {
     expect(ordinary).toBeDefined()
   })
 
-  it('enlarges every shared match pin when one is hovered or keyboard-focused', () => {
+  it('enlarges every shared match pin when one is hovered', () => {
     const scene = hoverScene()
     const node = scene.nodes[0]!
     const matchScene: Scene = {
@@ -624,9 +660,6 @@ describe('canvas hover affordance paint', () => {
     }
     assertAssociated(paintWith(matchScene, (renderer) => renderer.setOverlay({
       hoveredPin: { nodeId: 'hover-node', portId: 'in', direction: 'in' },
-    })))
-    assertAssociated(paintWith(matchScene, (renderer) => renderer.setOverlay({
-      focusedPin: { nodeId: 'hover-node', portId: 'out', direction: 'out' },
     })))
   })
 
@@ -946,7 +979,7 @@ describe('scene visual bounds and fitting', () => {
     expect(bounds).toEqual({ minX: -204, minY: 96, maxX: 604, maxY: 304 })
   })
 
-  it('floats tab lanes 3 px outside state and selection outlines and includes them in camera bounds', () => {
+  it('floats tab lanes 3 px outside state outlines and includes them in camera bounds', () => {
     const { ctx } = recordingCtx()
     const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
     const list = [{ ...ERROR_BADGE, placement: 'above' as const }, { ...ERROR_BADGE, id: 'below', placement: 'below' as const }]
@@ -962,8 +995,7 @@ describe('scene visual bounds and fitting', () => {
           const top = entries.find((entry) => entry.badge.placement === 'above')!
           const bottom = entries.find((entry) => entry.badge.placement === 'below')!
           const strong = state === 'running' || state === 'done' || state === 'error'
-          const outset = selected ? (scale === 0.5 ? 5 : 4)
-            : strong ? (scale === 0.5 ? 2 : 1.25) : (scale === 0.5 ? 1 : 0.625)
+          const outset = strong ? (scale === 0.5 ? 2 : 1.25) : (scale === 0.5 ? 1 : 0.625)
           expect(top.y + top.height).toBe(node.y - outset - 3)
           expect(bottom.y).toBe(node.y + node.layout.height + outset + 3)
           const bounds = sceneVisualBounds(renderer.getScene(), {}, (current) => renderer.getNodeBadgeBounds(current))!
@@ -1067,11 +1099,12 @@ describe('scene visual bounds and fitting', () => {
     const { ctx } = recordingCtx()
     const tracked = mutableCanvas(ctx, 800, 600)
     const renderer = new CanvasRenderer(tracked.canvas, defaultTokens)
+    renderer.setDetailMinScale(0.5)
     renderer.setScene(emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 1576, height: 1000 }] }))
 
     renderer.fitToScene(50)
 
-    expect(renderer.getViewport()).toEqual({ x: -44, y: -50, scale: CANVAS_DETAIL_MIN_SCALE })
+    expect(renderer.getViewport()).toEqual({ x: -44, y: -50, scale: 0.5 })
     renderer.dispose()
   })
 
@@ -1079,12 +1112,13 @@ describe('scene visual bounds and fitting', () => {
     const { ctx } = recordingCtx()
     const tracked = mutableCanvas(ctx, 800, 600)
     const renderer = new CanvasRenderer(tracked.canvas, defaultTokens)
+    renderer.setDetailMinScale(0.5)
     renderer.setScene(emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 1577, height: 1000 }] }))
 
     renderer.fitToScene(50)
 
     expect(renderer.getViewport().scale).toBeCloseTo(700 / 1577)
-    expect(renderer.getViewport().scale).toBeLessThan(CANVAS_DETAIL_MIN_SCALE)
+    expect(renderer.getViewport().scale).toBeLessThan(0.5)
     renderer.dispose()
   })
 
@@ -1225,18 +1259,41 @@ const nodeBorder = (calls: PaintCall[], node: SceneNode): PaintCall | undefined 
 const ERR = defaultTokens.colors.error
 
 describe('diagnostic paint on the live renderer', () => {
-  it('a mismatch noodle strokes in error red; a healthy one keeps its type color', () => {
-    const scene = fixtureScene()
+  it.each([false, true])('dims a disabled field once with its problem outline at full strength (read-only %s)', (readOnly) => {
+    const base = nodeOf(fixtureScene('clean'), 'c1')
+    const node: SceneNode = { ...base, node: { ...base.node, values: { radius: 12 } }, layout: {
+      ...base.layout, width: 280, pins: [], rows: [{
+        kind: 'widget', y: base.layout.headerHeight, height: 24, inset: 10, inputId: 'radius', valueKey: 'radius',
+        address: { port: 'radius' }, label: 'Radius', type: typed('INT'), viewId: 'core.number', rows: 1,
+        spec: { widgetType: 'INT', options: {}, default: 12 }, disabled: true, inactive: true, ghost: true,
+        ...(readOnly ? { readOnly: true } : {}),
+      }],
+    } }
+    const calls = paintWith(emptyScene({ nodes: [node] }), (renderer) => {
+      renderer.setCompanions({ [node.id]: { radius: { value: 24 } } })
+      renderer.setRowMarks({ [node.id]: { radius: 'error' } })
+    })
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === 'Radius')?.globalAlpha)
+      .toBe(canvasPaintTokens.widget.inactiveOpacity)
+    expect(calls.find((call) => call.method === 'fillText' && call.args[0] === '24')?.globalAlpha)
+      .toBe(canvasPaintTokens.widget.inactiveOpacity)
+    expect(calls.some((call) => call.method === 'stroke' && call.strokeStyle === defaultTokens.colors.error && call.globalAlpha === 1)).toBe(true)
+  })
+
+  it.each([
+    ['warning', PROBLEM_WARNING_BADGE.color],
+    ['error', ERR],
+  ] as const)('a %s mismatch paints its wire and handle; a healthy wire keeps its type color', (kind, color) => {
+    const base = fixtureScene()
+    const scene = { ...base, links: base.links.map((link) => link.mismatch ? { ...link, mismatchKind: kind } : link) }
     expect(scene.links.find((l) => l.id === 'bad')!.mismatch).toBe(true)
     const calls = paint(scene)
     const strokes = calls.filter((c) => c.method === 'stroke')
-    // Mismatch noodle: error color at the widened link width.
-    expect(strokes.some((c) => c.strokeStyle === ERR && c.lineWidth === 3)).toBe(true)
+    expect(strokes.some((c) => c.strokeStyle === color && c.lineWidth === 3)).toBe(true)
     // Healthy noodle: LATENT's type color at the normal link width.
     const latent = typeColor(defaultTokens, 'LATENT')
     expect(strokes.some((c) => c.strokeStyle === latent && c.lineWidth === 2.5)).toBe(true)
-    // The mismatch noodle's grab dot follows the error paint.
-    expect(calls.some((c) => c.method === 'fill' && c.fillStyle === ERR)).toBe(true)
+    expect(calls.some((c) => c.method === 'fill' && c.fillStyle === color)).toBe(true)
   })
 
   it.each([
@@ -1657,6 +1714,29 @@ describe('node chrome paint on the live renderer', () => {
       call.args[2] === defaultTokens.pinRadius)
     // One circular proxy contributes one fill path and one outline path.
     expect(proxyArcs).toHaveLength(2)
+    // Without a wire only a required wire-only input contributes a proxy.
+    // Its hollow center distinguishes the missing required connection.
+    for (const annotations of [{}, { optional: true as const }, { widgetBacked: true as const }]) {
+      renderer.setScene(emptyScene({ nodes: [{
+        ...minimizedSource,
+        layout: { ...minimizedSource.layout, pins: [
+          ...minimizedSource.layout.pins,
+          { ...output, ...annotations, portId: 'required', direction: 'in', address: { port: 'required' }, y: source.layout.headerHeight / 2 },
+        ] },
+      }] }))
+      calls.length = 0
+      renderer.renderNow()
+      const inputArcs = calls.filter((call) => call.method === 'arc' &&
+        call.args[0] === source.x + PIN_INSET &&
+        call.args[1] === source.y + source.layout.headerHeight / 2 + PIN_DROP)
+      expect(inputArcs.map((call) => call.args[2])).toEqual('optional' in annotations || 'widgetBacked' in annotations
+        ? []
+        : [defaultTokens.pinRadius, defaultTokens.pinRadius,
+            Math.max(canvasPaintTokens.pin.optionalMinRadius, defaultTokens.pinRadius * canvasPaintTokens.pin.optionalRadiusRatio)])
+      expect(calls.some((call) => call.method === 'arc' &&
+        call.args[0] === source.x + minimizedSource.layout.width - PIN_INSET &&
+        call.args[1] === source.y + source.layout.headerHeight / 2 + PIN_DROP)).toBe(false)
+    }
     renderer.dispose()
   })
 
@@ -1938,8 +2018,8 @@ describe('node chrome paint on the live renderer', () => {
     )).toBe(false)
     expect(calls.some((call) =>
       call.method === 'roundRect' &&
-      call.args[0] === preview.x - 3 && call.args[1] === preview.y - 3 &&
-      call.args[2] === preview.width + 6 && call.args[3] === preview.height + 6,
+      call.args[0] === preview.x + 0.5 && call.args[1] === preview.y + 0.5 &&
+      call.args[2] === preview.width - 1 && call.args[3] === preview.height - 1,
     )).toBe(true)
     const outputPin = node.layout.pins.find((pin) => pin.direction === 'out')!
     expect(calls.some((call) =>
@@ -1993,16 +2073,20 @@ describe('node chrome paint on the live renderer', () => {
 
     const single = paintWith(scene, (r) => r.setOverlay({ selection: new Set(['c1']) }))
     expect(single.some((c) => c.method === 'setLineDash' && JSON.stringify(c.args[0]) === '[5,4]')).toBe(false)
+    expect(single.some((c) => c.method === 'stroke' && c.strokeStyle === defaultTokens.colors.nodeSelectedEdge && c.lineWidth === 1)).toBe(true)
+    expect(single.some((c) => c.method === 'fill' && c.fillStyle === defaultTokens.colors.nodeSelectedHeader)).toBe(true)
+    expect(single.some((c) => c.method === 'roundRect' && c.args[0] === node.x - 3 && c.args[1] === node.y - 3)).toBe(false)
   })
 
-  it('dims connected widget rows and strikes only stored values without companions', () => {
+  it('keeps an unknown wired value in its own widget look with the stored value struck through', () => {
     const scene = constructsScene((json) => {
       json.graphs.g0.nodes.fs.values = { f: 3.5 }
     })
     const fs = nodeOf(scene, 'fs')
     const row = fs.layout.rows.find((candidate) => candidate.kind === 'widget')!
     const calls = paint(scene)
-    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label && c.args[1] === fs.x + row.inset + 6)
+    const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label &&
+      (c.args[2] as number) >= fs.y + row.y && (c.args[2] as number) <= fs.y + row.y + row.height)
     expect(connectedText?.globalAlpha).toBeCloseTo(0.45)
     const valueText = calls.find((c) => c.method === 'fillText' && c.args[0] === '3.5')!
     const strike = calls.slice(calls.indexOf(valueText) + 1).find((c) => c.method === 'stroke')!
@@ -2014,11 +2098,11 @@ describe('node chrome paint on the live renderer', () => {
     })
     expect(calls[strikeIndex - 2]).toMatchObject({
       method: 'moveTo',
-      args: [(valueText.args[1] as number) - 18, valueText.args[2]],
+      args: [(valueText.args[1] as number) - 18, fs.y + row.y + defaultTokens.rowHeight / 2],
     })
     expect(calls[strikeIndex - 1]).toMatchObject({
       method: 'lineTo',
-      args: [valueText.args[1], valueText.args[2]],
+      args: [valueText.args[1], fs.y + row.y + defaultTokens.rowHeight / 2],
     })
 
     const companionCalls = paintWith(scene, (renderer) => {
@@ -2667,10 +2751,12 @@ describe('node chrome paint on the live renderer', () => {
           lists: { id: 'lists', type: 'Join', values: {} },
           mixed: { id: 'mixed', type: 'Join', values: {} },
           single: { id: 'single', type: 'Single', values: {} },
-        }, boundary: { inputs: [
-          { id: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
-          { id: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
-        ], outputs: [] } },
+        }, boundary: {
+          body: [
+            { kind: 'input', id: 'lists', binds: { kind: 'port', node: 'lists', port: 'items' } },
+            { kind: 'input', id: 'mixed', binds: { kind: 'port', node: 'mixed', port: 'items' }, alsoBinds: [{ kind: 'port', node: 'single', port: 'image' }] },
+          ],
+        } },
       },
       view: { graphs: {
         root: { nodes: { sub: { position: { x: 400, y: 40 } } } },
@@ -3030,7 +3116,6 @@ describe('badge and toolbox paint on the live renderer', () => {
     const n = { ...plain, layout: { ...plain.layout, title: 'A title long enough to run under the subgraph mark' } }
     const scene = emptyScene({ nodes: [n] })
     const header = { top: n.y, bottom: n.y + n.layout.headerHeight }
-    const titleY = n.y + n.layout.headerHeight / 2
     const calls = paintWith(scene, (renderer) => renderer.setBadges({ c1: [ERROR_BADGE, MUTED_BADGE, BYPASSED_BADGE, subgraphBadge(12)] }))
     for (const [word, side] of [['Error', 'below'], ['Muted', 'above'], ['Bypassed', 'above']] as const) {
       const call = calls.find((candidate) => candidate.method === 'fillText' && candidate.args[0] === word)!
@@ -3042,12 +3127,12 @@ describe('badge and toolbox paint on the live renderer', () => {
     expect(count.args[1]).toBe(markX + 3 + 14 + 3)
     expect(Number(count.args[2])).toBeGreaterThan(header.top)
     expect(Number(count.args[2])).toBeLessThan(header.bottom)
-    const title = calls.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
+    const title = calls.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && fitted(call.args[0], n.layout.title))!
     expect(title.args[0]).not.toBe(n.layout.title)
     expect(String(title.args[0]).length * 6).toBeLessThanOrEqual(markX - n.x - TITLE_START - canvasPaintTokens.node.titleBadgeGap)
 
     const unmarked = paintWith(scene, (renderer) => renderer.setBadges({ c1: [MUTED_BADGE, ERROR_BADGE] }))
-    const fullWidth = unmarked.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && call.args[2] === titleY)!
+    const fullWidth = unmarked.find((call) => call.method === 'fillText' && call.args[1] === n.x + TITLE_START && fitted(call.args[0], n.layout.title))!
     expect(String(fullWidth.args[0]).length).toBeGreaterThan(String(title.args[0]).length)
   })
 
@@ -3316,12 +3401,15 @@ describe('construct paint on the live renderer', () => {
     }
   })
 
-  it('a mismatched endpoint tag uses error paint while a healthy tag keeps its type color', () => {
+  it.each([
+    ['warning', PROBLEM_WARNING_BADGE.color],
+    ['error', ERR],
+  ] as const)('a %s endpoint tag takes its problem color while a healthy tag keeps its type color', (kind, color) => {
     const base = constructsScene()
     const scene: Scene = {
       ...base,
       netStubs: base.netStubs.map((stub) =>
-        stub.role === 'source' ? { ...stub, mismatch: true } : stub,
+        stub.role === 'source' ? { ...stub, mismatch: true, mismatchKind: kind } : stub,
       ),
     }
     const source = scene.netStubs.find((stub) => stub.role === 'source')!
@@ -3337,7 +3425,7 @@ describe('construct paint on the live renderer', () => {
       expect(index).toBeGreaterThanOrEqual(0)
       return paintedAfter(calls, index, 'stroke')!
     }
-    expect(leadAfter(source)).toMatchObject({ strokeStyle: ERR, lineWidth: 3 })
+    expect(leadAfter(source)).toMatchObject({ strokeStyle: color, lineWidth: 3 })
     expect(leadAfter(sink)).toMatchObject({ strokeStyle: LATENT, lineWidth: 2 })
 
     const tagStroke = (stub: Scene['netStubs'][number]) => {
@@ -3348,7 +3436,7 @@ describe('construct paint on the live renderer', () => {
       expect(index).toBeGreaterThanOrEqual(0)
       return paintedAfter(calls, index, 'stroke')!
     }
-    expect(tagStroke(source)).toMatchObject({ strokeStyle: ERR, lineWidth: 2 })
+    expect(tagStroke(source)).toMatchObject({ strokeStyle: color, lineWidth: 2 })
     expect(tagStroke(sink)).toMatchObject({ strokeStyle: LATENT, lineWidth: 1 })
   })
 
@@ -3387,8 +3475,10 @@ function boundaryScene(): Scene {
         nets: {},
         reroutes: {},
         boundary: {
-          inputs: [{ id: 'image-in', binds: { kind: 'port', node: 'snk', port: 'in' } }],
-          outputs: [{ id: 'image-out', binds: { kind: 'port', node: 'lat', port: 'out' } }],
+          body: [
+            { kind: 'input', id: 'image-in', binds: { kind: 'port', node: 'snk', port: 'in' } },
+            { kind: 'output', id: 'image-out', binds: { kind: 'port', node: 'lat', port: 'out' } },
+          ],
         },
         nextOrdinal: 10,
       },

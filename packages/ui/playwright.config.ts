@@ -2,12 +2,15 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './test',
+  testIgnore: ['**/canvas-equivalence.spec.ts'],
   fullyParallel: false,
   workers: 2,
   retries: 0,
   use: {
     baseURL: 'http://127.0.0.1:5277',
     browserName: 'chromium',
+    // Keep canvas pixels independent of Chromium's cold/warm raster backend.
+    launchOptions: { args: ['--disable-accelerated-2d-canvas'] },
     viewport: { width: 1280, height: 900 },
     contextOptions: { reducedMotion: 'reduce' },
   },

@@ -16,6 +16,7 @@ export function NodeProblemBox(props: {
   readonly nodeId: string
   readonly nodeTitle: string
   readonly lines: readonly ProblemBoxLine[]
+  readonly lastRun?: boolean
   /** The line whose row the pointer is on, or that Show on canvas picked. */
   readonly highlighted?: string | undefined
   readonly onPointLine: (line: ProblemBoxLine | undefined) => void
@@ -28,10 +29,12 @@ export function NodeProblemBox(props: {
     : action === 'review-model' ? message('problems.action.reviewModel')
     : action === 'model-management' ? message('problems.action.modelManagement')
     : action === 'model-storage' ? message('problems.action.modelStorage')
+    : action === 'show-log' ? message('problemBox.showLog')
+    : action === 'dismiss-run' ? message('problemBox.dismiss')
     : message('problems.action.locateAsset')
   // A required input never given a value or a wire reads as the row's own sentence.
   const lineText = (line: ProblemBoxLine): string =>
-    line.problem.diagnostic.code === 'compile.input.missing' && line.rowName !== undefined
+    line.problem?.diagnostic.code === 'compile.input.missing' && line.rowName !== undefined
       ? line.problem.diagnostic.hiddenRequiredField !== undefined
         ? message('problemBox.requiredHidden')
         : message('problemBox.required', { label: line.rowName.charAt(0).toUpperCase() + line.rowName.slice(1) })
@@ -51,6 +54,7 @@ export function NodeProblemBox(props: {
       nodeId={props.nodeId}
       label={message('problemBox.label', { node: props.nodeTitle })}
       lines={viewLines()}
+      {...(props.lastRun ? { notice: message('problems.lastRun.changedSince') } : {})}
       {...(props.highlighted === undefined ? {} : { highlighted: props.highlighted })}
       x={props.x}
       y={props.y}

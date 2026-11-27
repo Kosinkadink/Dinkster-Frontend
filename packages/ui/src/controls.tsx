@@ -7,16 +7,17 @@ import {
   splitProps,
   type JSX,
 } from 'solid-js'
-import { ChevronDown, CircleAlert, Clock, LoaderCircle, X, type LucideIcon } from 'lucide-solid'
+import { CircleAlert, Clock, LoaderCircle, X, type LucideIcon } from 'lucide-solid'
 import { Dynamic } from 'solid-js/web'
 import rules from '@dinkster/branding/rules' with { type: 'json' }
 import { useProductStrings } from './strings.js'
 import { useFieldFocus } from './field-focus.js'
+import { ProductShortcut, productShortcutKeys } from './shortcut.js'
 import githubMark from '../../../branding/providers/github-mark.svg?url'
 import googleMark from '../../../branding/providers/google-mark.svg?url'
 
 export type ProductRole = keyof typeof rules.buttonRoles
-export type ProductFill = Exclude<keyof typeof rules.buttonFills, 'quiet'>
+export type ProductFill = keyof typeof rules.buttonFills
 
 type ButtonAttributes = Omit<
   JSX.ButtonHTMLAttributes<HTMLButtonElement>,
@@ -138,12 +139,20 @@ export function ProductButton(
     intent?: ProductRole
     fill?: ProductFill
     pending?: boolean
+    /** panel: as tall as a list row, for the dense settings of a side panel. */
+    density?: 'panel'
   },
 ) {
-  const [local, button] = splitProps(props, ['intent', 'fill', 'pending'])
+  const [local, button] = splitProps(props, [
+    'intent',
+    'fill',
+    'pending',
+    'density',
+  ])
   return (
     <Button
       {...button}
+      data-density={local.density}
       intent={local.intent}
       fill={local.fill ?? 'outline'}
       pending={local.pending}
@@ -176,19 +185,20 @@ export function ProductWindowAction(
         intent={local.intent ?? 'neutral'}
         pending={local.pending ?? false}
         aria-label={local.label}
-        title={
-          local.shortcut ? `${local.label} (${local.shortcut})` : local.label
-        }
+        title={local.shortcut ? undefined : local.label}
+        data-tooltip-label={local.label}
+        data-tooltip-shortcut={local.shortcut}
+        aria-description={local.shortcut ? productShortcutKeys(local.shortcut).join('+') : undefined}
       >
         <span class="dinkster-window-action-icon" aria-hidden="true">
           <ProductIcon icon={local.icon} />
         </span>
-        <span class="dinkster-window-action-label">
+        <span class="dinkster-window-action-label" data-tooltip-visible-label="">
           {local.labelContent ?? local.label}
         </span>
         <Show when={local.shortcut}>
           {(shortcut) => (
-            <kbd class="dinkster-window-action-shortcut">{shortcut()}</kbd>
+            <ProductShortcut keys={shortcut()} />
           )}
         </Show>
       </ProductButton>
@@ -220,22 +230,32 @@ export function ProductProviderButton(
 export function ProductIconButton(
   props: Omit<ButtonAttributes, 'children' | 'aria-label' | 'title'> & {
     label: string
+    labelContent?: JSX.Element
     icon: LucideIcon
     intent?: ProductRole
+    pending?: boolean
     'data-tooltip-label'?: string
   },
 ) {
-  const [local, button] = splitProps(props, ['label', 'icon', 'intent'])
+  const [local, button] = splitProps(props, [
+    'label',
+    'labelContent',
+    'icon',
+    'intent',
+    'pending',
+  ])
   return (
     <Button
       {...button}
       intent={local.intent}
       fill="quiet"
-      iconOnly
+      pending={local.pending}
+      iconOnly={local.labelContent === undefined}
       aria-label={local.label}
       title={button['data-tooltip-label'] ? undefined : local.label}
     >
-      <ProductIcon icon={local.icon} />
+      <Show when={!local.pending}><ProductIcon icon={local.icon} /></Show>
+      {local.labelContent}
     </Button>
   )
 }
@@ -295,26 +315,41 @@ export function ProductTextButton(
 export function ProductSegmented(props: {
   label: string
   value: string
-  options: readonly { value: string; label: string }[]
+  /**
+   * `disabled` is the reason an option cannot be chosen. The option keeps its
+   * place, and the reason is its accessible description and its tooltip.
+   */
+  options: readonly { value: string; label: string; disabled?: string | undefined }[]
   onChange: (value: string) => void
 }) {
   const name = createUniqueId()
   return (
     <div class="dinkster-segmented" role="radiogroup" aria-label={props.label}>
       <For each={props.options}>
-        {(option) => (
-          <label class="dinkster-segment">
-            <input
-              type="radio"
-              class="dinkster-visually-hidden"
-              name={name}
-              value={option.value}
-              checked={props.value === option.value}
-              onChange={() => props.onChange(option.value)}
-            />
-            <span>{option.label}</span>
-          </label>
-        )}
+        {(option) => {
+          const reasonId = createUniqueId()
+          return (
+            <>
+              <label class="dinkster-segment" data-tooltip-label={option.disabled}>
+                <input
+                  type="radio"
+                  class="dinkster-visually-hidden"
+                  name={name}
+                  value={option.value}
+                  checked={props.value === option.value}
+                  disabled={option.disabled !== undefined}
+                  aria-describedby={option.disabled === undefined ? undefined : reasonId}
+                  onChange={() => props.onChange(option.value)}
+                />
+                <span>{option.label}</span>
+              </label>
+              {/* Outside the label, so the reason never joins the option's name. */}
+              <Show when={option.disabled}>
+                {(reason) => <span id={reasonId} class="dinkster-visually-hidden">{reason()}</span>}
+              </Show>
+            </>
+          )
+        }}
       </For>
     </div>
   )
@@ -330,6 +365,8 @@ export function ProductTile(props: {
   detail?: string
   picture?: JSX.Element
   empty?: JSX.Element
+  disabled?: boolean
+  tooltip?: string | undefined
   onClick: () => void
 }) {
   return (
@@ -337,6 +374,8 @@ export function ProductTile(props: {
       type="button"
       class="dinkster-tile"
       aria-label={props.caption ? undefined : props.label}
+      disabled={props.disabled}
+      data-tooltip-label={props.tooltip}
       onClick={() => props.onClick()}
     >
       <span class="dinkster-tile-picture">
@@ -383,7 +422,8 @@ export function ProductTextInput(
     'class' | 'style' | 'type'
   > & {
     type?: 'text' | 'email' | 'password' | 'url' | 'search' | 'tel'
-    density?: 'canvas'
+    /** canvas: inside a node row. panel: as tall as a list row, in body type, for the dense settings of a side panel. */
+    density?: 'canvas' | 'panel'
   },
 ) {
   useFieldFocus()
@@ -401,18 +441,6 @@ export function ProductTextArea(
 ) {
   useFieldFocus()
   return <textarea {...props} class="dinkster-input dinkster-textarea" />
-}
-
-export function ProductSelect(
-  props: Omit<JSX.SelectHTMLAttributes<HTMLSelectElement>, 'class' | 'style'>,
-) {
-  useFieldFocus()
-  return (
-    <div class="dinkster-select">
-      <select {...props} class="dinkster-input" />
-      <ProductIcon icon={ChevronDown} />
-    </div>
-  )
 }
 
 export function ProductCheckbox(

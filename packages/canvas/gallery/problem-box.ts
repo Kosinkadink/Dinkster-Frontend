@@ -1,6 +1,7 @@
 import {
   defaultValuesOf,
   loadDocument,
+  type Diagnostic,
   type InputSpec,
   type Json,
   type NodeProgress,
@@ -13,6 +14,8 @@ import {
   canvasPaintTokens,
   executionErrorBadge,
   LAST_RUN_BADGE,
+  LOG_INFO_BADGE,
+  logWarningBadge,
   PROBLEM_ERROR_BADGE,
   PROBLEM_WARNING_BADGE,
   problemBadge,
@@ -55,6 +58,9 @@ export interface ProblemBoxGalleryCard {
   /** Run states, for a node that failed in the run. */
   readonly states?: Readonly<Record<string, NodeProgress>>
   readonly boxes: readonly ProblemBoxGalleryBox[]
+  /** Real solver problems, shown in both the panel and the node's box. */
+  readonly diagnostics?: readonly Diagnostic[]
+  readonly run?: { readonly level: 'error' | 'warning' | 'info'; readonly diagnostics: readonly Diagnostic[] }
   /** The row drawn highlighted with its line. */
   readonly highlight?: { readonly nodeId: string; readonly row: string }
   readonly width: number
@@ -161,6 +167,7 @@ interface Placed {
   readonly schema: NodeSchema
   readonly x: number
   readonly values?: Record<string, Json>
+  readonly dynamic?: Readonly<Record<string, { readonly selected?: string; readonly members?: readonly string[] }>>
   readonly minimized?: true
   /** Node width; NODE_WIDTH when absent. */
   readonly width?: number
@@ -192,6 +199,7 @@ function sceneOf(
           id: node.id,
           type: node.schema.type,
           values: { ...defaultValuesOf(node.schema), ...node.values },
+          ...(node.dynamic ? { dynamic: node.dynamic } : {}),
           ...(node.mode ? { mode: node.mode } : {}),
         }])),
         links: Object.fromEntries(wires.map(([from, to], index) => [`w${index}`, {
@@ -255,7 +263,85 @@ export function problemBoxGallery(
   widgetMeasure: WidgetMeasure,
 ): readonly ProblemBoxGalleryCard[] {
   const scene = (nodes: readonly Placed[], wires: readonly Wire[] = []) => sceneOf(tokens, measure, widgetMeasure, nodes, wires)
+  const solverCard = (id: string, caption: string, nodes: readonly Placed[], wires: readonly Wire[]): ProblemBoxGalleryCard => {
+    const drawn = scene(nodes, wires)
+    const scale = nodes.length > 2 ? 0.65 : 1
+    return {
+      id, caption, scene: drawn, diagnostics: drawn.diagnostics.filter((diagnostic) => diagnostic.code.startsWith('solve.')),
+      badges: {}, rowMarks: {}, boxes: [], scale, width: column(nodes.length - 1) * scale + BOX_MAX + LEFT,
+    }
+  }
+  const latentSink = schema('GalleryDecode', 'Decode', [pin('samples', 'LATENT', 'samples')])
+  const matched = { kind: 'variable', templateId: 'T' } as const
+  const matchNode = schema('GalleryMatch', 'Switch', [
+    { ...pin('image', 'IMAGE', 'image'), type: matched },
+    { ...out('out', 'IMAGE', 'image'), type: matched },
+  ])
+  const groupType: TypeExpr = { kind: 'tuple', elements: [concrete('IMAGE'), concrete('MASK')] }
+  const groupSource = schema('GalleryGroupSource', 'Make group', [{ ...out('values', 'IMAGE', 'values'), type: groupType }])
+  const switchNode: NodeSchema = {
+    ...schema('GalleryPickSwitch', 'Switch', [
+      field('pick', 'pick', 'INT', 1),
+      { kind: 'group', id: 'branch', value: { ...pin('branch', 'IMAGE', 'branch'), type: matched }, keys: { kind: 'numbered', prefix: 'branch', start: 0, pad: 0 }, grows: 'link', minMembers: 1, maxMembers: 8 },
+      { ...out('image', 'IMAGE', 'image'), type: matched },
+    ]),
+    selector: { input: 'pick', group: 'branch' },
+  }
+  const switchInputs: readonly Placed[] = [
+    { id: 'load', schema: loadImage, x: column(0) },
+    { id: 'latent', schema: schema('GalleryLoadLatent', 'Load latent', [out('samples', 'LATENT', 'samples')]), x: column(1) },
+  ]
+  const switchWires: readonly Wire[] = [[['load', 'image'], ['switch', 'branch.branch0']], [['latent', 'samples'], ['switch', 'branch.branch1']]]
   return [
+    solverCard('type-warning', 'An image sent to samples that needs latent data. The same warning names the node in Problems and the row once in its own box. The wire and its handle are warning yellow.', [
+      { id: 'load', schema: loadImage, x: column(0) },
+      { id: 'decode', schema: latentSink, x: column(1) },
+    ], [[['load', 'image'], ['decode', 'samples']]]),
+    solverCard('type-matched', 'The matched type on Switch cannot satisfy both Load image and Decode. Both contributing wires warn; the problem belongs to Switch, with no type-variable name in its sentence.', [
+      { id: 'load', schema: loadImage, x: column(0) },
+      { id: 'switch', schema: matchNode, x: column(1) },
+      { id: 'decode', schema: latentSink, x: column(2) },
+    ], [[['load', 'image'], ['switch', 'image']], [['switch', 'out'], ['decode', 'samples']]]),
+    solverCard('type-list-error', 'A list sent to an input that needs one image stops the run. Its wire and handle, the receiving row and its Error tab use error red; the sentence is the same problem in both surfaces.', [
+      { id: 'load', schema: schema('GalleryLoadImages', 'Load images', [{ ...out('images', 'IMAGE', 'images'), type: { kind: 'list', element: concrete('IMAGE') } }]), x: column(0) },
+      { id: 'blur', schema: blurImage, x: column(1) },
+    ], [[['load', 'images'], ['blur', 'image']]]),
+    solverCard('type-list-needed', 'One image cannot fill an input that needs a list. The receiving row, wire and midpoint handle use error red.', [
+      { id: 'load', schema: loadImage, x: column(0) },
+      { id: 'combine', schema: schema('GalleryCombineImages', 'Combine images', [{ ...pin('images', 'IMAGE', 'images'), type: { kind: 'list', element: concrete('IMAGE') } }]), x: column(1) },
+    ], [[['load', 'image'], ['combine', 'images']]]),
+    solverCard('type-missing-row', 'A saved wire still points at an input that no longer exists. The sentence describes the missing input without exposing its stored id.', [
+      { id: 'load', schema: loadImage, x: column(0) },
+      { id: 'resize', schema: schema('GalleryChangedResize', 'Resize image', [field('scale', 'scale', 'FLOAT', 2)]), x: column(1) },
+    ], [[['load', 'image'], ['resize', 'old_image']]]),
+    solverCard('type-group-warning', 'Different group lengths warn without blocking the run. The message names both lengths, without tuple syntax.', [
+      { id: 'group', schema: groupSource, x: column(0) },
+      { id: 'combine', schema: schema('GalleryCombine', 'Combine values', [{ ...pin('values', 'IMAGE', 'values'), type: { kind: 'tuple', elements: [concrete('IMAGE'), concrete('MASK'), concrete('INT')] } }]), x: column(1) },
+    ], [[['group', 'values'], ['combine', 'values']]]),
+    solverCard('type-selected', 'The stored image choice no longer agrees with Load latent. The shown source row and selected type appear in both surfaces, not the stored variant key.', [
+      { id: 'latent', schema: schema('GallerySelectedLatent', 'Load latent', [out('samples', 'LATENT', 'samples')]), x: column(0) },
+      { id: 'choose', schema: schema('GalleryChooseModel', 'Choose model', [{ kind: 'typeChoice', id: 'source', displayName: 'source', required: true, rows: [], variants: [{ key: 'image', type: concrete('IMAGE'), rows: [] }] }]), dynamic: { source: { selected: 'image' } }, x: column(1) },
+    ], [[['latent', 'samples'], ['choose', 'source']]]),
+    solverCard('type-group-position', 'A position beyond the group stops the run on the shown value output. The message explains the chosen position and actual group length.', [
+      { id: 'group', schema: groupSource, x: column(0) },
+      { id: 'pick', schema: schema('GalleryPickValue', 'Pick value', [
+        { ...pin('tuple', 'IMAGE', 'group'), type: { kind: 'variable', templateId: 'Tuple' } },
+        field('index', 'position', 'INT', 3),
+        { ...out('item', 'IMAGE', 'value'), type: { kind: 'tuple_element', input: 'tuple', index: 'index' } },
+      ]), x: column(1) },
+    ], [[['group', 'values'], ['pick', 'tuple']]]),
+    solverCard('type-optional', 'Find face may send nothing to a required input. The node warns while its optional output keeps the existing type-coloured dashed wire.', [
+      { id: 'find', schema: schema('GalleryFindFace', 'Find face', [{ ...out('image', 'IMAGE', 'image'), optional: true }]), x: column(0) },
+      { id: 'blur', schema: schema('GalleryRequiredBlur', 'Blur image', [{ ...pin('image', 'IMAGE', 'image'), onAbsent: 'fail' }]), x: column(1) },
+    ], [[['find', 'image'], ['blur', 'image']]]),
+    solverCard('type-switch-stored', 'The stored Switch pick chooses one branch. Different branch types warn rather than stop the run; both rows are named in plain words.', [
+      ...switchInputs,
+      { id: 'switch', schema: switchNode, dynamic: { branch: { members: ['branch0', 'branch1'] } }, x: column(2) },
+    ], switchWires),
+    solverCard('type-switch-runtime', 'A run-time Switch pick can choose either branch, so different branch types stop the run. The same sentence now has error paint.', [
+      ...switchInputs.map((node) => node.id === 'latent' ? { ...node, schema: { ...node.schema, body: [...node.schema.body, out('pick', 'INT', 'position')] } } : node),
+      { id: 'switch', schema: switchNode, dynamic: { branch: { members: ['branch0', 'branch1'] } }, x: column(2) },
+    ], [...switchWires, [['latent', 'pick'], ['switch', 'pick']]]),
     {
       id: 'at-rest',
       caption: 'At rest. Width and height are 0 and steps is 12000: two rows are outlined red and steps yellow, and nothing is drawn at the node\'s edge. The tabs read Error 2 and Warning. Selecting the node or pointing at it opens nothing. This part offers only actions that change no stored value, such as Edit field; fix buttons such as "Use 10000" on the steps line come with the later part that adds fixes.',
@@ -322,7 +408,7 @@ export function problemBoxGallery(
     },
     {
       id: 'stops-a-run',
-      caption: 'What stops a run. A missing model offers Locate or replace; Review download replaces it when the download review can open without a run. A required input never connected reads "Image is required."; mask is optional with nothing plugged in, so it has no outline and no line. A value failing a check with no fix offers Edit field.',
+      caption: 'What stops a run. A missing model offers Download models and Locate or replace. Download models opens the review without a run. A required input never connected reads "Image is required."; mask is optional with nothing plugged in, so it has no outline and no line. A value failing a check with no fix offers Edit field.',
       scene: scene([
         { id: 'load', schema: loadModel, x: column(0) },
         { id: 'caption', schema: captionImage, x: column(1) },
@@ -331,7 +417,7 @@ export function problemBoxGallery(
       badges: { load: [errors(1)], caption: [errors(1)], resize: [errors(1)] },
       rowMarks: { load: { model: 'error' }, caption: { image: 'error' }, resize: { width: 'error' } },
       boxes: [
-        { nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', 'Model file is missing.', ['Locate or replace'])] },
+        { nodeId: 'load', nodeTitle: 'Load model', lines: [line('error', 'model', 'Model file is missing.', ['Download models', 'Locate or replace'])] },
         { nodeId: 'caption', nodeTitle: 'Caption image', lines: [line('error', 'image', 'Image is required.')] },
         { nodeId: 'resize', nodeTitle: 'Resize image', lines: [line('error', 'width', 'Width must be positive.', [EDIT])] },
       ],
@@ -393,15 +479,15 @@ export function problemBoxGallery(
     ...[
       {
         id: 'model-missing-review',
-        caption: 'A missing model with a download source to review. Review download opens consent for this model only; it does not queue the workflow. Locate or replace opens the field.',
+        caption: 'A missing model with a download source to review. Download models opens the review for this model only; it does not queue the workflow. Locate or replace opens the field.',
         message: 'sdxl_base.safetensors is not in a model folder this project uses on Local engine.',
-        actions: ['Review download', 'Locate or replace'],
+        actions: ['Download models', 'Locate or replace'],
       },
       {
         id: 'model-missing-no-source',
-        caption: 'A missing model with no download source. Only Locate or replace is offered.',
+        caption: 'A missing model with no download source. Download models opens the review to choose a source. Locate or replace opens the field.',
         message: 'sdxl_base.safetensors is not in a model folder this project uses on Local engine.',
-        actions: ['Locate or replace'],
+        actions: ['Download models', 'Locate or replace'],
       },
       {
         id: 'model-hidden',
@@ -455,5 +541,31 @@ export function problemBoxGallery(
       scale: 0.55,
       width: BOXED,
     },
+    ...[
+      { id: 'run-error', caption: 'One run error: its Error tab is the title; Log holds the details.', level: 'error', messages: ['The image could not be read.'] },
+      { id: 'run-input-error', caption: 'An error naming an input outlines that row. The input prefix leaves the message.', level: 'error', messages: ["input 'file': The image could not be read."] },
+      { id: 'run-python-error', caption: 'A Python error shows only its message here. Its traceback and input values stay in Log.', level: 'error', messages: ['The decoder could not read this image because its file is incomplete. Select another image or replace the incomplete file before running this node again.'] },
+      { id: 'run-two-errors', caption: 'Two errors on one node, one entry for each, with the shared text actions.', level: 'error', messages: ['The image could not be read.', 'The selected image format is not supported.'] },
+      { id: 'run-warning', caption: 'A run warning opens the same box under its Warning tab.', level: 'warning', messages: ['The image has no color profile.'] },
+      { id: 'run-message', caption: 'A run message opens the same box under its Message tab.', level: 'info', messages: ['The image was loaded.'] },
+    ].map(({ id, caption, level, messages }): ProblemBoxGalleryCard => ({
+      id, caption,
+      scene: scene([{ id: 'read', schema: loadImage, x: LEFT }]),
+      badges: { read: [level === 'error' ? executionErrorBadge(messages.length) : level === 'warning' ? logWarningBadge(messages.length) : LOG_INFO_BADGE] },
+      rowMarks: id === 'run-input-error' ? { read: { file: 'error' } } : {},
+      boxes: [{ nodeId: 'read', nodeTitle: 'Load image', lines: [] }],
+      run: {
+        level: level as 'error' | 'warning' | 'info',
+        diagnostics: messages.map((message) => ({
+          severity: level as 'error' | 'warning' | 'info', origin: 'runtime', code: 'runtime.ImageReadError', message,
+          ...(id === 'run-python-error' ? { runtime: {
+            exceptionType: 'ImageReadError', exceptionMessage: message,
+            traceback: ['Traceback (most recent call last):', 'ImageReadError: incomplete file'],
+            currentInputs: { file: 'incomplete.png' },
+          } } : {}),
+        })),
+      },
+      width: BOXED,
+    })),
   ]
 }

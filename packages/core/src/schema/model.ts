@@ -376,12 +376,17 @@ export interface ResolvedWidgetRepresentation {
  * explicit representation set takes authority, including a locked set with
  * userSwitchable false or only one representation.
  */
-export function widgetRepresentationsOf(spec: WidgetSpec): WidgetRepresentationsSpec | undefined {
+export function widgetRepresentationsOf(spec: WidgetSpec, registered?: WidgetRepresentationsSpec): WidgetRepresentationsSpec | undefined {
   if (spec.representations !== undefined) return spec.representations
+  if (registered !== undefined) return registered
   if (spec.widgetType === 'FLOAT') {
     const { min, max } = spec.options
-    if (typeof min !== 'number' || typeof max !== 'number' || !Number.isFinite(min)
-      || !Number.isFinite(max) || max <= min || !Number.isFinite(max - min)) return undefined
+    const finiteMin = typeof min === 'number' && Number.isFinite(min)
+    const finiteMax = typeof max === 'number' && Number.isFinite(max)
+    // Worked-out limits can disappear without removing the declared choice.
+    const workedRange = (spec.looked?.min !== undefined || spec.looked?.max !== undefined) &&
+      (finiteMin || spec.looked?.min !== undefined) && (finiteMax || spec.looked?.max !== undefined)
+    if (!workedRange && (!finiteMin || !finiteMax || max <= min || !Number.isFinite(max - min))) return undefined
     return {
       default: spec.options['display'] === 'slider' ? 'slider' : 'number',
       userSwitchable: true,
@@ -407,6 +412,34 @@ export function widgetRepresentationsOf(spec: WidgetSpec): WidgetRepresentations
 }
 
 /**
+ * A field's switchable looks for the side part's Representation control:
+ * the declared choices with their display names, the chosen one, and a note
+ * when the chosen look cannot be drawn yet. Undefined when the set is locked
+ * or has fewer than two choices.
+ */
+export function widgetRepresentationChoices(spec: WidgetSpec, selected: string | undefined): {
+  readonly choices: readonly { readonly id: string; readonly label: string }[]
+  readonly selected: string
+  readonly note?: string
+} | undefined {
+  const set = widgetRepresentationsOf(spec)
+  if (set === undefined || !set.userSwitchable || set.representations.length < 2) return undefined
+  const chosen = set.representations.find((representation) => representation.id === selected)
+    ?? set.representations.find((representation) => representation.id === set.default)
+    ?? set.representations[0]!
+  const { display, min, max } = chosen.widget.options
+  // A slider needs its range; until it is known the row draws a number field
+  // and the choice stays Slider.
+  const rangeUnknown = display === 'slider' && !(typeof min === 'number' && typeof max === 'number' &&
+    Number.isFinite(min) && Number.isFinite(max) && max > min && Number.isFinite(max - min))
+  return {
+    choices: set.representations.map((representation) => ({ id: representation.id, label: representation.displayName || representation.id })),
+    selected: chosen.id,
+    ...(rangeUnknown ? { note: 'Showing Number until the range is known.' } : {}),
+  }
+}
+
+/**
  * Resolve a client-owned representation selection without mutating schema or
  * document state. An absent or stale selection uses the schema default; the
  * stale id remains stored so a later schema refresh can restore it.
@@ -414,8 +447,9 @@ export function widgetRepresentationsOf(spec: WidgetSpec): WidgetRepresentations
 export function resolveWidgetRepresentation(
   spec: WidgetSpec,
   selected?: string,
+  registered?: WidgetRepresentationsSpec,
 ): ResolvedWidgetRepresentation {
-  const set = widgetRepresentationsOf(spec)
+  const set = widgetRepresentationsOf(spec, registered)
   if (set === undefined) return { spec }
   const representation = set.representations.find((candidate) => candidate.id === selected) ??
     set.representations.find((candidate) => candidate.id === set.default)
@@ -479,8 +513,8 @@ export const isLookupSpec = (value: unknown): value is LookupSpec =>
   typeof (value as { lookup?: unknown }).lookup === 'string'
 
 /**
- * One action step, kept as declared. Running steps is not built in the
- * editor; a button that holds them is drawn and does nothing.
+ * One action step, kept as declared; `actions/steps.ts` decodes the steps a
+ * press runs and refuses any other kind.
  */
 export interface StepSpec {
   readonly step: string
@@ -581,6 +615,17 @@ export interface InputSpec extends PortSpecBase {
   /** Steps the host applies together with the user's own change of this field; kept as declared. */
   readonly onEdit?: readonly StepSpec[]
   /**
+   * Shown at full contrast, but the user cannot type into it. With
+   * `disabled` (dimmed, cannot be typed into) and `disabledReason`, it limits
+   * the user's own edits only: the value is still sent, a wire still works,
+   * and a step or an after-run write may still change it. A formula is
+   * worked out by the editor; while it is unknown or fails the field is
+   * neither read-only nor disabled. Layout only, never identity.
+   */
+  readonly readOnly?: Formulated<boolean>
+  readonly disabled?: Formulated<boolean>
+  readonly disabledReason?: Formulated<string>
+  /**
    * The value used while nothing is stored for this field: a formula the
    * editor works out, or a lookup. A field that declares it always has a
    * default, used when the value cannot be worked out.
@@ -654,7 +699,8 @@ export interface OutputSpec extends PortSpecBase {
   /** Presentation-only pre-execution estimate sourced from a selected asset. */
   readonly represents?: OutputRepresents
   /** Exact pre-execution value sourced from a typed primitive identity input. */
-  readonly knownValue?: OutputKnownValue
+  readonly knownValue?: OutputKnownValue  /** Layout only: on a subgraph node, never share the line of the input pin above. */
+  readonly ownRow?: true
 }
 
 /** A stored value with no pin and no field, written by an editor or an action. */
@@ -710,7 +756,7 @@ export interface NoteSpec {
   readonly visible?: Formulated<boolean>
 }
 
-/** Runs an action. The editor draws it and does not run its steps. */
+/** Runs its steps when pressed (`actions/runner.ts`). */
 export interface ButtonSpec {
   readonly kind: 'button'
   readonly id: string
@@ -1168,7 +1214,7 @@ export interface NodeSchema {
   readonly validate?: readonly RuleSpec[]
   /** Text or a formula after the node's title. */
   readonly titleSuffix?: Formulated<string>
-  /** Buttons in the node's menu; drawn and inert, as body buttons are. */
+  /** Buttons in the node's menu, run as body buttons are. */
   readonly menu?: readonly ButtonSpec[]
   /** Type authority for explicit occurrence-authored extra input names. Absent means closed. */
   readonly additionalInputs?: TypeExpr
@@ -1302,6 +1348,10 @@ export const isComboWidgetInput = (spec: InputSpec): boolean =>
 
 export const isAssetWidgetInput = (spec: Pick<InputSpec, 'widget'>): boolean =>
   spec.widget?.widgetType === 'ASSET'
+
+/** A widget edited as a number field: INT or FLOAT. */
+export const isNumberWidget = (widget: Pick<WidgetSpec, 'widgetType'> | undefined): boolean =>
+  widget?.widgetType === 'INT' || widget?.widgetType === 'FLOAT'
 
 export const isImageAssetInput = (spec: InputSpec): boolean => {
   const type = canonicalTypeIdOf(spec.type)

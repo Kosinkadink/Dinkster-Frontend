@@ -4,7 +4,7 @@ import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asNodeId, DINKSTER_SCHEMA_WIRE_VERSION, type NodeSchema } from '@dinkster/core'
-import { buildDinksterRegistry } from '@dinkster/client'
+import { buildDinksterRegistry, type ModelDownloadJob } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { templatesSource } from '../src/collections.js'
 import { TemplatesPage } from '../src/TemplatesPage.js'
@@ -119,14 +119,32 @@ describe('TemplatesPage', () => {
     backend.registry.set({ ...backend.registry.get()!, resolve: (type) => type === schema.type ? schema : undefined,
       schemas: new Map([[schema.type, schema]]) })
     const workflow = app.createWorkflow().store.doc
+    const vae = { digest: `blake3:${'a'.repeat(64)}`, name: 'VAE', size: 2097152,
+      mediaType: 'application/octet-stream', virtualPath: 'models/VAE' }
+    const otherVae = { ...vae, digest: `blake3:${'b'.repeat(64)}` }
     vi.spyOn(backend.connection, 'fetchTemplateBody').mockResolvedValue({ ...workflow, graphs: {
       [workflow.root]: { ...workflow.graphs[workflow.root]!, nodes: {
-        loader: { id: asNodeId('loader'), type: schema.type, values: { base: 'Base', vae: 'VAE', repeated: 'VAE' } },
+        loader: { id: asNodeId('loader'), type: schema.type, values: { base: 'Base', vae, repeated: otherVae } },
       } },
     } })
-    vi.spyOn(backend.connection, 'checkModelPresence').mockImplementation(async (wanted) => wanted.map((model) =>
-      model.name === 'Base' ? { ...model, status: 'local' } : { ...model, status: 'missing', plannable: true }))
-    vi.spyOn(backend.connection, 'fetchModelDownloads').mockResolvedValue({ instance: 'test', jobs: [] })
+    const jobs = new Map<string, ModelDownloadJob>()
+    const plan = { name: 'VAE', kind: 'model/vae', status: 'consent-required' as const,
+      planId: 'vae', digest: vae.digest, project: 'default', provider: 'huggingface' as const,
+      source: 'https://huggingface.co/example/model/resolve/main/vae.safetensors', repo: 'example/model',
+      revision: 'c'.repeat(40), file: 'vae.safetensors', sha256: 'd'.repeat(64), size: vae.size,
+      license: 'Apache-2.0', destination: '/models/vae.safetensors', mount: 'models' }
+    vi.spyOn(backend.connection, 'planModelDownload').mockResolvedValue(plan)
+    vi.spyOn(backend.connection, 'startModelDownload').mockImplementation(async () => {
+      const job = { ...plan, jobId: 'vae-job', status: 'downloading' as const, received: plan.size / 4 }
+      jobs.set(job.jobId, job)
+      return job
+    })
+    vi.spyOn(backend.connection, 'cancelModelDownload').mockImplementation(async (id) => {
+      const job = { ...jobs.get(id)!, status: 'cancelled' as const }
+      jobs.set(id, job)
+      return job
+    })
+    vi.spyOn(backend.connection, 'fetchModelDownloads').mockImplementation(async () => ({ instance: 'test', jobs: [...jobs.values()] }))
     vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({ templates: [
       { pack: 'native', id: 'image', name: 'Image starter', description: '\u56fe\u50cf', digest: 'sha256:a', family: 'SD 1.5', tags: ['image'], assets: ['base', 'vae'] },
       { pack: 'native', id: 'video', name: 'Video starter', digest: 'sha256:b', tags: ['video'], models: ['unknown-size'] },
@@ -144,7 +162,7 @@ describe('TemplatesPage', () => {
     document.body.append(host)
     const dispose = render(() => {
       const [opened, setOpened] = createSignal('Nothing opened')
-      return <><TemplatesPage app={app} drawing={() => undefined}
+      return <><TemplatesPage app={app}
         onOpen={async (entry) => { setOpened(entry.title); return true }}
         onBlank={() => setOpened('Blank workflow')} onOpenStorage={() => undefined} />
         <output>{opened()}</output></>
@@ -154,16 +172,25 @@ describe('TemplatesPage', () => {
     try {
       await vi.waitFor(() => expect(options('Templates')).toHaveLength(3))
       expect(host.querySelector('.dinkster-template-detail')?.textContent).toContain('1 of 2 on this computer')
-      expect(button('Download 1 model2 MiB')).toBeDefined()
+      expect(button('Download 1 model2 MB')).toBeDefined()
       const tabsBeforeReview = app.tabs.get().length
-      button('Download 1 model2 MiB').click()
+      button('Download 1 model2 MB').click()
       await vi.waitFor(() => expect(app.assetConsent.get()?.models?.map((model) => model.requirement)).toEqual([
-        { name: 'VAE', kind: 'model/vae' },
+        { name: 'Base', kind: 'model/checkpoint' },
+        { name: 'VAE', kind: 'model/vae', asset: vae },
+        { name: 'VAE', kind: 'model/vae', asset: otherVae },
       ]))
       expect(app.assetConsent.get()?.retry).toBeUndefined()
       expect(app.tabs.get()).toHaveLength(tabsBeforeReview)
       expect(app.store.executions.get().size).toBe(0)
+      await app.assetConsent.get()!.reviewModel!(1)
+      await app.assetConsent.get()!.downloadModel!(1)
+      await vi.waitFor(() => expect(host.textContent).toContain('Downloading 1 model, 25%'))
       app.assetConsent.set(undefined)
+      expect(host.textContent).toContain('Downloading 1 model, 25%')
+      button('Stop').click()
+      await vi.waitFor(() => expect(host.textContent).not.toContain('Downloading 1 model, 25%'))
+      expect(jobs.get('vae-job')?.status).toBe('cancelled')
       const groupOptions = [...host.querySelectorAll<HTMLElement>('.dinkster-template-filter')]
       expect(groupOptions.map((item) => item.textContent)).toEqual(['All3', 'Image1', 'Video1', 'Loops and tools1', 'Other1', 'SD 1.51', 'No models1'])
       groupOptions.find((item) => item.dataset['group'] === 'makes:video')!.click()
@@ -173,14 +200,14 @@ describe('TemplatesPage', () => {
       expect(host.querySelector('output')?.textContent).toBe('Nothing opened')
 
       enter(host.querySelector<HTMLInputElement>('input[type="search"]')!, 'SD1.5')
-      await vi.waitFor(() => expect(options('Templates').map((item) => item.textContent)).toEqual(['2 MiBImage starterSD 1.5']))
+      await vi.waitFor(() => expect(options('Templates').map((item) => item.textContent)).toEqual(['2 MBImage starterSD 1.5']))
       enter(host.querySelector<HTMLInputElement>('input[type="search"]')!, '\u56fe\u50cf')
       await vi.waitFor(() => expect(options('Templates')).toHaveLength(1))
       button('Use template').click()
       await vi.waitFor(() => expect(host.querySelector('output')?.textContent).toBe('Image starter'))
       backend.templatesEnabled.set(false)
       await vi.waitFor(() => expect(host.querySelector('[data-testid="templates-page"]')).toBeNull())
-    } finally { dispose() }
+    } finally { dispose(); app.dispose() }
   })
 
   it('keeps folder setup in Storage and preserves an empty page with Blank workflow', async () => {
@@ -188,25 +215,42 @@ describe('TemplatesPage', () => {
     const backend = app.libraryBackend()!
     backend.templatesEnabled.set(true)
     let empty = false
-    vi.spyOn(backend.connection, 'listTemplates').mockImplementation(async () => ({ templates: empty ? [] : [
-      { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', models: ['missing'] },
-    ] }))
+    let failure: 'templates' | 'settings' | undefined = 'templates'
+    vi.spyOn(backend.connection, 'listTemplates').mockImplementation(async () => {
+      if (failure === 'templates') throw new Error('GET /api/templates failed: 503')
+      return { templates: empty ? [] : [
+        { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', models: ['missing'] },
+      ] }
+    })
     vi.spyOn(backend.connection, 'guessAssets').mockResolvedValue([])
-    vi.spyOn(backend.connection, 'fetchModelSettings').mockResolvedValue({
-      settings: { version: 1, locations: [], downloadLocation: null }, locations: [],
-      revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+    vi.spyOn(backend.connection, 'fetchModelSettings').mockImplementation(async () => {
+      if (failure === 'settings') throw new Error('GET /api/models/settings failed: 503')
+      return {
+        settings: { version: 1, locations: [], downloadLocation: null }, locations: [],
+        revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
+      }
     })
     const host = document.createElement('div')
     document.body.append(host)
     const dispose = render(() => {
       const [action, setAction] = createSignal('')
       const [visible, setVisible] = createSignal(true)
-      return <><Show when={visible()}><TemplatesPage app={app} drawing={() => undefined} onOpen={async () => true}
+      return <><Show when={visible()}><TemplatesPage app={app} onOpen={async () => true}
         onBlank={() => setAction('Blank workflow')} onOpenStorage={() => setAction('Storage')} /></Show>
         <output>{action()}</output>
         <button onClick={() => { setVisible(false); empty = true; queueMicrotask(() => setVisible(true)) }}>Reload empty</button></>
     }, host)
     try {
+      for (const next of ['settings', undefined] as const) {
+        await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Could not load templates'))
+        expect(host.textContent).not.toContain('GET /api/')
+        expect(host.textContent).not.toContain('No templates yet')
+        expect(host.querySelector('.dinkster-template-filter')).toBeNull()
+        expect(host.querySelector('.dinkster-template-detail')).toBeNull()
+        expect(host.querySelector('input[type="search"]')).not.toBeNull()
+        failure = next
+        ;[...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Retry')!.click()
+      }
       await vi.waitFor(() => expect(host.textContent).toContain('No model folder yet'))
       expect(host.querySelector('form')).toBeNull()
       expect([...host.querySelectorAll('button')].some((button) => button.textContent?.startsWith('Download'))).toBe(false)

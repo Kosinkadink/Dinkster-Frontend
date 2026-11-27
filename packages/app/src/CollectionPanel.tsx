@@ -60,6 +60,11 @@ export function CollectionPanel(props: {
   }) => JSX.Element
   /** Optional entry activation (open frozen view, insert blueprint, ...). */
   readonly onActivate?: (sourceId: string, entry: CollectionEntry) => void
+  /** Hosts own the transfer format; collections only expose the row gesture. */
+  readonly drag?: {
+    readonly enabled: (entry: CollectionEntry, owner?: string) => boolean
+    readonly start: (entry: CollectionEntry, event: DragEvent, owner?: string) => void
+  }
   /** Optional handler for per-entry actions (entry.actions clicks). */
   readonly onAction?: (sourceId: string, entry: CollectionEntry, actionId: string) => void
   /** Source-scoped toolbar operations (bulk clear, ...), host-provided. */
@@ -152,6 +157,7 @@ export function CollectionPanel(props: {
   const [items, setItems] = createSolidSignal<readonly CollectionEntry[]>([])
   const [cursor, setCursor] = createSolidSignal<string | undefined>(undefined)
   const [total, setTotal] = createSolidSignal<number | undefined>(undefined)
+  const [disabledActions, setDisabledActions] = createSolidSignal<readonly string[]>([])
   const [loading, setLoading] = createSolidSignal(false)
   const [error, setError] = createSolidSignal<string | undefined>(undefined)
   // Owner of the COMMITTED page (see onSourceAction). Invalidated the
@@ -161,20 +167,11 @@ export function CollectionPanel(props: {
   const [pageOwner, setPageOwner] = createSolidSignal<string | undefined>(undefined)
   const [selectedId, setSelectedId] = createSolidSignal<string | undefined>(undefined)
   const [expandedIds, setExpandedIds] = createSolidSignal<ReadonlySet<string>>(new Set())
-  const [armedAction, setArmedAction] = createSolidSignal<string>()
   const instanceId = createUniqueId()
   const resultsId = `collection-results-${instanceId}`
   const descriptionId = `collection-description-${instanceId}`
   let rootEl: HTMLDivElement | undefined
   let searchEl: HTMLInputElement | undefined
-  let actionArmTimer: ReturnType<typeof setTimeout> | undefined
-  createEffect(() => {
-    const selection = `${sourceId()}:${selectedId() ?? ''}`
-    void selection
-    if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
-    actionArmTimer = undefined
-    setArmedAction(undefined)
-  })
   const clearSearch = (): void => {
     if (searchEl === undefined || searchEl.value === '') return
     searchEl.value = ''
@@ -343,6 +340,7 @@ export function CollectionPanel(props: {
         setItems(append ? [...new Map([...items(), ...page.items].map((entry) => [entry.id, entry])).values()] : page.items)
         setCursor(page.cursor)
         setTotal(page.total)
+        setDisabledActions(page.disabledActions ?? [])
         setPageOwner(page.owner)
         setLoading(false)
         if (!append && pendingInitialSelection !== undefined && selectedId() === undefined) {
@@ -398,7 +396,6 @@ export function CollectionPanel(props: {
   })
   onCleanup(() => {
     if (debounceTimer !== undefined) clearTimeout(debounceTimer)
-    if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
     generation++ // orphan any in-flight page
     controller?.abort()
   })
@@ -526,32 +523,18 @@ export function CollectionPanel(props: {
   const Actions = (p: { entry: CollectionEntry }) => (
     <div class="collection-actions" data-testid="collection-actions">
       <For each={p.entry.actions ?? []}>
-        {(a) => {
-          const key = () => `${sourceId()}:${p.entry.id}:${a.id}`
-          const armed = () => a.id === 'delete' && armedAction() === key()
-          return <button
-              class="collection-action"
-              data-testid="collection-action"
-              data-action={a.id}
-              data-tone={a.id === 'delete' ? 'danger' : 'accent'}
-              aria-pressed={a.id === 'delete' ? armed() : undefined}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (a.id === 'delete' && !armed()) {
-                  setArmedAction(key())
-                  if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
-                  actionArmTimer = setTimeout(() => setArmedAction(undefined), 4000)
-                  return
-                }
-                if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
-                actionArmTimer = undefined
-                setArmedAction(undefined)
-                props.onAction?.(sourceId(), p.entry, a.id)
-              }}
-            >
-              {armed() ? message('collection.action.confirmDelete') : a.label}
-            </button>
-        }}
+        {(a) => <button
+          class="collection-action"
+          data-testid="collection-action"
+          data-action={a.id}
+          data-tone={a.id === 'delete' ? 'danger' : 'accent'}
+          onClick={(e) => {
+            e.stopPropagation()
+            props.onAction?.(sourceId(), p.entry, a.id)
+          }}
+        >
+          {a.label}
+        </button>}
       </For>
     </div>
   )
@@ -575,6 +558,13 @@ export function CollectionPanel(props: {
       data-testid="collection-entry"
       data-entry={p.entry.id}
       role="option"
+      draggable={props.drag?.enabled(p.entry, pageOwner()) === true}
+      onDragStart={(event) => {
+        if (!props.drag) return
+        if ((event.target as Element).closest('button, input, textarea, a') ||
+            !props.drag.enabled(p.entry, pageOwner())) { event.preventDefault(); return }
+        props.drag.start(p.entry, event, pageOwner())
+      }}
       aria-selected={highlighted(p.entry)}
       aria-disabled={props.pick !== undefined && p.entry.folder === undefined && !props.pick.pickable(p.entry) ? 'true' : undefined}
       // A host that draws its own entry content already shows these facts, and the tooltip would cover the rows under it.
@@ -795,7 +785,7 @@ export function CollectionPanel(props: {
               class="collection-source-action"
               data-testid="collection-source-action"
               data-action={a.id}
-              disabled={loading()}
+              disabled={loading() || disabledActions().includes(a.id)}
               onClick={() => props.onSourceAction?.(sourceId(), a.id, pageOwner())}
             >
               {a.label}

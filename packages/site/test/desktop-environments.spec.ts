@@ -1,4 +1,5 @@
 import { expect, test } from '../../e2e/visual.js'
+import { chooseOption } from '../../e2e/choices.js'
 import type {
   DesktopEnvironment,
   EnvironmentBridge,
@@ -178,10 +179,14 @@ test('advanced controls stay collapsed, preserve saved device choices and invali
   await expect(
     page.getByText('Saved sandbox unavailable; no fallback.'),
   ).toBeVisible()
-  await page.getByLabel('Operation', { exact: true }).selectOption('cleanup')
-  await page
-    .getByLabel('Automatic cleanup', { exact: false })
-    .selectOption('off')
+  await chooseOption(
+    page.getByLabel('Operation', { exact: true }),
+    'Snapshot cleanup / retry',
+  )
+  await chooseOption(
+    page.getByLabel('Automatic cleanup', { exact: false }),
+    'Off; do not collect',
+  )
   await page
     .getByLabel('Previous snapshots to keep', { exact: false })
     .fill('7')
@@ -250,6 +255,208 @@ test('advanced controls stay collapsed, preserve saved device choices and invali
     .toEqual([{ kind: 'apply', token: 'native-retained-token' }])
 })
 
+for (const selection of [
+  { variant: 'linux-nvidia', assigned: '', gpus: ['GPU-second'] },
+  { variant: 'linux-nvidia', assigned: 'GPU-second', gpus: ['GPU-second'] },
+  { variant: 'linux-cpu', assigned: '', gpus: [] },
+  { variant: 'linux-cpu', assigned: 'GPU-second', gpus: [] },
+]) {
+  test(`inspection carries ${selection.variant} assignment from tools (${selection.assigned || 'blank'}) into review`, async ({
+    page,
+  }) => {
+    await page.goto('/desktop-environments.html')
+    await page.getByText('Advanced settings', { exact: true }).click()
+    await page
+      .getByLabel('Environment name', { exact: true })
+      .fill('Assignment')
+    await page
+      .getByLabel('Install location', { exact: true })
+      .fill('/environments/new')
+    await page
+      .getByLabel('Assigned NVIDIA devices', { exact: true })
+      .fill(selection.assigned)
+    await page.evaluate((value) => {
+      window.dinksterProjects!.inspect = async () => ({
+        result: { operation: 'catalog', status: 'clean', plan: [] },
+        hardware: {
+          gpus: [
+            { id: 'GPU-first', name: 'First card' },
+            { id: 'GPU-second', name: 'Second card' },
+          ],
+        },
+        plan: {
+          selected: value.variant,
+          gpus: value.gpus,
+          reason: 'Tools-selected assignment.',
+          choices: [
+            {
+              variant: value.variant,
+              supported: true,
+              reason: 'Tools-selected assignment.',
+            },
+          ],
+        },
+      })
+    }, selection)
+    await page
+      .getByRole('button', { name: 'Inspect hardware and variants' })
+      .click()
+    await expect(
+      page.getByLabel('Hardware variant', { exact: true }),
+    ).toHaveText(selection.variant)
+    await page
+      .getByLabel('Assigned NVIDIA devices', { exact: true })
+      .evaluate((input) => {
+        window.scrollTo(
+          0,
+          window.scrollY + input.getBoundingClientRect().top - 100,
+        )
+      })
+    await page.screenshot({
+      path: `test-results/captures/assignment-${selection.variant}-${selection.assigned || 'blank'}.png`,
+    })
+    await expect(
+      page.getByLabel('Assigned NVIDIA devices', { exact: true }),
+    ).toHaveValue(selection.gpus.join(','))
+    await page
+      .getByRole('button', { name: 'Review environment plan', exact: true })
+      .click()
+    const engines = await page.evaluate(() => {
+      const calls = (
+        window as unknown as {
+          environmentCalls: { kind: string; environment?: DesktopEnvironment }[]
+        }
+      ).environmentCalls
+      return calls.find((call) => call.kind === 'plan')?.environment?.engines
+    })
+    expect(engines).toEqual([expect.objectContaining({ gpus: selection.gpus })])
+  })
+}
+
+for (const subset of [false, true]) {
+  test(`changing build adopts each tools GPU assignment (subset ${subset})`, async ({
+    page,
+  }) => {
+    await page.goto('/desktop-environments.html')
+    await page.getByText('Advanced settings', { exact: true }).click()
+    await page
+      .getByLabel('Environment name', { exact: true })
+      .fill('Assignment')
+    await page
+      .getByLabel('Install location', { exact: true })
+      .fill('/environments/new')
+    await page
+      .getByLabel('Assigned NVIDIA devices', { exact: true })
+      .fill(subset ? 'GPU-second' : '')
+    await page.evaluate((subset) => {
+      window.dinksterProjects!.inspect = async () => ({
+        result: { operation: 'catalog', status: 'clean', plan: [] },
+        hardware: {
+          gpus: [
+            { id: 'GPU-first', name: 'First card' },
+            { id: 'GPU-second', name: 'Second card' },
+          ],
+        },
+        plan: {
+          selected: 'win-nvidia',
+          gpus: subset ? ['GPU-second'] : ['GPU-first', 'GPU-second'],
+          reason: 'Current graphics build.',
+          choices: [
+            {
+              variant: 'win-nvidia',
+              supported: true,
+              reason: 'Current graphics build.',
+              gpus: subset ? ['GPU-second'] : ['GPU-first', 'GPU-second'],
+            },
+            {
+              variant: 'win-nvidia-older',
+              supported: true,
+              reason: 'Older graphics build.',
+              gpus: ['GPU-second'],
+            },
+            {
+              variant: 'win-cpu',
+              supported: true,
+              reason: 'Does not use the graphics card and is much slower.',
+              gpus: [],
+            },
+          ],
+        },
+      })
+    }, subset)
+    await page
+      .getByRole('button', { name: 'Inspect hardware and variants' })
+      .click()
+    const assignment = page.getByLabel('Assigned NVIDIA devices', {
+      exact: true,
+    })
+    const variant = page.getByLabel('Hardware variant', { exact: true })
+    await expect(assignment).toHaveValue(
+      subset ? 'GPU-second' : 'GPU-first,GPU-second',
+    )
+    for (const [build, gpus] of [
+      ['win-cpu', []],
+      ['win-nvidia', subset ? ['GPU-second'] : ['GPU-first', 'GPU-second']],
+      ['win-nvidia-older', ['GPU-second']],
+    ] as const) {
+      await chooseOption(variant, build)
+      await assignment.evaluate((input) =>
+        window.scrollTo(
+          0,
+          window.scrollY + input.getBoundingClientRect().top - 100,
+        ),
+      )
+      await page.screenshot({
+        path: `test-results/captures/choice-${build}-${subset}.png`,
+      })
+      await expect(assignment).toHaveValue(gpus.join(','))
+      await page
+        .getByRole('button', { name: 'Review environment plan', exact: true })
+        .click()
+      const reviewed = await page.evaluate(() => {
+        const calls = (
+          window as unknown as {
+            environmentCalls: {
+              kind: string
+              environment?: DesktopEnvironment
+              request?: EnvironmentRequest
+            }[]
+          }
+        ).environmentCalls
+        return calls.filter((call) => call.kind === 'plan').at(-1)
+      })
+      expect(reviewed?.environment?.engines).toEqual([
+        expect.objectContaining({ kind: 'local', gpus: [...gpus] }),
+      ])
+      expect(reviewed?.request?.variant).toBe(build)
+    }
+  })
+}
+
+test('a refused inspection preserves the explicit device assignment', async ({
+  page,
+}) => {
+  await page.goto('/desktop-environments.html')
+  await page.getByRole('button', { name: 'Manage Render', exact: true }).click()
+  await page.getByText('Advanced settings', { exact: true }).click()
+  await page.evaluate(() => {
+    const inspect = window.dinksterProjects!.inspect
+    window.dinksterProjects!.inspect = async (input) => {
+      const result = await inspect(input)
+      return { ...result, plan: { ...result.plan, gpus: [] } }
+    }
+  })
+  await page
+    .getByRole('button', { name: 'Inspect hardware and variants' })
+    .click()
+  await expect(
+    page.getByLabel('Assigned NVIDIA devices', { exact: true }),
+  ).toHaveValue('GPU-second')
+  await expect(page.getByLabel('Hardware variant', { exact: true })).toHaveText(
+    'Keep current / inspect first',
+  )
+})
+
 test('install requires explicit variant and shows field errors without a native request', async ({
   page,
 }) => {
@@ -269,16 +476,19 @@ test('install requires explicit variant and shows field errors without a native 
   await page
     .getByRole('button', { name: 'Inspect hardware and variants' })
     .click()
-  await expect(
-    page.getByLabel('Hardware variant', { exact: true }),
-  ).toHaveValue('')
+  await expect(page.getByLabel('Hardware variant', { exact: true })).toHaveText(
+    'Keep current / inspect first',
+  )
   await page
     .getByRole('button', { name: 'Review environment plan', exact: true })
     .click()
   await expect(
     page.getByLabel('Hardware variant', { exact: true }),
   ).toHaveAttribute('aria-invalid', 'true')
-  await page.getByLabel('Hardware variant', { exact: true }).selectOption('cpu')
+  await chooseOption(
+    page.getByLabel('Hardware variant', { exact: true }),
+    'cpu',
+  )
   await page.getByLabel('Supervisor port', { exact: true }).fill('65536')
   await page
     .getByRole('button', { name: 'Review environment plan', exact: true })
@@ -330,8 +540,14 @@ test('read-only source review never offers Apply and source/development intent s
 }) => {
   await page.goto('/desktop-environments.html')
   await page.getByRole('button', { name: 'Manage Render', exact: true }).click()
-  await page.getByLabel('Operation', { exact: true }).selectOption('source')
-  await page.getByLabel('Source action', { exact: true }).selectOption('refs')
+  await chooseOption(
+    page.getByLabel('Operation', { exact: true }),
+    'Managed Git sources',
+  )
+  await chooseOption(
+    page.getByLabel('Source action', { exact: true }),
+    'List repository refs and tags (read-only)',
+  )
   await page
     .getByLabel('Public HTTPS repository URL', { exact: false })
     .fill('https://github.com/Kosinkadink/Dinkster')
@@ -339,9 +555,10 @@ test('read-only source review never offers Apply and source/development intent s
   await expect(
     page.getByRole('button', { name: 'Confirm and apply' }),
   ).toHaveCount(0)
-  await page
-    .getByLabel('Source kind', { exact: true })
-    .selectOption('development')
+  await chooseOption(
+    page.getByLabel('Source kind', { exact: true }),
+    'Development - unpublished sources',
+  )
   await page
     .getByLabel('Engine source', { exact: true })
     .fill('/sources/engine')
@@ -352,9 +569,10 @@ test('read-only source review never offers Apply and source/development intent s
   await page
     .getByRole('button', { name: 'Inspect hardware and variants' })
     .click()
-  await page
-    .getByLabel('Hardware variant', { exact: true })
-    .selectOption('cuda')
+  await chooseOption(
+    page.getByLabel('Hardware variant', { exact: true }),
+    'cuda (override)',
+  )
   await page.getByRole('button', { name: 'Review environment plan' }).click()
   await expect(
     page.getByRole('button', { name: 'Confirm and apply' }),
@@ -406,9 +624,10 @@ test('remote saves remain remote-only and WSL selection requires a matching priv
   await page
     .getByLabel('Server URL', { exact: true })
     .fill('https://studio.example.test:8443')
-  await page
-    .getByLabel('Remote channel', { exact: true })
-    .selectOption('nightly')
+  await chooseOption(
+    page.getByLabel('Remote channel', { exact: true }),
+    'Nightly',
+  )
   await page
     .getByRole('button', { name: 'Save remote binding', exact: true })
     .click()
@@ -420,7 +639,10 @@ test('remote saves remain remote-only and WSL selection requires a matching priv
   ).toHaveValue('')
   await page.getByRole('button', { name: 'Manage Render', exact: true }).click()
   await page.getByText('Advanced settings', { exact: true }).click()
-  await page.getByLabel('Engine host', { exact: true }).selectOption('wsl2')
+  await chooseOption(
+    page.getByLabel('Engine host', { exact: true }),
+    'WSL2 - private Linux disk (Windows x64)',
+  )
   await expect(
     page.getByLabel('Install location', { exact: true }),
   ).toHaveValue('')
@@ -565,7 +787,10 @@ test('cleanup bounds and engine identifiers validate before review while read-on
   await page.goto('/desktop-environments.html')
   await page.getByRole('button', { name: 'Manage Render', exact: true }).click()
   await page.getByText('Advanced settings', { exact: true }).click()
-  await page.getByLabel('Operation', { exact: true }).selectOption('cleanup')
+  await chooseOption(
+    page.getByLabel('Operation', { exact: true }),
+    'Snapshot cleanup / retry',
+  )
   for (const invalid of ['0', '101', '1.5']) {
     await page
       .getByLabel('Previous snapshots to keep', { exact: false })
@@ -659,7 +884,10 @@ test('cleanup bounds and engine identifiers validate before review while read-on
       },
     }),
   )
-  await page.getByLabel('Operation', { exact: true }).selectOption('space')
+  await chooseOption(
+    page.getByLabel('Operation', { exact: true }),
+    'Disk space (read-only)',
+  )
   await page
     .getByRole('button', { name: 'Review environment plan', exact: true })
     .click()
@@ -673,7 +901,7 @@ test('cleanup bounds and engine identifiers validate before review while read-on
     'Total allocated (shared files counted once): unavailable',
   )
   await expect(details).toContainText(
-    'Observed allocation lower bound: 17,003 bytes',
+    'Observed allocation lower bound: 16.6 KB',
   )
   await expect(details).toContainText('Snapshot 4: deferred - Running engine')
   await expect(details).toContainText(
@@ -736,7 +964,7 @@ test('narrow advanced settings remain reachable and removal requires confirmatio
   ).toBeDisabled()
   await expect(
     page.getByLabel('Saved environment', { exact: true }),
-  ).toHaveValue('studio')
+  ).toHaveText(longName)
   await page
     .getByRole('button', { name: 'Dismiss notification', exact: true })
     .click()

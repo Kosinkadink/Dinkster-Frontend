@@ -12,7 +12,8 @@ import type { ExecutionScope } from '../src/compile/artifact.js'
 import { compile, documentResolver, type CompileInput } from '../src/compile/compile.js'
 import { definitionPick, occurrenceDynamicView } from '../src/compile/occurrence-view.js'
 import { elabInputsOf, elaborateInterface } from '../src/schema/elaborate.js'
-import type { WorkflowDocument } from '../src/format/document.js'
+import { boundaryOf } from '../src/format/document.js'
+import type { BoundaryItem, WorkflowDocument } from '../src/format/document.js'
 import { asConnectionId, asNodeId } from '../src/ids.js'
 import type { BodyRow, ChoiceSpec, GroupSpec, InputSpec, NodeSchema, OutputSpec, TypeExpr } from '../src/schema/model.js'
 import { withPrimitives } from './fixtures/primitive-schemas.js'
@@ -120,7 +121,7 @@ const docOf = (graphs: Record<string, GraphSpec>): WorkflowDocument => {
       ),
       reroutes: Object.fromEntries((g.reroutes ?? []).map((r) => [r, { id: r }])),
       nextOrdinal: 100,
-      ...(g.boundary ? { boundary: { inputs: g.boundary.inputs ?? [], outputs: g.boundary.outputs ?? [] } } : {}),
+      ...(g.boundary ? { boundary: boundaryOf((g.boundary.inputs ?? []) as BoundaryItem[], (g.boundary.outputs ?? []) as BoundaryItem[]) } : {}),
     }
   }
   return {
@@ -648,15 +649,18 @@ describe('whole constructs shown on a subgraph node', () => {
     expect(prompt['second.d.n']!.inputs).toEqual({ layers: description('base'), 'layers.base': 0.25 })
   })
 
-  it('a wire to a counted output past the outer count fails as it does on the plain node', () => {
-    const codes = (doc: WorkflowDocument): readonly string[] => {
-      const result = compile({ ...inputOf(doc), resolve: (type: string) => constructSchemas[type] })
-      return result.ok ? [] : result.diagnostics.filter((d) => d.severity === 'error').map((d) => d.code)
+  it('a wire to a retained counted output gives nothing through the boundary as on the plain node', () => {
+    const sinkInput = (doc: WorkflowDocument) => {
+      const result = compile({ ...inputOf(doc), resolve: (type: string) => constructSchemas[type],
+        graphFeatures: ['regions', 'absentInput'] })
+      expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+      if (!result.ok) throw new Error('unreachable')
+      return result.artifact.dinksterGraph?.nodes.k
     }
-    const plain = codes(docOf({
+    const plain = sinkInput(docOf({
       g0: { nodes: { n: { type: 'CountSplit', values: { n: 1 } }, k: { type: 'Sink' } }, links: [[['n', 'outs.o2'], ['k', 'in']]] },
     }))
-    const shown = codes(docOf({
+    const shown = sinkInput(docOf({
       g0: {
         nodes: { s: { type: '#split', values: { count: 1 } }, k: { type: 'Sink' } },
         links: [[['s', 'outs.o2'], ['k', 'in']]],
@@ -669,8 +673,9 @@ describe('whole constructs shown on a subgraph node', () => {
         },
       },
     }))
-    expect(plain).toEqual(['compile.port.unknownOutput'])
-    expect(shown).toEqual(plain)
+    for (const sink of [plain, shown]) expect(sink).toMatchObject({
+      inputs: { in: { $absent: { reason: expect.any(String) } } },
+    })
   })
 
   it('a subgraph node that stores no pick for an optional choice runs the definition\'s pick, through two levels', () => {
