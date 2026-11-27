@@ -190,7 +190,7 @@ describe('bypass passthrough basics', () => {
     const warning = muted.artifact.diagnostics.find((diagnostic) =>
       diagnostic.code === 'compile.bypass.structuralRouteDropped')
     expect(warning?.message).toBe('relay.items.dead: selected bypass route has no value')
-    expect(warning?.data).toMatchObject({ inputIndex: 0, reason: "producer 'dead' is muted or in an inactive occurrence" })
+    expect(warning?.data).toMatchObject({ inputIndex: 0, reason: "'ISrc' is muted" })
     expect(warning?.anchor?.occurrence).toEqual({ instancePath: [], node: 'relay' })
   })
 

@@ -221,6 +221,8 @@ export interface ElaboratedInput {
    * options that are not chosen in a dormant census.
    */
   readonly apiName?: string
+  /** Under an option not chosen, including its nested constructs. */
+  readonly inactiveOption?: true
   /** Effective spec; `spec.id` is the flattened id. */
   readonly spec: InputSpec
   readonly origin: ElaboratedOrigin
@@ -719,6 +721,8 @@ export interface ElaborateOptions {
   readonly promoteGhosts?: boolean
   /** Read-only stored-value census: also the rows of options and variants that are not chosen. */
   readonly includeDormant?: boolean
+  /** A bounded dormant census of one input, retaining its enclosing scopes. */
+  readonly inputPort?: string
   /** Node identity for diagnostic anchors. */
   readonly nodeId?: NodeId
   /**
@@ -812,6 +816,7 @@ interface Scope {
   readonly ghost: boolean
   /** Inside an option or variant that is not chosen (dormant census only). */
   readonly dormant: boolean
+  readonly inactiveOption?: true
   readonly hidden: boolean
   readonly hiddenByDeclaration?: true
   readonly origin: ElaboratedOrigin
@@ -1093,6 +1098,7 @@ function elaboratePass(
 
   const push = (item: ElaboratedItem): boolean => {
     if (halted) return false
+    if (options.inputPort !== undefined && (item.kind !== 'input' || item.address.port !== options.inputPort)) return true
     if (items.length >= budget.maxItems) {
       exhaust('elab.budget.items', `elaborated interface exceeds ${budget.maxItems} items; elaboration stopped`)
       return false
@@ -1845,6 +1851,7 @@ function elaboratePass(
       kind: 'input',
       address: { port: path },
       ...(sent ? { apiName: path } : {}),
+      ...(scope.inactiveOption ? { inactiveOption: true as const } : {}),
       spec,
       ...common(scope),
       ...(readOnly ? { readOnly: true as const } : {}),
@@ -1946,6 +1953,10 @@ function elaboratePass(
   }
 
   const rowBody = (row: BodyRow, raw: Scope): void => {
+    if (options.inputPort !== undefined && 'id' in row && row.kind !== 'section' && row.kind !== 'note' && row.kind !== 'button') {
+      const path = raw.prefix + row.id
+      if (options.inputPort !== path && !options.inputPort.startsWith(`${path}.`)) return
+    }
     if ((row.kind === 'input' || row.kind === 'output') && row.unavailable !== undefined) {
       const path = raw.prefix + row.id
       const { code, message, inactive } = row.unavailable
@@ -2228,6 +2239,7 @@ function elaboratePass(
     const memberRows = (row.member ?? []).filter((item) => item.kind !== 'state' && item.kind !== 'editor').length
     /** Emit one member; returns whether it is in use (a stored value or a wire). */
     const member = (position: number, key: string, ghost: boolean, dormant = false): boolean => {
+      if (options.inputPort !== undefined && options.inputPort !== `${path}.${key}` && !options.inputPort.startsWith(`${path}.${key}.`)) return false
       membersVisited++
       const frames = ghost ? [...(scope.frames ?? []), frameFor(offered.slice(0, position - storedCount + 1))] : scope.frames
       const required = scope.required && (!row.optionalAfterMinimum || position < row.minMembers)
@@ -2493,6 +2505,7 @@ function elaboratePass(
         hidden: scope.hidden || row.hidden === true,
         ...(row.hidden === true ? { hiddenByDeclaration: true as const } : {}),
         dormant: scope.dormant || !active,
+        ...(!active ? { inactiveOption: true as const } : {}),
         origin: { kind: 'branch', construct: path, option: option.key },
         shared,
         boxes,
@@ -2743,7 +2756,7 @@ function elaboratePass(
 
   const suffix = census || halted ? undefined : Array.from(answer(schema.titleSuffix, topScope, 'string')?.replace(/\r\n|\r|\n/g, ' ').trim() ?? '').slice(0, 64).join('')
 
-  if (census && !halted) {
+  if (census && !halted && options.inputPort === undefined) {
     for (const key of Object.keys(node.dynamic ?? {})) {
       if (!readState.has(key)) report('elab.dynamic.unknownState', `'${key}' is no longer part of this node. What was stored for it is kept in the file.`, key, 'error', { construct: key })
     }

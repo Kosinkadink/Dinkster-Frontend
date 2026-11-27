@@ -1508,6 +1508,40 @@ describe('dynamic interfaces', () => {
     expect(result.artifact.prompt['target']!.outputMembers).toEqual({ items: ['item0'] })
   })
 
+  it('ignores retained inactive option inputs without ignoring undeclared or unstored members', () => {
+    const integer = (id: string) => dynInput(id, { type: INT, optional: true, widget: { widgetType: 'INT', options: {}, default: 7 } })
+    for (const nested of [true, false]) {
+      const rows = Array.from({ length: 600 }, (_, index) => integer(`field${index}`))
+      const target = nested ? 'mode.group.item0.value' : 'mode.field599'
+      const schema = dynSchemaOf('RetainedChoice', [choice('mode', [
+        { key: 'a', rows: nested ? [group('group', 'item', { member: [integer('value')] })] : rows },
+        { key: 'b', rows: nested ? [integer('other')] : rows.map((row) => ({ ...row, id: `other${row.id}` })) },
+      ]), integer('unrelated')])
+      const doc = dynDoc({ nodes: {
+        source: { type: 'IntSink', values: { steps: 31 } },
+        target: { type: 'RetainedChoice', values: { [target]: 19, unrelated: 43 },
+          dynamic: { mode: { selected: 'b' }, ...(nested ? { 'mode.group': { members: ['item0'], seq: 1 } } : {}) } },
+      }, links: [[{ node: 'source', tap: 'steps' }, ['target', target]]] })
+      const run = (document: WorkflowDocument) => compile({ ...compileInput(document), resolve: (type) => type === schema.type ? schema : dynResolve(type) })
+      const inactive = run(doc)
+      expect(inactive.ok, JSON.stringify(!inactive.ok && inactive.diagnostics)).toBe(true)
+      if (inactive.ok) {
+        expect(inactive.artifact.prompt.target!.inputs.unrelated).toBe(43)
+        expect(inactive.artifact.prompt.target!.inputs).not.toHaveProperty(target)
+      }
+      const active = structuredClone(doc)
+      Object.assign(active.graphs.g0!.nodes.target!, { dynamic: { mode: { selected: 'a' }, ...(nested ? { 'mode.group': { members: ['item0'], seq: 1 } } : {}) } })
+      const restored = run(active)
+      expect(restored.ok, JSON.stringify(!restored.ok && restored.diagnostics)).toBe(true)
+      if (restored.ok) expect(restored.artifact.prompt.target!.inputs[target]).toBe(31)
+      const invalid = structuredClone(doc)
+      Object.assign(invalid.graphs.g0!.links.l0!, { to: { node: 'target', port: nested ? 'mode.group.item1.value' : 'mode.unknown' } })
+      const refused = run(invalid)
+      expect(refused.ok).toBe(false)
+      expect(!refused.ok && refused.diagnostics.some((diagnostic) => diagnostic.code === 'compile.port.unknownInput')).toBe(true)
+    }
+  })
+
   it("sends a field's output from a member, an option and a type-led pin, and leaves the input out once the field is gone", () => {
     const tapInto = (source: DynNode, tap: string, extra: Record<string, DynNode> = {}) => dynCompile(dynDoc({
       nodes: { source, sink: { type: 'IntSink' }, ...extra },

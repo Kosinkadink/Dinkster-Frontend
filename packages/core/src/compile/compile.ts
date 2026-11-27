@@ -432,7 +432,6 @@ interface NodeElab {
   readonly inputsByValueKey: ReadonlyMap<string, ElaboratedInput>
   /** portAddressKey(port) -> input (for link/bind targets). */
   readonly inputsByAddr: ReadonlyMap<string, ElaboratedInput>
-  /** A retained input of an option not chosen, never a missing or ghost port. */
   readonly isDormantInput: (port: string) => boolean
   /** portAddressKey(port) -> output, wireable or not. */
   readonly outputsByAddr: ReadonlyMap<string, ElaboratedOutput>
@@ -1005,16 +1004,15 @@ function compileImpl(
       outputsByAddr.set(addr, o)
       if (o.wireable !== false) outputIndexByAddr.set(addr, outputIndex++)
     }
-    let dormantInputs: ReadonlySet<string> | undefined
+    const dormantInputs = new Map<string, boolean>()
     const isDormantInput = (port: string): boolean => {
-      if (dormantInputs === undefined) {
-        const census = elaborateInterface(schema, state, connectivity, { promoteGhosts: false, includeDormant: true })
-        dormantInputs = new Set(census.diagnostics.some((d) => d.severity === 'error') ? [] : elabInputsOf(census)
-          .filter((input) => input.apiName === undefined && input.origin.kind === 'branch' &&
-            census.choices?.[input.origin.construct] !== input.origin.option && !hasSyntheticAncestor(input.ancestry))
-          .map((input) => portAddressKey(input.address.port)))
+      if (!dormantInputs.has(port)) {
+        const census = elaborateInterface(schema, state, connectivity, { promoteGhosts: false, includeDormant: true, inputPort: port })
+        const input = elabInputsOf(census).find((item) => item.address.port === port)
+        dormantInputs.set(port, !census.diagnostics.some((d) => d.severity === 'error') && input?.inactiveOption === true &&
+          input.spec.sent !== false && input.spec.unavailable === undefined && !hasSyntheticAncestor(input.ancestry))
       }
-      return dormantInputs.has(portAddressKey(port))
+      return dormantInputs.get(port)!
     }
     return { inputs, outputs, ...(e.outputMembers ? { outputMembers: e.outputMembers } : {}), ...(e.choices ? { choices: e.choices } : {}), submissionValues: e.submissionValues, inputsByValueKey, inputsByAddr, isDormantInput, outputsByAddr, outputIndexByAddr }
   }
@@ -1542,7 +1540,8 @@ function compileImpl(
             const driver = index.inputDriverOf.get(portRefKey(ref))
             const netSource = index.netSourceOf.get(portRefKey(ref))
             if (driver || netSource) return { steps: [{ kind: 'recurse', at: { kind: 'endpoint', path: at.path, defId: at.defId, endpoint: driver?.from ?? netSource! } }] }
-            const absent = tappedInputs(at.path, at.defId, endpoint.node, endpoint.tap, []) === undefined &&
+            const inputs = tappedInputs(at.path, at.defId, endpoint.node, endpoint.tap, [])
+            const absent = (inputs === undefined || inputs.length === 0) &&
               tapsAbsentRow(at.defId, endpoint.node, endpoint.tap)
             if (absent) return { steps: [{ kind: 'terminal', terminal: { kind: 'dropped', reason: `field '${endpoint.node}.${endpoint.tap}' is no longer part of its node`, absent: true } }] }
             const tapped = tapValue(at.path, at.defId, endpoint.node, endpoint.tap, sink)
@@ -2197,7 +2196,7 @@ function compileImpl(
       const link = connection
       if (isWidgetTapRef(link.from)) {
         const tapped = tappedInputs(path, defId, link.from.node, link.from.tap, [])
-        const givesNothing = !tapped && tapsAbsentRow(defId, link.from.node, link.from.tap)
+        const givesNothing = (!tapped || tapped.length === 0) && tapsAbsentRow(defId, link.from.node, link.from.tap)
         // A wire that gives nothing is sent as $absent by the route below when
         // the server takes it. Otherwise the input is left out of the prompt,
         // as for a muted producer, and the warning says what that does.
