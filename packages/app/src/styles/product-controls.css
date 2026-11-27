@@ -28,7 +28,7 @@
 .product-button:is([data-variant='secondary'], [data-variant='ghost']):hover:not(:disabled) { border-color: var(--dinkster-border-hover); }
 .product-button:is([data-variant='secondary'], [data-variant='ghost']):is(:active, [aria-expanded='true']):not(:disabled) { border-color: var(--dinkster-border-strong); }
 .product-button[data-variant='primary']:is(:hover, :active):not(:disabled) { color: var(--dinkster-action-primary-text); background: var(--dinkster-action-primary-bg); }
-.product-button:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+.product-button:disabled, .collection-source-action:disabled { color: var(--dinkster-text-disabled); opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .product-button[data-variant='primary']:disabled { border-color: var(--dinkster-border-subtle); color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); opacity: 1; }
 
 .product-text-input,

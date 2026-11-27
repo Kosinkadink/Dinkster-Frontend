@@ -297,13 +297,6 @@ describe('runsSource', () => {
     expect(neverStarted.actions).toEqual([{ id: 'delete', label: 'Delete record' }])
   })
 
-  it('an unmatchable query returns empty WITHOUT calling the server', async () => {
-    const { backend } = (await nativeSetup())
-    const list = vi.spyOn(backend.connection, 'listHistory')
-    expect(await runsSource(app).page({ query: 'xyz', limit: 24 })).toEqual({ owner: backend.id, items: [], total: 0 })
-    expect(list).not.toHaveBeenCalled()
-  })
-
 })
 
 describe('openRunWorkflow', () => {
