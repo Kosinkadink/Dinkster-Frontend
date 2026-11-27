@@ -747,6 +747,7 @@ export function ProductBoard(props: ProductBoardProps) {
                     data-selected={selected() === id}
                     data-drop-target={
                       preview()?.moving &&
+                      document().items[preview()!.id] !== undefined &&
                       boardDropSection(
                         document(),
                         document().items[preview()!.id]!,

@@ -143,6 +143,41 @@ describe('page tab host', () => {
 })
 
 describe('app page tabs', () => {
+  it('clears a receiving section when a dragged Board item is removed by another edit', () => {
+    const app = createWorkflowApp()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    try {
+      app.commands.get('board.new')!.run()
+      const entry = app.boards.entries.get()[0]!
+      entry.session.dispatch({ command: 'board.item.add', params: { items: [
+        { id: 'section', kind: 'section', name: 'References', rect: { x: 0, y: 0, width: 600, height: 400 } },
+        { id: 'dragged', kind: 'note', text: 'Removed while dragging', rect: { x: 50, y: 80, width: 180, height: 80 } },
+        { id: 'survivor', kind: 'note', text: 'Keep this reference', rect: { x: 300, y: 100, width: 180, height: 80 } },
+      ] } })
+      const tab = app.pages.tabs().find((tab) => tab.id === `page:board:${entry.id}`) as PageTab
+      dispose = render(() => <PageTabPanel host={app.pages} tab={tab} />, root)
+      const dragged = root.querySelector<HTMLElement>('[data-board-item="dragged"]')!
+      // happy-dom has no pointer capture; browser checks exercise real capture.
+      dragged.setPointerCapture = () => {}
+      dragged.hasPointerCapture = () => false
+      dragged.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1, clientX: 90, clientY: 180, bubbles: true }))
+      dragged.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientX: 120, clientY: 200 }))
+      const section = root.querySelector('[data-board-item="section"]')!
+      expect(section.getAttribute('data-drop-target')).toBe('true')
+      entry.session.dispatch({ command: 'board.item.remove', params: { ids: ['dragged'] } })
+      expect(root.querySelector('[data-board-item="dragged"]')).toBeNull()
+      expect(section.getAttribute('data-drop-target')).toBe('false')
+      expect(root.querySelector('[data-board-item="survivor"]')?.textContent).toContain('Keep this reference')
+    } finally {
+      dispose()
+      app.dispose()
+      root.remove()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('keeps the later Board active when an earlier Library open finishes last', async () => {
     const app = createWorkflowApp()
     const root = document.createElement('div')
