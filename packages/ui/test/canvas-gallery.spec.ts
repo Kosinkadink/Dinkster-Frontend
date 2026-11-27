@@ -1360,9 +1360,15 @@ for (const theme of ['dark', 'light'] as const) {
           const actions = await messageBox.locator('.problem-box-actions').boundingBox()
           expect(actions!.y).toBe(text!.y)
         }
+        // The settings examples focus a row below the fold; sticky chrome
+        // must not cover the canvas in the full-section capture.
+        const chrome = id === 'problem-box'
+          ? await page.addStyleTag({ content: '.dinkster-topbar { visibility: hidden; }' })
+          : undefined
         await expect(section).toHaveScreenshot(
           `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}-${theme}.png`,
         )
+        await chrome?.evaluate((element) => element.parentNode?.removeChild(element))
         if (id === 'run-editable' || id === 'run-frozen') {
           const running = page.getByTestId(`canvas-${id}-1`)
           await running.hover({ position: { x: 45, y: 185 } })
