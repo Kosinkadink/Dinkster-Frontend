@@ -185,6 +185,8 @@ it('offers Run only after selectable models are ready, then keeps pack and media
     installAssetConsent({ models: [requirement], slot: assetConsent, modelDownloads: { connection, project: 'default' } })
     await vi.waitFor(() => expect(root.textContent).toContain('has every model it needs.'))
     expect(root.textContent).toContain('Download models')
+    expect(root.textContent).toContain('Choose a folder')
+    expect(root.textContent).not.toContain('Free space unavailable')
     expect(root.textContent).not.toContain('Run once')
     expect(root.querySelector('.dinkster-model-download-footer [role="status"]')?.textContent).toBe('')
     expect(root.querySelector('[data-testid="asset-consent-acquire"]')).toBeNull()

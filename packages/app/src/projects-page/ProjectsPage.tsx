@@ -1088,7 +1088,7 @@ export function ProjectsView(props: {
             : [{ value: '', label: message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.facts.noInstallation') }]} />
         <span>{message('projects.new.startWith')}</span>
         <div class="dinkster-stack">
-          <ProductSegmented label={message('projects.new.startWith')} value={startChoice()} onChange={setStartChoice}
+          <ProductSegmented label={message('projects.new.startWith')} overflow="select" value={startChoice()} onChange={setStartChoice}
             options={[
               { value: 'empty', label: message('projects.new.empty') },
               ...(templateCatalog() ? [{ value: 'template', label: message('projects.new.template') }] : []),

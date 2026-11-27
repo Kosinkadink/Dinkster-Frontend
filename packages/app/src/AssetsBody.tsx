@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import { failureMessage } from './request-failure.js'
 import type { DinksterConnection, MountDescriptor } from '@dinkster/client'
 import type { CollectionPageRequest, CollectionSource, MessageParams } from '@dinkster/core'
@@ -27,7 +27,7 @@ function assetState(state: CollectionPanelState, message: AssetMessage, widen?: 
   return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source: state.sourceLabel })} />
 }
 
-export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly onOpenStorage?: () => void }) {
+export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly onOpenStorage?: () => void; readonly mountFocus?: { readonly mountId: string } | undefined }) {
   const message = useAppMessage()
   const project = activeProjectId()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
@@ -139,6 +139,15 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
           options={(['newest', 'name', 'path'] as const).map((value) => ({ id: value, label: message(`assets.order.${value}`), value }))}
           onSelect={(option) => setSort(option.value)} />}
         navigation={({ selectedId, select, folder, navigate, mode, setMode }) => {
+          let appliedFocus: { readonly mountId: string } | undefined
+          createEffect(() => {
+            const request = props.mountFocus
+            if (request === undefined || request === appliedFocus) return
+            const id = `mount:${request.mountId}`
+            if (!sources().some((source) => source.id === id)) return
+            appliedFocus = request
+            untrack(() => select(id))
+          })
           createEffect(() => {
             setWidenSearch(() => selectedId() === 'all-mounts' ? undefined : !recursive()
               ? () => setRecursive(true) : () => { setRecursive(true); select('all-mounts') })
