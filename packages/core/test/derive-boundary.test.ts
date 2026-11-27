@@ -787,12 +787,24 @@ describe('whole constructs on the subgraph node', () => {
       const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined,
         () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolver) }))
       const values = (doc: WorkflowDocument) => {
-        const compiled = compile({ document: doc, revision: 1, resolve: resolver,
-          scope: { kind: 'full' }, connection: asConnectionId('lookup-grid'), schemaHash: 'lookup-grid' })
-        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
-        if (!compiled.ok) throw new Error('Remote options document did not compile')
-        const suffix = ['', '.p0', '.s0.p0'][depth]
-        return ['first', 'second'].map((instance) => compiled.artifact.prompt[`${instance}${suffix}`]!.inputs.lora)
+        const heldStates = [
+          { state: 'loading' },
+          { state: 'ready', answer: ['available.safetensors'] },
+          { state: 'stale', answer: ['old.safetensors'], reason: 'timeout' },
+          { state: 'unavailable', reason: 'offline' },
+        ] as const
+        const results = heldStates.map((held) => {
+          const compiled = compile({ document: doc, revision: 1, resolve: resolver,
+            scope: { kind: 'full' }, connection: asConnectionId('lookup-grid'), schemaHash: 'lookup-grid',
+            lookupAnswers: () => held })
+          expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+          if (!compiled.ok) throw new Error('Remote options document did not compile')
+          const suffix = ['', '.p0', '.s0.p0'][depth]
+          expect(Object.keys(compiled.artifact.prompt).sort()).toEqual([`first${suffix}`, `second${suffix}`])
+          return ['first', 'second'].map((instance) => compiled.artifact.prompt[`${instance}${suffix}`]!.inputs.lora)
+        })
+        for (const result of results) expect(result).toEqual(results[0])
+        return results[0]
       }
       expect(values(store.doc)).toEqual(['kept-first.safetensors', 'kept-second.safetensors'])
       const before = store.doc
