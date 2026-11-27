@@ -165,6 +165,65 @@ test('a problem outlines its row and the tab opens one box under the node', asyn
     (window.__dinksterTest!.renderer!.getBadges()['gen'] ?? []).map((badge) => badge.glyph))).toEqual(['Error 2', 'Warning'])
 })
 
+test('numeric Ask me fixes keep other problems, recheck stale offers and undo one fix', async ({ page }) => {
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    app.registerSchemas([{
+      type: 'ProblemBoxNumbers', displayName: 'Numbers', category: 'test', source: 'v3', isOutputNode: false,
+      body: ['amount', 'other'].map((id) => ({
+        kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'INT' }, optional: false,
+        widget: { widgetType: 'INT', options: { min: 0, max: 20, step: 4 }, default: 0 },
+      })),
+    }])
+    await app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-problem-box', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        gen: { id: 'gen', type: 'ProblemBoxNumbers', values: { amount: 14, other: 29 } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: { gen: { position: { x: 200, y: 120 } } } } } },
+    }, 'Numeric problems')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const values = () => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.gen!.values)
+  const box = page.getByTestId('problem-box')
+  await expect.poll(() => page.evaluate(() =>
+    (window.__dinksterTest!.renderer!.getBadges()['gen'] ?? []).map((badge) => badge.id)))
+    .toContain('core.problem.warning')
+  const point = await tabPoint(page, 'gen', 'core.problem.warning')
+  await page.mouse.click(point.x, point.y)
+  await expect(box.getByTestId('problem-box-line')).toHaveCount(2)
+  await box.getByRole('button', { name: 'Use 12', exact: true }).click()
+  await expect.poll(values).toEqual({ amount: 12, other: 29 })
+  await expect(box.getByTestId('problem-box-line')).toHaveCount(1)
+  await page.getByTestId('graph-canvas').focus()
+  await page.keyboard.press('Control+z')
+  await expect.poll(values).toEqual({ amount: 14, other: 29 })
+  await page.keyboard.press('Control+Shift+z')
+  await expect.poll(values).toEqual({ amount: 12, other: 29 })
+  await page.keyboard.press('Control+z')
+  await expect.poll(values).toEqual({ amount: 14, other: 29 })
+
+  // A remote edit can change a cause without closing the box or granting
+  // permission to silently replace the action the person already saw.
+  await page.evaluate(() => window.__dinksterTest!.app.dispatchTo(window.__dinksterTest!.app.activeTab()!, {
+    command: 'node.setValue', params: { graphId: 'g0', nodeId: 'gen', inputId: 'amount', value: 18 },
+  }))
+  await expect(box.getByRole('button', { name: 'Use 12', exact: true })).toBeVisible()
+  await box.getByRole('button', { name: 'Use 12', exact: true }).click()
+  await expect(box).toContainText('Could not apply this fix. The workflow changed.')
+  await expect.poll(values).toEqual({ amount: 18, other: 29 })
+  await box.getByRole('button', { name: 'Check again', exact: true }).click()
+  await expect(box.getByRole('button', { name: 'Use 16', exact: true })).toBeVisible()
+  expect(await values()).toEqual({ amount: 18, other: 29 })
+  await box.getByRole('button', { name: 'Use 16', exact: true }).click()
+  await expect.poll(values).toEqual({ amount: 16, other: 29 })
+  await expect(box.getByTestId('problem-box-line')).toHaveCount(1)
+  await box.getByRole('button', { name: 'Use 20', exact: true }).click()
+  await expect.poll(values).toEqual({ amount: 16, other: 20 })
+  await expect(box).toHaveCount(0)
+})
+
 test('a missing model opens only its own review and never queues a workflow', async ({ page }) => {
   const plans: unknown[] = []
   const submissions: string[] = []
