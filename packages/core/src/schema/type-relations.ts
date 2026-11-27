@@ -13,27 +13,33 @@ export interface TypeAcceptance {
   readonly batchMerges: readonly string[]
 }
 
-/** Undefined leaves unresolved type variables to the constraint solver. */
+/** Undefined leaves unresolved producer types to the constraint solver. */
 export function catalogTypesCompatible(from: TypeExpr, to: TypeExpr, facts: TypeAcceptance): boolean | undefined {
   const hasVariable = (type: TypeExpr): boolean => type.kind === 'variable' || type.kind === 'tuple_element' ||
     (type.kind === 'tuple' && type.elements.some(hasVariable)) ||
     ((type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') && hasVariable(type.element))
-  if (hasVariable(from) || hasVariable(to)) return undefined
+  if (hasVariable(from) || to.kind === 'tuple_element') return undefined
   if (typesDirectlyCompatible(from, to)) return true
   const sources = atomNamesOf(from)
   if (sources === undefined) return undefined
-  const destinations = atomNamesOf(to)
-  return sources.some((source) => {
-    // Equivalence belongs to the runtime atom, never recursively to wrappers.
-    if (destinations?.some((destination) => Object.hasOwn(facts.atoms, destination) && facts.atoms[destination]!.includes(source))) return true
-    const decoded = parseAssetTypeId(source)
-    if (decoded !== undefined) return facts.assetDecoders.includes(decoded) && typesDirectlyCompatible(typeExprFromTypeId(decoded), to)
-    const element = parseListTypeId(source)
-    const target = element === undefined ? undefined : parseAssetTypeId(element)
-    if (target === undefined || !facts.assetDecoders.includes(target)) return false
-    return typesDirectlyCompatible(typeExprFromTypeId(listTypeId(target)), to) ||
-      (cardinalityOf(to) === 'scalar' && parseListTypeId(target) === undefined && facts.batchMerges.includes(target) && typesDirectlyCompatible(typeExprFromTypeId(target), to))
-  })
+  return sources.some((source) => catalogAdmittedTypeIds(source, to, facts).length > 0)
+}
+
+/** Runtime spellings after input admission, before worker-side variable binding. */
+export function catalogAdmittedTypeIds(source: string, to: TypeExpr, facts: TypeAcceptance): readonly string[] {
+  if (typesDirectlyCompatible(typeExprFromTypeId(source), to)) return [source]
+  // Equivalence belongs to the runtime atom, never recursively to wrappers.
+  const counterparts = (atomNamesOf(to) ?? []).filter((destination) =>
+    Object.hasOwn(facts.atoms, destination) && facts.atoms[destination]!.includes(source))
+  if (counterparts.length > 0) return counterparts
+  const decoded = parseAssetTypeId(source)
+  if (decoded !== undefined) return facts.assetDecoders.includes(decoded) && typesDirectlyCompatible(typeExprFromTypeId(decoded), to) ? [decoded] : []
+  const element = parseListTypeId(source)
+  const target = element === undefined ? undefined : parseAssetTypeId(element)
+  if (target === undefined || !facts.assetDecoders.includes(target)) return []
+  const lifted = listTypeId(target)
+  if (typesDirectlyCompatible(typeExprFromTypeId(lifted), to)) return [lifted]
+  return cardinalityOf(to) === 'scalar' && parseListTypeId(target) === undefined && facts.batchMerges.includes(target) && typesDirectlyCompatible(typeExprFromTypeId(target), to) ? [target] : []
 }
 
 /** A whole-list input lifts its declared element type only for a list source. */

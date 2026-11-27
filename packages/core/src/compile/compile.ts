@@ -132,6 +132,7 @@ import type {
 } from './artifact.js'
 import { semanticHashOf } from './hash.js'
 import { effectiveOccurrenceTopology, type EffectiveLinkIdentity } from './effective-topology.js'
+import { solveOccurrenceTypes } from './occurrence-solve.js'
 import { boundaryItems } from '../format/document.js'
 
 // ---------------------------------------------------------------------------
@@ -1842,11 +1843,13 @@ function compileImpl(
   }
 
   const solvedTypeCache = new Map<string, ReturnType<typeof solveGraphTypes>>()
-  const solvedTypesOf = (graphId: string): ReturnType<typeof solveGraphTypes> | undefined => {
-    const graph = doc.graphs[graphId]
-    if (graph === undefined) return undefined
-    let solved = solvedTypeCache.get(graphId)
-    if (!solved) solvedTypeCache.set(graphId, (solved = solveGraphTypes(graph, resolve, { resolveNode: (node) => resolveNode(graph.id, node) })))
+  const solvedTypesOf = (graphId: string, instancePath: readonly NodeId[]): ReturnType<typeof solveGraphTypes> | undefined => {
+    const key = JSON.stringify([graphId, instancePath])
+    let solved = solvedTypeCache.get(key)
+    if (!solved) {
+      solved = solveOccurrenceTypes(doc, resolve, graphId, instancePath)
+      if (solved) solvedTypeCache.set(key, solved)
+    }
     return solved
   }
   /**
@@ -1858,7 +1861,7 @@ function compileImpl(
   const primitiveValueTypeOf = (fn: FlatNode, input: ElaboratedInput, value: Json): string | undefined => {
     if (!emitTypedLiterals || input.spec.type.kind !== 'variable' || parseTypedLiteralWire(value) !== undefined) return undefined
     if (!fn.elab.outputs.some((output) => output.spec.knownValue?.input === input.spec.id)) return undefined
-    const bound = solvedTypesOf(fn.graphId)?.portTypeOf(fn.node.id, 'input', input.address.port)
+    const bound = solvedTypesOf(fn.graphId, fn.occ.instancePath)?.portTypeOf(fn.node.id, 'input', input.address.port)
     return bound === undefined ? undefined : canonicalTypeIdOf(bound)
   }
 
@@ -2964,7 +2967,6 @@ function compileImpl(
       : { node: localRuntimeId(outputs[0]!.src.runtimeId, region), output }
   }
   const validationContext = new Map<string, DinksterGraphValidationNode>()
-  const solvedTypes = new Map(Object.values(doc.graphs).map((graph) => [graph.id, solvedTypesOf(graph.id)!]))
   const nativeTypes = new Map<string, TypeExpr>()
   const resolvingNativeTypes = new Set<string>()
   const nativeInputType = (fn: FlatNode, key: string): TypeExpr | undefined => {
@@ -3006,7 +3008,7 @@ function compileImpl(
       type = inner === undefined ? undefined : role?.kind === 'flatten' || role?.kind === 'last' || role?.kind === 'state' ? inner : { kind: 'list', element: inner }
     } else {
       const items = [
-        ...fn.elab.inputs.map((input, i) => ({ kind: 'input' as const, id: `input_${i}`, type: input.spec.type, optional: input.spec.optional })),
+        ...fn.elab.inputs.map((input, i) => ({ kind: 'input' as const, id: `input_${i}`, type: input.spec.type, optional: input.spec.optional, acceptsList: input.spec.acceptsList })),
         ...fn.elab.outputs.map((item, i) => ({ kind: 'output' as const, id: `output_${i}`, type: item.spec.type })),
       ]
       const schema = { ...resolveNode(fn.graphId, fn.node)!, body: items }
@@ -3015,7 +3017,9 @@ function compileImpl(
         return type ? [{ type, to: { node: fn.node.id, port: `input_${i}` as PortRef['port'] } }] : []
       })
       const graph = { ...doc.graphs[fn.graphId]!, nodes: { [fn.node.id]: fn.node }, links: {}, nets: {}, reroutes: {} }
-      type = solveGraphTypes(graph, () => schema, { projectedInputs }).portTypeOf(fn.node.id, 'output', `output_${fn.elab.outputs.indexOf(output)}`)
+      const nativeResolve: SchemaResolver = Object.assign(() => schema,
+        resolve.typeAcceptance === undefined ? {} : { typeAcceptance: resolve.typeAcceptance })
+      type = solveGraphTypes(graph, nativeResolve, { projectedInputs }).portTypeOf(fn.node.id, 'output', `output_${fn.elab.outputs.indexOf(output)}`)
     }
     resolvingNativeTypes.delete(key)
     if (type) nativeTypes.set(key, type)
@@ -3052,7 +3056,7 @@ function compileImpl(
     for (const output of fn.elab.outputs) {
       if (output.wireable === false) continue
       const outputId = nativeOutputId(fn.runtimeId, output)
-      const solved = solvedTypes.get(fn.graphId)?.portTypeOf(fn.node.id, 'output', output.address.port)
+      const solved = solvedTypesOf(fn.graphId, fn.occ.instancePath)?.portTypeOf(fn.node.id, 'output', output.address.port)
       const native = nativeOutputType(fn.runtimeId, fn.elab.outputs.filter((item) => item.wireable !== false).indexOf(output))
       outputTypes[outputId] = output.spec.type.kind === 'variable' && selectorOutputType !== undefined
         ? selectorOutputType
@@ -3150,7 +3154,7 @@ function compileImpl(
   for (const fn of flat.values()) {
     if (!included.has(fn.runtimeId) || regions.has(fn.runtimeId)) continue
     if (fn.selector !== undefined && !Array.isArray(fn.inputs[fn.selectorInputKey!])) continue
-    for (const conflict of solvedTypes.get(fn.graphId)?.diagnostics ?? []) {
+    for (const conflict of solvedTypesOf(fn.graphId, fn.occ.instancePath)?.diagnostics ?? []) {
       if (conflict.code === 'solve.linkMismatch' && conflict.severity === 'error' && conflict.anchor?.port?.node === fn.node.id) {
         diags.push(diag('error', 'compile', 'compile.inputTypeMismatch', conflict.message, {
           anchor: { occurrence: fn.occ, port: conflict.anchor.port },

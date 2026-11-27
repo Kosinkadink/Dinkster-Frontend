@@ -15,8 +15,10 @@ import {
   asPortId,
   asPromptId,
   compile,
+  canonicalTypeIdOf,
   documentResolver,
   solveGraphTypes,
+  solveOccurrenceTypes,
   importLitegraph,
   resolveImportedNodePacks,
   loadDocument,
@@ -1231,6 +1233,69 @@ describe('promptToDinksterGraph', () => {
       expect(run('independent').ok).toBe(true)
       expect(compile({ document, revision: 1, resolve, connection: C0, schemaHash: effective.hash,
         scope: { kind: 'full' }, graphFeatures }).ok).toBe(accepted)
+    }
+  })
+
+  it.each([
+    ['incoming.value', 'native.value', [], [], true],
+    ['native.value', 'native.value', [], [], true],
+    ['native.value', 'incoming.value', [], [], false],
+    ['list<incoming.value>', 'list<native.value>', [], [], false],
+    ['asset<incoming.value>', 'asset<native.value>', [], [], false],
+    ['asset<native.value>', 'native.value', ['native.value'], [], true],
+    ['asset<native.value>', 'native.value', [], [], false],
+    ['list<asset<native.value>>', 'native.value', ['native.value'], ['native.value'], false],
+    ['list<asset<native.value>>', 'list<native.value>', ['native.value'], [], true],
+    ['list<asset<native.value>>', 'list<native.value>', [], [], false],
+    ['list<incoming.value>', 'list<incoming.value>', [], [], true],
+  ] as const)('keeps generic admission directional for %s -> %s and isolates nested refusals', async (sourceType, admittedType, assetDecoders, batchMerges, permitted) => {
+    const variable = { kind: 'variable', templateId: 'T' }
+    const constrained = admittedType.startsWith('list<')
+      ? { kind: 'list', element: { ...variable, allowed: [admittedType.slice(5, -1)] } }
+      : { ...variable, allowed: [admittedType] }
+    const schema = (nodeType: string, body: unknown[]) => ({ schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodeType, body })
+    const input = (type: unknown) => ({ kind: 'input', id: 'value', required: true, type })
+    const output = (type: unknown) => ({ kind: 'output', id: 'value', type })
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/selected', clientId: 'generic-acceptance', fetchFn: async () => jsonResponse(200, {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      dinkster: { typeAcceptance: { atoms: { 'native.value': ['native.value', 'incoming.value'], 'incoming.value': ['incoming.value'], 'other.value': ['other.value'] }, assetDecoders, batchMerges } },
+      nodes: {
+        Source: schema('Source', [output(concrete(sourceType))]),
+        Other: schema('Other', [output(concrete('other.value'))]),
+        Relay: schema('Relay', [input(variable), output(variable)]),
+        Admit: schema('Admit', [input(constrained), output(constrained)]),
+      },
+    }) })
+    const effective = await connection.fetchSchemas()
+    const node = (id: string, type: string) => ({ id, type, values: {} })
+    const wire = (id: string, from: string, to: string) => ({ id, from: { node: from, port: 'value' }, to: { node: to, port: 'value' } })
+    const loaded = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'generic-acceptance', root: 'g0',
+      graphs: {
+        g0: { id: 'g0', name: 'root', nodes: { source: node('source', 'Source'), other: node('other', 'Other'), accepted: node('accepted', '#outer'), refused: node('refused', '#outer') },
+          links: { acceptWire: wire('acceptWire', 'source', 'accepted'), refuseWire: wire('refuseWire', 'other', 'refused') }, nets: {}, reroutes: {}, nextOrdinal: 4 },
+        outer: { id: 'outer', name: 'outer', nodes: { nested: node('nested', '#inner') }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+          boundary: { body: [{ kind: 'input', id: 'value', binds: { kind: 'port', node: 'nested', port: 'value' } }] } },
+        inner: { id: 'inner', name: 'inner', nodes: { relay: node('relay', 'Relay'), admit: node('admit', 'Admit') },
+          links: { internal: wire('internal', 'relay', 'admit') }, nets: {}, reroutes: {}, nextOrdinal: 2,
+          boundary: { body: [{ kind: 'input', id: 'value', binds: { kind: 'port', node: 'relay', port: 'value' } }] } },
+      }, view: { graphs: { g0: { nodes: {} }, outer: { nodes: {} }, inner: { nodes: {} } } },
+    })
+    expect(loaded.document, JSON.stringify(loaded)).toBeDefined()
+    const document = loaded.document!
+    const resolve = documentResolver(document, effective.resolve)
+    for (const accepted of [true, false]) {
+      const admitted = accepted && permitted
+      const instancePath = [asNodeId(accepted ? 'accepted' : 'refused'), asNodeId('nested')]
+      const solved = solveOccurrenceTypes(document, resolve, 'inner', instancePath)!
+      expect(canonicalTypeIdOf(solved.portTypeOf(asNodeId('relay'), 'output', 'value')!)).toBe(accepted ? sourceType : 'other.value')
+      expect([...solved.linkVerdicts.values()]).toEqual([admitted ? 'ok' : 'mismatch'])
+      if (admitted) expect(canonicalTypeIdOf(solved.portTypeOf(asNodeId('admit'), 'output', 'value')!)).toBe(admittedType)
+      for (const graphFeatures of [[], ['regions']]) {
+        const result = compile({ document, revision: 1, resolve, connection: C0, schemaHash: effective.hash, graphFeatures,
+          scope: { kind: 'partial', targets: [{ instancePath, node: asNodeId('admit') }] } })
+        expect(result.ok, JSON.stringify(result)).toBe(admitted)
+        if (!result.ok) expect(result.diagnostics.filter((problem) => problem.code === 'compile.inputTypeMismatch').map((problem) => problem.anchor?.occurrence)).toEqual([{ instancePath, node: 'admit' }])
+      }
     }
   })
 

@@ -55,7 +55,7 @@ import { diag, type Diagnostic } from '../diagnostics.js'
 import type { GraphDef, LinkData, NodeData } from '../format/document.js'
 import { asPortId, isPortEndpoint, type LinkId, type NodeId, type PortRef } from '../ids.js'
 import { buildRerouteIndex, traceEndpointAll } from '../reroute.js'
-import { admittedInputType, assetCoercible, atomNamesOf, catalogTypesCompatible, coercionTargetsOf, typesCompatible } from './type-relations.js'
+import { admittedInputType, assetCoercible, atomNamesOf, catalogAdmittedTypeIds, catalogTypesCompatible, coercionTargetsOf, typesCompatible } from './type-relations.js'
 import type { SchemaResolver } from './derive-boundary.js'
 import {
   buildGraphConnectivity,
@@ -537,6 +537,7 @@ export function solveGraphTypes(
   const dependentEdges: { fromType: TypeExpr; toType: TypeExpr; from: PortRef; to: PortRef; source: EdgeSource; signature?: string }[] = []
   const hasTuple = (type: TypeExpr): boolean => type.kind === 'tuple' || type.kind === 'tuple_element' ||
     ((type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') && hasTuple(type.element))
+  const hasVariable = (type: TypeExpr): boolean => [...nestedVariablesOf(type)].length > 0
 
   // -- 2. Process type-carrying edges.
   //
@@ -597,7 +598,7 @@ export function solveGraphTypes(
   ): void => {
     const fromType = typeAt(from, fromSide)
     const toType = admittedTypeAt(fromType, to, typeAt(to, 'input'))
-    if (fromType !== undefined && toType !== undefined && hasTuple(fromType))
+    if (fromType !== undefined && toType !== undefined && (hasTuple(fromType) || typeAcceptance !== undefined && hasVariable(fromType)))
       dependentEdges.push({ fromType, toType, from, to, source })
     if (fromType === undefined || toType === undefined) {
       setVerdict(source, 'unknown')
@@ -629,6 +630,9 @@ export function solveGraphTypes(
     }
 
     rememberEdge({ from, to, fromType, toType, fromSide, source })
+    // Runtime types flow from inputs to outputs. A destination accepting a
+    // counterpart must not rename the producer's generic output upstream.
+    if (typeAcceptance !== undefined && hasVariable(fromType)) return
     unify(fromType, toType, from, to, source)
   }
 
@@ -673,11 +677,15 @@ export function solveGraphTypes(
     if (accepted !== undefined) {
       setVerdict(source, accepted ? 'ok' : 'mismatch')
       if (!accepted) diagnostics.push(
-        problem('error', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${typeProblemWords(origin?.toType ?? toType)}, but ${producer} sends ${typeProblemWords(origin?.fromType ?? fromType)}.`, {
+        problem('error', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${typeProblemWords(origin?.toType ?? toType)}, but ${producer} sends ${typeProblemWords(fromType)}.`, {
           anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
           data: { sourceNode: from.node, sourcePort: from.port },
         }),
       )
+      if (accepted && hasVariable(toType)) {
+        const admitted = (atomNamesOf(fromType) ?? []).flatMap((atom) => catalogAdmittedTypeIds(atom, toType, typeAcceptance!))
+        if (admitted.length > 0) unify(admitted.length === 1 ? typeExprFromTypeId(admitted[0]!) : { kind: 'union', names: admitted }, toType, from, to, source, false, fromVariableKeys)
+      }
       return
     }
     if (fromType.kind === 'wildcard' || toType.kind === 'wildcard') {
@@ -787,7 +795,7 @@ export function solveGraphTypes(
     if (fromType.kind === toType.kind && (fromType.kind === 'list' || fromType.kind === 'asset' || fromType.kind === 'stream')) {
       const a = atomNamesOf(fromType)
       const b = atomNamesOf(toType)
-      if (a === undefined || b === undefined) {
+      if (a === undefined || b === undefined || typeAcceptance !== undefined && (hasVariable(fromType) || hasVariable(toType))) {
         // Shared-constructor peel is free: the coercion budget is inherited
         // (that is the elementwise lift when a list element then decodes).
         // A closed heterogeneous list binds its runtime element marker, not
@@ -808,7 +816,7 @@ export function solveGraphTypes(
       const structuredIsFrom = fromType.kind === 'list' || fromType.kind === 'asset' || fromType.kind === 'stream'
       const structured = (structuredIsFrom ? fromType : toType) as TypeExpr & { kind: 'list' | 'asset' | 'stream' }
       const other = structuredIsFrom ? toType : fromType
-      if (atomNamesOf(structured) === undefined) {
+      if (atomNamesOf(structured) === undefined || typeAcceptance !== undefined && hasVariable(structured)) {
         const parse = structured.kind === 'list' ? parseListTypeId : structured.kind === 'asset' ? parseAssetTypeId : parseStreamTypeId
         const elems = (atomNamesOf(other) ?? []).map(parse).filter((n): n is string => n !== undefined)
         if (elems.length === 0) {
@@ -923,20 +931,29 @@ export function solveGraphTypes(
     unify(projected.type, toType, externalRef, projected.to, source, true, projectedVariableKeys)
   }
 
-  // Tuple construction and projection depend on upstream bindings, not edge order.
-  // Each pass propagates at least one closed product along the dependency chain.
+  // Products and generic outputs depend on upstream bindings, not edge order.
+  // Each pass propagates at least one closed type along the dependency chain.
   for (let pass = 0; pass <= dependentEdges.length; pass++) {
     let changed = false
     for (const edge of dependentEdges) {
-      const resolved = substitute(edge.fromType, edge.from.node)
-      if (atomNamesOf(resolved) === undefined) continue
+      let resolved = substitute(edge.fromType, edge.from.node)
+      const atoms = atomNamesOf(resolved)
+      if (atoms === undefined) continue
+      if (typeAcceptance !== undefined && hasVariable(resolved)) {
+        resolved = atoms.length === 1 ? typeExprFromTypeId(atoms[0]!) : { kind: 'union', names: atoms }
+      }
       const signature = JSON.stringify(resolved)
       if (edge.signature === signature) continue
       edge.signature = signature
       changed = true
-      unify(resolved, edge.toType, edge.from, edge.to, edge.source)
+      unify(resolved, admittedTypeAt(resolved, edge.to, edge.toType)!, edge.from, edge.to, edge.source)
     }
     if (!changed) break
+  }
+  // Unfed generic sources can still infer a display type from their consumers.
+  for (const edge of dependentEdges) {
+    if (typeAcceptance !== undefined && edge.signature === undefined && hasVariable(edge.fromType))
+      unify(edge.fromType, edge.toType, edge.from, edge.to, edge.source)
   }
   for (const [node, ports] of portTypes) {
     for (const [port, type] of ports.outputs) {
