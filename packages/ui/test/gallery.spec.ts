@@ -66,6 +66,35 @@ test('list rows expand independently of their sibling menu and navigation does n
   await expect(version).not.toHaveAttribute('aria-controls')
 })
 
+test('single-line fields match their density while site dialogs keep app field sizing', async ({ page }) => {
+  await page.goto('/#controls')
+  await page.getByRole('textbox', { name: 'Display name', exact: true }).waitFor()
+  await page.evaluate(() => document.fonts.ready)
+  for (const [density, height] of [['app', 32], ['site', 36]] as const) {
+    await page.evaluate((density) => {
+      document.querySelectorAll('[data-density="site"]').forEach((element) => element.removeAttribute('data-density'))
+      document.querySelector('.dinkster-page')!.setAttribute('data-density', density)
+    }, density)
+    for (const label of ['Display name', 'Email address', 'Access']) {
+      expect((await page.getByLabel(label, { exact: true }).boundingBox())!.height).toBe(height)
+    }
+    expect((await page.locator('.dinkster-page .dinkster-button').first().boundingBox())!.height).toBe(height)
+  }
+  await page.goto('/#projects')
+  await page.getByRole('button', { name: 'Project actions', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Rename', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Rename project' })
+  expect((await dialog.getByRole('textbox', { name: 'Name', exact: true }).boundingBox())!.height).toBe(32)
+  expect((await dialog.getByRole('button', { name: 'Save', exact: true }).boundingBox())!.height).toBe(28)
+  await page.goto('/#settings-section')
+  const insets = await page.getByRole('region', { name: 'View', exact: true }).locator('input, [role="combobox"]').evaluateAll((controls) => controls.map((element) => {
+    const style = getComputedStyle(element)
+    return Number.parseFloat(style.borderLeftWidth) + Number.parseFloat(style.paddingLeft)
+  }))
+  expect(insets).toHaveLength(2)
+  expect(insets[1]).toBe(insets[0])
+})
+
 test('product dropdowns keep candidates separate from saved values and work inside dialogs', async ({ page }) => {
   await page.goto('/#dropdowns')
   const runtime = page.getByRole('combobox', { name: 'Runtime', exact: true })
