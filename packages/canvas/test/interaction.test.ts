@@ -143,7 +143,8 @@ describe('field-line rail', () => {
       view: { graphs: { g0: { nodes: { n1: { position: { x: 20, y: 30 }, lines: { [key]: { folded: false } } } } } } },
     })
     expect(loaded.diagnostics).toEqual([])
-    const store = new DocumentStore(loaded.document!, coreCommandRegistry())
+    const store = new DocumentStore(loaded.document!, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => () => schema }))
     const scene = () => buildScene({ document: store.doc, graphId: 'g0', resolve: () => schema, tokens: defaultTokens,
       measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }) })
     const open = scene()
