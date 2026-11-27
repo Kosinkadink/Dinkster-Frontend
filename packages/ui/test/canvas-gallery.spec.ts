@@ -1,34 +1,9 @@
-import { expect, test as base, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { chooseOption } from '../../e2e/choices.js'
 import {
   canvasGalleryPages,
   galleryWidgetInputs,
 } from '../../canvas/gallery/fixtures.js'
-
-const test = base.extend({
-  // Each case owns a browser so earlier pages cannot change text rasterization.
-  context: async (
-    {
-      playwright,
-      browserName,
-      launchOptions,
-      contextOptions,
-      baseURL,
-      viewport,
-    },
-    use,
-  ) => {
-    const browser = await playwright[browserName].launch(launchOptions)
-    const options = { ...contextOptions }
-    if (baseURL !== undefined) options.baseURL = baseURL
-    if (viewport !== undefined) options.viewport = viewport
-    try {
-      await use(await browser.newContext(options))
-    } finally {
-      await browser.close()
-    }
-  },
-})
 
 const sideList = (page: Page) =>
   page.getByRole('navigation', { name: 'Main navigation', exact: true })
