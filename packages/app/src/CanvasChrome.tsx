@@ -162,6 +162,7 @@ export const MINIMAP_SWITCHES: readonly { readonly id: string; readonly icon: Lu
  */
 export function CanvasCornerControls(props: {
   readonly size: string
+  readonly minimapEnabled?: boolean
   readonly minimapVisible: boolean
   /** `canvas.minimap.<id>` switch values, including `bookmarks`. */
   readonly settings: Readonly<Record<string, boolean>>
@@ -192,6 +193,7 @@ export function CanvasCornerControls(props: {
   const [minimapFits, setMinimapFits] = createSignal(true)
   createEffect(() => {
     props.size
+    if (props.minimapEnabled === false) return
     const stage = controls.closest<HTMLElement>('.canvas-stage')
     if (!stage) return
     const toolbar = stage.querySelector('.canvas-stage-toolbar')
@@ -250,35 +252,39 @@ export function CanvasCornerControls(props: {
   return (
     <div ref={(element) => { controls = element; props.ref?.(element) }} class="canvas-corner-controls" data-minimap-size={props.size} data-menu-open={props.menu === undefined ? undefined : 'true'}>
       {props.children}
-      <canvas
-        ref={(element) => { minimap = element; props.minimapRef?.(element) }}
-        class="minimap"
-        classList={{ hidden: !props.minimapVisible || !minimapFits() }}
-        data-testid="minimap"
-        data-node-colors={props.settings['nodes']}
-        data-links={props.settings['noodles']}
-        data-groups={props.settings['groups']}
-        data-errors={props.settings['errors']}
-        data-bookmarks={props.settings['bookmarks']}
-      />
+      <Show when={props.minimapEnabled !== false}>
+        <canvas
+          ref={(element) => { minimap = element; props.minimapRef?.(element) }}
+          class="minimap"
+          classList={{ hidden: !props.minimapVisible || !minimapFits() }}
+          data-testid="minimap"
+          data-node-colors={props.settings['nodes']}
+          data-links={props.settings['noodles']}
+          data-groups={props.settings['groups']}
+          data-errors={props.settings['errors']}
+          data-bookmarks={props.settings['bookmarks']}
+        />
+      </Show>
       <div class="canvas-corner-anchor">
         <div class="canvas-corner-bar" role="group" aria-label={message('canvas.corner.label')}>
-          <span class="canvas-corner-split" data-open={props.menu === 'minimap' ? 'true' : undefined}>
-            <ProductButton variant="ghost" type="button" class="canvas-chrome-button" data-testid="minimap-toggle"
-              data-tooltip-label={message(props.minimapVisible ? 'canvas.corner.hideMinimap' : 'canvas.corner.showMinimap')}
-              aria-label={message(props.minimapVisible ? 'canvas.corner.hideMinimap' : 'canvas.corner.showMinimap')}
-              aria-pressed={props.minimapVisible}
-              onClick={props.onToggleMinimap}
-            ><Icon icon={MapIcon} /></ProductButton>
-            <ProductButton variant="ghost" type="button" class="canvas-chrome-button canvas-corner-more" data-testid="minimap-settings"
-              ref={settingsTrigger}
-              data-tooltip-label={props.menu === 'minimap' ? undefined : message('canvas.corner.minimapSettings')}
-              aria-label={message('canvas.corner.minimapSettings')}
-              aria-expanded={props.menu === 'minimap'}
-              onClick={() => props.menu === 'minimap' ? props.onCloseMenu() : props.onOpenMenu('minimap')}
-            ><Icon icon={ChevronDown} /></ProductButton>
-          </span>
-          <span class="canvas-chrome-divider" aria-hidden="true" />
+          <Show when={props.minimapEnabled !== false}>
+            <span class="canvas-corner-split" data-open={props.menu === 'minimap' ? 'true' : undefined}>
+              <ProductButton variant="ghost" type="button" class="canvas-chrome-button" data-testid="minimap-toggle"
+                data-tooltip-label={message(props.minimapVisible ? 'canvas.corner.hideMinimap' : 'canvas.corner.showMinimap')}
+                aria-label={message(props.minimapVisible ? 'canvas.corner.hideMinimap' : 'canvas.corner.showMinimap')}
+                aria-pressed={props.minimapVisible}
+                onClick={props.onToggleMinimap}
+              ><Icon icon={MapIcon} /></ProductButton>
+              <ProductButton variant="ghost" type="button" class="canvas-chrome-button canvas-corner-more" data-testid="minimap-settings"
+                ref={settingsTrigger}
+                data-tooltip-label={props.menu === 'minimap' ? undefined : message('canvas.corner.minimapSettings')}
+                aria-label={message('canvas.corner.minimapSettings')}
+                aria-expanded={props.menu === 'minimap'}
+                onClick={() => props.menu === 'minimap' ? props.onCloseMenu() : props.onOpenMenu('minimap')}
+              ><Icon icon={ChevronDown} /></ProductButton>
+            </span>
+            <span class="canvas-chrome-divider" aria-hidden="true" />
+          </Show>
           <ProductButton variant="ghost" type="button" class="canvas-chrome-button" data-testid="canvas-fit-view"
             data-tooltip-label={message('canvas.corner.fit')}
             aria-label={message('canvas.corner.fitShortcut')}
@@ -293,7 +299,7 @@ export function CanvasCornerControls(props: {
             onClick={() => props.menu === 'zoom' ? props.onCloseMenu() : props.onOpenMenu('zoom')}
           ><span>{percent()}%</span><Icon icon={ChevronDown} /></ProductButton>
         </div>
-        <Show when={props.menu === 'minimap'}>
+        <Show when={props.minimapEnabled !== false && props.menu === 'minimap'}>
           <div ref={menuElement} class="minimap-menu">
             <For each={MINIMAP_SWITCHES}>{(item) => {
               const label = () => message(`canvas.corner.minimap.${item.id}`)

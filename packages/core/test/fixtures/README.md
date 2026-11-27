@@ -23,3 +23,5 @@ They model port contracts, not a complete catalog or runtime parity capture.
 OrElse, HasValue and OnlyIf in dinkster-nodes `dinkster_utilities/flow.py` at
 `5a4957aa93cd22987e897acabe8a943f4c975eb3`. Compiler and interaction tests
 decode these pack declarations rather than substituting test-only flow nodes.
+The Unpack entry was exported by the same method from dinkster-nodes
+`a693b82c850bdbbcf88e865b35c00604e553339d`.

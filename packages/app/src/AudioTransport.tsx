@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import type { NodePreview } from '@dinkster/canvas'
+import { ProductAudioWaveform } from '@dinkster/ui'
 import { ProductSlider } from './ProductSlider.js'
 import { audioNumber } from './audio-preview.js'
 import { mediaMetadataOf } from './media-metadata.js'
@@ -144,10 +145,11 @@ export function AudioTransport(props: {
     onFocusIn={() => { focused = true; active() }}
     onFocusOut={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { focused = false; active() } }}>
     <div class="audio-waveform">
-      <Show when={waveform()} fallback={<span>Audio waveform</span>}>
-        {(url) => <img src={url()} alt="Server audio waveform" onError={() => setDiagnostic('Audio waveform could not be decoded by this browser')} />}
-      </Show>
-      <span class="audio-playhead" style={{ left: `${duration() > 0 ? Math.min(100, time() / duration() * 100) : 0}%` }} />
+      <ProductAudioWaveform image={waveform()} value={time()} duration={duration()} ariaLabel="Audio position"
+        interactive={props.interactive !== false}
+        disabled={duration() <= 0 || (props.media.audio !== undefined && props.media.audio.canScrub !== true)}
+        onImageError={() => setDiagnostic('Audio waveform could not be decoded by this browser')}
+        onSeek={(position) => { void load(Math.min(position, Math.max(0, duration() - 0.01)), batch(), playing() || resume) }} />
     </div>
     <audio ref={element} src={src()} preload="metadata" onError={() => {
       setDiagnostic('Audio window cannot be played by this browser')
@@ -163,9 +165,6 @@ export function AudioTransport(props: {
           else if (element?.ended && props.media.audio) void load(0, batch(), true)
           else void play()
         }}>{playing() ? 'Pause' : 'Play'}</button>
-        <ProductSlider ariaLabel="Audio position" min={0} max={duration()} step={0.01} value={time()} disabled={duration() <= 0 || (props.media.audio !== undefined && props.media.audio.canScrub !== true)}
-          onInput={(position) => { void load(Math.min(position, Math.max(0, duration() - 0.01)), batch(), playing() || resume) }} />
-        <span>{time().toFixed(1)} / {duration() > 0 ? duration().toFixed(1) : '?'}s</span>
       </div>
       <div class="audio-transport-row">
         <label><input type="checkbox" checked={loop()} onChange={(event) => setLoop(event.currentTarget.checked)} /> Loop</label>

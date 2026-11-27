@@ -142,6 +142,12 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             { id: 'workflow.share', label: message('shell.workflowTabs.share'),
               action: { kind: 'host', action: 'workflow.share' }, disabled: !props.canShare(tab) },
           ],
+    } satisfies ResolvedMenuGroup] : props.canShare(tab) ? [{
+      group: 'workflow-placement',
+      items: [
+        { id: 'workflow.share', label: message('shell.workflowTabs.share'),
+          action: { kind: 'host', action: 'workflow.share' } },
+      ],
     } satisfies ResolvedMenuGroup] : []),
     ...(tab.editorKind !== 'page' ? [{
       group: 'workflow-settings',

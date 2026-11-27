@@ -4,7 +4,7 @@ import type { WirePatchOp } from './session.js'
 
 export const COLLAB_PROTOCOL_VERSION = 1
 
-export type CollabDocumentKind = 'workflow' | 'image'
+export type CollabDocumentKind = 'workflow' | 'image' | 'board'
 
 export interface CollabSessionDescriptor {
   readonly protocolVersion: number

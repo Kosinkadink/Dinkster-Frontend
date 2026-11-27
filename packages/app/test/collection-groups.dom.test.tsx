@@ -11,6 +11,45 @@ const flush = async (): Promise<void> => { await Promise.resolve(); await Promis
 afterEach(() => document.body.replaceChildren())
 
 describe('CollectionPanel grouped rows', () => {
+  it('drags only eligible committed rows without activating them or dragging their actions', async () => {
+    const activate = vi.fn()
+    const transfer = new Map<string, string>()
+    const source: CollectionSource = {
+      id: 'media', label: 'Media', page: async () => ({ owner: 'engine-a', items: [
+        { id: 'picture', title: 'Picture', actions: [{ id: 'inspect', label: 'Inspect' }] },
+        { id: 'folder', title: 'Folder', folder: { path: 'folder' } },
+      ] }),
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <CollectionPanel sources={[source]} onActivate={activate} drag={{
+      enabled: (entry, owner) => owner === 'engine-a' && entry.id === 'picture',
+      start: (entry, event, owner) => event.dataTransfer!.setData('text/plain', `${owner}:${entry.id}`),
+    }} />, root)
+    try {
+      await flush()
+      const picture = root.querySelector<HTMLElement>('[data-entry="picture"]')!
+      const folder = root.querySelector<HTMLElement>('[data-entry="folder"]')!
+      expect(picture.getAttribute('draggable')).toBe('true')
+      expect(folder.getAttribute('draggable')).toBe('false')
+      const drag = (element: Element) => {
+        const event = new Event('dragstart', { bubbles: true, cancelable: true })
+        Object.defineProperty(event, 'dataTransfer', { value: { setData: (type: string, value: string) => transfer.set(type, value) } })
+        element.dispatchEvent(event)
+        return event.defaultPrevented
+      }
+      expect(drag(picture)).toBe(false)
+      expect(transfer.get('text/plain')).toBe('engine-a:picture')
+      expect(activate).not.toHaveBeenCalled()
+      transfer.clear()
+      expect(drag(folder)).toBe(true)
+      picture.click()
+      expect(drag(picture.querySelector('button')!)).toBe(true)
+      expect(transfer.size).toBe(0)
+      expect(activate).toHaveBeenCalled()
+    } finally { dispose() }
+  })
+
   it('keeps row disclosures across refreshes but not across backend owners', async () => {
     const [tick, setTick] = createSignal(0)
     let owner = 'backend-a'
