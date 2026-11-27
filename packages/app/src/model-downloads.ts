@@ -306,7 +306,14 @@ export class ModelDownloadsController {
     try {
       const jobs = await this.discover()
       for (const row of observed) {
-        if (!row.job || row.pending || !active(row.job)) continue
+        if (row.pending || row.queued) continue
+        if (!row.job || !active(row.job)) {
+          const external = [...jobs].reverse().find((job) => this.matches(job, row.requirement) && active(job))
+          if (external) this.update(row, { requirement: row.requirement, pending: false, job: external,
+            ...(row.source === undefined ? {} : { source: row.source }),
+          })
+          continue
+        }
         const job = jobs.find((entry) => entry.jobId === row.job!.jobId && this.matches(entry, row.requirement))
         this.update(row, job ? { ...row, job } : { requirement: row.requirement, pending: false, interrupted: true,
           ...(row.source === undefined ? {} : { source: row.source }),
