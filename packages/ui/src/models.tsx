@@ -222,6 +222,14 @@ export function ProductModelList(props: ProductModelListProps) {
       })
       activate()
     }
+    const summary = () =>
+      [
+        propsRow.grouped ? undefined : model().kind,
+        version().precision,
+        progressing() ? undefined : (version().message ?? stateLabel()),
+      ]
+        .filter(Boolean)
+        .join(', ')
     return (
       <ProductListRow
         ref={(button) => register(key(), button, () => act(props.onSelect))}
@@ -237,15 +245,11 @@ export function ProductModelList(props: ProductModelListProps) {
           : { onActivate: activate })}
         title={<span class="dinkster-model-name">{title()}</span>}
         description={
-          <span class="dinkster-model-summary" data-state={version().state}>
-            {[
-              propsRow.grouped ? undefined : model().kind,
-              version().precision,
-              progressing() ? undefined : (version().message ?? stateLabel()),
-            ]
-              .filter(Boolean)
-              .join(', ')}
-          </span>
+          summary() ? (
+            <span class="dinkster-model-summary" data-state={version().state}>
+              {summary()}
+            </span>
+          ) : undefined
         }
         status={
           progressing() ? (
@@ -356,7 +360,9 @@ export function ProductModelList(props: ProductModelListProps) {
             model().kind,
             strings.modelHere.replace('{count}', String(installed())),
             strings.modelToDownload.replace('{count}', String(missing())),
-          ].join(', ')}
+          ]
+            .filter(Boolean)
+            .join(', ')}
           trailing={
             <span class="dinkster-model-size">
               {strings.modelVersions.replace(

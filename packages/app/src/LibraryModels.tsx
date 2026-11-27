@@ -197,7 +197,7 @@ export function LibraryModels(props: {
   }).sort((left, right) => left.displayName.localeCompare(right.displayName)))
   const versionKey = (variant: LogicalModelVariant) => JSON.stringify([variant.variantId, variant.digest ?? null])
   const rows = createMemo<readonly ProductModel[]>(() => visible().map((model) => ({
-    id: JSON.stringify([model.kind, model.logicalId]), name: model.displayName, kind: model.kind.split('/').at(-1)!,
+    id: JSON.stringify([model.kind, model.logicalId]), name: model.displayName, kind: kind() === '' ? kindLabel(model.kind) : '',
     versions: model.variants.map((variant) => {
       const job = jobFor(model, variant)
       const installed = localRef(model, variant) !== undefined
