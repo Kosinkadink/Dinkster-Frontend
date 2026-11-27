@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from 'solid-js'
 import type { NodePreview } from '@dinkster/canvas'
-import { ProductAudioWaveform } from '@dinkster/ui'
+import { ProductAudioWaveform, ProductCheckbox } from '@dinkster/ui'
 import { ProductSlider } from './ProductSlider.js'
 import { audioNumber } from './audio-preview.js'
 import { mediaMetadataOf } from './media-metadata.js'
@@ -167,7 +167,7 @@ export function AudioTransport(props: {
         }}>{playing() ? 'Pause' : 'Play'}</button>
       </div>
       <div class="audio-transport-row">
-        <label><input type="checkbox" checked={loop()} onChange={(event) => setLoop(event.currentTarget.checked)} /> Loop</label>
+        <ProductCheckbox label="Loop" checked={loop()} onChange={(event) => setLoop(event.currentTarget.checked)} />
         <label class="audio-gain">Gain <ProductSlider ariaLabel="Audio gain" min={0} max={1} step={0.01} value={gain()} onInput={(value) => { setGain(value); if (element) element.volume = value }} /></label>
         <Show when={batches() > 1}>
           <button type="button" aria-label="Previous audio batch" disabled={batch() === 0 || props.media.audio?.canSelectBatch !== true} onClick={() => { setBatch(batch() - 1); void load(0, batch(), false) }}>Previous</button>
