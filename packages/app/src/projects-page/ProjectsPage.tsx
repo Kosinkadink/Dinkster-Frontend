@@ -1091,13 +1091,6 @@ export function ProjectsView(props: {
               { value: 'workflow', label: message('projects.new.workflowFile') },
               { value: 'project', label: message('projects.new.copyProject') },
             ].map((option) => ({ ...option, ...(creationLocked() ? { disabled: message('projects.new.choicesLocked') } : {}) }))} />
-          <Show when={startChoice() === 'template' && templateCatalog()}>
-            <ProductField label={message('projects.new.template')}>{() => <div class="dinkster-project-form-path" role="group" aria-label={message('projects.new.template')}>
-              <span>{templateChoice()?.name ?? message('projects.new.noTemplate')}</span>
-              <ProductTextButton label={message(templateChoice() ? 'projects.facts.change' : 'projects.new.choose')} disabled={creationLocked()}
-                onClick={() => { void refreshTemplates().then((catalog) => { if (catalog && !creationLocked()) setPickingTemplate(true) }) }} />
-            </div>}</ProductField>
-          </Show>
           <Show when={startChoice() === 'workflow'}>
             <ProductField label={message('projects.new.workflowFile')} error={workflowError() ?? ''}>{(attributes) => <div class="dinkster-project-form-path">
               <span>{workflowFile()?.name ?? message('projects.new.noWorkflow')}</span>
@@ -1115,6 +1108,14 @@ export function ProjectsView(props: {
             </ProductSelect>}</ProductField>
           </Show>
         </div>
+        <Show when={startChoice() === 'template' && templateCatalog()}>
+          <span>{message('projects.new.template')}</span>
+          <div class="dinkster-project-form-path" role="group" aria-label={message('projects.new.template')}>
+            <span classList={{ 'dinkster-description': !templateChoice() }}>{templateChoice()?.name ?? message('projects.new.noTemplate')}</span>
+            <ProductTextButton label={message(templateChoice() ? 'projects.facts.change' : 'projects.new.choose')} disabled={creationLocked()}
+              onClick={() => { void refreshTemplates().then((catalog) => { if (catalog && !creationLocked()) setPickingTemplate(true) }) }} />
+          </div>
+        </Show>
         <div class="dinkster-actions">
           <ProductButton disabled={creating()} onClick={cancelCreation}>{message('projects.action.cancel')}</ProductButton>
           <ProductButton type="submit" intent="add" fill="solid" disabled={name().trim() === '' || !filesFolder().trim() || !startingContents() || (startChoice() === 'template' && !templateCatalog()) || creating() || readingWorkflow() || choosingFolder()}>
