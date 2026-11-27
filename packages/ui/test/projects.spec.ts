@@ -17,7 +17,8 @@ test('a form dialog tabs from Cancel to its action and Cancel dismisses it', asy
 
 test('a new project picks a template without losing the form and revokes it when templates turn off', async ({ page }) => {
   await page.goto('/#projects')
-  await page.getByRole('checkbox', { name: 'Engine templates on' }).check()
+  await page.getByText('Engine templates on', { exact: true }).click()
+  await expect(page.getByRole('checkbox', { name: 'Engine templates on' })).toBeChecked()
   await page.getByRole('button', { name: 'New', exact: true }).click()
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Evening light')
   await page.getByRole('radiogroup', { name: 'Start with', exact: true }).getByText('Template', { exact: true }).click()
@@ -58,7 +59,8 @@ test('a new project picks a template without losing the form and revokes it when
   await expect(page.getByRole('status').last()).toHaveText('Created Evening light from generation/text-to-image')
   await page.getByRole('button', { name: 'New', exact: true }).click()
   await choice.getByRole('button', { name: 'Change', exact: true }).click()
-  await page.getByRole('checkbox', { name: 'Engine templates on' }).uncheck()
+  await page.getByText('Engine templates on', { exact: true }).click()
+  await expect(page.getByRole('checkbox', { name: 'Engine templates on' })).not.toBeChecked()
   await expect(picker).toHaveCount(0)
   await expect(choice).toHaveCount(0)
   await expect(page.getByRole('radio', { name: 'Template', exact: true })).toHaveCount(0)
