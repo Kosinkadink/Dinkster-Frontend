@@ -7,6 +7,7 @@ const catalogTest = test.extend({ widgetDocument: false })
 
 catalogTest('secret rows save and remove through the selected connection without changing the workflow', async ({ page }, testInfo) => {
   let source: 'account' | 'deployment' | null = null
+  let principal = 'account-a'
   const writes: string[] = []
   await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 404 }))
   await page.routeWebSocket('**/api/events?*', () => {})
@@ -18,6 +19,10 @@ catalogTest('secret rows save and remove through the selected connection without
     environment: null, accountProject: null,
   } } }))
   await page.route('/api/projects/default/needs', (route) => route.fulfill({ json: { packs: [], installed: [], extra: [], unknown: [] } }))
+  await page.route('/api/account', (route) => route.fulfill({ json: {
+    available: true, canStartSignIn: true, signInUnavailableReason: null, signedIn: true,
+    profile: null, signIn: { state: 'idle' }, principalRevision: principal,
+  } }))
   await page.route('/api/secrets/caption-service*', (route) => {
     const request = route.request()
     if (request.method() === 'PUT') {
@@ -36,6 +41,7 @@ catalogTest('secret rows save and remove through the selected connection without
   await waitForWorkspaceReady(page)
   await page.evaluate(async () => {
     const app = window.__dinksterTest!.app
+    await app.backends.get()[0]!.connection.accountStatus()
     app.registerSchemas([{
       type: 'SecretCaption', displayName: 'Caption image', source: 'v3', category: 'test', isOutputNode: false,
       body: [{ kind: 'input', id: 'credential', displayName: 'Caption service', type: { kind: 'concrete', name: 'STRING' },
@@ -92,6 +98,17 @@ catalogTest('secret rows save and remove through the selected connection without
   dialog = page.getByRole('dialog', { name: 'Set caption-service', exact: true })
   await expect(dialog.getByRole('button', { name: 'Remove secret', exact: true })).toHaveCount(0)
   await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
+  await dialog.getByLabel('Secret value', { exact: true }).fill('unsaved-account-a-credential')
+  source = null
+  principal = 'account-b'
+  await page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.connection.accountStatus())
+  await expect(dialog).toHaveCount(0)
+  await expect(missing).toContainText('Secret "caption-service" is not set.')
+  expect(writes).toEqual(['save', 'remove'])
+  expect((await activeDoc(page)).graphs).toEqual(graph)
+  await page.mouse.click(point.x, point.y)
+  await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
+  await expect(dialog.getByRole('button', { name: 'Remove secret', exact: true })).toHaveCount(0)
 })
 
 catalogTest('a Slider with an overflowing range explains its Number fallback', async ({ page }, testInfo) => {
