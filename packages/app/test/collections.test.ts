@@ -93,8 +93,8 @@ describe('packsSource', () => {
     loadDinksterSchemas()
     const page = await packsSource(app).page({ query: '', limit: 10 })
     // Unfiltered browse is title-sorted.
-    expect(page.items.map((e) => e.id)).toEqual(['core', 'dev.local', 'vhs.video'])
-    expect(page.total).toBe(3)
+    expect(page.items.map((e) => e.id)).toEqual(['core', 'vhs.video'])
+    expect(page.total).toBe(2)
 
     const core = page.items[0]!
     expect(core.title).toBe('Dinkster Core')
@@ -102,7 +102,7 @@ describe('packsSource', () => {
     expect(core.badges).toEqual(['v1.2.0', '2 nodes'])
     expect(core.thumbUrl).toBeUndefined()
 
-    const vhs = page.items[2]!
+    const vhs = page.items[1]!
     expect(vhs.badges).toEqual(['VHS', 'v3.1.4', 'registry', '1 node', '1 asset'])
     expect(vhs.thumbUrl).toBeUndefined()
     expect(vhs.thumbRender).toBeDefined()
@@ -117,9 +117,6 @@ describe('packsSource', () => {
     expect(vhs.details).toContainEqual({ label: 'publisher', text: 'kosinkadink' })
     expect(vhs.details).toContainEqual({ label: 'digest', text: 'sha256:' + 'b'.repeat(64) })
     expect(vhs.details).toContainEqual({ label: 'asset: Video VAE', text: 'model/vae - 1.5 MB' })
-
-    const dev = page.items[1]!
-    expect(dev.badges).toEqual(['local', '0 nodes'])
   })
 
   it('ranks the whole corpus for a query, not a loaded page', async () => {
@@ -134,7 +131,7 @@ describe('packsSource', () => {
     const source = packsSource(app)
     expect((await source.page({ query: '', limit: 10 })).items).toEqual([])
     loadDinksterSchemas()
-    expect((await source.page({ query: '', limit: 10 })).items).toHaveLength(3)
+    expect((await source.page({ query: '', limit: 10 })).items).toHaveLength(2)
   })
 })
 

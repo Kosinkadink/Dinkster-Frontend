@@ -60,6 +60,7 @@ import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
 import { TemplatesPage } from './TemplatesPage.js'
 import { EditorFirstRunSetup } from './EditorFirstRunSetup.js'
+import { NodeCatalogRecovery } from './NodeCatalogRecovery.js'
 import type { SetupStatus } from './SetupForm.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
@@ -541,6 +542,7 @@ export function App(props: {
   const modalPanel = useSignal(app.modalPanel)
   const searchOpen = useSignal(app.searchOpen)
   const nodeInstallRequest = useSignal(app.nodeInstallRequest)
+  const catalogSetupRequested = useSignal(app.nodeCatalogSetupRequested)
   const projectNeedsReview = useSignal(app.projectNeedsReview)
   const projectPackNotification = useSignal(app.projectPackNotification)
   const placementStatus = useSignal(app.placementStatus)
@@ -1429,6 +1431,9 @@ export function App(props: {
         return { label: backend.label, protocol: backend.protocol, status: statusOf(backend) }
       }}
       refreshTick={libraryTick}
+      catalogRecovery={activeBackend().registry.get()?.schemas.size === 0
+        ? <Show when={activeBackend()} keyed>{(backend) => <NodeCatalogRecovery app={app} backend={backend} />}</Show>
+        : undefined}
       onActivate={activateLibraryEntry}
       onAction={libraryEntryAction}
     />
@@ -2091,7 +2096,7 @@ export function App(props: {
             />
         </Show>
       </div>
-      <Show when={empty()}>
+      <Show when={empty() && !catalogSetupRequested()}>
         <EditorFirstRunSetup backendUrl={activeBackend().baseUrl} onStatusChange={(status) => {
           setSetupEditors((current) => {
             const next = new Map(current)
@@ -2957,6 +2962,14 @@ export function App(props: {
             onActivate={(event, tab) => activateTab(event, tab.id, p.groupId)}
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
             onRename={(tab, title) => app.renameTab(tab.id, title)}
+            canRename={(tab) => {
+              const board = boardForTab(tab.id)
+              return board ? app.boards.canRename(board.id) : !isPageTab(tab) && ['graph', 'app'].includes(tab.editorKind)
+            }}
+            renameName={(tab) => {
+              const board = boardForTab(tab.id)
+              return board ? board.name : tab.title
+            }}
             onDuplicate={(tab) => {
               if (isPageTab(tab)) return
               void app.duplicateTab(tab.id).then((copy) => {
@@ -3535,6 +3548,8 @@ export function App(props: {
         </aside></Show>
       </div>
 
+      <Show when={catalogSetupRequested()}><EditorFirstRunSetup backendUrl={activeBackend().baseUrl} requested
+        onComplete={() => { app.nodeCatalogSetupRequested.set(false); void app.refreshBackendSchemas(activeBackend()) }} /></Show>
       <Show when={panelDrag()}>{(drag) => {
         const descriptor = () => app.panels.get(drag().panelId)
         return (

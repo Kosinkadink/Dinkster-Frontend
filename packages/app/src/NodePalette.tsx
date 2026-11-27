@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, on, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, on, Show, type JSX } from 'solid-js'
 import { ArrowLeft, Download, Folder, PanelTop, Wrench } from 'lucide-solid'
 import {
   defaultTokens, presentedType, typeColor, typeExprCanonicalLabel, typeIdDisplayLabel,
@@ -137,6 +137,7 @@ export function NodePalette(props: {
   entries: () => PaletteEntry[]
   recentTypes: () => readonly string[]
   widgetRegistry: WidgetRegistry
+  catalogRecovery?: JSX.Element
   bounds: () => { width: number; height: number }
   onCommit: (entry: PaletteEntry) => void
   onHelp?: (entry: PaletteEntry) => void
@@ -238,6 +239,7 @@ export function NodePalette(props: {
   const announcement = () => {
     const rows = groups().flatMap((group) => group.rows)
     const index = rows.findIndex((item) => item.key === selectedKey())
+    if (index < 0 && props.catalogRecovery !== undefined) return ''
     if (index < 0) return query().trim() === ''
       ? message('palette.announcement.noNodes')
       : message('palette.announcement.noMatches', { query: query() })
@@ -356,11 +358,12 @@ export function NodePalette(props: {
         status={announcement()}
         markQuery={parseSearchFilters(query()).text}
         autofocus inputRef={(input) => { searchInput = input; input.dataset.testid = 'palette-search' }}
+        notice={props.catalogRecovery}
         empty={{ title: message('palette.empty.title'), detail: message(query().trim() === '' ? 'palette.empty.filters' : 'palette.empty.query') }}
         hints={[
           { keys: ['Up', 'Down'], label: message('search.hint.move') },
           { keys: ['Enter'], label: message(selected()?.install !== undefined ? 'search.hint.install' : selectedKey()?.startsWith('category:') ? 'search.hint.open' : 'search.hint.placeNode') },
-          { keys: ['Tab'], label: message('search.hint.nextKind') },
+          ...(props.catalogRecovery === undefined ? [{ keys: ['Tab'], label: message('search.hint.nextKind') }] : []),
           { keys: ['Esc'], label: message('search.hint.close') },
         ]}
         preview={<Show when={selected()}>{(entry) => <>
