@@ -720,10 +720,8 @@ export const canvasPaintTokens = {
 /**
  * The editors that fold out in the node, by widget view id: the picture's own
  * height (absent for an editor without one) and how many rows of controls sit
- * under it. The rows are fixed for each editor, so the node does not change
- * height when the editor's state changes; a host that knows the controls
- * differ for good, such as a recorder on a backend that cannot take uploads,
- * gives their height in the widget's measure.
+ * under it. These are the initial rows; the host reports the actual control
+ * height when an editor adds a problem line or expands a section.
  */
 export const IN_NODE_EDITORS: Readonly<Record<string, {
   readonly picture?: number
@@ -746,10 +744,10 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   'core.audioRecord': { controlRows: 5 },
   // Start camera or Capture frame and Stop; the stored frame's line.
   'core.webcam': { picture: 180, controlRows: 2 },
-  // Camera projection, Field of view, Model placement and Animation closed, then room for a problem note.
+  // Camera projection, Field of view, Model placement and Animation closed.
   'core.load3d': {
     picture: 200,
-    controlRows: 5,
+    controlRows: 4,
     // Model position, rotation and scale; Animation clip, its time, its speed, Play.
     sections: [{ id: 'placement', rows: 3 }, { id: 'animation', rows: 4 }],
   },

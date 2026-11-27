@@ -7600,6 +7600,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               </Show>
               <Show when={webcam()}>
                 {(ports) => <WebcamSpace value={item()?.value} ports={ports()}
+                  measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}
                   wired={item()?.wired === true} readOnly={readOnly()} carried={item()?.carried} covered={covered()} />}
               </Show>
               <Show when={curve()}>
@@ -7633,6 +7634,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               </Show>
               <Show when={load3d()}>
                 {(at) => <Load3dSpace value={item()?.value} wired={item()?.wired === true} readOnly={readOnly()}
+                  measured={(height) => { const current = item(); if (current !== undefined) measureEditorControls(current, height) }}
                   sourceKey={at().sourceKey} ports={at().ports} captures={at().captures}
                   live={liveModelViews().has(key) && !covered()}
                   onWake={() => setWokenModelViews((woken) => [key, ...woken.filter((other) => other !== key)].slice(0, LIVE_MODEL_VIEWS))}

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { render } from 'solid-js/web'
+import { createSignal } from 'solid-js'
 import { defaultTokens, type WidgetMeasure } from '@dinkster/canvas'
 import { createInNodeEditorScene } from '../../canvas/gallery/in-node-editors.js'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
@@ -134,7 +135,10 @@ it.each(['recorder', 'webcam', 'load3d'] as const)('opens the full %s failure fr
   try {
     const summary = editor === 'recorder' ? 'Permission denied.' : editor === 'webcam' ? 'Camera unavailable.' : 'Model unavailable.'
     await vi.waitFor(() => expect(document.querySelector('.dinkster-canvas-editor-note-summary')?.textContent).toBe(summary))
-    expect(document.querySelector('.dinkster-canvas-editor-picture-message')?.textContent ?? '').toBe(editor === 'webcam' ? 'No frame stored yet' : '')
+    if (editor !== 'recorder') {
+      expect(document.querySelector('.dinkster-canvas-editor-picture .dinkster-canvas-editor-note-summary')?.textContent).toBe(summary)
+      expect(document.querySelector('.dinkster-canvas-editor-controls .dinkster-canvas-editor-note-summary')).toBeNull()
+    }
     const details = [...document.querySelectorAll('button')].find(button => button.textContent === 'Details')!
     expect(details).toBeDefined()
     details.click()
@@ -157,4 +161,21 @@ it.each(['recorder', 'webcam', 'load3d'] as const)('opens the full %s failure fr
   } finally {
     recorder?.dispose()
   }
+})
+
+it('keeps a visible webcam frame unobscured and moves its problem back to the picture when the frame goes', async () => {
+  vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => { throw new Error('Camera disconnected.') } } })
+  const frame = { digest: `blake3:${'b'.repeat(64)}`, name: 'Frame.png', size: 12, mediaType: 'image/png', virtualPath: 'frame.png' }
+  const [value, setValue] = createSignal<typeof frame | undefined>(frame)
+  dispose = render(() => <WebcamSpace value={value()} carried={undefined} wired={false} covered={false}
+    ports={{ upload: vi.fn(), fetchBytes: async () => new ArrayBuffer(12), size: () => ({}), commit: vi.fn() }} />, document.body)
+  await vi.waitFor(() => expect(document.querySelector('.dinkster-canvas-editor-picture img')).not.toBeNull())
+  ;[...document.querySelectorAll('button')].find(button => button.textContent?.includes('Start camera'))!.click()
+  await vi.waitFor(() => expect(document.querySelector('.dinkster-canvas-editor-controls .dinkster-canvas-editor-note-summary')?.textContent).toBe('Camera unavailable.'))
+  expect(document.querySelector('.dinkster-canvas-editor-picture img')).not.toBeNull()
+  expect(document.querySelector('.dinkster-canvas-editor-picture-message')).toBeNull()
+  setValue(undefined)
+  await vi.waitFor(() => expect(document.querySelector('.dinkster-canvas-editor-picture .dinkster-canvas-editor-note-summary')?.textContent).toBe('Camera unavailable.'))
+  expect(document.querySelector('.dinkster-canvas-editor-controls .dinkster-canvas-editor-note-summary')).toBeNull()
+  expect(document.querySelector('.dinkster-canvas-editor-picture img')).toBeNull()
 })
