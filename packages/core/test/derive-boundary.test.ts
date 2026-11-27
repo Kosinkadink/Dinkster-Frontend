@@ -2447,19 +2447,55 @@ describe('Boundary sample acceptance compilation', () => {
       const member = { kind: 'input', id: 'memberStrength', promoted: true,
         binds: { kind: 'port', node: 'sample', port: 'layers.layer1.strength' } }
       Object.assign(detail, { boundary: { body: [...body, member] } })
+      const outerId = level === 1 ? 'memberStrength' : 'selectedStrength'
       if (level === 2) {
         const portrait = doc.graphs.portrait!
         Object.assign(portrait, { boundary: { body: [
           ...portrait.boundary!.body.filter((row) => !('id' in row && row.id === 'layers')),
-          { ...member, binds: { kind: 'port', node: 'detail', port: 'memberStrength' } },
+          { ...member, id: outerId, binds: { kind: 'port', node: 'detail', port: 'memberStrength' } },
         ] } })
       }
       const store = storeFor(doc)
-      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'memberStrength', value: 0.8 })
-      expect(prompt(store.doc)[path]!.inputs['layers.layer1.strength']).toBe(0.8)
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: outerId, value: 0.2 })
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'second', inputId: outerId, value: 0.8 })
+      const original = store.doc
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      const check = (current: WorkflowDocument, members: readonly string[]) => {
+        const compiled = prompt(current)
+        expect(compiled[path]!.inputs['layers.layer0.strength']).toBe(0.1)
+        expect(compiled[second]!.inputs['layers.layer0.strength']).toBe(0.1)
+        expect(compiled[path]!.outputMembers?.layers).toEqual(members)
+        expect(compiled[second]!.outputMembers?.layers).toEqual(members)
+        if (members.includes('layer1')) {
+          expect(compiled[path]!.inputs['layers.layer1.strength']).toBe(0.2)
+          expect(compiled[second]!.inputs['layers.layer1.strength']).toBe(0.8)
+        } else {
+          expect(compiled[path]!.inputs).not.toHaveProperty('layers.layer1.strength')
+          expect(compiled[second]!.inputs).not.toHaveProperty('layers.layer1.strength')
+        }
+        expect(current.graphs.root).toEqual(original.graphs.root)
+        expect(current.graphs.portrait).toEqual(original.graphs.portrait)
+        expect(current.graphs.detail!.boundary).toEqual(original.graphs.detail!.boundary)
+      }
+      check(original, ['layer0', 'layer1'])
       edit(store, 'dynamic.moveMember', { graphId: 'detail', nodeId: 'sample', construct: 'layers', member: 'layer1', index: 0 })
-      expect(prompt(store.doc)[path]!.inputs['layers.layer1.strength']).toBe(0.8)
-      expect(prompt(store.doc)[path]!.outputMembers?.layers).toEqual(['layer1', 'layer0'])
+      const reordered = store.doc
+      check(reordered, ['layer1', 'layer0'])
+      edit(store, 'dynamic.removeMember', { graphId: 'detail', nodeId: 'sample', construct: 'layers', member: 'layer1' })
+      const removed = store.doc
+      check(removed, ['layer0'])
+      expect(loadDocument(JSON.parse(JSON.stringify(removed))).document).toEqual(removed)
+      const missing = documentResolver(removed, resolveBoundarySample)(removed.graphs.root!.nodes.first!.type)!
+      expect(elabInputsOf(elaborateInterface(missing, removed.graphs.root!.nodes.first!))
+        .find((row) => row.spec.id === outerId)?.spec.unavailable?.code).toBe('boundary.memberMissing')
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(reordered)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(original)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(reordered)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(removed)
     })
 
     for (const feature of ['sections', 'shared-lines'] as const) {
