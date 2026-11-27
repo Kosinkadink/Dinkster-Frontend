@@ -718,8 +718,8 @@ for (const width of [1280, 1440, 1920, 390])
       for (const sentence of [
         'See your name, picture and email address.',
         'Stay signed in between visits.',
-        "See your projects and use Dinkster's online services with your current project permissions.",
-        'api:read',
+        "See your projects and use Dinkster's online services with the access you have in each project.",
+        'Use the permission api:read.',
       ])
         await expect(page.getByText(sentence, { exact: true })).toBeVisible()
       for (const scope of [
