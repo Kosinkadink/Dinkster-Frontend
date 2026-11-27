@@ -379,6 +379,9 @@ test('oversized root and child menus stay in a short viewport, flip left, and re
   await page.addStyleTag({ content: '.context-menu .menu-item { padding-top: 30px; padding-bottom: 30px; }' })
   await page.getByRole('button', { name: 'Toggle right rail' }).click()
   await page.getByRole('button', { name: 'Hide minimap' }).click()
+  // The seed's migration notice can cover the node header in this short viewport.
+  const notice = page.getByTestId('fixes-notice')
+  if (await notice.isVisible()) await notice.getByRole('button', { name: 'Dismiss', exact: true }).click()
   const canvas = await page.getByTestId('graph-canvas').boundingBox()
   expect(canvas).not.toBeNull()
   await page.evaluate(({ canvasWidth, canvasHeight }) => {
