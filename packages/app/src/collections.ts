@@ -357,7 +357,7 @@ const workflowEntry = (r: LibraryRecord, backend: Backend): CollectionEntry => (
     { label: 'backend', text: backend.label },
     { label: 'digest', text: r.digest },
     { label: 'media type', text: r.mediaType },
-    { label: 'modified', text: formatCollectionDate(r.modified * 1000) },
+    { label: 'modified', text: formatDate(r.modified * 1000, { ...COLLECTION_DATE_OPTIONS, hour: 'numeric', minute: '2-digit' }) },
     { label: 'revision', text: String(r.revision) },
     ...(r.folder !== undefined ? [{ label: 'folder', text: r.folder }] : []),
   ],

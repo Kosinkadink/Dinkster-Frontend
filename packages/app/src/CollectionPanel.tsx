@@ -267,6 +267,7 @@ export function CollectionPanel(props: {
   }
 
   const firstLoadFailed = (): boolean => error() !== undefined && visibleItems().length === 0
+  const showCount = (): boolean => !firstLoadFailed() && total() !== undefined && items().length < total()!
 
   const searchDescription = (): string => {
     const state = panelState()
@@ -703,7 +704,7 @@ export function CollectionPanel(props: {
       data-collection-state={stateProps.state.kind}
     >
       <Show when={stateProps.state.kind !== 'error'} fallback={
-        <ProductErrorBanner onDismiss={() => setError(undefined)}>
+        <ProductErrorBanner onDismiss={firstLoadFailed() ? undefined : () => setError(undefined)}>
           {message('collection.state.failed', { source: stateProps.state.sourceLabel })}{' '}
           <ProductButton type="button" data-testid="collection-retry" disabled={loading()} onClick={() => runPage(false)}>{message('templateGallery.retry')}</ProductButton>
         </ProductErrorBanner>
@@ -891,8 +892,9 @@ export function CollectionPanel(props: {
         {props.detailRail?.(selectedEntry())}
       </div>
 
-      <div class="collection-footer">
-        <Show when={!firstLoadFailed() && total() !== undefined && items().length < total()!}>
+      <Show when={showCount() || cursor() !== undefined}>
+      <div class="collection-footer" data-count={showCount() ? '' : undefined}>
+        <Show when={showCount()}>
           <span class="collection-total" data-testid="collection-total">
             {message('collection.result.total', { count: items().length, total: total()! })}
           </span>
@@ -908,6 +910,7 @@ export function CollectionPanel(props: {
           </button>
         </Show>
       </div>
+      </Show>
     </div>
   )
 }

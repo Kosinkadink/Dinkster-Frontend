@@ -130,6 +130,7 @@ describe('owned collection pages', () => {
     const page = await src.page({ query: '', limit: 24 })
     expect(page.items[0]!.owner).toBe(a.id)
     expect(page.items.map((entry) => entry.subtitle)).toEqual(['Modified today, 4:00 AM', 'Modified 11/26/2026'])
+    if (kind === 'workflow') expect(page.items[0]!.details).toContainEqual({ label: 'modified', text: '11/27/2026, 4:00 AM' })
     expect(page.items[0]!.badges).toContain('review')
     expect(page.items[0]!.badges).not.toContain('rev 1')
     expect(page.items[0]!.details).toContainEqual({ label: 'revision', text: '1' })

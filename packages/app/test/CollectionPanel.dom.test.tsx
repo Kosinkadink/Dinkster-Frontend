@@ -70,6 +70,7 @@ describe('CollectionPanel folder navigation', () => {
     expect(banner.textContent).toContain('Could not load Runs.')
     expect(root.textContent).not.toContain('private engine failure')
     expect(banner.querySelector('[data-testid="collection-retry"]')).not.toBeNull()
+    expect(banner.querySelector('[aria-label="Dismiss error"]')).toBeNull()
     expect(root.querySelector('[data-testid="collection-source"]')).not.toBeNull()
     for (const id of ['collection-search', 'collection-mode', 'collection-source-action', 'collection-total']) {
       expect(root.querySelector(`[data-testid="${id}"]`)).toBeNull()
@@ -84,6 +85,11 @@ describe('CollectionPanel folder navigation', () => {
     expect(root.querySelector('[data-entry="first"]')).not.toBeNull()
     expect(root.querySelector('[data-testid="collection-search"]')).not.toBeNull()
     expect(root.querySelector('[data-testid="collection-source-action"]')).not.toBeNull()
+    root.querySelector<HTMLButtonElement>('[role="alert"] [aria-label="Dismiss error"]')!.click()
+    expect(root.querySelector('[role="alert"]')).toBeNull()
+    expect(root.querySelector('[data-entry="first"]')).not.toBeNull()
+    refresh(2)
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')).not.toBeNull())
     const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
     search.value = 'different list'
     search.dispatchEvent(new InputEvent('input', { bubbles: true }))

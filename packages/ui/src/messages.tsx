@@ -59,18 +59,20 @@ export function ProductProgress(props: Omit<JSX.HTMLAttributes<HTMLDivElement>, 
 
 export function ProductErrorBanner(props: {
   children: JSX.Element
-  onDismiss: () => void
+  onDismiss?: (() => void) | undefined
 }) {
   const strings = useProductStrings()
   return (
     <div class="dinkster-message" data-kind="error" role="alert">
       <ProductIcon icon={CircleAlert} />
       <span class="dinkster-message-copy">{props.children}</span>
-      <ProductIconButton
-        icon={X}
-        label={strings.dismissError}
-        onClick={props.onDismiss}
-      />
+      <Show when={props.onDismiss}>{(dismiss) =>
+        <ProductIconButton
+          icon={X}
+          label={strings.dismissError}
+          onClick={dismiss()}
+        />
+      }</Show>
     </div>
   )
 }
