@@ -103,7 +103,7 @@ export function ProjectsDialog(props: {
     const name = draft().trim()
     if (name.length === 0) return
     void mutate(async (connection, signal) => {
-      await connection.registerProject(`p-${crypto.randomUUID()}`, name, signal)
+      await connection.registerProject(`p-${crypto.randomUUID()}`, name, {}, signal)
       if (signal.aborted || props.connection !== connection) return
       setDraft('')
       setNotification({ message: 'Project created' })

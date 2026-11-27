@@ -46,7 +46,7 @@ export const canvasPaintTokens = {
   },
   viewport: { initialOffset: 40, fitMargin: 60, minFitScale: 0.1, maxFitScale: 2 },
   keyboardFocus: { stroke: 1, outset: 2 },
-  graphCache: { tilePixels: 512, bleedPixels: 2 },
+  graphCache: { tilePixels: 512, bleedPixels: 2, detailMinScale: 0.3, detailMaxScale: 0.5 },
   badge: {
     radius: 3,
     baselineOffset: 0.5,

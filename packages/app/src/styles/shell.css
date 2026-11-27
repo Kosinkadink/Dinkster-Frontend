@@ -32,6 +32,8 @@
 }
 
 .sidebar-button:hover { color: var(--dinkster-text-primary); background: var(--dinkster-interaction-hover); }
+.sidebar-button[aria-disabled='true'] { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+.sidebar-button[aria-disabled='true']:hover { color: var(--dinkster-text-secondary); background: transparent; }
 
 .sidebar-button[aria-pressed='true'] {
   color: var(--dinkster-text-primary);
@@ -799,6 +801,16 @@ section.editor-group:not(:only-of-type):not([data-focused='true']) .tab.active {
   color: var(--dinkster-text-muted);
   font-family: var(--dinkster-font-mono);
   white-space: nowrap;
+}
+
+.activity-log-time,
+.execution-log-time {
+  container: log-time / inline-size;
+}
+
+/* The full UTC timestamp is 27 monospace characters. */
+@container log-time (width < 27ch) {
+  .log-time-full { display: none; }
 }
 
 .activity-log-severity {
