@@ -1,5 +1,6 @@
 import { For, Show, createSignal, onMount } from 'solid-js'
 import { render } from 'solid-js/web'
+import { formatByteSize } from '@dinkster/core'
 import {
   ProductButton,
   ProductCheckbox,
@@ -831,7 +832,7 @@ function Environments() {
                   <ProductNotice>
                     {choice().reason}
                     {choice().downloadBytes !== undefined
-                      ? ` Download: ${choice().downloadBytes!.toLocaleString()} bytes (reported by dinkster-env).`
+                      ? ` Download: ${formatByteSize(choice().downloadBytes!)} (reported by dinkster-env).`
                       : ''}
                   </ProductNotice>
                 )}
@@ -1329,7 +1330,7 @@ function environmentDetails(result: EnvironmentResult): string {
   if (result.space) {
     const space = result.space
     const bytes = (value: number | null) =>
-      value === null ? 'unavailable' : `${value.toLocaleString()} bytes`
+      value === null ? 'unavailable' : formatByteSize(value)
     label.push(
       `Environment: ${space.project}`,
       `Shared store: ${space.store ?? 'unavailable'}`,

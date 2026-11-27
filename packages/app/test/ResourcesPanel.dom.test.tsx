@@ -174,7 +174,7 @@ it('reports known card totals for closed engines without counting system memory'
   await flush()
   const studio = root.querySelector('[data-backend="studio"] button')!
   expect(studio.getAttribute('aria-expanded')).toBe('false')
-  expect(studio.textContent).toContain('11.0 of 36.0 GB')
+  expect(studio.textContent).toContain('10.2 of 33.5 GB')
   expect(root.querySelector('[data-backend="local"] .dinkster-metadata')!.textContent).toBe('')
   unmount()
 })
@@ -249,7 +249,7 @@ it('preserves focused model rows across snapshots and immediately unloads the se
   const root = document.createElement('div'); document.body.append(root)
   const unmount = render(() => <ResourcesPanel backends={[{ id: 'local', label: 'Local', connection }]} activeBackendId="local" />, root)
   await flush()
-  expect(root.textContent).toContain('6.5 GB of 11.2 GB')
+  expect(root.textContent).toContain('6.5 of 11.2 GB')
   expect(root.querySelector('svg.dinkster-resource-bar')!.getAttribute('aria-label')).toBe('Models: 2.8 GB, Held, unused: 476.8 MB, Other memory: 3.3 GB')
   expect(root.querySelector('.dinkster-resource-model')!.textContent).toContain('2.8 GB')
   const unload = root.querySelector<HTMLButtonElement>('[aria-label="Unload Flux model"]')!

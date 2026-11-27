@@ -122,13 +122,36 @@ export async function checkDesignSystem(args = []) {
       if (['node_modules', 'dist', '.git'].includes(entry.name)) continue
       const path = resolve(directory, entry.name)
       if (entry.isDirectory()) await visitDirectory(path, shortcutsOnly)
-      else if (/\.(?:[cm]?[jt]sx?|css|html)$/u.test(entry.name))
+      else if (/\.(?:[cm]?[jt]sx?|css|html|json)$/u.test(entry.name))
         await checkFile(path, shortcutsOnly)
     }
   }
 
   async function checkFile(path, shortcutsOnly) {
     const text = await readFile(path, 'utf8')
+    if (path.endsWith('.json')) {
+      // #1383 excludes the old consent dialog; #1345 owns the storage redraw.
+      const deferred = new Set([
+        'modelConsent.bytes',
+        'storageSettings.bytes',
+        'storageSettings.cleared',
+      ])
+      const appCatalog = /^packages\/app\/src\/locales\/(?:en|zh)\.json$/u.test(
+        relative(repository, path),
+      )
+      for (const [key, value] of Object.entries(JSON.parse(text)))
+        if (
+          typeof value === 'string' &&
+          /\{[^{}]+\}\s*(?:bytes\b|\u5b57\u8282)/iu.test(value) &&
+          !(appCatalog && deferred.has(key))
+        )
+          report(
+            path,
+            1,
+            'Byte sizes must use formatByteSize from @dinkster/core',
+          )
+      return
+    }
     if (shortcutsOnly && !/\.[cm]?[jt]sx?$/u.test(path)) return
     if (path.endsWith('.css')) {
       if (path !== stylesheet)
@@ -150,7 +173,9 @@ export async function checkDesignSystem(args = []) {
       text,
       ts.ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TSX,
+      path.endsWith('.tsx') || path.endsWith('.jsx')
+        ? ts.ScriptKind.TSX
+        : ts.ScriptKind.TS,
     )
     const line = (node) =>
       source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
@@ -189,14 +214,28 @@ export async function checkDesignSystem(args = []) {
           ).length > 1
         const calculatedSize =
           ts.isTemplateExpression(node) &&
-          node.templateSpans.some((span) =>
-            /^\s*(?:[KMGT]i?B|B)\b/u.test(span.literal.text),
+          node.templateSpans.some(
+            (span) =>
+              /^\s*(?:[KMGT]i?B|B)\b/u.test(span.literal.text) ||
+              (path.endsWith('.tsx') && /^\s*bytes\b/u.test(span.literal.text)),
           )
         const concatenatedSize =
           ts.isBinaryExpression(node) &&
           node.operatorToken.kind === ts.SyntaxKind.PlusToken &&
           ts.isStringLiteralLike(node.right) &&
-          unit.test(node.right.text.trim())
+          /^(?:[KMGT]i?B|B|bytes)$/u.test(node.right.text.trim())
+        const renderedBytes =
+          ts.isJsxText(node) &&
+          /^\s*bytes\b/u.test(node.text) &&
+          node.parent.children.some(
+            (child, index, children) =>
+              child === node &&
+              index > 0 &&
+              ts.isJsxExpression(children[index - 1]),
+          )
+        const localizedBytes =
+          ts.isStringLiteralLike(node) &&
+          /\{[^{}]+\}\s*bytes\b/iu.test(node.text)
         const localFormatter =
           (ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node)) &&
           node.name &&
@@ -207,7 +246,14 @@ export async function checkDesignSystem(args = []) {
             (node.initializer &&
               (ts.isArrowFunction(node.initializer) ||
                 ts.isFunctionExpression(node.initializer))))
-        if (unitTable || calculatedSize || concatenatedSize || localFormatter)
+        if (
+          unitTable ||
+          calculatedSize ||
+          concatenatedSize ||
+          localFormatter ||
+          renderedBytes ||
+          localizedBytes
+        )
           report(
             path,
             line(node),

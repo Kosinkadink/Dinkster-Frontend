@@ -1,4 +1,5 @@
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import { formatByteSize } from '@dinkster/core'
 import './audio-controls.css'
 import { useAppMessage } from './locale.js'
 import { ProductButton } from './ProductControls.js'
@@ -118,9 +119,9 @@ export function AudioRecorder(props: {
   const idle = () => state() === 'idle' || state() === 'ready'
   return <section class="audio-recorder" aria-label="Record audio">
     <p role="status">{state() === 'ready' && showReadyMessage
-      ? appMessage('audioRecorder.ready', { bytes: recordedBytes() })
+      ? appMessage('audioRecorder.ready', { bytes: formatByteSize(recordedBytes()) })
       : message()}</p>
-    <Show when={state() === 'recording'}><p data-testid="audio-recorded-bytes">Recorded {recordedBytes()} bytes</p></Show>
+    <Show when={state() === 'recording'}><p data-testid="audio-recorded-bytes">{appMessage('audioRecorder.recorded', { bytes: formatByteSize(recordedBytes()) })}</p></Show>
     <Show when={state() !== 'ready' && state() !== 'saving'}>
       <ProductButton type="button" disabled={!provider || !idle() || props.disabled} onClick={() => void discover()}>Find microphones</ProductButton>
       <label>Microphone <ProductSelect

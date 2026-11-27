@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
 import { ChevronRight } from 'lucide-solid'
 import type { DinksterConnection, MemoryGovernorDevice, MemoryStatus, RuntimeSettings } from '@dinkster/client'
-import { formatByteSize } from '@dinkster/core'
+import { formatByteProgress, formatByteSize } from '@dinkster/core'
 import { ProductButton, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductField, ProductIcon, ProductNotice, ProductResourceUsage, ProductTextInput, ProductToast, type ProductResourceSample, type ProductResourceSegment } from '@dinkster/ui'
 import { MemoryStatusController } from './memory-status.js'
 import { ProductSlider } from './ProductSlider.js'
@@ -45,7 +45,10 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
   let controller: MemoryStatusController | undefined
   const stale = () => connectionState() !== 'connected' || clock() - receivedAt() > 6000
   const cards = () => Object.keys(status()?.memoryGovernor ?? {}).filter((device) => (device.startsWith('vram:') || device.startsWith('cuda:')) && status()!.memoryGovernor![device]!.measured !== null)
-  const usedOfTotal = (used: number, total: number) => <span class="dinkster-resource-total"><strong>{formatByteSize(used)}</strong> <span>{message('resources.ofTotal', { total: formatByteSize(total) })}</span></span>
+  const usedOfTotal = (used: number, total: number) => {
+    const pair = formatByteProgress(used, total)
+    return <span class="dinkster-resource-total"><strong>{pair.received}</strong> <span>{message('resources.ofTotal', { total: pair.total })}</span></span>
+  }
   const aggregate = () => {
     const rows = cards().map((device) => status()!.memoryGovernor![device]!)
     if (rows.length === 0) return undefined
