@@ -5,6 +5,7 @@ import { desktopFileBridge } from './desktop-bridge.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductNotice } from './ProductForm.js'
 import { useAppMessage } from './locale.js'
+import { failureMessage } from './request-failure.js'
 
 export function AssetFileLocation(props: {
   readonly connection: Pick<DinksterConnection, 'fetchAssetLocations'>
@@ -37,7 +38,7 @@ export function AssetFileLocation(props: {
     void connection.fetchAssetLocations(digest).then((locations) => {
       if (request === generation) setPaths(locations)
     }).catch((failure: unknown) => {
-      if (request === generation) setError(String(failure instanceof Error ? failure.message : failure))
+      if (request === generation) setError(failureMessage(failure))
     })
     const bridge = desktopFileBridge()
     if (bridge?.fileCapabilities && bridge.revealFile) {
@@ -57,7 +58,7 @@ export function AssetFileLocation(props: {
       if (path !== undefined) await navigator.clipboard.writeText(path)
       else if (canReveal()) await desktopFileBridge()!.revealFile!(url, identity)
     } catch (failure) {
-      if (request === generation) setError(String(failure instanceof Error ? failure.message : failure))
+      if (request === generation) setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
       if (request === generation) setBusy(false)
     }

@@ -2,6 +2,8 @@ import { createEffect, createMemo, createSignal as createSolidSignal, For, onCle
 import { assetMultiSelect, formatByteSize, rankSearch, type CollectionEntry, type CollectionPageRequest, type JsonObject } from '@dinkster/core'
 import { ProductModelList, ProductTextInput, type ProductModel, type ProductModelVersion } from '@dinkster/ui'
 import type { AssetGuessCandidate } from '@dinkster/client'
+import { failureMessage } from '../request-failure.js'
+import { FileImportError } from '../desktop-bridge.js'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { AssetBrowserNavigation } from '../asset-browser/AssetBrowserNavigation.js'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
@@ -334,7 +336,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         ...(kind === 'model3d' ? { mime: ref.mediaType } : {}),
       }, url)
     } catch (error) {
-      if (live && request === assetPreviewRequest) setAssetError(error instanceof Error ? error.message : String(error))
+      if (live && request === assetPreviewRequest) setAssetError(failureMessage(error))
     }
   }
   onCleanup(() => {
@@ -367,7 +369,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       const errors = [...sourceErrors, ...result.diagnostics.map((entry) => entry.message)]
       if (errors.length > 0) setLogicalModelsError(errors.join('; '))
     } catch (error) {
-      if (live && load === logicalModelLoad) setLogicalModelsError(error instanceof Error ? error.message : String(error))
+      if (live && load === logicalModelLoad) setLogicalModelsError(failureMessage(error))
     } finally {
       if (live && load === logicalModelLoad) setLogicalModelsLoading(false)
     }
@@ -394,7 +396,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       }).catch((reason: unknown) => {
         if (!live) return
         setAssetSources(local)
-        setMountDiscoveryError(reason instanceof Error ? reason.message : String(reason))
+        setMountDiscoveryError(failureMessage(reason, 'Folders could not be loaded.'))
         void loadLogicalModels(local)
       })
     }
@@ -446,7 +448,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       return true
     } catch (error) {
       if (current()) {
-        setAssetError(error instanceof Error ? error.message : String(error))
+        setAssetError(error instanceof FileImportError ? error.message : failureMessage(error))
       }
       return false
     }
@@ -544,7 +546,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         match.candidates.filter((candidate) => assetGuessCandidateToRef(candidate) !== undefined),
       ))
     } catch (error) {
-      if (live) setAssetMatchError(error instanceof Error ? error.message : String(error))
+      if (live) setAssetMatchError(failureMessage(error))
     } finally {
       if (live) setAssetMatchPending(false)
     }
@@ -854,7 +856,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                       <AssetVideoPreview
                         preview={preview()}
                         onError={(error) => {
-                          if (error !== undefined) setAssetError(error instanceof Error ? error.message : String(error))
+                          if (error !== undefined) setAssetError(failureMessage(error, 'Video preview unavailable.'))
                           setAssetPreviewFailed(true)
                         }}
                         onDimensions={setAssetPreviewDims}

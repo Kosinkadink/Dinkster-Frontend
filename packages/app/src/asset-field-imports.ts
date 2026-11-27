@@ -4,8 +4,10 @@ import { LOADING_DELAY_MS } from '@dinkster/ui'
 import type { AppState } from './app-state.js'
 import { assetUploadPolicy, mediaKindForAccept } from './asset-browser/helpers.js'
 import { importAssetFile, type AssetFileImportProgress } from './asset-browser/import-file.js'
+import { FileImportError } from './desktop-bridge.js'
 import { assetQuickListAllowed } from './editors/AssetQuickList.js'
 import { activeProjectId } from './projects.js'
+import { failureMessage } from './request-failure.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 import { inRowValueKept } from './widget-editor-anchor.js'
 import { widgetInputValueCommand } from './widget-editor-command.js'
@@ -163,7 +165,7 @@ export function createAssetFieldImports(app: AppState, targetCurrent: (editor: W
         }
       } catch (error) {
         committing = false
-        if (current()) update(key, { ...base, phase: 'refused', message: error instanceof Error ? error.message : String(error) })
+        if (current()) update(key, { ...base, phase: 'refused', message: error instanceof FileImportError ? error.message : failureMessage(error) })
         else cancel()
       } finally {
         clearWaiting()

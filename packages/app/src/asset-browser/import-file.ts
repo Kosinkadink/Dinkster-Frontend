@@ -1,5 +1,5 @@
 import type { AssetUploadDestination, AssetUploadProgress, DinksterConnection, MediaAssetRef } from '@dinkster/client'
-import { importNativeAsset, resolveDroppedAsset, type DesktopFileImportProgress } from '../desktop-bridge.js'
+import { FileImportError, importNativeAsset, resolveDroppedAsset, type DesktopFileImportProgress } from '../desktop-bridge.js'
 import { model3dMimeFor } from '../model3d-mime.js'
 import { assetUploadPolicy, assetUploadSizeProblem, mediaAcceptsFile } from './helpers.js'
 
@@ -37,10 +37,10 @@ export async function importAssetFile(file: File, options: {
   signal.throwIfAborted()
   if (!current()) return undefined
   if (existing && accept.length > 0 && !mediaAcceptsFile(accept, existing.mediaType, existing.name)) {
-    throw new Error('The existing file is not compatible with this input. Nothing was uploaded.')
+    throw new FileImportError('The existing file is not compatible with this input. Nothing was uploaded.')
   }
   if (!existing && accept.length > 0 && !mediaAcceptsFile(accept, effectiveType, file.name) && !(latent && file.type === '')) {
-    throw new Error(`Unsupported file type: ${effectiveType || 'unknown'}`)
+    throw new FileImportError(`Unsupported file type: ${effectiveType || 'unknown'}`)
   }
   const choice = options.destination
   const mount = latent || existing ? undefined : choice.mount || (await connection.fetchMountSettings()).importMount
@@ -64,7 +64,7 @@ export async function importAssetFile(file: File, options: {
   if (!current()) return undefined
   if (!existing && !imported) {
     const problem = assetUploadSizeProblem(file, kind, policy)
-    if (problem !== undefined) throw new Error(problem)
+    if (problem !== undefined) throw new FileImportError(problem)
   }
   const transfer = {
     signal,

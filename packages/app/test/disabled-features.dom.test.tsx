@@ -143,6 +143,35 @@ it('does not expose obsolete environment management when an older Desktop host s
   expect(host.querySelector('[data-modal="desktop-management"]')).toBeNull()
 })
 
+it.each(['Linux x86_64', 'MacIntel'])('creates documents with Alt shortcuts and shared menu hints on %s', async (platform) => {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform)
+  app = new AppState()
+  const backend = app.backends.get()[0]!
+  backend.templatesEnabled.set(true)
+  const host = document.createElement('div')
+  document.body.append(host)
+  dispose = render(() => <App app={app} />, host)
+  const modifiers = { ctrlKey: true }
+  const count = app.tabs.get().length
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: '!', code: 'Digit1', shiftKey: true, ...modifiers }))
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: '@', code: 'Digit2', shiftKey: true, ...modifiers }))
+  expect(app.tabs.get()).toHaveLength(count)
+  expect(host.querySelector('[data-testid="templates-page"]')).toBeNull()
+  const blankKey = new KeyboardEvent('keydown', { key: platform === 'MacIntel' ? 'Dead' : 'n', code: 'KeyN', altKey: true, cancelable: true })
+  window.dispatchEvent(blankKey)
+  expect(blankKey.defaultPrevented).toBe(true)
+  expect(app.tabs.get()).toHaveLength(count + 1)
+  const templateKey = new KeyboardEvent('keydown', { key: platform === 'MacIntel' ? '\u2020' : 't', code: 'KeyT', altKey: true, cancelable: true })
+  window.dispatchEvent(templateKey)
+  expect(templateKey.defaultPrevented).toBe(true)
+  await vi.waitFor(() => expect(host.querySelector('[data-testid="templates-page"]')).not.toBeNull())
+  host.querySelector<HTMLButtonElement>('[data-testid="new-tab"] button')!.click()
+  await vi.waitFor(() => expect(host.querySelectorAll('[role="menuitem"]')).toHaveLength(2))
+  expect([...host.querySelectorAll('[role="menuitem"] kbd')].map((key) => key.textContent)).toEqual(['Alt+N', 'Alt+T'])
+  app.keybindings.set('workflow.new', 'Alt+Shift+N')
+  await vi.waitFor(() => expect([...host.querySelectorAll('[role="menuitem"] kbd')].map((key) => key.textContent)).toEqual(['Alt+Shift+N', 'Alt+T']))
+})
+
 it('does not register disabled template surfaces and withdraws enabled surfaces', async () => {
   app = new AppState()
   const backend = app.backends.get()[0]!
@@ -152,14 +181,44 @@ it('does not register disabled template surfaces and withdraws enabled surfaces'
 
   const expectDisabled = () => {
     expect(app.commands.get('workflow.openTemplateGallery')).toBeUndefined()
+    expect(app.keybindings.combo('workflow.openTemplateGallery')).toBeUndefined()
     expect(app.settings.list().some((setting) => setting.id === 'templates.registryUrl')).toBe(false)
-    expect(host.querySelector('.template-gallery-open')).toBeNull()
-    expect(host.querySelector('[data-testid="template-gallery"]')).toBeNull()
+    expect(host.querySelector('[data-testid="template-empty-canvas"]')).toBeNull()
+    expect(host.querySelector('[data-testid="templates-page"]')).toBeNull()
+    expect(app.pages.tabs().some((tab) => tab.id === 'page:templates')).toBe(false)
   }
   expectDisabled()
+  host.querySelector<HTMLButtonElement>('[data-testid="new-tab"] button')!.click()
+  await vi.waitFor(() => expect([...host.querySelectorAll('.dinkster-menu-item-label')].map((row) => row.textContent)).toEqual(['Blank workflow']))
+  host.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click()
   backend.templatesEnabled.set(true)
   expect(app.commands.get('workflow.openTemplateGallery')).toBeDefined()
   expect(app.settings.list().some((setting) => setting.id === 'templates.registryUrl')).toBe(true)
+  const count = app.tabs.get().length
+  await vi.waitFor(() => expect(host.querySelector('[data-testid="template-empty-canvas"]')?.textContent).toBe('Double-click to add a nodeor start from a template'))
+  host.querySelector<HTMLButtonElement>('[data-testid="new-tab"] button')!.click()
+  expect(app.tabs.get()).toHaveLength(count)
+  await vi.waitFor(() => expect([...host.querySelectorAll('.dinkster-menu-item-label')].map((row) => row.textContent)).toEqual(['Blank workflow', 'From a template']))
+  ;[...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((row) => row.querySelector('.dinkster-menu-item-label')?.textContent === 'Blank workflow')!.click()
+  expect(app.tabs.get()).toHaveLength(count + 1)
+  expect(host.querySelector('[role="menuitem"]')).toBeNull()
+  host.querySelector<HTMLButtonElement>('[data-testid="new-tab"] button')!.click()
+  ;[...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((row) => row.querySelector('.dinkster-menu-item-label')?.textContent === 'From a template')!.click()
+  await vi.waitFor(() => expect(host.querySelector('[data-testid="templates-page"]')).not.toBeNull())
+  const templateTab = app.pages.tabs().find((tab) => tab.id === 'page:templates')!
+  app.commands.get('workflow.openTemplateGallery')!.run()
+  expect(app.pages.tabs().filter((tab) => tab.id === templateTab.id)).toHaveLength(1)
+  expect(host.querySelector('[data-testid="template-empty-canvas"]')).toBeNull()
+  app.pages.close(templateTab.id)
+  host.querySelector<HTMLButtonElement>('[data-testid="template-empty-canvas"] button')!.click()
+  expect(app.pages.tabs().some((tab) => tab.id === 'page:templates')).toBe(true)
+  app.pages.close('page:templates')
+  backend.registry.set({ connection: backend.id, schemas: new Map(), diagnostics: [], hash: 'templates-test', resolve: () => undefined })
+  const tab = app.activeTab()!
+  expect((await app.dispatchTo(tab, { command: 'node.add', params: { graphId: tab.store.doc.root, type: 'TestNode', position: { x: 12, y: 34 } } })).ok).toBe(true)
+  await vi.waitFor(() => expect(host.querySelector('[data-testid="template-empty-canvas"]')).toBeNull())
+  expect(tab.store.undo()).toBe(true)
+  await vi.waitFor(() => expect(host.querySelector('[data-testid="template-empty-canvas"]')).not.toBeNull())
   backend.templatesEnabled.set(false)
   await vi.waitFor(expectDisabled)
 })

@@ -1,6 +1,9 @@
 import type { AssetRef } from '@dinkster/core'
 import { uuidv4 } from '@dinkster/client'
 
+/** Import validation and fixed native-failure messages safe to show in the renderer. */
+export class FileImportError extends Error {}
+
 export type DesktopPanelPlacement = 'dock' | 'rail' | 'bottom'
 
 export type DesktopWindowContext =
@@ -179,12 +182,12 @@ export async function importNativeAsset(backendUrl: string, file: File, destinat
     }
   } catch {
     transfer?.signal.throwIfAborted()
-    throw new Error('Could not import the native file. No byte upload was attempted.')
+    throw new FileImportError('Could not import the native file. No byte upload was attempted.')
   } finally {
     active = false
     if (cancel) transfer?.signal.removeEventListener('abort', cancel)
   }
-  throw new Error('Invalid native file import response. No byte upload was attempted.')
+  throw new FileImportError('Invalid native file import response. No byte upload was attempted.')
 }
 
 /** Only an explicit refusal permits the caller to offer byte upload. */
@@ -207,7 +210,7 @@ export async function resolveDroppedAsset(backendUrl: string, file: File, isCurr
     }
   } catch {
     // Native errors may contain private server details; keep the renderer message fixed.
-    throw new Error('Could not resolve the existing file. Nothing was uploaded.')
+    throw new FileImportError('Could not resolve the existing file. Nothing was uploaded.')
   }
-  throw new Error('Invalid native file resolution response. Nothing was uploaded.')
+  throw new FileImportError('Invalid native file resolution response. Nothing was uploaded.')
 }

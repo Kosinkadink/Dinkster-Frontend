@@ -38,6 +38,7 @@ import { ProductButton } from './ProductControls.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { SearchInput } from './SearchSurface.js'
 import { CollectionImage } from './CollectionImage.js'
+import { failureMessage } from './request-failure.js'
 
 const PAGE_SIZE = 24
 const DEBOUNCE_MS = 120
@@ -393,7 +394,7 @@ export function CollectionPanel(props: {
         }
         setCursor(undefined)
         setLoading(false)
-        setError(reason instanceof Error ? reason.message : String(reason))
+        setError(failureMessage(reason, message('collection.state.failed', { source: source()?.label ?? '' })))
       })
   }
 

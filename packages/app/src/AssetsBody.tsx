@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { failureMessage } from './request-failure.js'
 import type { DinksterConnection, MountDescriptor } from '@dinkster/client'
 import type { CollectionPageRequest, CollectionSource, MessageParams } from '@dinkster/core'
 import { ProductErrorBanner, ProductNotice, ProductProgress, ProductTextButton } from '@dinkster/ui'
@@ -67,7 +68,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
         }
       } catch (reason: unknown) {
         if (!active || request !== generation) return
-        setDiscoveryError(reason instanceof Error ? reason.message : String(reason))
+        setDiscoveryError(failureMessage(reason, 'Folders could not be loaded.'))
         setLoading(false)
         if (scanning) timer = setTimeout(() => { void discover() }, 1000)
       }

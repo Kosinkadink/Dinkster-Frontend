@@ -3,7 +3,7 @@
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DinksterConnection } from '@dinkster/client'
+import { DinksterConnection, RequestFailure } from '@dinkster/client'
 import { asConnectionId, setLocale } from '@dinkster/core'
 import { AssetsBody } from '../src/AssetsBody.js'
 import { AssetEntrySelection } from '../src/asset-browser/rail.js'
@@ -254,7 +254,7 @@ describe('Assets dock body', () => {
     const listMounts = vi.fn()
       .mockResolvedValueOnce([{ id: 'input', mode: 'read', state: 'scanning', entryCount: 4,
         scanProgress: { filesDone: 4, filesTotal: 10, bytesDone: 28, bytesTotal: 70, elapsedSeconds: 1 } }])
-      .mockRejectedValueOnce(new Error('temporary mount listing failure'))
+      .mockRejectedValueOnce(new RequestFailure('GET', '/api/mounts', 503, 'temporary mount listing failure'))
       .mockResolvedValue([{ id: 'input', mode: 'read', state: 'ready', entryCount: 10 }])
     const connection = stubConnection({ listMounts, assetUrl: () => '', listMountEntries: async () => ({ entries: [
       { virtualPath: 'mounts/input/indexed.bin', name: 'indexed.bin', size: 7, mediaType: 'application/octet-stream' },
@@ -296,7 +296,7 @@ describe('Assets dock body', () => {
   })
 
   it('reports mount discovery failures and retries without offering local catalog assets', async () => {
-    const listMounts = vi.fn().mockRejectedValueOnce(new Error('mount catalog offline')).mockResolvedValue([{ id: 'input', mode: 'read', state: 'ready' }])
+    const listMounts = vi.fn().mockRejectedValueOnce(new RequestFailure('GET', '/api/mounts', 503, 'mount catalog offline')).mockResolvedValue([{ id: 'input', mode: 'read', state: 'ready' }])
     const connection = stubConnection({ listMounts, listMountEntries: async () => ({ entries: [] }), assetUrl: () => '' })
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
@@ -311,7 +311,7 @@ describe('Assets dock body', () => {
   })
 
   it('reports a mount listing failure rather than displaying an empty collection', async () => {
-    const connection = stubConnection({ listMounts: async () => [{ id: 'broken', mode: 'read', state: 'ready' }], listMountEntries: async () => { throw new Error('index unavailable') }, assetUrl: () => '' })
+    const connection = stubConnection({ listMounts: async () => [{ id: 'broken', mode: 'read', state: 'ready' }], listMountEntries: async () => { throw new RequestFailure('GET', '/api/mounts/broken/entries', 503, 'index unavailable') }, assetUrl: () => '' })
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
     try { await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('index unavailable')) }

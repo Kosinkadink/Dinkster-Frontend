@@ -32,6 +32,8 @@ import {
 } from '@dinkster/core'
 import { defaultTokens, typeColor, type DynamicEditOwner } from '@dinkster/canvas'
 import type { AppState, Tab } from './app-state.js'
+import { RequestFailure } from '@dinkster/client'
+import { failureMessage } from './request-failure.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductNotice } from './ProductForm.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
@@ -345,7 +347,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       if (closeOnAccept) close()
       return true
     } catch (reason) {
-      if (live && ed.tab.store === store) setCommitError(reason instanceof Error ? reason.message : String(reason))
+      if (live && ed.tab.store === store) setCommitError(reason instanceof RequestFailure ? failureMessage(reason) : reason instanceof Error ? reason.message : String(reason))
       return false
     } finally {
       if (live) {

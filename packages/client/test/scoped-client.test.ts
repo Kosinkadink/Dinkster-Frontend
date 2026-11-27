@@ -91,7 +91,7 @@ describe('scoped client', () => {
 
   it('does not cache failures: the next query retries', async () => {
     const { client, calls } = harness({ failFirst: 1 })
-    await expect(client.query('/r', {})).rejects.toThrow('network down')
+    await expect(client.query('/r', {})).rejects.toMatchObject({ cause: new Error('network down') })
     const ok = await client.query('/r', {})
     expect(calls).toHaveLength(2)
     expect((ok as { seq: number }).seq).toBe(2)
@@ -99,8 +99,8 @@ describe('scoped client', () => {
 
   it('rejects non-OK responses without caching them', async () => {
     const { client, calls } = harness({ status: 500 })
-    await expect(client.query('/r', {})).rejects.toThrow('HTTP 500')
-    await expect(client.query('/r', {})).rejects.toThrow('HTTP 500')
+    await expect(client.query('/r', {})).rejects.toMatchObject({ status: 500 })
+    await expect(client.query('/r', {})).rejects.toMatchObject({ status: 500 })
     expect(calls).toHaveLength(2)
   })
 
