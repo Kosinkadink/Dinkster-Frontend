@@ -4106,7 +4106,7 @@ export class CanvasRenderer {
             paintPinLabel(ctx, t, row.output.label, right, rowY + row.height / 2, 'right')
             ctx.globalAlpha = rowAlpha
           }
-        } else {
+        } else if (row.kind === 'widget') {
           this.drawFieldRow(ctx, sceneNode, node, row)
         }
       }

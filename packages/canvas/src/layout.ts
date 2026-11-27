@@ -357,6 +357,14 @@ export type LayoutRow =
       readonly frames: readonly MaterializeFrame[]
     }
   | {
+      /** Host-owned status under a field; its contents are drawn by the host. */
+      readonly kind: 'fieldStatus'
+      readonly y: number
+      readonly height: number
+      readonly inset: number
+      readonly valueKey: string
+    }
+  | {
       /** A note (ElaboratedNote): read-only text, inert to hit-testing. */
       readonly kind: 'note'
       readonly y: number
@@ -1106,6 +1114,8 @@ export interface LayoutOptions {
   readonly pictureHeights?: Readonly<Record<string, number>>
   /** Measured controls height, excluding the shared editor's padding, by value key. */
   readonly editorControls?: Readonly<Record<string, number>>
+  /** Host-owned status height under each field's line, by value key. */
+  readonly fieldStatus?: Readonly<Record<string, number>>
   /**
    * Ports with a link/net attached, keyed by connectedPortKey over ELAB
    * KEYS. A CONNECTED port inside a collapsed section keeps a pin (anchored
@@ -1189,7 +1199,7 @@ export function layoutNode(
   /** A whole member's grip before its place is known. */
   type PendingGrip = Omit<MemberGrip, 'gripX'>
   interface PendingRow {
-    kind: 'ports' | 'widget' | 'section' | 'member' | 'growth' | 'note' | 'button' | 'editorSpace'
+    kind: 'ports' | 'widget' | 'section' | 'member' | 'growth' | 'note' | 'button' | 'editorSpace' | 'fieldStatus'
     /** Keys of the declared boxes around the row, outermost first. */
     boxes: readonly string[]
     input?: PortSlot
@@ -1207,6 +1217,7 @@ export function layoutNode(
     note?: { noteId: string; text: string; unknown?: true; lookup?: NoteLookupLine }
     button?: { buttonId: string; label: string; enabled?: false; icon?: string; tooltip?: string }
     editorSpace?: Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>
+    fieldStatus?: { readonly valueKey: string; readonly height: number }
   }
   /** A `Row` cell's text, which sets its share of the line's width. */
   const cellLabel = (row: PendingRow): string =>
@@ -1766,6 +1777,14 @@ export function layoutNode(
     const line = lines.get(row)!
     if (line.at(-1) !== row) continue
     for (const cell of line) {
+      const key = cell.widget?.valueKey
+      const height = key === undefined ? undefined : options.fieldStatus?.[key]
+      if (key === undefined || height === undefined || !Number.isFinite(height) || height <= 0) continue
+      const status: PendingRow = { kind: 'fieldStatus', boxes: cell.boxes, fieldStatus: { valueKey: key, height } }
+      lines.set(status, [status])
+      withSpaces.push(status)
+    }
+    for (const cell of line) {
       const w = cell.widget
       const editor = w === undefined ? undefined : IN_NODE_EDITORS[w.viewId]
       if (w === undefined || editor === undefined) continue
@@ -1811,6 +1830,8 @@ export function layoutNode(
 
   const rowBaseHeight = (row: PendingRow): number => row.kind === 'ports'
     ? tokens.rowGeometry.portRowHeight
+    : row.fieldStatus !== undefined
+    ? row.fieldStatus.height
     : row.note?.lookup !== undefined
     ? tokens.rowHeight * noteLookupRows(row.note.lookup)
     : row.kind !== 'widget' || row.widget === undefined
@@ -1979,7 +2000,11 @@ export function layoutNode(
       const depth = open.length
       // A field or pin row after a box has its face `boxGap` under the outline.
       if (afterOutline && row.kind !== 'growth' && row.kind !== 'editorSpace') y += box.boxGap - verticalInset
-      if (row.kind === 'editorSpace') {
+      if (row.kind === 'fieldStatus') {
+        const status = row.fieldStatus!
+        push({ kind: 'fieldStatus', y, inset: fieldInset(depth), ...status }, depth)
+        y += status.height
+      } else if (row.kind === 'editorSpace') {
         const editorSpace = row.editorSpace!
         push({ kind: 'editorSpace', y, inset: fieldInset(depth), rowAbove: 0, ...editorSpace }, depth)
         const histogram = spaceHistograms.get(row)
@@ -2170,6 +2195,8 @@ export function layoutNode(
       content = Math.max(measure(row.text, 'label'), line) + row.inset * 2
     } else if (row.kind === 'button') {
       content = measure(row.label, 'label') + canvasPaintTokens.node.growthWidthPadding + extra
+    } else if (row.kind === 'fieldStatus') {
+      continue
     } else if (row.kind === 'editorSpace') {
       // The space is as wide as its row, which a member's grip and cross shorten.
       const editorRow = rows.find((candidate) => candidate.kind === 'widget' && candidate.valueKey === row.valueKey)
@@ -2407,6 +2434,8 @@ export interface BoundarySlotInfo {
   readonly fields?: readonly Omit<Extract<LayoutRow, { kind: 'widget' }>, 'kind' | 'y' | 'height' | 'inset' | 'width'>[]
   /** Inputs panel only: the space of each unfolded editor among the fields, by its row's value key. */
   readonly editorSpaces?: Readonly<Record<string, Omit<Extract<LayoutRow, { kind: 'editorSpace' }>, 'kind' | 'y' | 'inset' | 'width' | 'rowAbove'>>>
+  /** Inputs panel only: host-owned status heights under its fields, by value key. */
+  readonly fieldStatus?: Readonly<Record<string, number>>
   /** Fields drawn without their wire: no pin. */
   readonly pinless?: true
   /** Inputs panel only: the input takes one value or a whole list. */
@@ -2451,12 +2480,18 @@ export function layoutBoundaryNode(
       if (slot.pinless !== true) pins.push({ address: { port: slot.id }, portId: slot.id, label: slot.label, direction, y: y + tokens.rowHeight / 2, type, ...(slot.acceptsList ? { acceptsList: true } : {}) })
       for (const [index, field] of slot.fields.entries()) {
         const height = field.viewId === 'core.text' ? multilineWidgetHeight(field.rows, tokens) : field.rows * tokens.rowHeight
+        const fieldY = y
         rows.push({ ...field, ...(index === 0 ? { label: slot.label } : {}), kind: 'widget', y, height, inset: tokens.rowGeometry.fieldInsetX })
         y += height
+        const statusHeight = slot.fieldStatus?.[field.valueKey]
+        if (statusHeight !== undefined && Number.isFinite(statusHeight) && statusHeight > 0) {
+          rows.push({ kind: 'fieldStatus', valueKey: field.valueKey, y, height: statusHeight, inset: tokens.rowGeometry.fieldInsetX })
+          y += statusHeight
+        }
         // An unfolded editor hangs under its field, and the panel grows downward.
         const space = slot.editorSpaces?.[field.valueKey]
         if (space !== undefined) {
-          rows.push({ ...space, kind: 'editorSpace', y, inset: tokens.rowGeometry.fieldInsetX, rowAbove: height })
+          rows.push({ ...space, kind: 'editorSpace', y, inset: tokens.rowGeometry.fieldInsetX, rowAbove: y - fieldY })
           y += space.height
         }
       }

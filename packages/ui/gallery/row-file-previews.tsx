@@ -79,7 +79,7 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
       body: [{
         kind: 'input', id: 'files', displayName: 'files', type: { kind: 'concrete', name: 'ASSET' }, optional: false,
         widget: { widgetType: 'ASSET', options: { accept: [...example.accept] }, default: null },
-      }, ...(copying ? [{ kind: 'note' as const, id: 'copy', text: '' }] : [])],
+      }],
     }
     const wired = example.mode !== undefined && example.mode !== 'pending'
     const source: NodeSchema = {
@@ -113,14 +113,15 @@ function FilePreviewCard(props: { example: FileExample; theme: 'dark' | 'light';
       return view ? { viewId: view.id, rows: view.measure(spec).rows } : undefined
     }
     const scene = buildScene({ document: loaded.document, graphId: 'gallery', tokens, measure, widgetMeasure,
+      ...(copying ? { fieldStatus: { files: { files: tokens.rowHeight } } } : {}),
       resolve: (type) => type === schema.type ? schema : source })
     const node = scene.nodes.find((item) => item.id === 'files')!
-    const note = node.layout.rows.find((row) => row.kind === 'note' && row.noteId === 'copy')
+    const status = node.layout.rows.find((row) => row.kind === 'fieldStatus' && row.valueKey === 'files')
     const pad = canvasPaintTokens.node.editorSpace.pad
-    setCopyRow(note?.kind === 'note' ? {
-      x: node.x + note.inset - pad,
-      y: node.y + note.y - pad,
-      width: width - note.inset * 2 + pad * 2,
+    setCopyRow(status?.kind === 'fieldStatus' ? {
+      x: node.x + status.inset - pad,
+      y: node.y + status.y - pad,
+      width: width - status.inset * 2 + pad * 2,
     } : undefined)
     canvas.style.width = `${width + 32}px`
     canvas.style.height = `${node.layout.height + 32}px`
