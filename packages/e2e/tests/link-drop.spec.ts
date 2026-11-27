@@ -241,6 +241,87 @@ test('output noodle dropped on empty opens input-compatible search; Escape cance
   expect(Object.keys(doc.graphs['g0']!.links)).toHaveLength(1)
 })
 
+nativeTest('untyped wire drops search by pin side and connect the chosen node without an incidental edit', {
+  tag: '@native-catalog',
+}, async ({ page }, testInfo) => {
+  for (const [type, direction, port, picked, pickedPort] of [
+    ['dinkster.utilities.create_list', 'in', 'inputs.input0', 'dinkster.utilities.primitive_int', 'INT'],
+    ['dinkster.utilities.create_list', 'out', 'list', 'dinkster.utilities.preview_any', 'source'],
+    ['dinkster.utilities.preview_any', 'in', 'source', 'dinkster.utilities.primitive_string', 'STRING'],
+  ] as const) {
+    expect(await page.evaluate(async (type) => window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: `drop-${type}`, root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: { n0: { id: 'n0', type, values: {} } },
+        links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { n0: { position: { x: 150, y: 180 } } } } } },
+    }, 'Untyped wire drop'), type)).toEqual([])
+    await identityViewport(page)
+    const from = await pinPoint(page, 'n0', direction, port)
+    await drag(page, from, EMPTY)
+    const palette = page.getByTestId('node-palette')
+    await expect(palette).toHaveAttribute('data-link-drop', direction === 'in' ? 'out' : 'in')
+    expect(Object.keys((await activeDoc(page)).graphs.g0!.nodes)).toEqual(['n0'])
+    await page.screenshot({ path: testInfo.outputPath(`untyped-${direction}-${type.split('.').at(-1)}.png`) })
+    await page.getByTestId('palette-search').press('Escape')
+    await expect(palette).not.toBeVisible()
+    expect(Object.values((await activeDoc(page)).graphs.g0!.links)).toEqual([])
+    expect(await page.evaluate(() => window.__dinksterTest!.renderer!.getOverlay().ghostLink)).toBeUndefined()
+    await drag(page, from, EMPTY)
+    await page.getByTestId('palette-search').fill(picked === 'dinkster.utilities.preview_any' ? 'Preview as Text' : picked.endsWith('_int') ? 'Int' : 'Text')
+    await page.locator(`[data-key="entry:${picked}"]`).click()
+    const doc = await activeDoc(page)
+    const node = await singleAddedNode(page, ['n0'])
+    expect(node.type).toBe(picked)
+    const newEnd = { node: node.id, port: pickedPort }
+    const fixedEnd = { node: 'n0', port }
+    expect(Object.values(doc.graphs.g0!.links)).toEqual([expect.objectContaining({
+      from: direction === 'in' ? newEnd : fixedEnd,
+      to: direction === 'in' ? fixedEnd : newEnd,
+    })])
+    const canvas = await page.getByTestId('graph-canvas').boundingBox()
+    expect(doc.view!.graphs.g0!.nodes[node.id]!.position).toEqual({ x: Math.round(EMPTY.x - canvas!.x), y: Math.round(EMPTY.y - canvas!.y) })
+    await page.screenshot({ path: testInfo.outputPath(`wired-${direction}-${type.split('.').at(-1)}.png`) })
+  }
+  for (const [type, port, value, suggested] of [
+    ['dinkster.sampling.k_sampler', 'seed', 123, 'dinkster.utilities.primitive_int'],
+    ['dinkster.sampling.k_sampler', 'cfg', 3.75, 'dinkster.utilities.primitive_float'],
+    ['dinkster.utilities.primitive_string', 'value', 'wire search text', 'dinkster.utilities.primitive_string'],
+    ['dinkster.sampling.k_sampler', 'sampler_name', 'heun', 'dinkster.utilities.primitive_choice'],
+    ['dinkster.utilities.primitive_boolean', 'value', true, 'dinkster.utilities.primitive_boolean'],
+  ] as const) {
+    expect(await page.evaluate(async ({ type, port, value }) => window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: `field-${type}-${port}`, root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nodes: { n0: { id: 'n0', type, values: { [port]: value } } },
+        links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } },
+      view: { graphs: { g0: { nodes: { n0: { position: { x: 150, y: 180 } } } } } },
+    }, 'Field wire search'), { type, port, value })).toEqual([])
+    await identityViewport(page)
+    const from = await pinPoint(page, 'n0', 'in', port)
+    await drag(page, from, EMPTY)
+    const palette = page.getByTestId('node-palette')
+    await expect(palette).toBeVisible()
+    const first = palette.getByRole('option').first()
+    await expect(first).toHaveAttribute('data-key', `entry:${suggested}`)
+    await expect(first).toHaveAttribute('aria-selected', 'true')
+    expect(Object.keys((await activeDoc(page)).graphs.g0!.nodes)).toEqual(['n0'])
+    await page.screenshot({ path: testInfo.outputPath(`field-${port}.png`) })
+    await page.getByTestId('palette-search').press('Escape')
+    expect(Object.values((await activeDoc(page)).graphs.g0!.links)).toEqual([])
+    await drag(page, from, EMPTY)
+    await page.getByTestId('palette-search').press('Enter')
+    const doc = await activeDoc(page)
+    const added = await singleAddedNode(page, ['n0'])
+    expect(added.type).toBe(suggested)
+    expect(doc.graphs.g0!.nodes[added.id]!.values.value).toBe(value)
+    expect(Object.values(doc.graphs.g0!.links)).toEqual([expect.objectContaining({
+      from: expect.objectContaining({ node: added.id }), to: { node: 'n0', port },
+    })])
+    await page.keyboard.press('Control+z')
+    expect(Object.keys((await activeDoc(page)).graphs.g0!.nodes)).toEqual(['n0'])
+    expect(Object.values((await activeDoc(page)).graphs.g0!.links)).toEqual([])
+  }
+})
+
 nativeTest('native typed Autogrow families filter in both directions and generic targets remain available', {
   tag: '@native-catalog',
 }, async ({ page }) => {

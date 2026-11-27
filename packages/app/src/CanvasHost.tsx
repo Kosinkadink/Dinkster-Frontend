@@ -78,6 +78,7 @@ import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type C
 import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart } from '@dinkster/ui'
 import {
   defaultValuesOf,
+  hasKnownLinkDropAnchorType,
   initialGroupMembership,
   buildRerouteIndex,
   portRefKey,
@@ -522,6 +523,7 @@ export function linkSpliceInvocations(
   schema: NodeSchema,
   splice: LinkDoubleClickContext,
 ): CommandInvocation[] {
+  if (!hasKnownLinkDropAnchorType(splice.fromType) || !hasKnownLinkDropAnchorType(splice.toType)) return []
   const input = autoConnectTarget(schema, splice.fromType, 'in')
   const output = autoConnectTarget(schema, splice.toType, 'out')
   if (!input || !output) return []

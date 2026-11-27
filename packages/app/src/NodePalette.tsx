@@ -5,7 +5,7 @@ import {
   type LinkDropContext, type LinkDoubleClickContext,
 } from '@dinkster/canvas'
 import {
-  autoConnectTarget, cardinalityOf, hintsMatchLinkDrop,
+  autoConnectTarget, cardinalityOf, hasKnownLinkDropAnchorType, hintsMatchLinkDrop,
   hintsMatchPortFilters, isDeprecated, parseSearchFilters,
   rankSearch, schemaInputTypes, schemaMatchesLinkDrop,
   schemaMatchesPortFilters, schemaOutputTypes, semanticDesignTokens, typeExprFromTypeId,
@@ -165,7 +165,8 @@ export function NodePalette(props: {
       const drop = props.anchor.linkDrop
       if (drop !== undefined && !paletteEntryMatchesLinkDrop(entry, drop)) return false
       const splice = props.anchor.splice
-      if (splice !== undefined && (entry.install !== undefined || (entry.kind !== 'utility' &&
+      if (splice !== undefined && (!hasKnownLinkDropAnchorType(splice.fromType) || !hasKnownLinkDropAnchorType(splice.toType) ||
+        entry.install !== undefined || (entry.kind !== 'utility' &&
         (entry.schema === undefined || autoConnectTarget(entry.schema, splice.fromType, 'in') === undefined ||
           autoConnectTarget(entry.schema, splice.toType, 'out') === undefined)))) return false
       if (kind() !== 'all' && entry.kind !== kind()) return false
