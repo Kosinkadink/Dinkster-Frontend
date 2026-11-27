@@ -4420,13 +4420,16 @@ describe('Inputs panel fields', () => {
     const store = new DocumentStore(document, coreCommandRegistry())
     const resolve = documentResolver(store.doc, (type) => type === sample.type ? sample : undefined)
     const path = [asNodeId('first'), ...(depth === 2 ? [asNodeId('detail')] : [])]
-    const scene = buildScene({ document: store.doc, graphId: 'detail', resolve, tokens: defaultTokens,
-      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
-      occurrence: { owner: { instancePath: path.slice(0, -1), node: path.at(-1)! }, plannerAvailable: true },
-      occurrenceView: occurrenceDynamicView(store.doc, resolve, path),
-    })
-    const panel = scene.boundaryNodes[0]!
+    const expected: Record<string, number> = {
+      'group.layer0.first': 0.1, 'group.layer0.second': 0.2, 'group.layer0.third': 0.3, 'group.layer0.fourth': 0.4,
+    }
     for (const [index, id] of fields.entries()) {
+      const scene = buildScene({ document: store.doc, graphId: 'detail', resolve, tokens: defaultTokens,
+        measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }),
+        occurrence: { owner: { instancePath: path.slice(0, -1), node: path.at(-1)! }, plannerAvailable: true },
+        occurrenceView: occurrenceDynamicView(store.doc, resolve, path),
+      })
+      const panel = scene.boundaryNodes[0]!
       const row = panel.layout.rows.find((row) => row.kind === 'widget' && row.valueKey === `group.layer0.${id}`)
       if (row?.kind !== 'widget') throw new Error(`missing ${id}`)
       expect(row.familyOwner).toMatchObject({ graphId: 'root', nodeId: 'first', valueKey: `group.layer0.${id}` })
@@ -4438,7 +4441,9 @@ describe('Inputs panel fields', () => {
       clicking.fire('pointerup', x, y)
       expect(clicking.dispatched).toHaveLength(1)
       expect(store.dispatch(clicking.dispatched[0] as CommandInvocation).ok).toBe(true)
-      expect(store.doc.graphs.root!.nodes.first!.values[`group.layer0.${id}`]).toBeCloseTo((index + 2) / 10)
+      expected[`group.layer0.${id}`] = (index + 2) / 10
+      expect(store.doc.graphs.root!.nodes.first!.values)
+        .toEqual(Object.fromEntries(Object.entries(expected).map(([key, value]) => [key, expect.closeTo(value)])))
       expect(store.doc.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
       expect(store.doc.graphs.detail).toEqual(document.graphs.detail)
       expect(store.doc.graphs.portrait).toEqual(document.graphs.portrait)
@@ -4448,7 +4453,10 @@ describe('Inputs panel fields', () => {
     expect(store.doc).toEqual(document)
     for (const _field of fields) expect(store.redo()).toBe(true)
     expect(store.doc).toEqual(edited)
-    expect(loadDocument(JSON.parse(JSON.stringify(edited))).document).toEqual(edited)
+    const reopened = loadDocument(JSON.parse(JSON.stringify(edited))).document!
+    expect(reopened).toEqual(edited)
+    for (const current of [store.doc, reopened]) expect(current.graphs.root!.nodes.first!.values)
+      .toEqual(Object.fromEntries(Object.entries(expected).map(([key, value]) => [key, expect.closeTo(value)])))
   })
 
   it('edits whole-construct fields at the entered owner and folds their panel independently at both depths', () => {

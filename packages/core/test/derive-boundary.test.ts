@@ -1894,6 +1894,7 @@ describe('Boundary sample acceptance compilation', () => {
         if (feature === 'shared-lines') {
           edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: { radius: 0.17, feather: 0.37, balance: 0.57 } })
           edit(store, 'node.setValues', { graphId: 'root', nodeId: 'second', values: { radius: 0.81, feather: 0.61, balance: 0.41 } })
+          edit(store, 'link.connect', { graphId: 'root', from: { node: 'first', port: 'output91' }, to: { node: 'sink', port: 'number' } })
         }
         const before = prompt(store.doc)
         const original = store.doc
@@ -1915,6 +1916,7 @@ describe('Boundary sample acceptance compilation', () => {
           expect(fields.map((id) => inputsOf(joinedSchema).find((field) => field.id === id)))
             .toEqual(fields.map((id) => inputsOf(originalSchema).find((field) => field.id === id)))
           expect(outputsOf(joinedSchema)).toEqual(outputsOf(originalSchema))
+          expect(before.sink!.inputs.number).toEqual([path, 6])
           expect(fields.map((id) => before[path]!.inputs[id])).toEqual([0.2, 0.17, 0.37, 0.57])
           const sibling = level === 1 ? 'second.sample' : 'second.detail.sample'
           expect(fields.map((id) => before[sibling]!.inputs[id])).toEqual([0.8, 0.81, 0.61, 0.41])
@@ -1940,6 +1942,7 @@ describe('Boundary sample acceptance compilation', () => {
           const reloaded = loadDocument(JSON.parse(JSON.stringify(changed))).document!
           expect(prompt(reloaded)[path]!.inputs).toEqual({ ...before[path]!.inputs, feather: 0.93 })
           expect(prompt(reloaded)[sibling]).toEqual(before[sibling])
+          expect(prompt(reloaded).sink!.inputs.number).toEqual([path, 6])
           expect(reloaded.graphs.detail!.nodes).toEqual(original.graphs.detail!.nodes)
           if (level === 2) expect(reloaded.graphs.portrait!.nodes).toEqual(original.graphs.portrait!.nodes)
           expect(store.undo()).toBe(true)
