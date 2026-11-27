@@ -8,7 +8,7 @@ import {
   onMount,
   type JSX,
 } from 'solid-js'
-import { Check, ChevronDown, ChevronRight } from 'lucide-solid'
+import { Check, ChevronDown, ChevronRight, Folder } from 'lucide-solid'
 import { ProductFacts } from './account.js'
 import {
   ProductButton,
@@ -18,6 +18,7 @@ import {
   ProductTextButton,
 } from './controls.js'
 import { ProductProgress } from './messages.js'
+import { ProductMenu } from './menu.js'
 
 interface RowAction {
   readonly label: string
@@ -29,6 +30,7 @@ export type ProductModelDownloadRow = {
   readonly id: string
   readonly name: string
   readonly metadata: string
+  readonly folder?: string
 } & (
   | {
       readonly state: 'available'
@@ -36,6 +38,7 @@ export type ProductModelDownloadRow = {
       readonly onSelect: (selected: boolean) => void
       readonly detailsLabel: string
       readonly facts: readonly { label: string; value: JSX.Element }[]
+      readonly factsAction?: RowAction
       readonly initiallyExpanded?: boolean
     }
   | {
@@ -144,6 +147,9 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
             {props.row.metadata}
           </span>
         </div>
+        <Show when={props.row.folder}>
+          {(folder) => <span class="dinkster-model-download-folder"><ProductIcon icon={Folder} />{folder()}</span>}
+        </Show>
         <Show when={available()}>
           {(entry) => (
             <ProductIconButton
@@ -181,7 +187,11 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
       </div>
       <Show when={expanded() && available()}>
         {(entry) => (
-          <ProductFacts label={props.row.name} items={entry().facts} />
+          <div class="dinkster-model-download-facts">
+            <ProductFacts label={props.row.name} items={entry().facts} />
+            <Show when={entry().factsAction}>{(action) => <ProductTextButton label={action().label}
+              disabled={action().disabled === true} onClick={action().onClick} />}</Show>
+          </div>
         )}
       </Show>
       <Show when={needs()}>{(entry) => entry().details}</Show>
@@ -237,6 +247,15 @@ export function ProductModelDownloads(props: {
   readonly primary?: RowAction
   readonly selection?: RowAction
   readonly focusedRow?: string
+  readonly notice?: JSX.Element
+  readonly destination?: {
+    readonly label: string
+    readonly selectedId: string
+    readonly emptyLabel: string
+    readonly freeSpace: string
+    readonly locations: readonly { readonly id: string; readonly name: string; readonly path: string }[]
+    readonly onSelect: (id: string) => void
+  }
 }) {
   let list!: HTMLUListElement
   createEffect(() => {
@@ -251,6 +270,22 @@ export function ProductModelDownloads(props: {
   })
   return (
     <section class="dinkster-model-downloads" data-testid="model-downloads">
+      <header class="dinkster-model-download-header">
+      <Show when={props.destination}>{(destination) => {
+        const selected = () => destination().locations.find((location) => location.id === destination().selectedId)
+        return <div class="dinkster-model-download-destination">
+          <ProductMenu label={destination().label} triggerName={destination().label} fill="quiet"
+            labelContent={<span class="dinkster-model-download-destination-label">
+              <span>{destination().label}</span><ProductIcon icon={Folder} />
+              <strong>{selected()?.name ?? destination().emptyLabel}</strong>
+              <span class="dinkster-model-download-destination-path">{selected()?.path}</span>
+              <span class="dinkster-model-download-space">{destination().freeSpace}</span>
+            </span>}
+            items={destination().locations.map((location) => ({ label: location.name, description: location.path,
+              checked: location.id === destination().selectedId, onSelect: () => destination().onSelect(location.id) }))} />
+        </div>
+      }}</Show>
+      {props.notice}
       <div class="dinkster-model-download-summary">
         <p class="dinkster-description">{props.summary}</p>
         <Show when={props.selection}>
@@ -262,6 +297,7 @@ export function ProductModelDownloads(props: {
           )}
         </Show>
       </div>
+      </header>
       <ul
         ref={list}
         class="dinkster-model-download-list"

@@ -13,6 +13,7 @@ beforeEach(() => {
 })
 
 it('renders plan answers, selected filesystem capacity, and independent downloads through the public client', async () => {
+  const clipboard = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
   const slot = createSignal<AssetConsentRequest | undefined>(undefined)
   const answers = [
     { status: 'local' }, { status: 'consent-required' }, { status: 'consent-required' },
@@ -85,8 +86,14 @@ it('renders plan answers, selected filesystem capacity, and independent download
     await vi.waitFor(() => expect(button('Download 2 models')).toBeDefined())
     expect(rows().map((row) => row.dataset['state'])).toEqual(['ready', 'available', 'available', ...Array(9).fill('needs')])
     expect(root.textContent).toContain('needs 11 models that are not ready on this computer.')
-    expect(rows()[0]!.textContent).toContain('VAEs - 2 KiB')
+    expect(rows()[0]!.textContent).toContain('2 KiB - Hugging Face')
     expect(rows()[0]!.textContent).toContain('an identical file was already here')
+    rows()[1]!.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click()
+    expect(rows()[1]!.textContent).toContain('/models/root-1/model-1.safetensors')
+    expect(rows()[1]!.textContent).not.toContain('a'.repeat(40))
+    expect(rows()[1]!.textContent).not.toContain('b'.repeat(64))
+    button('Copy revision and checksum').click()
+    await vi.waitFor(() => expect(clipboard).toHaveBeenCalledWith(`Revision: ${'a'.repeat(40)}\nSHA-256: ${'b'.repeat(64)}`))
     for (const reason of ['No known source', 'More than one source', 'No folder to save it in', 'Two files have this name',
       'Hidden on this computer', 'Not signed in to Hugging Face', 'No access to this file on Hugging Face', 'No access to this file on Civitai'])
       expect(root.textContent).toContain(reason)
@@ -103,7 +110,7 @@ it('renders plan answers, selected filesystem capacity, and independent download
     expect(button('Download 1 model').disabled).toBe(false)
     expect(root.textContent).not.toContain('Untick some models or free up space.')
     expect(button('Select all')).toBeDefined()
-    expect(root.querySelector('.dinkster-model-download-footer [role="status"]')?.textContent).toBe('600 B to download - 1000 B free')
+    expect(root.querySelector('.dinkster-model-download-footer [role="status"]')?.textContent).toBe('600 B to download')
     second.click()
     space = { status: 'unavailable' }
     await slot.get()!.reviewModel!(1)
