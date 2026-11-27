@@ -69,6 +69,9 @@ export function SecretsGallery() {
   const [open, setOpen] = createSignal(false)
   const [admin, setAdmin] = createSignal(false)
   const [reject, setReject] = createSignal(false)
+  const [personal, setPersonal] = createSignal(false)
+  const [fallback, setFallback] = createSignal(false)
+  const [rejectRemoval, setRejectRemoval] = createSignal(false)
   const [notification, setNotification] = createSignal<{ message: string }>()
   return (<>
     <SecretRows />
@@ -76,9 +79,20 @@ export function SecretsGallery() {
       <p class="dinkster-description">The host form never reads an existing credential. This gallery uses a simulated save and stores no value.</p>
       <ProductCheckbox label="Administrator" checked={admin()} onChange={(event) => setAdmin(event.currentTarget.checked)} />
       <ProductCheckbox label="Reject the next secret save" checked={reject()} onChange={(event) => setReject(event.currentTarget.checked)} />
+      <ProductCheckbox label="Personal value set" checked={personal()} onChange={(event) => setPersonal(event.currentTarget.checked)} />
+      <ProductCheckbox label="Deployment fallback available" checked={fallback()} onChange={(event) => setFallback(event.currentTarget.checked)} />
+      <ProductCheckbox label="Reject the next removal" checked={rejectRemoval()} onChange={(event) => setRejectRemoval(event.currentTarget.checked)} />
       <ProductButton onClick={() => setOpen(true)}>Set caption-service</ProductButton>
       <Show when={open()}>
         <ProductSecretDialog name="caption-service" contextKey="gallery-account-on-this-host" canManageDeployment={admin()}
+          removalFallback={fallback()} {...(personal() ? { onRemove: async () => {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 600))
+            if (rejectRemoval()) {
+              setRejectRemoval(false)
+              throw new Error('Synthetic private refusal')
+            }
+            setPersonal(false)
+          } } : {})}
           onSave={async () => {
             await new Promise<void>((resolve) => window.setTimeout(resolve, 600))
             if (reject()) {
