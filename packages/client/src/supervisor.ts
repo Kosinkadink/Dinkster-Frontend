@@ -19,6 +19,7 @@
  * grows additively, so unknown fields pass through unread.
  */
 import type { FetchLike } from './connection-contract.js'
+import { requestFetch, requestFailure, requestFailureReason } from './request-failure.js'
 
 export type SupervisorState = 'starting' | 'ready' | 'failed' | 'stopped'
 
@@ -131,9 +132,9 @@ export async function probeSupervisorStatus(
 ): Promise<SupervisorProbe> {
   let res: Response
   try {
-    res = await fetchFn(`${baseUrl}/supervisor/status`)
+    res = await requestFetch(fetchFn)(`${baseUrl}/supervisor/status`)
   } catch (e) {
-    return { kind: 'unreachable', error: e instanceof Error ? e.message : String(e) }
+    return { kind: 'unreachable', error: requestFailureReason(e) ?? 'The engine status could not be loaded.' }
   }
   // Only a conclusive miss reads as "no supervisor": 404/410 (standalone
   // dinkster-serve). A 5xx/auth failure is a supervisor that could not answer -
@@ -141,7 +142,7 @@ export async function probeSupervisorStatus(
   // hiccup and never fire onReady (the CL1 transient-vs-absent rule).
   if (res.status === 404 || res.status === 410) return { kind: 'absent' }
   if (!res.ok) {
-    return { kind: 'unreachable', error: `GET /supervisor/status failed: ${res.status}` }
+    return { kind: 'unreachable', error: requestFailureReason(await requestFailure(res)) ?? 'The engine status could not be loaded.' }
   }
   try {
     const status = parseSupervisorStatus(await res.json())
@@ -162,9 +163,9 @@ export async function restartSupervisorEngine(
   fetchFn: FetchLike = (url, init) => fetch(url, init),
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const res = await fetchFn(`${baseUrl}/supervisor/engine/restart`, { method: 'POST' })
+    const res = await requestFetch(fetchFn)(`${baseUrl}/supervisor/engine/restart`, { method: 'POST' })
     if (res.ok) return { ok: true }
-    let error = `restart failed: ${res.status}`
+    let error = requestFailureReason(await requestFailure(res.clone())) ?? 'The engine could not be restarted.'
     try {
       const body = (await res.json()) as { error?: unknown; detail?: unknown; message?: unknown }
       if (typeof body.error === 'string') error = body.error
@@ -172,11 +173,11 @@ export async function restartSupervisorEngine(
       // The always-on process explains a refusal for people; show that alone.
       if (typeof body.message === 'string') error = body.message
     } catch {
-      /* non-JSON body: keep the status-code message */
+      /* A non-JSON body has no human-readable message. */
     }
     return { ok: false, error }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    return { ok: false, error: requestFailureReason(e) ?? 'The engine could not be restarted.' }
   }
 }
 
@@ -189,8 +190,8 @@ export async function fetchSupervisorEngineLog(
   | { readonly ok: false; readonly error: string }
 > {
   try {
-    const response = await fetchFn(`${baseUrl}/supervisor/engine/log`)
-    if (!response.ok) return { ok: false, error: `GET /supervisor/engine/log failed: ${response.status}` }
+    const response = await requestFetch(fetchFn)(`${baseUrl}/supervisor/engine/log`)
+    if (!response.ok) return { ok: false, error: requestFailureReason(await requestFailure(response, false)) ?? 'The engine log could not be loaded.' }
     const body: unknown = await response.json()
     if (typeof body !== 'object' || body === null) return { ok: false, error: 'Invalid engine log response' }
     const log = body as { available?: unknown; text?: unknown; truncated?: unknown }
@@ -199,7 +200,7 @@ export async function fetchSupervisorEngineLog(
     }
     return { ok: true, available: log.available, text: log.text, truncated: log.truncated }
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    return { ok: false, error: requestFailureReason(error) ?? 'The engine log could not be loaded.' }
   }
 }
 

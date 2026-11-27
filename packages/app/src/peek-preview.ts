@@ -296,7 +296,7 @@ export async function fetchPeekRendition(
       options?.signal?.throwIfAborted()
       if (!rendition.available) {
         if (!definitiveStatus(rendition.status)) negativeCache = false
-        notice = `${kind}: ${rendition.error} (${rendition.status}, ${rendition.reason})`
+        notice = `${kind} unavailable. ${rendition.error}`
         if (video) videoNotice = notice
         continue
       }

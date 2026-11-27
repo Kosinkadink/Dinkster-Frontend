@@ -28,6 +28,7 @@ import {
 } from '@dinkster/core'
 import { buildDinksterRegistry, DinksterConnection, ExecutionStore, IMAGE_DOCUMENT_MEDIA_TYPE, hydrateDinksterCompletedExecution, PackInstallError, promptToDinksterGraph, reconcileDinksterExecutions, targetsForArtifact, type FetchLike, type WebSocketLike } from '../src/index.js'
 import { uuidv4 } from '../src/dinkster-connection.js'
+import { requestFailureReason, subscribeRequestFailures } from '../src/request-failure.js'
 
 const coreRoot = join(dirname(fileURLToPath(import.meta.url)), '../../core')
 const readJson = (rel: string): unknown => JSON.parse(readFileSync(join(coreRoot, rel), 'utf8'))
@@ -411,7 +412,8 @@ describe('model provider credentials', () => {
     await connection.cancelModelProviderSignIn('owned / flow')
     expect(calls.at(-1)?.method).toBe('DELETE')
     status = 409; payload = { error: 'private-canary' }
-    await expect(connection.saveModelProviderToken('private-canary')).rejects.toThrow('Hugging Face request failed: 409')
+    await expect(connection.saveModelProviderToken('private-canary')).rejects.toMatchObject({ status: 409, serverMessage: undefined })
+    await expect(connection.saveModelProviderToken('private-canary')).rejects.not.toThrow('private-canary')
     status = 200; payload = { method: 'pkce', flowId: 'bad', authorizationUrl: 'https://example.com/oauth/authorize' }
     await expect(connection.startModelProviderSignIn('pkce')).rejects.toThrow('Invalid provider URL')
   })
@@ -432,7 +434,7 @@ describe('model provider credentials', () => {
     provider = 'untrusted-host'
     await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Malformed model download provider')
     error = 'unrecognized-private-message'
-    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toThrow('Model download POST failed: 409')
+    await expect(connection.planModelDownload({ name: 'gated.safetensors', kind: 'model/checkpoint' })).rejects.toMatchObject({ status: 409, serverMessage: undefined })
   })
 })
 
@@ -717,27 +719,30 @@ describe('mount listing decode', () => {
     await expect(connection.fetchMountSettings()).rejects.toThrow('GET /api/mounts failed: 503')
     finish(jsonResponse(200, { mounts: [], outputMount: 'removed' }))
     await expect(older).rejects.toThrow('GET /api/mounts failed: 503')
-    expect(connection.mountError.get()).toBe('GET /api/mounts failed: 503')
+    expect(connection.mountError.get()).toBe('The engine reported an error.')
   })
 
   it('times out a stalled mount read, ignores its late completion, and clears health on retry', async () => {
     vi.useFakeTimers()
+    const details: string[] = []
+    const unsubscribe = subscribeRequestFailures((failure) => details.push(failure.message))
     try {
       let finish!: (response: Response) => void
       const fetchFn = vi.fn<FetchLike>()
         .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
         .mockResolvedValue(jsonResponse(200, { mounts: [], outputMount: 'renders' }))
       const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn })
-      const first = expect(connection.fetchMountSettings()).rejects.toThrow('timed out after 30 seconds')
+      const first = connection.fetchMountSettings().catch((error: unknown) => error)
       await vi.advanceTimersByTimeAsync(30_000)
-      await first
-      expect(connection.mountError.get()).toContain('timed out')
+      expect(requestFailureReason(await first)).toBe('The engine did not answer.')
+      expect(details).toEqual(['GET /api/mounts failed: no answer'])
+      expect(connection.mountError.get()).toBe('The engine did not answer.')
       finish(jsonResponse(200, { mounts: [], outputMount: 'stale' }))
       await Promise.resolve()
-      expect(connection.mountError.get()).toContain('timed out')
+      expect(connection.mountError.get()).toBe('The engine did not answer.')
       await expect(connection.fetchMountSettings()).resolves.toMatchObject({ outputMount: 'renders' })
       expect(connection.mountError.get()).toBeUndefined()
-    } finally { vi.useRealTimers() }
+    } finally { unsubscribe(); vi.useRealTimers() }
   })
 
   it('does not commit a schema catalog that arrives after its deadline', async () => {
@@ -970,8 +975,8 @@ describe('pack settings transport', () => {
   it('surfaces read status and backend mutation errors', async () => {
     const replies = [jsonResponse(503, {}), jsonResponse(400, { error: 'quality must be at most 5' })]
     const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => replies.shift()! })
-    await expect(connection.fetchPackSettings('pack')).rejects.toThrow('pack settings request failed: 503')
-    await expect(connection.updatePackSettings('pack', { enabled: true, quality: 9 })).rejects.toThrow('quality must be at most 5')
+    await expect(connection.fetchPackSettings('pack')).rejects.toMatchObject({ status: 503 })
+    expect(await connection.updatePackSettings('pack', { enabled: true, quality: 9 }).catch(requestFailureReason)).toBe('quality must be at most 5')
   })
 })
 
@@ -3577,7 +3582,7 @@ describe('workflow library wire', () => {
     expect(JSON.parse(requests[2]?.init?.body as string)).toEqual({ revision: 8, accountProject: null })
     for (const [status, error] of [[409, 'project-changed'], [403, 'operator-required'], [503, 'account-projects-unavailable']] as const) {
       const { conn: refused, requests: attempts } = submitHarness(() => jsonResponse(status, { error }))
-      await expect(refused.setProjectAccountLink('p-film', accountId, 7)).rejects.toThrow(error)
+      await expect(refused.setProjectAccountLink('p-film', accountId, 7)).rejects.toMatchObject({ status })
       expect(attempts).toHaveLength(1)
     }
     const { conn: wrongProject } = submitHarness(() => jsonResponse(200, { project: { ...project, id: 'other', accountProject: null } }))
@@ -3736,6 +3741,38 @@ describe('workflow library wire', () => {
   it('CL1 fetchTemplateBody treats a 200 body that fails to load as a protocol error, not absence', async () => {
     const { conn } = submitHarness(() => jsonResponse(200, {}))
     await expect(conn.fetchTemplateBody('p', 't')).rejects.toThrow('malformed response')
+  })
+
+  it('keeps request details in the Log while presenting a plain reason', async () => {
+    const details: string[] = []
+    const unsubscribe = subscribeRequestFailures((failure) => details.push(failure.message))
+    try {
+      for (const [status, body, expected] of [
+        [503, {}, 'The engine reported an error.'],
+        [500, { message: 'The library is being repaired.' }, 'The library is being repaired.'],
+        [401, {}, 'You do not have access.'],
+        [403, {}, 'You do not have access.'],
+        [404, {}, undefined],
+        [499, {}, undefined],
+        [599, {}, 'The engine reported an error.'],
+      ] as const) {
+        const { conn } = submitHarness(() => jsonResponse(status, body))
+        for (const read of [() => conn.listTemplates({}), () => conn.listDocs({}), () => conn.listHistory({ scope: 'local' })]) {
+          const error = await read().catch((failure: unknown) => failure)
+          expect(requestFailureReason(error)).toBe(expected)
+        }
+      }
+      for (const cause of [new TypeError('Failed to fetch'), new DOMException('Timed out', 'TimeoutError')]) {
+        const { conn } = submitHarness(() => { throw cause })
+        const error = await conn.listDocs({}).catch((failure: unknown) => failure)
+        expect(requestFailureReason(error)).toBe('The engine did not answer.')
+      }
+      expect(details).toContain('GET /api/templates failed: 503')
+      expect(details).toContain('GET /api/docs failed: 503')
+      expect(details).toContain('GET /api/history failed: 503')
+      expect(details).toContain('GET /api/docs failed: no answer')
+      expect(requestFailureReason(new Error('GET /private failed: 503'))).toBeUndefined()
+    } finally { unsubscribe() }
   })
 
   it('listDocs decodes the frozen grouped-locale fixture and sends every paging filter', async () => {

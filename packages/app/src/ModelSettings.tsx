@@ -6,6 +6,7 @@ import { ProductSelect } from './ProductSelect.js'
 import { useAppMessage } from './locale.js'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { ModelProvider, type ModelProviderConnection } from './ModelProvider.js'
+import { failureMessage } from './request-failure.js'
 
 export function ModelSettings(props: {
   readonly connection: Pick<DinksterConnection, 'fetchModelSettings' | 'updateModelSettings' | 'setModelLocationEnabled' | 'onMountsChanged'>
@@ -54,7 +55,7 @@ export function ModelSettings(props: {
       setState(next)
       setError('')
     } catch (cause) {
-      if (owner === generation && request === read) setError(cause instanceof Error ? cause.message : String(cause))
+      if (owner === generation && request === read) setError(failureMessage(cause))
     }
   }
   createEffect(() => {
@@ -93,7 +94,7 @@ export function ModelSettings(props: {
       props.onChanged?.()
       return true
     } catch (cause) {
-      if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause))
+      if (owner === generation) setError(failureMessage(cause))
       return false
     } finally { if (owner === generation) setBusy(false) }
   }
@@ -140,7 +141,7 @@ export function ModelSettings(props: {
       const selected = await desktopFileBridge()!.chooseDirectory(new URL(props.backendUrl || '/', window.location.href).href)
       if (owner === generation && selected) setPath(selected)
     } catch (cause) {
-      if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause))
+      if (owner === generation) setError(failureMessage(cause))
     } finally { if (owner === generation) setBusy(false) }
   }
   const reveal = async (location: string) => {
@@ -150,13 +151,13 @@ export function ModelSettings(props: {
     setBusy(true)
     setError('')
     try { await bridge.revealModelLocation(new URL(props.backendUrl || '/', window.location.href).href, location) }
-    catch (cause) { if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause)) }
+    catch (cause) { if (owner === generation) setError(failureMessage(cause)) }
     finally { if (owner === generation) setBusy(false) }
   }
   const copy = async (value: string) => {
     const owner = generation
     try { await navigator.clipboard.writeText(value) }
-    catch (cause) { if (owner === generation) setError(cause instanceof Error ? cause.message : String(cause)) }
+    catch (cause) { if (owner === generation) setError(failureMessage(cause)) }
   }
   const disabled = () => busy() || state()?.changesAllowed !== true
   const changed = () => {

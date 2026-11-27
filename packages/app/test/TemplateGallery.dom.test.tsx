@@ -4,7 +4,7 @@ import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asNodeId, DINKSTER_SCHEMA_WIRE_VERSION, type NodeSchema } from '@dinkster/core'
-import { buildDinksterRegistry, type ModelDownloadJob } from '@dinkster/client'
+import { buildDinksterRegistry, RequestFailure, type ModelDownloadJob } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
 import { templatesSource } from '../src/collections.js'
 import { TemplatesPage } from '../src/TemplatesPage.js'
@@ -217,14 +217,14 @@ describe('TemplatesPage', () => {
     let empty = false
     let failure: 'templates' | 'settings' | undefined = 'templates'
     vi.spyOn(backend.connection, 'listTemplates').mockImplementation(async () => {
-      if (failure === 'templates') throw new Error('GET /api/templates failed: 503')
+      if (failure === 'templates') throw new RequestFailure('GET', '/api/templates', 503)
       return { templates: empty ? [] : [
         { pack: 'native', id: 'starter', name: 'Starter', digest: 'sha256:a', models: ['missing'] },
       ] }
     })
     vi.spyOn(backend.connection, 'guessAssets').mockResolvedValue([])
     vi.spyOn(backend.connection, 'fetchModelSettings').mockImplementation(async () => {
-      if (failure === 'settings') throw new Error('GET /api/models/settings failed: 503')
+      if (failure === 'settings') throw new RequestFailure('GET', '/api/models/settings', 503)
       return {
         settings: { version: 1, locations: [], downloadLocation: null }, locations: [],
         revision: 'r1', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [],
@@ -242,7 +242,7 @@ describe('TemplatesPage', () => {
     }, host)
     try {
       for (const next of ['settings', undefined] as const) {
-        await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Could not load templates'))
+        await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Could not load templates. The engine reported an error.'))
         expect(host.textContent).not.toContain('GET /api/')
         expect(host.textContent).not.toContain('No templates yet')
         expect(host.querySelector('.dinkster-template-filter')).toBeNull()

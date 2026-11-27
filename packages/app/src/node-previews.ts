@@ -1009,7 +1009,7 @@ export function createPreviewLoader(deps: {
             const image = known.imageAt(Math.max(0, Math.min(batchIndex, known.count - 1)))
             const result = await image.load!(signal ?? new AbortController().signal)
             signal?.throwIfAborted()
-            if (!result.available) throw Object.assign(new Error(`${result.reason}: ${result.error}`), { negativeCache: [400, 404, 406, 410].includes(result.status) })
+            if (!result.available) throw Object.assign(new Error(`Image preview unavailable. ${result.error}`), { negativeCache: [400, 404, 406, 410].includes(result.status) })
             const preview = await decodeRendition({ ...result, node: image.runtimeId, output: image.outputId, count: known.count })
             peekAttribution.set(preview, { runtimeId: image.runtimeId, outputId: image.outputId })
             return preview

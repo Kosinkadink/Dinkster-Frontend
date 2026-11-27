@@ -6,6 +6,7 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { widgetValueText } from '@dinkster/canvas'
 import { BrandMark } from './BrandMark.js'
+import { failureMessage } from './request-failure.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
@@ -670,7 +671,7 @@ export function App(props: {
         if (app.pages.open(`board:${board.id}`)) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
       }).catch((reason: unknown) => {
         if (stillWanted() && app.backends.get().includes(backend)) app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
-          diag('error', 'validation', 'board.openFailed', `failed to open Board: ${reason instanceof Error ? reason.message : String(reason)}`),
+          diag('error', 'validation', 'board.openFailed', failureMessage(reason, 'The board could not be opened.')),
         ])
       })
       return
@@ -1603,7 +1604,7 @@ export function App(props: {
         const values = backend.connection.historyValues(run)
         setLoaded({ execution, values })
       } catch (error) {
-        if (alive) setLoadError(error instanceof Error ? error.message : String(error))
+        if (alive) setLoadError(failureMessage(error, message('runs.loadError')))
       } finally {
         if (alive) setLoading(false)
       }
@@ -1686,7 +1687,7 @@ export function App(props: {
       </div>
       <Show when={p.selected()}>
         <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
-        <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
+        <Show when={loadError()}>{(error) => <p role="status" title={error()}>{error()}</p>}</Show>
         <Show when={known()} fallback={<Show when={loaded()} fallback={<>
           {chosen()}
           <Show when={inspectOpen()}><div class="run-chosen-inspection" data-testid="run-inspection"><Facts /></div></Show>
@@ -3005,7 +3006,7 @@ export function App(props: {
               app.showTransientStatus(message('shell.share.sharing', { title: tab.title }))
               const board = boardForTab(tab.id)
               const sharing = board ? app.boards.share(board.id).then(() => undefined, (reason: unknown) =>
-                reason instanceof Error ? reason.message : String(reason)) : app.shareActiveTab()
+                failureMessage(reason, 'The board could not be shared.')) : app.shareActiveTab()
               void sharing.then((error) => {
                 app.showTransientStatus(error === undefined
                   ? message('shell.share.shared', { title: tab.title })

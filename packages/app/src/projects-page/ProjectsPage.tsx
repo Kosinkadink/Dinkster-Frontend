@@ -13,6 +13,8 @@ import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } fr
 import {
   buildDinksterRegistry,
   DinksterConnection,
+  requestFetch,
+  requestFailure,
   uuidv4,
   type LibraryProject,
   type LibraryRecord,
@@ -64,10 +66,13 @@ import './projects-page.css'
 import { byProjectTime, formatWhen, projectTime } from './project-facts.js'
 import { WorkflowPicture } from './workflow-picture.js'
 import { EngineLogDialog } from '../EngineRunControl.js'
+import { failureMessage } from '../request-failure.js'
 import { templateCollectionSource, type TemplateCollectionRef } from '../collections.js'
 import { RemoteTemplateCatalog } from '../template-catalog.js'
 import { SettingsRegistry } from '../settings.js'
 import { TemplatePicker, type ProjectTemplateCatalog, type ProjectTemplateChoice } from './TemplatePicker.js'
+
+const fetchRequest = requestFetch((url, init) => fetch(url, init))
 
 /** An installation a project can run on. */
 export interface PageInstallation {
@@ -214,11 +219,11 @@ export function processSource(connection: DinksterConnection = processConnection
       return records
     },
     async workflowDocument(digest) {
-      const response = await fetch(`/api/assets/${encodeURIComponent(digest)}`)
+      const response = await fetchRequest(`/api/assets/${encodeURIComponent(digest)}`)
       return response.ok ? loadDocument(await response.json()).document : undefined
     },
     async definitions(project) {
-      const response = await fetch(`/api/nodes/provisional?${new URLSearchParams({ project })}`, { cache: 'no-store' })
+      const response = await fetchRequest(`/api/nodes/provisional?${new URLSearchParams({ project })}`, { cache: 'no-store' })
       if (!response.ok) return undefined
       return buildDinksterRegistry(asConnectionId('projects-page'), await response.json()).resolve
     },
@@ -226,7 +231,7 @@ export function processSource(connection: DinksterConnection = processConnection
       return (await connection.listProjectOutputs(project, { limit })).assets
     },
     async usage(project) {
-      const response = await fetch(`/api/projects/${encodeURIComponent(project)}/usage`, { cache: 'no-store' })
+      const response = await fetchRequest(`/api/projects/${encodeURIComponent(project)}/usage`, { cache: 'no-store' })
       if (!response.ok) return undefined
       const body = (await response.json()) as { outputs?: unknown; bytes?: unknown }
       return typeof body.outputs === 'number' && typeof body.bytes === 'number'
@@ -235,12 +240,12 @@ export function processSource(connection: DinksterConnection = processConnection
     },
     async installations() {
       const [status, rows] = await Promise.all([
-        fetch('/supervisor/status', { cache: 'no-store' })
+        fetchRequest('/supervisor/status', { cache: 'no-store' })
           .then((response) => (response.ok ? response.json() : {}))
           .catch(() => ({})),
         // A list the process cannot give fails the read, so the page never takes it for "no installations".
-        fetch('/supervisor/installations', { cache: 'no-store' }).then((response) => {
-          if (!response.ok) throw new Error(`GET /supervisor/installations failed: ${response.status}`)
+        fetchRequest('/supervisor/installations', { cache: 'no-store' }).then(async (response) => {
+          if (!response.ok) throw await requestFailure(response)
           return response.json()
         }),
       ]) as [
@@ -261,8 +266,8 @@ export function processSource(connection: DinksterConnection = processConnection
       }
     },
     async openFolder(project) {
-      const response = await fetch(`/supervisor/projects/${encodeURIComponent(project)}/folder`, { method: 'POST' })
-      if (!response.ok) throw new Error(`POST /supervisor/projects/${project}/folder failed: ${response.status}`)
+      const response = await fetchRequest(`/supervisor/projects/${encodeURIComponent(project)}/folder`, { method: 'POST' })
+      if (!response.ok) throw await requestFailure(response)
     },
   }
 }
@@ -547,7 +552,7 @@ export function ProjectsView(props: {
       await work()
       closeDialog()
     } catch (error) {
-      setDialogError(error instanceof Error ? error.message : String(error))
+      setDialogError(failureMessage(error))
     } finally {
       setBusy(false)
     }
