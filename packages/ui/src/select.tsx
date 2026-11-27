@@ -128,9 +128,9 @@ export function ProductSelect(
   }
   const move = (delta: -1 | 1) => {
     const count = local.options.length
-    const start = open() ? active() : initial()
+    const start = open() ? active() : local.editable ? -1 : initial()
     for (let offset = 1; offset <= count; offset++) {
-      const next = (start + delta * offset + count) % count
+      const next = ((start < 0 && delta === -1 ? 0 : start) + delta * offset + count) % count
       if (enabled(next)) {
         if (!open()) show(next)
         else setActive(next)
@@ -211,7 +211,7 @@ export function ProductSelect(
     const selected = value()
     if (local.disabled) close()
     if (!open()) return
-    if (!enabled(active())) setActive(initial())
+    if (!enabled(active()) && !(local.editable && active() === -1)) setActive(initial())
     void [options, selected]
     queueMicrotask(() => {
       place()
