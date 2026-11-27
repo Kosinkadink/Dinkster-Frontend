@@ -31,7 +31,7 @@ import {
   type TransactionRecord,
 } from './contract.js'
 import { applyOwnedOps, getAtPath, invertOps, type PatchOp } from './patch.js'
-import { nodesChangedBy, storeStartState } from './start-state.js'
+import { nodesChangedBy, storeKnownListCounts, storeStartState } from './start-state.js'
 import { groupMembershipAfter, type GroupGeometryResolver } from '../group-membership.js'
 
 export type BoundaryPositionResolver = (
@@ -528,6 +528,9 @@ export class DocumentStore implements DocumentStoreContract {
       const resolve = context.kind === 'initial' && !hasErrors(commandDiags) ? context.schemaResolverFor?.(tx.current) : undefined
       if (resolve !== undefined) {
         storeStartState(tx, resolve, nodesChangedBy(tx.current, tx.forward))
+        if (!def.replaysHistory && tx.forward.some((op) => op.path[0] === 'graphs')) {
+          storeKnownListCounts(tx, resolve)
+        }
       }
       if (context.kind === 'initial' && !hasErrors(commandDiags) && !def.replaysHistory && this.nodeHeightFor) {
         for (const [graphId, graph] of Object.entries(tx.current.view.graphs)) {

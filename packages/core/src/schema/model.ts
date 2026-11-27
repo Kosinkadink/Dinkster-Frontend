@@ -631,6 +631,8 @@ export interface InputSpec extends PortSpecBase {
    * default, used when the value cannot be worked out.
    */
   readonly automatic?: FormulaSpec | LookupSpec
+  /** Store this list input's known count with its causing edit, never from a run. */
+  readonly listCountOf?: string
   /**
    * Set by elaboration, never declared: the flattened id of the field drawn
    * before this one on a line of several fields.
@@ -675,6 +677,12 @@ export interface OutputKnownValue {
   readonly limits?: Readonly<Partial<Record<KnownValueLimit, string>>>
 }
 
+/** A preserved list count, or the sum of scalar/list contributions in a joining group. */
+export interface OutputListCount {
+  readonly input: string
+  readonly group?: string
+}
+
 /** An output pin. Inside a group member or an option it exists only with it. */
 export interface OutputSpec extends PortSpecBase {
   readonly kind: 'output'
@@ -701,6 +709,8 @@ export interface OutputSpec extends PortSpecBase {
   /** Exact pre-execution value sourced from a typed primitive identity input. */
   readonly knownValue?: OutputKnownValue  /** Layout only: on a subgraph node, never share the line of the input pin above. */
   readonly ownRow?: true
+  /** Exact list item count, independent of type and runtime value. */
+  readonly listCount?: number | OutputListCount
 }
 
 /** A stored value with no pin and no field, written by an editor or an action. */

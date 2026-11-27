@@ -12,10 +12,10 @@
  */
 import { describe, expect, it } from 'vitest'
 import { typesCompatible } from '../src/schema/type-relations.js'
-import { asNodeId, asPortId } from '../src/ids.js'
+import { asLinkId, asNodeId, asPortId, asRerouteId } from '../src/ids.js'
 import type { GraphDef } from '../src/format/document.js'
 import type { SchemaResolver } from '../src/schema/derive-boundary.js'
-import { type InputSpec, type NodeSchema, type OutputSpec, type TypeExpr } from '../src/schema/model.js'
+import { type GroupSpec, type InputSpec, type NodeSchema, type OutputSpec, type TypeExpr } from '../src/schema/model.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 
 // ---------------------------------------------------------------------------
@@ -87,6 +87,86 @@ const defOf = (parts: {
   }) as unknown as GraphDef
 
 const n = asNodeId
+
+describe('declared list counts', () => {
+  const strings = list(concrete('STRING'))
+  const localSchemas: Record<string, NodeSchema> = {
+    Four: schemaOf('Four', [{ ...output('out', strings), listCount: 4 }]),
+    Unknown: schemaOf('Unknown', [output('out', strings)]),
+    Empty: schemaOf('Empty', [{ ...output('out', strings), listCount: 0 }]),
+    Scalar: schemaOf('Scalar', [output('out', concrete('STRING'))]),
+    Preserve: schemaOf('Preserve', [input('in', strings), { ...output('out', strings), listCount: { input: 'in' } }]),
+    Local: schemaOf('Local', [{
+      ...input('in', strings),
+      widget: { widgetType: 'LIST', options: {}, element: { widgetType: 'STRING', options: {} }, default: [] },
+    }]),
+    Join: {
+      ...schemaOf('Join', []),
+      body: [{
+        kind: 'group', id: 'parts', value: { ...input('value', T('T')), acceptsList: true as const },
+        keys: { kind: 'numbered', prefix: 'part', start: 0, pad: 0 },
+        grows: 'link', minMembers: 0, maxMembers: 8,
+      } satisfies GroupSpec, { ...output('out', strings), listCount: { input: 'value', group: 'parts' } }],
+    },
+  }
+  const resolveCounts: SchemaResolver = (type) => localSchemas[type]
+
+  it('adds joined item counts, traces nets and widget taps, and leaves type checking unchanged', () => {
+    const base = defOf({
+      nodes: { four: { type: 'Four' }, scalar: { type: 'Scalar' }, local: { type: 'Local' }, join: { type: 'Join' }, copy: { type: 'Preserve' } },
+      links: {
+        a: { from: ['four', 'out'], to: ['join', 'parts.part0'] },
+        b: { from: ['scalar', 'out'], to: ['join', 'parts.part1'] },
+      },
+    })
+    const graph: GraphDef = {
+      ...base,
+      nodes: {
+        ...base.nodes,
+        local: { ...base.nodes['local']!, values: { in: ['a', 'b', 'c'] } },
+        join: { ...base.nodes['join']!, dynamic: { parts: { members: ['part0', 'part1', 'part2'] } } },
+      },
+      links: {
+        ...base.links,
+        tap: { id: asLinkId('tap'), from: { node: n('local'), tap: asPortId('in') }, to: { node: n('join'), port: asPortId('parts.part2') } },
+      },
+      nets: { net: { id: 'net' as never, name: 'joined', source: { node: n('join'), port: asPortId('out') }, sinks: [{ node: n('copy'), port: asPortId('in') }] } },
+    }
+    const solved = solveGraphTypes(graph, resolveCounts)
+    expect(solved.listCountOf(n('join'), 'output', 'out')).toBe(8)
+    expect(solved.listCountOf(n('copy'), 'output', 'out')).toBe(8)
+    expect(solved.portTypeOf(n('copy'), 'output', 'out')).toEqual(strings)
+    expect(solved.listCountOf(n('scalar'), 'output', 'out')).toBeUndefined()
+    const unknown = solveGraphTypes({ ...graph, nodes: { ...graph.nodes, four: { ...graph.nodes['four']!, type: 'Unknown' } } }, resolveCounts)
+    expect(unknown.listCountOf(n('join'), 'output', 'out')).toBeUndefined()
+    expect(unknown.portTypeOf(n('copy'), 'output', 'out')).toEqual(strings)
+  })
+
+  it('keeps empty distinct from unknown and does not derive counts through cycles or muted nodes', () => {
+    const graph = defOf({
+      nodes: { empty: { type: 'Empty' }, copy: { type: 'Preserve' }, cycle: { type: 'Preserve' }, loose: { type: 'Preserve' } },
+      links: {
+        empty: { from: ['empty', 'out'], to: ['copy', 'in'] },
+        cycle: { from: ['cycle', 'out'], to: ['cycle', 'in'] },
+      },
+    })
+    const solved = solveGraphTypes(graph, resolveCounts)
+    expect(solved.listCountOf(n('copy'), 'output', 'out')).toBe(0)
+    expect(solved.listCountOf(n('cycle'), 'output', 'out')).toBeUndefined()
+    expect(solved.listCountOf(n('loose'), 'output', 'out')).toBeUndefined()
+    const muted = solveGraphTypes({ ...graph, nodes: { ...graph.nodes, empty: { ...graph.nodes['empty']!, mode: 'muted' } } }, resolveCounts)
+    expect(muted.listCountOf(n('copy'), 'output', 'out')).toBeUndefined()
+    const rerouted: GraphDef = {
+      ...graph,
+      reroutes: { r: { id: asRerouteId('r') } },
+      links: {
+        feed: { id: asLinkId('feed'), from: { node: n('empty'), port: asPortId('out') }, to: { reroute: asRerouteId('r') } },
+        end: { id: asLinkId('end'), from: { reroute: asRerouteId('r') }, to: { node: n('copy'), port: asPortId('in') } },
+      },
+    }
+    expect(solveGraphTypes(rerouted, resolveCounts).listCountOf(n('copy'), 'output', 'out')).toBe(0)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Advisory compatibility

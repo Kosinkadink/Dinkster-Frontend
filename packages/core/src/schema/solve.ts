@@ -64,8 +64,10 @@ import {
   elaborateInterface,
   type Connectivity,
   type ElaborateOptions,
+  type ElaboratedInput,
 } from './elaborate.js'
-import { canonicalTypeIdOf, cardinalityOf, effectiveAbsentPolicy, inputsOf, outputsOf, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type NodeSchema, type NodeSelectorSpec, type TypeExpr } from './model.js'
+import { effectiveWidgetDefault } from './widget-defaults.js'
+import { canonicalTypeIdOf, cardinalityOf, effectiveAbsentPolicy, inputsOf, outputsOf, parseAssetTypeId, parseListTypeId, parseStreamTypeId, scopeRowsOf, typeExprFromTypeId, type NodeSchema, type NodeSelectorSpec, type OutputSpec, type TypeExpr } from './model.js'
 
 /** Type words used by solver problems on every surface; never a type variable's storage name. */
 export function typeProblemWords(type: TypeExpr, form: 'value' | 'name' | 'plural' | 'one' = 'value'): string {
@@ -148,6 +150,8 @@ export interface SolveResult {
    * expression). Undefined when the node/port is not elaborated.
    */
   portTypeOf(node: NodeId, side: 'input' | 'output', port: string): TypeExpr | undefined
+  /** Exact item count, separate from type; undefined means unknown, never empty. */
+  listCountOf(node: NodeId, side: 'input' | 'output', port: string): number | undefined
   /** Verdicts for consumer-delivering links (structural feeds absent). */
   readonly linkVerdicts: ReadonlyMap<LinkId, EdgeVerdict>
   /** Verdicts per named-net sink, keyed by netSinkKey(). */
@@ -345,6 +349,8 @@ export function solveGraphTypes(
   const inputLabels = new Map<NodeId, Map<string, string>>()
   const outputLabels = new Map<NodeId, Map<string, string>>()
   const schemas = new Map<NodeId, NodeSchema>()
+  const countInputs = new Map<NodeId, ReadonlyMap<string, ElaboratedInput>>()
+  const countOutputs = new Map<NodeId, ReadonlyMap<string, OutputSpec>>()
   const nodeTitles = new Map<NodeId, string>()
   const knownOutputs = new Map<NodeId, Set<string>>()
   const selectors = new Map<NodeId, NodeSelectorSpec>()
@@ -357,6 +363,8 @@ export function solveGraphTypes(
     schemas.set(node.id, schema)
     nodeTitles.set(node.id, node.title ?? schema.displayName)
     const e = elaborateInterface(schema, node, connectivityOf(node.id), options)
+    countInputs.set(node.id, new Map([...elabInputsOf(e)].filter((item) => item.apiName !== undefined && item.kept === undefined).map((item) => [item.address.port, item])))
+    countOutputs.set(node.id, new Map([...elabOutputsOf(e)].filter((item) => item.wireable !== false && item.kept === undefined).map((item) => [item.address.port, item.spec])))
     const inputs = new Map<string, TypeExpr>()
     const outputs = new Map<string, TypeExpr>()
     const slotBindings: {
@@ -1067,13 +1075,80 @@ export function solveGraphTypes(
     }
   }
 
+  const portTypeOf: SolveResult['portTypeOf'] = (node, side, port) => {
+    const entry = portTypes.get(node)
+    const declared = entry ? (side === 'input' ? entry.inputs : entry.outputs).get(port) : undefined
+    return declared === undefined ? undefined : substitute(declared, node)
+  }
+  const counts = new Map<string, number | undefined>()
+  const reading = new Set<string>()
+  const countOf = (node: NodeId, side: 'input' | 'output', port: string): number | undefined => {
+    const key = JSON.stringify([node, side, port])
+    if (reading.has(key)) return undefined
+    if (counts.has(key)) return counts.get(key)
+    reading.add(key)
+    const count = readCount(node, side, port)
+    reading.delete(key)
+    counts.set(key, count)
+    return count
+  }
+  const readCount = (node: NodeId, side: 'input' | 'output', port: string): number | undefined => {
+    const data = def.nodes[node]
+    if (data === undefined || (data.mode !== undefined && data.mode !== 'active')) return undefined
+    if (side === 'input') {
+      const input = countInputs.get(node)?.get(port)
+      if (input === undefined) return undefined
+      const traces = traceEndpointAll(def, { node, tap: asPortId(port) }, reroutes)
+      const results = traces.map((trace) => {
+        if (trace.kind === 'output') return countOf(trace.ref.node, 'output', trace.ref.port)
+        if (trace.kind !== 'tapValue') return undefined
+        if (trace.node !== node || trace.input !== port) return countOf(trace.node, 'input', trace.input)
+        const value = Object.hasOwn(data.values, port) ? data.values[port] : input.derivedValue ??
+          (input.spec.widget === undefined ? input.spec.ext?.['default'] : effectiveWidgetDefault(input.spec.widget))
+        if (value === undefined || value === null) return undefined
+        if (cardinalityOf(portTypeOf(node, side, port) ?? input.spec.type) === 'list' || input.spec.widget?.widgetType === 'LIST' || input.spec.acceptsList && Array.isArray(value)) return Array.isArray(value) ? value.length : undefined
+        return 1
+      })
+      const first = results[0]
+      return first !== undefined && results.every((count) => count === first) ? first : undefined
+    }
+    const output = countOutputs.get(node)?.get(port)
+    if (output === undefined || output.optional) return undefined
+    const type = portTypeOf(node, side, port)
+    if (type === undefined) return undefined
+    const cardinality = cardinalityOf(type)
+    if (cardinality === 'scalar') return 1
+    if (cardinality !== 'list') return undefined
+    const source = output.listCount
+    if (typeof source === 'number') return source
+    if (source === undefined) return undefined
+    if (source.group === undefined) return countOf(node, 'input', source.input)
+    const group = [...scopeRowsOf(schemas.get(node)!.body)].find((row) => row.kind === 'group' && row.id === source.group)
+    if (group?.kind !== 'group') return undefined
+    let total = 0
+    const members = new Set<string>()
+    for (const [path, input] of countInputs.get(node) ?? []) {
+      const member = input.ancestry?.find((ancestor) => ancestor.construct === source.group)
+      if (member === undefined) continue
+      const expected = `${source.group}.${member.member}${group.value === undefined ? `.${source.input}` : ''}`
+      if (path !== expected) continue
+      members.add(member.member)
+      const traces = traceEndpointAll(def, { node, tap: asPortId(path) }, reroutes)
+      if (input.spec.optional && traces.length === 1 && traces[0]?.kind === 'tapValue' &&
+          traces[0].node === node && traces[0].input === path && !Object.hasOwn(data.values, path) &&
+          input.derivedValue === undefined && input.spec.widget === undefined && input.spec.ext?.['default'] === undefined) continue
+      const count = countOf(node, 'input', path)
+      if (count === undefined) return undefined
+      total += count
+      if (!Number.isSafeInteger(total)) return undefined
+    }
+    return members.size < group.minMembers ? undefined : total
+  }
+
   return {
     resolutionOf: (node, templateId) => vars.resolutionOf(varKeyOf(node, templateId)),
-    portTypeOf: (node, side, port) => {
-      const entry = portTypes.get(node)
-      const declared = entry ? (side === 'input' ? entry.inputs : entry.outputs).get(port) : undefined
-      return declared === undefined ? undefined : substitute(declared, node)
-    },
+    portTypeOf,
+    listCountOf: (node, side, port) => cardinalityOf(portTypeOf(node, side, port) ?? { kind: 'wildcard' }) === 'list' ? countOf(node, side, port) : undefined,
     linkVerdicts,
     netSinkVerdicts,
     // Dependent structured edges can be checked again after tuple substitution.

@@ -111,6 +111,8 @@ interface WireEntry {
   readonly represents?: unknown
   /** Typed primitive identity output declaration. */
   readonly knownValue?: unknown
+  /** Exact list count or its declared input/group source. */
+  readonly listCount?: unknown
   /** Compatibility-only presentation marker. */
   readonly hidden?: unknown
   /** Execution-affecting media policies. */
@@ -1383,6 +1385,8 @@ function decodeOutput(nodeType: string, entry: WireEntry, diags: Diagnostic[], n
 
   const represents = decodeOutputRepresents(entry.represents)
   const knownValue = decodeOutputKnownValue(entry.knownValue)
+  const listCount = decodeOutputListCount(entry.listCount)
+  if (listCount !== undefined && type.kind !== 'list') throw new Error('output.listCount needs a list output')
   return {
     kind: 'output',
     id,
@@ -1391,6 +1395,7 @@ function decodeOutput(nodeType: string, entry: WireEntry, diags: Diagnostic[], n
     ...(typeof entry.doc === 'string' && entry.doc !== '' ? { tooltip: entry.doc } : {}),
     ...(represents !== undefined ? { represents } : {}),
     ...(knownValue !== undefined ? { knownValue } : {}),
+    ...(listCount !== undefined ? { listCount } : {}),
   }
 }
 
@@ -1617,7 +1622,7 @@ const COMMON_FIELDS = ['label', 'tooltip', 'visible'] as const
 const INPUT_FIELDS = [
   'kind', 'id', 'type', 'required', 'default', 'onAbsent', 'widget', 'tooltip', 'label', 'pinFirst', 'pin',
   'afterRun', 'onEdit', 'hidden', 'lazy', 'acceptsStorage', 'acceptsStream', 'acceptsList', 'sourceFilename',
-  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible', 'automatic', 'sent', 'readOnly', 'disabled', 'disabledReason',
+  'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible', 'automatic', 'sent', 'readOnly', 'disabled', 'disabledReason', 'listCountOf',
 ]
 
 /** A port's label, literal or worked out by formula, and whether it shows. */
@@ -1701,6 +1706,7 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
       ? { disabledReason: wireFormulated<string>(entry['disabledReason'], `${where}.disabledReason`, 'string') }
       : {}),
     ...(automatic !== undefined ? { automatic } : {}),
+    ...(entry['listCountOf'] !== undefined ? { listCountOf: wireRowId(entry['listCountOf'], `${where}.listCountOf`) } : {}),
     ...acceptsStorageOf({ role: 'input', acceptsStorage: entry['acceptsStorage'] }, where),
     ...acceptsStreamOf({ role: 'input', ...(Object.hasOwn(entry, 'acceptsStream') ? { acceptsStream: entry['acceptsStream'] } : {}) }, where),
     ...acceptsListOf({ role: 'input', ...(Object.hasOwn(entry, 'acceptsList') ? { acceptsList: entry['acceptsList'] } : {}) }, where),
@@ -1709,7 +1715,7 @@ function decodeBodyInput(nodeType: string, entry: Record<string, unknown>, where
 }
 
 const OUTPUT_FIELDS = [
-  'kind', 'id', 'type', 'optional', 'tooltip', 'label', 'preview', 'represents', 'knownValue',
+  'kind', 'id', 'type', 'optional', 'tooltip', 'label', 'preview', 'represents', 'knownValue', 'listCount',
   'alphaPolicy', 'maskPolarity', 'maskSemantic', 'visible',
 ]
 
@@ -2180,6 +2186,13 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     }
     const decodedInputs = new Map(inputsOf(baseSchema).map((item) => [item.id, item]))
     const decodedOutputs = outputsOf(baseSchema)
+    for (const input of decodedInputs.values()) {
+      if (input.listCountOf === undefined) continue
+      if (input.type.kind !== 'concrete' || input.type.name !== 'INT' || !input.socketless ||
+          decodedInputs.get(input.listCountOf)?.type.kind !== 'list') {
+        throw new Error(`input '${input.id}' listCountOf needs an INT field with no pin and a list input source`)
+      }
+    }
     const validateTupleDeclaration = (type: TypeExpr, output: boolean): void => {
       if (type.kind === 'tuple_element') {
         const source = type.input === undefined ? undefined : decodedInputs.get(type.input)
@@ -2195,6 +2208,20 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     }
     if (additionalInputs !== undefined) validateTupleDeclaration(additionalInputs, false)
     for (const output of decodedOutputs) {
+      const count = output.listCount
+      if (typeof count === 'object') {
+        if (count.group === undefined) {
+          if (decodedInputs.get(count.input)?.type.kind !== 'list') {
+            throw new Error(`output '${output.id}' listCount must name a list input`)
+          }
+        } else {
+          const group = [...scopeRowsOf(baseSchema.body)].find((row) => row.kind === 'group' && row.id === count.group)
+          const source = group?.kind !== 'group' ? undefined : group.value !== undefined
+            ? group.value.id === count.input ? group.value : undefined
+            : [...scopeRowsOf(group.member ?? [])].find((row) => row.kind === 'input' && row.id === count.input)
+          if (source?.kind !== 'input') throw new Error(`output '${output.id}' listCount must name an input in its group`)
+        }
+      }
       const knownValue = output.knownValue
       if (knownValue === undefined) continue
       const input = decodedInputs.get(knownValue.input)
@@ -2356,6 +2383,18 @@ function decodeOutputRepresents(raw: unknown): OutputRepresents | undefined {
   }
   const applies = represents['applies'] === undefined ? undefined : decodeApplies(represents['applies'], 'output.represents.applies')
   return { input, rendition, ...(applies === undefined ? {} : { applies }) }
+}
+
+function decodeOutputListCount(raw: unknown): OutputSpec['listCount'] {
+  if (raw === undefined) return undefined
+  if (typeof raw === 'number') {
+    if (!Number.isSafeInteger(raw) || raw < 0) throw new Error('output.listCount must be a safe nonnegative integer')
+    return raw
+  }
+  const count = wireObject(raw, 'output.listCount')
+  rejectUnknownFields(count, ['input', 'group'], 'output.listCount')
+  const input = wireRowId(count['input'], 'output.listCount.input')
+  return count['group'] === undefined ? { input } : { input, group: wireRowId(count['group'], 'output.listCount.group') }
 }
 
 function decodeOutputKnownValue(raw: unknown): OutputKnownValue | undefined {

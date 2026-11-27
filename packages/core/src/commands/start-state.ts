@@ -12,6 +12,8 @@ import { asNodeId, isPortEndpoint, type LinkEndpoint } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, DEFAULT_ELAB_BUDGET, elaborateInterface } from '../schema/elaborate.js'
+import { inputsOf } from '../schema/model.js'
+import { solveGraphTypes } from '../schema/solve.js'
 import type { PatchOp } from './patch.js'
 import type { TransactionBuilder } from './contract.js'
 
@@ -64,6 +66,28 @@ export function storeStartState(tx: TransactionBuilder, resolve: SchemaResolver,
 export function allNodesOf(doc: WorkflowDocument): NodeAt[] {
   return Object.entries(doc.graphs).flatMap(([graphId, graph]) =>
     Object.keys(graph.nodes).map((nodeId) => ({ graphId, nodeId })))
+}
+
+/** Known list counts are stored with the edit, not by elaboration or execution. */
+export function storeKnownListCounts(tx: TransactionBuilder, resolve: SchemaResolver): void {
+  for (const [graphId, graph] of Object.entries(tx.current.graphs)) {
+    const targets = Object.values(graph.nodes).flatMap((node) => {
+      const schema = resolve(node.type)
+      return schema === undefined ? [] : inputsOf(schema)
+        .filter((input) => input.listCountOf !== undefined)
+        .map((input) => ({ node, input }))
+    })
+    if (targets.length === 0) continue
+    const facts = solveGraphTypes(graph, resolve)
+    for (const { node, input } of targets) {
+      const count = facts.listCountOf(node.id, 'input', input.listCountOf!)
+      if (count === undefined || node.values[input.id] === count) continue
+      const min = input.widget?.options['min']
+      const max = input.widget?.options['max']
+      if (typeof min === 'number' && count < min || typeof max === 'number' && count > max) continue
+      tx.set(['graphs', graphId, 'nodes', node.id, 'values', input.id], count)
+    }
+  }
 }
 
 /**

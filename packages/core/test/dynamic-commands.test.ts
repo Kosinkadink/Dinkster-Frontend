@@ -17,6 +17,8 @@ import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
 import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId } from '../src/ids.js'
 import {
   elabInputsOf,
+  elabOutputsOf,
+  buildGraphConnectivity,
   elaborateInterface,
   materializeFramesOf,
   type ElaboratedInput,
@@ -987,6 +989,57 @@ describe('materializeFramesOf', () => {
 })
 
 describe('a count that shrinks', () => {
+  it('stores a declared list count in the causing edit, preserves wired positions and undoes once', () => {
+    const listType = { kind: 'list' as const, element: { kind: 'concrete' as const, name: 'STRING' } }
+    const source = { ...schemaOf([{
+      kind: 'input', id: 'texts', type: listType, optional: false,
+      widget: { widgetType: 'LIST', options: {}, element: { widgetType: 'STRING', options: {} }, default: [] },
+    }]), type: 'Texts' }
+    const unpack = schemaOf([
+      { kind: 'input', id: 'list', type: listType, optional: true },
+      { ...socketInput('count', 'INT'), socketless: true, hidden: true, listCountOf: 'list', widget: { widgetType: 'INT', options: { min: 0, max: 4 }, default: 0 } },
+      { kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 }, grows: { count: 'count' }, minMembers: 0, maxMembers: 4, value: { kind: 'output', id: 'item', type: listType.element, optional: true } },
+    ])
+    const resolve = (type: string) => type === 'Texts' ? source : type === 'Batch' ? unpack : undefined
+    const initial = doc({ g0: graph({ id: 'g0',
+      nodes: {
+        texts: node('texts', { type: 'Texts', values: { texts: ['red', 'green', 'blue'] } }),
+        n1: node('n1', { values: { count: 3 } }),
+        sink: node('sink', { type: 'Sink' }),
+      },
+      links: {
+        feed: { id: asLinkId('feed'), from: { node: asNodeId('texts'), tap: asPortId('texts') }, to: port('n1', 'list') },
+        kept: { id: asLinkId('kept'), from: port('n1', 'items.2'), to: port('sink', 'value') },
+      },
+    }) })
+    const store = new DocumentStore(initial, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const edit = (texts: string[]) => store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'texts', inputId: 'texts', value: texts } })
+    const outputs = () => {
+      const graph = store.doc.graphs['g0']!
+      return elabOutputsOf(elaborateInterface(unpack, graph.nodes['n1']!, buildGraphConnectivity(graph)(asNodeId('n1'))))
+    }
+    expect(edit(['red']).ok).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['n1']!.values['count']).toBe(1)
+    expect(outputs().map((out) => [out.address.port, out.kept !== undefined])).toEqual([['items.0', false], ['items.2', true]])
+    expect(store.doc.graphs['g0']!.links).toEqual(initial.graphs['g0']!.links)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(initial)
+    expect(store.redo()).toBe(true)
+    expect(edit(['red', 'green', 'blue']).ok).toBe(true)
+    expect(outputs().map((out) => out.kept)).toEqual([undefined, undefined, undefined])
+    expect(edit([]).ok).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['n1']!.values['count']).toBe(0)
+    expect(outputs().map((out) => [out.address.port, out.kept !== undefined])).toEqual([['items.2', true]])
+    expect(edit(['a', 'b', 'c', 'd', 'e']).ok).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['n1']!.values['count']).toBe(0)
+    expect(store.doc.graphs['g0']!.links).toEqual(initial.graphs['g0']!.links)
+    expect(edit(['a', 'b']).ok).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['n1']!.values['count']).toBe(2)
+    expect(store.dispatch({ command: 'link.disconnect', params: { graphId: 'g0', linkId: 'feed' } }).ok).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['n1']!.values['count']).toBe(2)
+  })
+
   it('keeps wired later outputs, nets and forwards in the same undo step', () => {
     const field = (id: string): InputSpec => ({
       ...socketInput(id, 'INT'), widget: { widgetType: 'INT', options: {}, default: 1 },
