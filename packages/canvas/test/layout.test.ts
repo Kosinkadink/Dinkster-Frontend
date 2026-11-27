@@ -142,6 +142,54 @@ describe('pairing', () => {
     }
   })
 
+  describe('a line of fields', () => {
+    const line: NodeSchema['body'] = [
+      { kind: 'row', rows: [widget('on'), widget('name'), widget('strength')] },
+      widget('after'),
+    ]
+    const lay = (opts: Parameters<typeof layoutNode>[5] = {}) =>
+      layoutNode(schemaOf(line), nodeData, defaultTokens, measure, widgetMeasure, opts)
+    const wired = { connectedPorts: new Set(['in:on', 'in:strength', 'out:name']) }
+
+    it('starts folded: one row, and a pin only for each wired field, gathered at the middle of each end', () => {
+      const l = lay(wired)
+      const [on, name, strength, after] = l.rows
+      expect([name!.y, strength!.y]).toEqual([on!.y, on!.y])
+      expect(after!.y).toBe(on!.y + on!.height)
+      const center = on!.y + defaultTokens.rowHeight / 2
+      const pitch = canvasPaintTokens.node.box.clusterPitch
+      const own = l.pins.filter((pin) => pin.portId !== 'after').map((pin) => [pin.portId, pin.direction, pin.y])
+      expect(own).toEqual([
+        ['on', 'in', center - pitch.two / 2],
+        ['strength', 'in', center + pitch.two / 2],
+        ['name', 'out', center],
+      ])
+      expect(l.lines).toEqual([{
+        key: 'on', folded: true, first: 0, last: 2,
+        fields: ['on', 'name', 'strength'].map((id) => ({ portId: id, label: id, type: { kind: 'concrete', name: 'INT' } })),
+      }])
+    })
+
+    it('unfolds by its first field into one row per field beside a rail, each with its ordinary pins', () => {
+      const l = lay({ ...wired, lineFolds: { on: false } })
+      const [on, name, strength, after] = l.rows
+      expect([name!.y, strength!.y, after!.y]).toEqual([on!.y + on!.height, name!.y + name!.height, strength!.y + strength!.height])
+      const pinOf = (id: string, direction: 'in' | 'out') =>
+        l.pins.find((pin) => pin.portId === id && pin.direction === direction)!.y
+      expect(pinOf('strength', 'in')).toBe(strength!.y + defaultTokens.rowHeight / 2)
+      expect(pinOf('name', 'in')).toBe(name!.y + defaultTokens.rowHeight / 2)
+      const railReserve = canvasPaintTokens.node.line.railReserve
+      const insetOf = (row: (typeof l.rows)[number] | undefined) => (row as { inset: number }).inset
+      expect(insetOf(on)).toBe(insetOf(after) + railReserve)
+      const rightOf = (row: (typeof l.rows)[number] | undefined) =>
+        insetOf(row) + ((row as { width?: number }).width ?? l.width - insetOf(row) * 2)
+      expect(rightOf(on)).toBe(rightOf(after))
+      expect(l.lines).toMatchObject([{ key: 'on', folded: false, first: 0, last: 2, railInset: insetOf(after) - canvasPaintTokens.node.line.railOverhang }])
+      // Unwired, the line is still folded: wiring changes pins, never the fold.
+      expect(lay().lines![0]!.folded).toBe(true)
+    })
+  })
+
   it('keeps a same-id real output separate from the adjacent widget value output', () => {
     const layout = layoutNode(schemaOf([widget('prefix'), widget('mount', { adjacentTo: 'prefix' }), output('prefix')]), nodeData, defaultTokens, measure, widgetMeasure, {
       connectedPorts: new Set(['out:prefix']),
@@ -238,11 +286,11 @@ describe('pairing', () => {
     expect(widths).toHaveLength(3)
     expect(new Set(widths).size).toBe(1)
     // Beside a field, a button with an icon is a square and the field takes the rest of the line.
-    for (const field of [widget('rate'), widget('name', { widget: { widgetType: 'STRING', options: { multiline: true } } })]) {
-      const beside = doLayout([{ kind: 'row', rows: [field, { ...button('reset', 'Reset the frame rate'), icon: 'rotate-ccw' }] }])
-      const [rate, reset] = beside.rows
-      expect(reset).toMatchObject({ kind: 'button', width: reset!.height - defaultTokens.rowGeometry.fieldInsetY * 2 })
-      expect(rate!.kind === 'widget' && rate!.width).toBeGreaterThan(beside.width / 2)
+    for (const field of [widget('rate'), widget('text', { widget: { widgetType: 'STRING', options: { multiline: true } } })]) {
+      const beside = doLayout([{ kind: 'row', rows: [field, { ...button('reset', 'Reset'), icon: 'rotate-ccw' }] }])
+      const [value, reset] = beside.rows
+      expect(reset).toMatchObject({ kind: 'button', y: value!.y, width: reset!.height - defaultTokens.rowGeometry.fieldInsetY * 2 })
+      expect(value!.kind === 'widget' && value!.width).toBeGreaterThan(beside.width / 2)
     }
   })
 
@@ -287,22 +335,26 @@ describe('pairing', () => {
         kind: 'button', id: 'reset', label: 'Reset', steps: [], ...(icon === undefined ? {} : { icon }),
       }] }],
     }])
-    const layoutWith = (members: string[]) => layoutNode(schema,
+    const layoutWith = (members: string[], width?: number) => layoutNode(schema,
       { ...nodeData, dynamic: { files: { members } } },
-      { ...defaultTokens, memberRemoveCross: true }, measure, widgetMeasure)
-    const layout = layoutWith(['file0', 'file1'])
-    const cells = layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
+      { ...defaultTokens, memberRemoveCross: true }, measure, widgetMeasure,
+      width === undefined ? {} : { size: { width, height: 200 } })
+    const cells = layoutWith(['file0', 'file1']).rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
     expect(cells.map((row) => row.kind)).toEqual(['widget', 'button', 'widget', 'button'])
     expect(cells.map((row) => row.crossInset !== undefined)).toEqual([false, true, false, true])
     expect(cells[1]).toMatchObject({ remove: { construct: 'files', member: 'file0' } })
     expect(cells[3]).toMatchObject({ remove: { construct: 'files', member: 'file1' } })
-    for (const [index, cell] of cells.entries()) {
-      if (cell.kind !== 'button') continue
-      const field = cells[index - 1]!
-      expect(cell.inset - field.inset - field.width!).toBeCloseTo(4)
-      expect(layout.width - cell.crossInset! - canvasPaintTokens.node.box.cross.size - cell.inset - cell.width!).toBeCloseTo(4)
-      expect(cell.width).toBeCloseTo(icon === undefined ? field.width! : cell.height - defaultTokens.rowGeometry.fieldInsetY * 2)
-      expect(field.kind === 'widget' && field.reorder).toMatchObject({ construct: 'files' })
+    for (const width of [undefined, 817]) {
+      const layout = layoutWith(['file0', 'file1'], width)
+      const cells = layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'button')
+      for (const [index, cell] of cells.entries()) {
+        if (cell.kind !== 'button') continue
+        const field = cells[index - 1]!
+        expect(cell.inset - field.inset - field.width!).toBeCloseTo(4)
+        expect(layout.width - cell.crossInset! - canvasPaintTokens.node.box.cross.size - cell.inset - cell.width!).toBeCloseTo(4)
+        expect(cell.width).toBeCloseTo(icon === undefined ? field.width! : cell.height - defaultTokens.rowGeometry.fieldInsetY * 2)
+        expect(field.kind === 'widget' && field.reorder).toMatchObject({ construct: 'files' })
+      }
     }
     const leastLayout = layoutWith(['file0'])
     const least = leastLayout.rows.find((row) => row.kind === 'button')!

@@ -3,9 +3,11 @@
  * renderer. There is no interaction event harness in this package, so keep
  * modifier precedence covered through the pure decision used by pointerdown.
  */
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   asNodeId, coreCommandRegistry, deriveBoundarySchema, documentResolver, DocumentStore, loadDocument, occurrenceDynamicView,
+  parseDinksterSchema, type DinksterWireSchema,
   type CommandInvocation, type Json, type NodeSchema, type WorkflowDocument,
   boundaryOf,
   boundaryItems,
@@ -15,10 +17,11 @@ import { subgraphMarkRect } from '../src/registry-painter.js'
 import { hitTestBoundaryPin, PIN_HIT_RADIUS } from '../src/hit.js'
 import { BOUNDARY_ADD_SLOT, layoutNode, memberAt, type LayoutRow } from '../src/layout.js'
 import { CanvasRenderer, previewSurfaceAffordanceRect, widgetRowAffordanceRect, type RendererLensCapabilities } from '../src/renderer.js'
-import { buildScene, REROUTE_SOCKET_OFFSET, scenesEqual, type Scene, type SceneNode } from '../src/scene.js'
+import { buildScene, groupItemGeometry, nodesInGroup, REROUTE_SOCKET_OFFSET, scenesEqual, type Scene, type SceneNode } from '../src/scene.js'
 import { layoutNodeBadges, SUBGRAPH_BADGE } from '../src/badges.js'
 import { canvasPaintTokens, defaultTokens } from '../src/tokens.js'
 import type { ToolboxLayout } from '../src/toolbox.js'
+import { historicalSchemas } from './historical-schemas.js'
 
 function interactionHarness(
   scene: Scene,
@@ -119,6 +122,49 @@ function interactionHarness(
     setPointerCapture, releasePointerCapture,
   }
 }
+
+describe('field-line rail', () => {
+  it('folds from the top and bottom of the rail, not from a field or a dragged press', () => {
+    const schema: NodeSchema = { type: 'Fields', displayName: 'Fields', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'row', rows: ['first', 'last'].map((id) => ({ kind: 'input', id,
+        type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } })) }],
+    }
+    const loaded = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'rail', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Fields', nextOrdinal: 2, nodes: { n1: { id: 'n1', type: 'Fields', values: { first: 7, last: 19 } } },
+        links: {}, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { n1: { position: { x: 20, y: 30 }, lines: { first: { folded: false } } } } } } },
+    })
+    expect(loaded.diagnostics).toEqual([])
+    const store = new DocumentStore(loaded.document!, coreCommandRegistry())
+    const scene = () => buildScene({ document: store.doc, graphId: 'g0', resolve: () => schema, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.number', rows: 1 }) })
+    const open = scene()
+    const node = open.nodes[0]!
+    const line = node.layout.lines![0]!
+    const first = node.layout.rows[line.first]!
+    const last = node.layout.rows[line.last]!
+    const x = node.x + line.railInset! + 6
+    const harness = interactionHarness(open, { dispatch: (invocation) => store.dispatch(invocation) })
+    for (const y of [node.y + first.y + 1, node.y + last.y + last.height - 1]) {
+      harness.fire('pointermove', x, y)
+      expect(harness.renderer.getOverlay().hoveredLine).toEqual({ nodeId: 'n1', key: 'first' })
+      harness.fire('pointerdown', x, y)
+      harness.fire('pointerup', x, y)
+      expect(scene().nodes[0]!.layout.lines![0]!.folded).toBe(true)
+      expect(store.undo()).toBe(true)
+      expect(scene()).toEqual(open)
+    }
+    harness.fire('pointerdown', x, node.y + first.y + 5)
+    harness.fire('pointermove', x, node.y + first.y + 18)
+    harness.fire('pointerup', x, node.y + first.y + 18)
+    expect(scene()).toEqual(open)
+    harness.fire('pointerdown', node.x + node.layout.width / 2, node.y + last.y + 12)
+    harness.fire('pointerup', node.x + node.layout.width / 2, node.y + last.y + 12)
+    expect(scene().nodes[0]!.layout.lines![0]!.folded).toBe(false)
+    expect(store.doc.graphs.g0).toEqual(loaded.document!.graphs.g0)
+    harness.controller.dispose()
+  })
+})
 
 describe('lens widget-row affordance', () => {
   it('claims its registered row region and activates without opening the widget editor', () => {
@@ -1487,6 +1533,58 @@ describe('link drops on a field row', () => {
     expect(harness.dispatched.at(-1)).toMatchObject({
       command: 'link.connect', params: { from: { node: 'n2', tap: 'cfg' }, to: { node: 'n1', port: 'in' } },
     })
+  })
+})
+
+describe('small flow node wire gestures', () => {
+  const wires = JSON.parse(readFileSync(new URL('../../core/test/fixtures/flow_schemas.json', import.meta.url), 'utf8')) as Record<string, DinksterWireSchema>
+  const flowSchemas = new Map(Object.entries(wires).map(([type, wire]) => [type, parseDinksterSchema(type, wire).schema!]))
+  const resolve = (type: string) => flowSchemas.get(type) ?? historicalSchemas.get(type)
+
+  it.each([
+    ['dinkster.utilities.or_else', 'values.2', 'PrimitiveInt', false],
+    ['dinkster.utilities.or_else', 'values.2', 'EmptyImage', true],
+    ['dinkster.utilities.only_if', 'condition', 'PrimitiveInt', false],
+    ['dinkster.utilities.only_if', 'condition', 'PrimitiveBoolean', true],
+  ])('only offers and connects a compatible %s %s wire from %s', (type, target, producer, accepted) => {
+    const loaded = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'flow-wire', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Flow', nextOrdinal: 4, nodes: {
+        image: { id: 'image', type: 'EmptyImage', values: {} },
+        candidate: { id: 'candidate', type: producer, values: {} },
+        flow: { id: 'flow', type, values: {}, dynamic: { values: { members: ['1', '2'], seq: 2 } } },
+      }, links: {
+        first: { id: 'first', from: { node: 'image', port: 'out0' }, to: { node: 'flow', port: type.endsWith('or_else') ? 'values.1' : 'value' } },
+      }, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: {
+        image: { position: { x: 0, y: 0 } }, candidate: { position: { x: 0, y: 300 } }, flow: { position: { x: 400, y: 100 } },
+      } } } },
+    })
+    const store = new DocumentStore(loaded.document!, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    const before = store.doc
+    const scene = buildScene({ document: before, graphId: 'g0', resolve, tokens: defaultTokens,
+      measure: (text) => text.length * 6, widgetMeasure: () => ({ viewId: 'core.line', rows: 1 }) })
+    const source = scene.nodes.find((node) => node.id === 'candidate')!
+    const sink = scene.nodes.find((node) => node.id === 'flow')!
+    const output = source.layout.pins.find((pin) => pin.direction === 'out' && !pin.widgetTap)!
+    const input = sink.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === target)!
+    const harness = interactionHarness(scene, { dispatch: (invocation) => store.dispatch(invocation) })
+    harness.fire('pointerdown', source.x + source.layout.width, source.y + output.y)
+    harness.fire('pointermove', source.x + source.layout.width + 30, source.y + output.y)
+    const targets = (harness.overlays.at(-1) as { dropTargets: Set<string> }).dropTargets
+    expect(targets.has(`flow:${target}:in`)).toBe(accepted)
+    harness.fire('pointermove', sink.x, sink.y + input.y)
+    harness.fire('pointerup', sink.x, sink.y + input.y)
+    if (accepted) {
+      expect(Object.values(store.doc.graphs.g0!.links).map((link) => [link.from, link.to])).toContainEqual([
+        { node: 'candidate', port: 'out0' }, { node: 'flow', port: target },
+      ])
+      expect(store.doc.graphs.g0!.links.first).toEqual(before.graphs.g0!.links.first)
+    } else {
+      expect(store.doc).toEqual(before)
+    }
+    harness.controller.dispose()
   })
 })
 
@@ -3027,6 +3125,124 @@ describe('presence egress callbacks (onDragOffsets / onNodeHover / onLinkDragPre
 })
 
 describe('group movement', () => {
+  it('shows only the receiving group during a node drag and clears it on exit, drop or cancellation', () => {
+    const scene: Scene = { ...interactionScene(), groups: [
+      { id: 'outer', title: 'Outer', x: 400, y: 0, width: 500, height: 250 },
+      { id: 'inner', title: 'Inner', x: 500, y: 20, width: 180, height: 150 },
+    ] }
+    const harness = interactionHarness(scene)
+    const receiving = () => harness.renderer.getOverlay().receivingGroups
+    harness.fire('pointerdown', 30, 15)
+    expect(receiving()).toBeUndefined()
+    harness.fire('pointermove', 530, 45)
+    expect(receiving()).toEqual(new Set(['inner']))
+    harness.fire('pointermove', 630, 45)
+    expect(receiving()).toEqual(new Set(['outer']))
+    harness.fire('pointermove', 880, 45)
+    expect(receiving()).toEqual(new Set())
+    harness.fire('pointermove', 530, 45)
+    expect(receiving()).toEqual(new Set(['inner']))
+    harness.fire('pointerup', 530, 45)
+    expect(receiving()).toBeUndefined()
+    harness.fire('pointerdown', 30, 15)
+    harness.fire('pointermove', 530, 45)
+    expect(receiving()).toEqual(new Set(['inner']))
+    harness.fireWindow('keydown', { code: 'Escape' })
+    expect(receiving()).toBeUndefined()
+    harness.fire('pointerdown', 850, 13)
+    harness.fire('pointermove', 860, 23)
+    expect(receiving()).toBeUndefined()
+    harness.fire('pointerup', 860, 23)
+    harness.controller.dispose()
+  })
+
+  it('keeps membership through covering, resizing, drops, reopen and undo', () => {
+    const schema: NodeSchema = { type: 'Example', displayName: 'Example', category: 'test', source: 'v3', isOutputNode: false, body: [] }
+    const loaded = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'members', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Groups', nextOrdinal: 3, nodes: {
+        a: { id: 'a', type: 'Example', values: {} }, b: { id: 'b', type: 'Example', values: {} },
+      }, links: {}, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { a: { position: { x: 40, y: 60 } }, b: { position: { x: 640, y: 150 } } },
+        groups: { grp0: { id: 'grp0', title: 'Group', bounds: { x: 0, y: 0, width: 300, height: 300 } } },
+      } } },
+    })
+    const build = (document: WorkflowDocument) => buildScene({ document, graphId: 'g0', resolve: () => schema,
+      tokens: defaultTokens, measure: (text) => text.length * 6, widgetMeasure: () => undefined })
+    const store = new DocumentStore(loaded.document!, coreCommandRegistry(), 200, undefined, undefined, undefined, undefined, undefined,
+      (document) => groupItemGeometry(build(document)))
+    const scene = () => build(store.doc)
+    const members = () => nodesInGroup(scene(), scene().groups[0]!)
+    const harness = interactionHarness(scene(), { dispatch: (invocation) => {
+      const outcome = store.dispatch(invocation)
+      expect(outcome.ok).toBe(true)
+      harness.replaceScene(scene())
+      return outcome
+    } })
+    const drag = (x: number, to: number) => {
+      harness.fire('pointerdown', x, 13)
+      harness.fire('pointermove', to, 13)
+      harness.fire('pointerup', to, 13)
+    }
+    drag(280, 880)
+    expect(store.doc.view.graphs.g0!.nodes.a!.position!.x).toBe(640)
+    expect(members()).toEqual(['a'])
+    drag(880, 980)
+    expect(store.doc.view.graphs.g0!.nodes.a!.position!.x).toBe(740)
+    expect(store.doc.view.graphs.g0!.nodes.b!.position!.x).toBe(640)
+    expect(members()).toEqual(['a'])
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g0!.nodes.a!.position!.x).toBe(640)
+    expect(members()).toEqual(['a'])
+    expect(store.redo()).toBe(true)
+    expect(store.dispatch({ command: 'view.setGroupBounds', params: { graphId: 'g0', groupId: 'grp0',
+      bounds: { x: 0, y: 0, width: 1200, height: 500 } } }).ok).toBe(true)
+    expect(members()).toEqual(['a'])
+    expect(store.dispatch({ command: 'node.move', params: { graphId: 'g0', positions: { b: { x: 640, y: 160 } } } }).ok).toBe(true)
+    expect(members()).toEqual(['a', 'b'])
+    expect(store.dispatch({ command: 'node.move', params: { graphId: 'g0', positions: { b: { x: 1190, y: 160 } } } }).ok).toBe(true)
+    expect(members()).toEqual(['a'])
+    const reopened = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+    expect(nodesInGroup(build(reopened), build(reopened).groups[0]!)).toEqual(['a'])
+    expect(store.dispatch({ command: 'view.removeGroup', params: { graphId: 'g0', groupId: 'grp0' } }).ok).toBe(true)
+    expect(store.doc.graphs.g0!.nodes.a).toBeDefined()
+    expect(store.doc.view.graphs.g0!.groupMembership!.nodes).toEqual({})
+    expect(store.undo()).toBe(true)
+    expect(members()).toEqual(['a'])
+    expect(store.dispatch({ command: 'view.createGroup', params: { graphId: 'g0', title: 'Outer',
+      bounds: { x: -20, y: -20, width: 1300, height: 600 } } }).ok).toBe(true)
+    const outerId = Object.keys(store.doc.view.graphs.g0!.groups!).find((id) => id !== 'grp0')!
+    expect(store.doc.view.graphs.g0!.groupMembership!.groups).toEqual({ grp0: outerId })
+    expect(store.doc.view.graphs.g0!.groupMembership!.nodes).toEqual({ a: 'grp0' })
+    harness.replaceScene(scene())
+    harness.fire('pointerdown', 1260, -7)
+    harness.fire('pointermove', 1280, 13)
+    harness.fire('pointerup', 1280, 13)
+    expect(store.doc.view.graphs.g0!.groups!.grp0!.bounds.x).toBe(20)
+    expect(store.doc.view.graphs.g0!.nodes.a!.position!.x).toBe(760)
+    expect(store.doc.view.graphs.g0!.nodes.b!.position!.x).toBe(1190)
+    expect(store.dispatch({ command: 'view.removeGroup', params: { graphId: 'g0', groupId: outerId } }).ok).toBe(true)
+    expect(store.doc.view.graphs.g0!.groupMembership!.groups).toEqual({})
+    expect(store.doc.view.graphs.g0!.groupMembership!.nodes).toEqual({ a: 'grp0' })
+    expect(store.undo()).toBe(true)
+    expect(store.doc.view.graphs.g0!.groupMembership!.groups).toEqual({ grp0: outerId })
+    expect(store.dispatch({ command: 'view.createGroup', params: { graphId: 'g0', title: 'Inner',
+      bounds: { x: 740, y: 60, width: 240, height: 160 } } }).ok).toBe(true)
+    const innerId = Object.keys(store.doc.view.graphs.g0!.groups!).find((id) => id !== 'grp0' && id !== outerId)!
+    expect(store.doc.view.graphs.g0!.groupMembership!.nodes).toEqual({ a: innerId })
+    expect(store.doc.view.graphs.g0!.groupMembership!.groups).toEqual({ grp0: outerId, [innerId]: outerId })
+    harness.replaceScene(scene())
+    harness.controller.setSelection(['a'], [], [], [outerId, 'grp0'])
+    harness.fire('pointerdown', 1250, 13)
+    harness.fire('pointermove', 1270, 33)
+    harness.fire('pointerup', 1270, 33)
+    expect(store.doc.view.graphs.g0!.nodes.a!.position).toEqual({ x: 780, y: 100 })
+    expect(store.doc.view.graphs.g0!.nodes.b!.position!.x).toBe(1190)
+    expect(store.doc.view.graphs.g0!.groups!.grp0!.bounds.x).toBe(40)
+    expect(store.doc.view.graphs.g0!.groups![innerId]!.bounds.x).toBe(760)
+    expect(store.doc.view.graphs.g0!.groupMembership!.nodes).toEqual({ a: innerId })
+    harness.controller.dispose()
+  })
+
   it('carries contained nodes, reroutes, and boundary pseudo-nodes in one command', () => {
     const scene = interactionScene() as any
     scene.groups = [{ id: 'g', title: 'Group', x: 0, y: 0, width: 500, height: 300 }]
@@ -4603,17 +4819,20 @@ describe('text box height', () => {
 })
 
 describe('moving a member by its grip', () => {
-  const schema = (minMembers = 1): NodeSchema => ({
+  const schema = (minMembers = 1, boxed = false): NodeSchema => ({
     type: 'Stack', displayName: 'Stack', category: 'test', source: 'v3', isOutputNode: false,
     body: [{
       kind: 'group', id: 'loras', displayName: 'LoRAs', reorderable: true,
-      member: [{ kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } }],
+      member: [
+        { kind: 'input', id: 'strength', type: { kind: 'concrete', name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } },
+        ...(boxed ? [{ kind: 'input' as const, id: 'weight', type: { kind: 'concrete' as const, name: 'INT' }, optional: false, widget: { widgetType: 'INT', options: {} } }] : []),
+      ],
       keys: { kind: 'numbered', prefix: 'lora', start: 0, pad: 0 }, grows: 'button', minMembers, maxMembers: 4, addLabel: 'Add LoRA',
     }],
   })
-  const sceneWith = (members: readonly string[], tokens = { ...defaultTokens, memberRemoveCross: true }): Scene => {
+  const sceneWith = (members: readonly string[], tokens = { ...defaultTokens, memberRemoveCross: true }, boxed = false): Scene => {
     const node = { id: asNodeId('n1'), type: 'Stack', values: {}, dynamic: { loras: { members: [...members] } } }
-    const layout = layoutNode(schema(), node, tokens, (value) => value.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
+    const layout = layoutNode(schema(1, boxed), node, tokens, (value) => value.length * 6, () => ({ viewId: 'core.number', rows: 1 }))
     return {
       graphId: 'g',
       nodes: [{ id: 'n1', x: 0, y: 0, layout, node, isSubgraph: false }],
@@ -4650,9 +4869,9 @@ describe('moving a member by its grip', () => {
     expect(gripRows(sceneWith(['lora0']))[0]!.reorder).toMatchObject({ member: 'lora0', alone: true })
   })
 
-  it('removes on a cross click, but not after a drag or at the least count', () => {
-    const scene = sceneWith(['lora0', 'lora1'])
-    const row = gripRows(scene)[1]!
+  it.each([false, true])('removes on a cross click, but not after a drag or at the least count (boxed: %s)', (boxed) => {
+    const scene = sceneWith(['lora0', 'lora1'], undefined, boxed)
+    const row = scene.nodes[0]!.layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'member').find((row) => row.remove?.member === 'lora1')!
     const x = scene.nodes[0]!.layout.width - row.crossInset! - canvasPaintTokens.node.box.cross.size / 2
     const y = row.y + defaultTokens.rowHeight / 2
     const remove = vi.fn()
@@ -4667,8 +4886,8 @@ describe('moving a member by its grip', () => {
     expect(remove).toHaveBeenCalledOnce()
     expect(harness.dispatched).toEqual([])
 
-    const least = sceneWith(['lora0'])
-    const leastRow = gripRows(least)[0]!
+    const least = sceneWith(['lora0'], undefined, boxed)
+    const leastRow = least.nodes[0]!.layout.rows.filter((row) => row.kind === 'widget' || row.kind === 'member').find((row) => row.remove?.member === 'lora0')!
     const disabled = interactionHarness(least, { onMemberRemove: remove })
     const leastX = least.nodes[0]!.layout.width - leastRow.crossInset! - canvasPaintTokens.node.box.cross.size / 2
     const leastY = leastRow.y + defaultTokens.rowHeight / 2

@@ -147,7 +147,6 @@ describe('CollectionPanel folder navigation', () => {
 
   it('updates mounted host chrome without refetching or translating collection data', async () => {
     registerCatalog('de-DE', {
-      'collection.action.confirmDelete': '[Loschen bestatigen]',
       'collection.action.hideRuns': '[Laufe ausblenden]',
       'collection.action.loadMore': '[Mehr laden]',
       'collection.action.removeFilter': '[Filter {filter} entfernen]',
@@ -232,7 +231,7 @@ describe('CollectionPanel folder navigation', () => {
     expect(disclosure.getAttribute('aria-expanded')).toBe('true')
     expect(disclosure.getAttribute('aria-label')).toBe('[1 gruppierte Laufe einklappen]')
     expect(disclosure.textContent).toBe('[Laufe ausblenden]')
-    expect(action.textContent).toBe('[Loschen bestatigen]')
+    expect(action.textContent).toBe('RAW delete action')
     expect(group.getAttribute('aria-selected')).toBe('true')
     expect(root.textContent).toContain('RAW grouped entry')
     expect(root.textContent).toContain('RAW child entry')

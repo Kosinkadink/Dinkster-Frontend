@@ -29,7 +29,7 @@ import {
   sameLineSchema,
   type RowStateExample,
 } from '../../canvas/gallery/row-states.js'
-import { CanvasRowFocus, CanvasRowList, CanvasSidePart, ProductSection } from '../src/index.js'
+import { CanvasRowFocus, CanvasRowFrame, CanvasRowList, CanvasSidePart, ProductSection } from '../src/index.js'
 import { ButtonAskContent, ButtonBoxView } from '../../app/src/ButtonOverlays.js'
 import {
   MARGIN,
@@ -150,7 +150,7 @@ function SceneCard(props: {
           <ButtonBoxView box={props.example.result!} under={box()} testId={props.example.id} />
         )}</Show>
         <Show when={props.example.ask && focusBox()}>{(box) => (
-          <CanvasRowFocus
+          <CanvasRowFrame
             ref={(element) => createEffect(() => {
               element.style.left = `${box().x}px`
               element.style.top = `${box().y}px`

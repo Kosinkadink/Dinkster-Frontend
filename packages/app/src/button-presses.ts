@@ -1,11 +1,13 @@
 import { createSignal } from 'solid-js'
 import {
+  asNodeId,
   buttonAvailability,
   coreCommandRegistry,
   documentNodeResolver,
   documentResolver,
   isAssetWidgetInput,
   normalizeComboOption,
+  occurrenceDynamicView,
   runPress,
   type ActionHost,
   type AskRequest,
@@ -20,10 +22,11 @@ import {
   type PressOutcome,
   type PressTarget,
   type WidgetSpec,
-  type WorkflowDocument,
 } from '@dinkster/core'
 import type { LookupCall, LookupEntry } from '@dinkster/client'
+import { buildScene, defaultTokens, linkBounds, type Scene } from '@dinkster/canvas'
 import type { AppState, Tab } from './app-state.js'
+import { canvasMeasures } from './canvas-measures.js'
 import { pastedImageName, readClipboardImage } from './clipboard-image.js'
 import { desktopSaveBridge } from './desktop-bridge.js'
 
@@ -66,6 +69,8 @@ export interface LocalEditRequest {
 
 /** The surfaces a press opens at its button; each settles undefined when the user closes it. */
 export interface ButtonSurfaces {
+  /** Include the tab's visible preview/text body regions in a staged measurement scene. */
+  projectScene?(place: ButtonPlace, scene: Scene): Scene
   edit(request: LocalEditRequest, signal: AbortSignal): Promise<Json | undefined>
   ask(place: ButtonPlace, request: AskRequest, signal: AbortSignal): Promise<Readonly<Record<string, Json>> | undefined>
   /** Shows a field-built address before its tab opens. */
@@ -81,6 +86,7 @@ const targetOf = (place: ButtonPlace): PressTarget => ({
   nodeId: place.nodeId,
   button: place.button,
   ...(place.menu ? { menu: true } : {}),
+  ...(place.instancePath ? { instancePath: place.instancePath } : {}),
   ...(place.instancePath?.length ? { occurrence: [...place.instancePath, place.nodeId].join('/') } : {}),
 })
 
@@ -113,28 +119,26 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     node: request.node,
     function: request.function,
     args: request.args,
+    typedArgs: true,
   })
 
   /** The backend's one lookup client; it follows the schema epoch the backend holds. */
   const lookupsOf = (tab: Tab) => app.backendForTab(tab).lookups
 
   /** What `buttonAvailability` reads; cheap enough for every repaint and hover. */
-  const lookOf = (place: ButtonPlace): Pick<ActionHost, 'schemaOf' | 'editorFor'> => {
+  const lookOf = (place: ButtonPlace): Pick<ActionHost, 'schemaOf' | 'schemaResolverFor' | 'editorFor'> => {
     const { tab } = place
     const resolve = resolverOf(tab)
     const editorFor = (field: ElaboratedInput) => {
       const spec = field.spec.widget
       if (spec === undefined || NO_HOST_EDITOR.has(spec.widgetType) || isAssetWidgetInput(field.spec)) return undefined
       if (app.widgetRegistryForTab(tab).kind(spec.widgetType) === undefined) return undefined
-      return (signal: AbortSignal) => surfaces.edit({
-        place,
-        label: field.spec.displayName ?? field.spec.id,
-        spec,
-        initial: tab.store.doc.graphs[place.graphId]?.nodes[place.nodeId]?.values[field.spec.id],
-      }, signal)
+      return (signal: AbortSignal, initial: Json | undefined) =>
+        surfaces.edit({ place, label: field.spec.displayName ?? field.spec.id, spec, initial }, signal)
     }
     return {
       schemaOf: (doc, graphId, node) => documentNodeResolver(doc, resolve)(graphId, node, place.instancePath as readonly NodeId[] | undefined),
+      schemaResolverFor: (doc) => documentResolver(doc, resolve),
       editorFor,
     }
   }
@@ -146,7 +150,50 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
     return {
       ...lookOf(place),
       commands: coreCommandRegistry([], resolve),
-      schemaResolverFor: (doc: WorkflowDocument) => documentResolver(doc, resolve),
+      positionAddedNode(doc, target, node, to, source) {
+        const graph = doc.graphs[target.graphId]!
+        const measuring = { ...doc, graphs: { ...doc.graphs, [target.graphId]: { ...graph, nodes: { ...graph.nodes, [node.id]: node } } } }
+        const resolver = documentResolver(measuring, resolve)
+        const measures = canvasMeasures(() => app.widgetRegistryForTab(tab))
+        const path = target.instancePath ?? []
+        const measured = buildScene({ document: measuring, graphId: target.graphId, resolve: resolver,
+          tokens: defaultTokens, ...measures,
+          occurrenceView: occurrenceDynamicView(measuring, resolver, path, path.length === 0 ? target.graphId : doc.root),
+          ...(path.length === 0 ? {} : { occurrence: {
+            owner: { instancePath: path.slice(0, -1).map(asNodeId), node: asNodeId(path.at(-1)!) }, plannerAvailable: true,
+          } }),
+        })
+        const scene = surfaces.projectScene?.(place, measured) ?? measured
+        const destination = scene.nodes.find((item) => item.id === target.nodeId)!
+        const layout = scene.nodes.find((item) => item.id === node.id)!.layout
+        const gap = defaultTokens.rowHeight * 2
+        const driver = source === undefined ? undefined : scene.links.find((link) =>
+          link.to.kind === 'port' && link.to.node === target.nodeId && link.to.port === to)
+        let x = destination.x - layout.width - gap
+        const obstacles = [...scene.nodes.filter((item) => item.id !== node.id), ...scene.boundaryNodes].map((item) => ({
+          x: item.x, y: item.y, width: item.layout.width, height: item.layout.height,
+        }))
+        for (const link of scene.links) {
+          // The old delivery is replaced by the insertion, not an obstacle.
+          if (link.hidden || (link.to.kind === 'port' && link.to.node === target.nodeId && link.to.port === to)) continue
+          const bounds = linkBounds(link.x1, link.y1, link.x2, link.y2)
+          obstacles.push({ x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY })
+        }
+        const clear = (y: number): boolean => !obstacles.some((item) => x < item.x + item.width + gap && x + layout.width + gap > item.x &&
+            y < item.y + item.height + gap && y + layout.height + gap > item.y)
+        if ((driver === undefined || x >= driver.x1 + gap) && clear(destination.y)) return { x, y: destination.y }
+        // Existing positions belong to every use of the definition. Only the
+        // new node moves to a clear lane when the horizontal gap is too small.
+        if (driver !== undefined) x = driver.x1 + gap
+        const targetY = destination.y + (destination.layout.pins.find((pin) => pin.direction === 'in' && pin.portId === to)?.y ?? 0)
+        const wiredInputs = new Map(scene.links.flatMap((link) => !link.hidden && link.to.kind === 'port' && link.to.node === target.nodeId && link.to.port !== to
+          ? [[link.to.port, link.y2] as const] : []))
+        const crossings = (y: number): number => [...wiredInputs.values()].filter((inputY) =>
+          inputY > Math.min(y + layout.height / 2, targetY) && inputY < Math.max(y + layout.height / 2, targetY)).length
+        const candidates = obstacles.flatMap((item) => [item.y - layout.height - gap, item.y + item.height + gap])
+          .sort((a, b) => crossings(a) - crossings(b) || Math.abs(a - destination.y) - Math.abs(b - destination.y) || b - a)
+        return { x, y: candidates.find(clear)! }
+      },
       async lookup(request, signal): Promise<LookupResult> {
         const lookups = lookupsOf(tab)
         if (request.use === 'value') return lookups.resolve(lookupCall(request), 'value', { signal })
@@ -219,8 +266,24 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
         }
         if (address.protocol !== 'https:' && address.protocol !== 'http:') throw new Error('Only web addresses open in a new tab.')
         if (confirm && !await surfaces.confirmLink(place, address.href, signal)) throw new Error('The link was not opened.')
-        // With noopener the browser answers null whether or not the tab opened, so a block cannot be told.
-        window.open(address.href, '_blank', 'noopener,noreferrer')
+        // A blank same-origin tab gives an observable refusal. Sever its opener
+        // before navigating, and suppress the referrer on that navigation.
+        const opened = window.open('about:blank', '_blank')
+        if (opened === null) throw new Error('The browser blocked the new tab.')
+        try {
+          opened.opener = null
+          const link = opened.document.createElement('a')
+          link.href = address.href
+          link.rel = 'noreferrer noopener'
+          link.referrerPolicy = 'no-referrer'
+          link.target = '_self'
+          opened.document.body.append(link)
+          link.click()
+          link.remove()
+        } catch (error) {
+          opened.close()
+          throw error
+        }
       },
       random: Math.random,
     }
@@ -282,10 +345,15 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
       update(key, { place })
       const store = place.tab.store
       try {
+        const backend = app.backendForTab(place.tab)
+        const registry = app.registryForTab(place.tab)
+        const schemaState = backend.schemaState.get()
         const outcome = await runPress(store, targetOf(place), hostFor(place), {
           signal: controller.signal,
           onProgress: (progress) => update(key, progress === undefined ? { place } : { place, busy: progress.text }),
-          stillCurrent: () => app.tabs.get().some((tab) => tab.store === store),
+          stillCurrent: () => app.tabs.get().includes(place.tab) && place.tab.store === store &&
+            app.backendForTab(place.tab) === backend && app.registryForTab(place.tab) === registry &&
+            backend.schemaState.get() === schemaState,
         })
         report(place, outcome)
       } catch (error) {
@@ -300,9 +368,9 @@ export function createButtonPresses(app: AppState, surfaces: ButtonSurfaces) {
       running.get(buttonKey(place))?.abort()
     },
     /** The next click clears every result box. */
-    dismissBoxes(): void {
-      if ([...states().values()].some((state) => state.box !== undefined)) {
-        setStates(new Map([...states()].filter(([, state]) => state.box === undefined)))
+    dismissBoxes(shown: readonly ButtonState[] = [...states().values()]): void {
+      if (shown.some((state) => state.box !== undefined)) {
+        setStates(new Map([...states()].filter(([, state]) => state.box === undefined || !shown.includes(state))))
       }
     },
   }

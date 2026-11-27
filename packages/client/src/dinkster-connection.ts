@@ -3708,7 +3708,7 @@ export class DinksterConnection {
     const res = await this.fetchFn(`${this.baseUrl}/api/models/locations/${encodeURIComponent(location)}/projects/${encodeURIComponent(this.project ?? 'default')}`, {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled }),
     })
-    if (!res.ok) throw new Error(`PUT model project folder failed: ${res.status}`)
+    if (!res.ok) throw new Error(`The library did not answer (${res.status}).`)
     return decodeModelSettingsState(await res.json())
   }
 
@@ -3854,7 +3854,7 @@ export class DinksterConnection {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mounts, outputMount }),
     })
-    if (!res.ok) throw new Error(`PUT project folders failed: ${res.status}`)
+    if (!res.ok) throw new Error(`The library did not answer (${res.status}).`)
   }
 
   async retryMount(id: string): Promise<void> {
@@ -4470,7 +4470,7 @@ export class DinksterConnection {
     )
     if (res.status === 204) return true
     if (res.status === 404) return false
-    throw new Error(`DELETE /api/history/${runId} failed: ${res.status}`)
+    throw new Error(`The engine did not answer (${res.status}).`)
   }
 
   /**

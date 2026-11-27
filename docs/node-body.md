@@ -354,11 +354,14 @@ undo step.
   right end. A working button is not pressed a second time.
 - **Result.** A press that skipped something, left a note or failed leaves a
   box under the button's line until the next click, with a circled i or, for a
-  failure, a warning triangle; the same line goes in the activity log. A press
-  where every step did its work leaves no box.
+  failure, a warning triangle. It takes space inside the node and moves later
+  rows and pins down; a menu button's box stays under the node. The same line
+  goes in the activity log. A press where every step did its work leaves no box.
 - **Waits.** A field the user edits while the press waits keeps the user's
   value and is reported; a target that gained a wire is skipped and reported.
-  A press whose node or document is gone writes nowhere.
+  A needed member, group or option that is gone fails the whole press, even
+  when removing it also deleted a saved value. A press whose node or
+  document is gone writes nowhere.
 - **Pick** opens the ordinary choice list at the button. A lookup's stale
   list can be picked from, with Try again; a failed or empty one offers
   nothing. **Ask** opens a form beside the node with the ordinary field
@@ -367,8 +370,20 @@ undo step.
 - **Menu buttons** (`NodeSchema.menu`) come first in the node's context menu
   and run the same way; an off one is dimmed with its reason beside it.
 - **Open link** shows an address built from fields before it opens the tab.
-- **Subgraphs.** A button inside a subgraph works there and writes that
-  instance. A subgraph node does not show its inner buttons yet: a shown
+- **Subgraphs.** A button writes a field where a hand edit writes it.
+  Promoted fields belong to that use; other fields belong to the shared
+  subgraph and change in every use. With two uses, the result says
+  `Also changed in the other use of "<subgraph name>".` With more, it says
+  `Also changed in the other N uses of "<subgraph name>".`, counting only the
+  other uses; with one use or no shared value left changed, it says nothing.
+  AddNode adds its node and wires to the shared definition, so every use
+  gets the same insertion. It skips a field whose effective driver in the
+  pressing use is not a definition wire. It never makes an instance unique.
+  With two uses, its result says `Also added in the other use of "<subgraph name>".`
+  With more, it says `Also added in the other N uses of "<subgraph name>".`,
+  counting only the other uses; with one use, it says nothing.
+  When a press does both, the AddNode sentence comes first.
+  A subgraph node does not show its inner buttons yet: a shown
   button needs a place among the node's rows, which the boundary's ordered
   body will give it (comfy-vibe-station#1229 comment 7094212597).
 

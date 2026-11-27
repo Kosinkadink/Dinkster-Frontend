@@ -8,6 +8,10 @@
 import {
   asNodeId,
   asPortId,
+  belongsToGroup,
+  initialGroupMembership,
+  type GroupMembership,
+  type GroupItemGeometry,
   boundaryBindingKey,
   buildBypassCandidates,
   buildGraphConnectivity,
@@ -103,6 +107,7 @@ interface PositionedSceneCacheEntry {
   readonly documentExt: WorkflowDocument['ext']
   readonly view: WorkflowDocument['view']['graphs'][string]
   readonly seedControllerEnabled: boolean | undefined
+  readonly buttonNoticeHeights: BuildSceneInput['buttonNoticeHeights']
   readonly tokens: DesignTokens
   readonly measure: TextMeasurer
   readonly widgetMeasure: WidgetMeasure
@@ -504,11 +509,7 @@ export const NET_STUB_PAD_X = canvasPaintTokens.net.paddingX
 export const netStubId = (netId: string, role: 'source' | 'sink', ref: PortRef): string =>
   JSON.stringify(['netView', netId, role, ref.node, ref.port])
 
-/**
- * A visual group rectangle (view state passed through verbatim). Groups have
- * NO stored membership: which nodes a group carries is derived spatially at
- * interaction time via `nodesInGroup`.
- */
+/** A visual group rectangle, separate from its persisted membership. */
 export interface SceneGroup {
   readonly id: string
   readonly title: string
@@ -529,6 +530,7 @@ export interface Scene {
   readonly reroutes: readonly SceneReroute[]
   readonly netStubs: readonly SceneNetStub[]
   readonly groups: readonly SceneGroup[]
+  readonly groupMembership?: GroupMembership
   /** Boundary pseudo-nodes (subgraph definitions only; empty elsewhere). */
   readonly boundaryNodes: readonly SceneBoundaryNode[]
   /**
@@ -541,39 +543,42 @@ export interface Scene {
   readonly occurrence?: { readonly owner: OccurrenceRef; readonly bodyGraph: GraphDefId }
 }
 
-/**
- * Node ids a group carries: node CENTER inside the group bounds. Derived at
- * interaction time (drag start), never stored, so membership can never go
- * stale. Boundary pseudo-nodes use the same center rule.
- */
-export function nodesInGroup(scene: Scene, group: SceneGroup): string[] {
-  const out: string[] = []
-  for (const node of scene.nodes) {
-    const cx = node.x + node.layout.width / 2
-    const cy = node.y + node.layout.height / 2
-    if (cx >= group.x && cx <= group.x + group.width && cy >= group.y && cy <= group.y + group.height) {
-      out.push(node.id)
-    }
-  }
-  return out
+/** Full rendered bounds used when creating a group or explicitly dropping an item. */
+export function groupItemGeometry(scene: Scene): GroupItemGeometry[] {
+  return [
+    ...scene.nodes.map((node) => ({ kind: 'nodes' as const, id: node.id, x: node.x, y: node.y, width: node.layout.width, height: node.layout.height })),
+    ...scene.reroutes.map((item) => ({ kind: 'reroutes' as const, id: item.id, x: item.x, y: item.y, width: 0, height: 0 })),
+    ...scene.boundaryNodes.map((node) => ({ kind: 'boundary' as const, id: node.side, x: node.x, y: node.y, width: node.layout.width, height: node.layout.height })),
+    ...scene.groups.map((group) => ({ kind: 'groups' as const, ...group })),
+  ]
 }
 
-/** Reroute ids a group carries: the junction point is inside its bounds. */
+const membershipOf = (scene: Scene): GroupMembership => scene.groupMembership ?? initialGroupMembership(groupItemGeometry(scene))
+
+/** Persisted descendants, not nodes a moving group happens to cover. */
+export function nodesInGroup(scene: Scene, group: SceneGroup): string[] {
+  const membership = membershipOf(scene)
+  return scene.nodes.filter((node) => belongsToGroup(membership, 'nodes', node.id, group.id)).map((node) => node.id)
+}
+
+/** Persisted descendant reroutes. */
 export function reroutesInGroup(scene: Scene, group: SceneGroup): string[] {
+  const membership = membershipOf(scene)
   return scene.reroutes
-    .filter((r) => r.x >= group.x && r.x <= group.x + group.width && r.y >= group.y && r.y <= group.y + group.height)
+    .filter((r) => belongsToGroup(membership, 'reroutes', r.id, group.id))
     .map((r) => r.id)
 }
 
+export function groupsInGroup(scene: Scene, group: SceneGroup): string[] {
+  const membership = membershipOf(scene)
+  return scene.groups.filter((item) => belongsToGroup(membership, 'groups', item.id, group.id)).map((item) => item.id)
+}
 
-/** Boundary pseudo-node sides a group carries, using the node-center rule. */
+/** Persisted descendant boundary panels. */
 export function boundaryNodesInGroup(scene: Scene, group: SceneGroup): Array<'inputs' | 'outputs'> {
+  const membership = membershipOf(scene)
   return scene.boundaryNodes
-    .filter((node) => {
-      const cx = node.x + node.layout.width / 2
-      const cy = node.y + node.layout.height / 2
-      return cx >= group.x && cx <= group.x + group.width && cy >= group.y && cy <= group.y + group.height
-    })
+    .filter((node) => belongsToGroup(membership, 'boundary', node.side, group.id))
     .map((node) => node.side)
 }
 
@@ -737,6 +742,8 @@ export interface BuildSceneInput {
   readonly seedControllerEnabled?: boolean
   /** What the editor holds for lookup calls; absent where lookups are off (frozen views, previews). */
   readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
+  /** Ephemeral measured result boxes, by visible node and elaborated button id. */
+  readonly buttonNoticeHeights?: Readonly<Record<string, Readonly<Record<string, number>>>>
   /** Graph definition to render (the root, or a subgraph being edited). */
   readonly graphId: string
   readonly resolve: SchemaResolver
@@ -997,6 +1004,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       positioned?.graph === def && graphMatchesSnapshot(positioned.graphSnapshot, def) &&
       positioned.graphs === input.document.graphs && positioned.documentExt === input.document.ext &&
       positioned.seedControllerEnabled === input.seedControllerEnabled &&
+      positioned.buttonNoticeHeights === input.buttonNoticeHeights &&
       positioned.tokens === input.tokens && positioned.measure === input.measure && positioned.widgetMeasure === input.widgetMeasure &&
       positioned.generation === input.layoutGeneration && positioned.editorControls === input.editorControls &&
       positioned.fieldStatus === input.fieldStatus && onlyNodePositionsChanged(positioned.view, view)) {
@@ -1058,6 +1066,16 @@ export function buildScene(input: BuildSceneInput): Scene {
   // section must keep its pin so the boundary noodle never dangles. Family
   // forwarding has no single pin; its noodle anchors dynamically below.
   // Concrete occurrences use only their unsuppressed effective deliveries.
+  const wirelessByNode = new Map<string, Set<string>>()
+  for (const item of def.boundary ? boundaryItems(def.boundary, 'inputs') : []) {
+    if (item.wireHidden !== true) continue
+    for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+      if (binding.kind !== 'port') continue
+      let ports = wirelessByNode.get(binding.node)
+      if (!ports) wirelessByNode.set(binding.node, (ports = new Set()))
+      ports.add(binding.port)
+    }
+  }
   if (def.boundary && effective === undefined) {
     for (const item of boundaryItems(def.boundary, 'inputs')) {
       for (const b of [item.binds, ...(item.alsoBinds ?? [])]) {
@@ -1230,6 +1248,9 @@ export function buildScene(input: BuildSceneInput): Scene {
     const sectionOverrides = view?.sections
       ? Object.fromEntries(Object.entries(view.sections).map(([id, s]) => [id, s.collapsed]))
       : undefined
+    const lineFolds = view?.lines
+      ? Object.fromEntries(Object.entries(view.lines).map(([id, line]) => [id, line.folded]))
+      : undefined
     const occurrenceDynamic = input.occurrenceView?.dynamic.get(node.id)
     const occurrenceValues = input.occurrenceView?.values?.get(node.id)
     const occurrenceControllers = input.occurrenceView?.controllers?.get(node.id)
@@ -1257,6 +1278,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(view?.collapsed === true ? { minimized: true as const } : {}),
           ...(view?.size ? { size: view.size } : {}),
           ...(sectionOverrides ? { sectionOverrides } : {}),
+          ...(lineFolds ? { lineFolds } : {}),
           ...(view?.views ? { widgetRepresentations: view.views } : {}),
           ...(view?.textLines ? { textBoxLines: view.textLines } : {}),
           ...(view?.editors
@@ -1266,7 +1288,9 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(input.editorControls?.[node.id] === undefined ? {} : { editorControls: input.editorControls[node.id]! }),
           ...(input.fieldStatus?.[node.id] === undefined ? {} : { fieldStatus: input.fieldStatus[node.id]! }),
           ...(view?.histogramVisibility ? { histogramVisibility: view.histogramVisibility } : {}),
+          ...(input.buttonNoticeHeights?.[node.id] === undefined ? {} : { buttonNoticeHeights: input.buttonNoticeHeights[node.id] }),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
+          ...(wirelessByNode.has(node.id) ? { wirelessInputs: wirelessByNode.get(node.id)! } : {}),
           ...(elaborated !== undefined ? { elaborated } : {}),
         })
       : missingLayout(
@@ -2031,7 +2055,16 @@ export function buildScene(input: BuildSceneInput): Scene {
       bindings.forEach((b, i) => {
         const projected = projectedAnchors('in', item, b)
         const fallback = innerAnchor(b, 'in')
-        const targets = projected.length > 0 ? projected : fallback === undefined ? [] : [{ anchor: fallback, identities: [] }]
+        // A local driver replaces the boundary value in this occurrence.
+        // Its declaration binding is not a second delivery to draw.
+        const locallyDriven = effective?.links.some((link) => {
+          if (link.to.graphId !== def.id || fallback === undefined) return false
+          const to = link.to.endpoint
+          return fallback.end.kind === 'reroute'
+            ? isRerouteRef(to) && to.reroute === fallback.end.reroute
+            : fallback.end.kind === 'port' && isPortEndpoint(to) && to.node === fallback.end.node && to.port === fallback.end.port
+        }) === true
+        const targets = projected.length > 0 ? projected : fallback === undefined || locallyDriven ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,
@@ -2105,6 +2138,7 @@ export function buildScene(input: BuildSceneInput): Scene {
 
   const result: Scene = {
     graphId: input.graphId, nodes, links, reroutes, netStubs, groups, boundaryNodes,
+    ...(graphView?.groupMembership === undefined ? {} : { groupMembership: graphView.groupMembership }),
     diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...automaticDiagnostics],
     ...(input.occurrence !== undefined ? { occurrence: { owner: input.occurrence.owner, bodyGraph: def.id } } : {}),
   }
@@ -2119,6 +2153,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         nodes: Object.fromEntries(Object.entries(view.nodes).map(([id, node]) => [id, { ...node }])),
       },
       seedControllerEnabled: input.seedControllerEnabled,
+      buttonNoticeHeights: input.buttonNoticeHeights,
       tokens: input.tokens,
       measure: input.measure,
       widgetMeasure: input.widgetMeasure,

@@ -3,11 +3,11 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, DIM_FILL_SHARE, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
-  detailMinScale: 0.5,
+  detailMinScale: 0.3,
   imageOpacityScale: IMAGE_OPACITY_MAX,
   editor: {
     imageCompare: { initialSplit: 50, percentScale: 100, dividerColor: '#ffffff', dividerWidth: 2 },
@@ -181,6 +181,28 @@ export const canvasPaintTokens = {
     drop: { outset: 2, opacity: 0.65, stroke: 1.5 },
     scope: { outset: 5, stroke: 2.5, minScreenStroke: 2 },
     progress: { height: 3, minScreenHeight: 1.5 },
+    /** An unfolded field line's rail and a folded line's pin list. */
+    line: {
+      railReserve: 12,
+      railOverhang: 1,
+      railWidth: 11,
+      railRadius: 3,
+      chevron: { top: 3, width: 5, height: 2.5, stroke: 1.5 },
+      railLineTop: 13,
+      railLineBottom: 3,
+      list: {
+        gap: 10,
+        rowHeight: semanticDesignTokens.interaction.canvasInputHeight + 2,
+        padY: canvasSemanticTokens.space[4],
+        padX: canvasSemanticTokens.space[4] * 1.5 + 1,
+        pinSize: canvasSemanticTokens.space[12],
+        labelGap: canvasSemanticTokens.space[4],
+        radius: canvasSemanticTokens.shape.small,
+        fontSize: semanticDesignTokens.type.canvas.fontSize,
+        stroke: canvasSemanticTokens.interaction.indicatorWidth,
+        separatorStroke: 1,
+      },
+    },
     /**
      * The space an editor shown in the node takes under its editor button
      * row when unfolded: a padded picture, then rows of its own controls.
@@ -724,10 +746,10 @@ export const IN_NODE_EDITORS: Readonly<Record<string, {
   'core.audioRecord': { controlRows: 5 },
   // Start camera or Capture frame and Stop; the stored frame's line.
   'core.webcam': { picture: 180, controlRows: 2 },
-  // Camera projection, Field of view, then Model placement and Animation closed.
+  // Camera projection, Field of view, Model placement and Animation closed, then room for a problem note.
   'core.load3d': {
     picture: 200,
-    controlRows: 4,
+    controlRows: 5,
     // Model position, rotation and scale; Animation clip, its time, its speed, Play.
     sections: [{ id: 'placement', rows: 3 }, { id: 'animation', rows: 4 }],
   },
@@ -747,9 +769,9 @@ export const CANVAS_DETAIL_MIN_SCALE = canvasPaintTokens.detailMinScale
 /** Typed presentation density derived from the two shared Canvas thresholds. */
 export type CanvasDetailLevel = 'overview' | 'content' | 'controls'
 
-export function canvasDetailLevel(scale: number, mediaControlMinScale: number): CanvasDetailLevel {
+export function canvasDetailLevel(scale: number, mediaControlMinScale: number, detailMinScale: number = CANVAS_DETAIL_MIN_SCALE): CanvasDetailLevel {
   if (scale >= mediaControlMinScale) return 'controls'
-  return scale >= CANVAS_DETAIL_MIN_SCALE ? 'content' : 'overview'
+  return scale >= detailMinScale ? 'content' : 'overview'
 }
 
 export type NodeLook = 'original' | 'flat-title'
@@ -796,6 +818,7 @@ export interface DesignTokens {
   readonly previewCaptionHeight: number
   readonly previewGap: number
   readonly mediaTransportHeight: number
+  readonly detailMinScale: number
   readonly mediaControlMinScale: number
   readonly nodeMinWidth: number
   readonly nodeMaxAutoWidth: number
@@ -909,6 +932,8 @@ export interface DesignTokens {
     /** A box's outline, and the outline of a box inside a box. */
     readonly boxOutline: string
     readonly boxInnerOutline: string
+    /** The shared canvas choice list's outer frame. */
+    readonly listOutline: string
     /** A box's header or closed row under the pointer. */
     readonly boxHover: string
     /** A box's member or row count. */
@@ -1009,6 +1034,7 @@ export const defaultTokens: DesignTokens = {
   previewCaptionHeight: 22,
   previewGap: 6,
   mediaTransportHeight: 64,
+  detailMinScale: CANVAS_DETAIL_MIN_SCALE,
   mediaControlMinScale: 0.75,
   nodeMinWidth: 140,
   nodeMaxAutoWidth: 420,
@@ -1144,6 +1170,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     warningMark: tokens.meaning.warning.border,
     boxOutline: tokens.border.box,
     boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
+    listOutline: tokens.meaning.accent.restBorder,
     boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,
     boxCount: tokens.text.muted,
     boxChanged: tokens.meaning.accent.border,

@@ -45,6 +45,9 @@
 
 import {
   canonicalTypeIdOf,
+  belongsToGroup,
+  containingGroup,
+  initialGroupMembership,
   groupBoxKey,
   hasKnownLinkDropAnchorType,
   dragNumericValue,
@@ -93,6 +96,8 @@ import {
   boundarySceneId,
   boundaryNodesInGroup,
   nodesInGroup,
+  groupsInGroup,
+  groupItemGeometry,
   reroutesInGroup,
   sceneEndId,
   previewFoldedOf,
@@ -717,6 +722,7 @@ type Gesture =
   /** A press on a title-bar control: the minimize arrow, or the title mark when `badge` is set. */
   | { readonly kind: 'title-press'; readonly node: SceneNode; readonly badge?: BadgeHit; readonly startWX: number; readonly startWY: number }
   | { readonly kind: 'section'; readonly hit: Extract<Hit, { kind: 'section' }>; moved: boolean }
+  | { readonly kind: 'line'; readonly hit: Extract<Hit, { kind: 'line' }>; moved: boolean }
   | { readonly kind: 'preview-caption'; readonly node: SceneNode; moved: boolean }
   | { readonly kind: 'growth'; readonly hit: Extract<Hit, { kind: 'growth' }>; moved: boolean }
   /** A member dragged by its grip; `index` is where a release puts it in the stored order. */
@@ -753,9 +759,10 @@ type Gesture =
   | {
       readonly kind: 'group'
       readonly groupId: string
-      /** Spatial membership captured at drag START; the drag carries these. */
+      /** Persisted descendants captured at drag start. */
       readonly memberIds: readonly string[]
       readonly rerouteIds: readonly string[]
+      readonly groupIds: readonly string[]
       readonly boundarySides: readonly ('inputs' | 'outputs')[]
       readonly startWX: number
       readonly startWY: number
@@ -879,6 +886,7 @@ export class InteractionController {
   private hoveredBadge: { readonly nodeId: string; readonly badgeId: string } | undefined
   private hoveredBoxNode: string | undefined
   private hoveredBoxId: string | undefined
+  private hoveredLine: { readonly nodeId: string; readonly key: string } | undefined
   private hoveredGrip: { readonly nodeId: string; readonly construct: string; readonly member: string } | undefined
   private hoveredButton: { readonly nodeId: string; readonly key: string } | undefined
   private hoveredToolboxButton: string | undefined
@@ -1169,7 +1177,7 @@ export class InteractionController {
       // hover on every replacement, even when an identity happens to recur.
       const staleAffordance = this.hoveredPinNode !== undefined || this.hoveredWidgetNode !== undefined ||
         this.hoveredMinimize !== undefined || this.hoveredBadge !== undefined ||
-        this.hoveredBoxNode !== undefined || this.hoveredGrip !== undefined || this.hoveredButton !== undefined
+        this.hoveredBoxNode !== undefined || this.hoveredLine !== undefined || this.hoveredGrip !== undefined || this.hoveredButton !== undefined
       if (staleNode) {
         this.hoveredNode = undefined
         this.host.onNodeHover?.(undefined)
@@ -1212,6 +1220,7 @@ export class InteractionController {
         this.pushOverlay({
           ...(live.marquee !== undefined ? { marquee: live.marquee } : {}),
           ...(live.dragOffsets !== undefined ? { dragOffsets: live.dragOffsets } : {}),
+          ...(live.receivingGroups !== undefined ? { receivingGroups: live.receivingGroups } : {}),
           ...(live.resizePreview !== undefined ? { resizePreview: live.resizePreview } : {}),
           ...(live.groupDragOffset !== undefined ? { groupDragOffset: live.groupDragOffset } : {}),
           ...(live.groupResizeGhost !== undefined ? { groupResizeGhost: live.groupResizeGhost } : {}),
@@ -1606,12 +1615,15 @@ export class InteractionController {
     startWX: number,
     startWY: number,
   ): Extract<Gesture, { kind: 'node' }> {
+    const groups = scene.groups.filter((group) => this.groupSelection.has(group.id))
+    const descendants = <T>(own: Iterable<T>, members: (group: (typeof groups)[number]) => readonly T[]): T[] =>
+      [...new Set([...own, ...groups.flatMap(members)])]
     return {
       kind: 'node',
-      nodeIds: scene.nodes.filter((node) => this.selection.has(node.id)).map((node) => node.id),
-      rerouteIds: [...this.rerouteSelection],
-      boundarySides: scene.boundaryNodes.filter((node) => this.selection.has(boundarySceneId(node.side))).map((node) => node.side),
-      groupIds: [...this.groupSelection],
+      nodeIds: descendants(scene.nodes.filter((node) => this.selection.has(node.id)).map((node) => node.id), (group) => nodesInGroup(scene, group)),
+      rerouteIds: descendants(this.rerouteSelection, (group) => reroutesInGroup(scene, group)),
+      boundarySides: descendants(scene.boundaryNodes.filter((node) => this.selection.has(boundarySceneId(node.side))).map((node) => node.side), (group) => boundaryNodesInGroup(scene, group)),
+      groupIds: descendants(this.groupSelection, (group) => groupsInGroup(scene, group)),
       netViewIds: [...this.netViewSelection],
       startWX,
       startWY,
@@ -1812,6 +1824,9 @@ export class InteractionController {
       }
       case 'section':
         this.gesture = { kind: 'section', hit, moved: false }
+        return
+      case 'line':
+        this.gesture = { kind: 'line', hit, moved: false }
         return
       case 'preview-caption':
         this.gesture = { kind: 'preview-caption', node: hit.node, moved: false }
@@ -2016,13 +2031,13 @@ export class InteractionController {
           this.pushOverlay()
           return
         }
-        // Drag moves the rectangle plus the nodes spatially inside it right
-        // now; membership is captured once, at gesture start.
+        // Moving the rectangle carries persisted descendants, not covered items.
         this.gesture = {
           kind: 'group',
           groupId: hit.group.id,
           memberIds: nodesInGroup(scene, hit.group),
           rerouteIds: reroutesInGroup(scene, hit.group),
+          groupIds: groupsInGroup(scene, hit.group),
           boundarySides: boundaryNodesInGroup(scene, hit.group),
           startWX: w.x,
           startWY: w.y,
@@ -2841,7 +2856,7 @@ export class InteractionController {
   private nodeOfBodyHit(hit: Hit): SceneNode | undefined {
     if (hit.kind === 'widget' && hit.bnode !== undefined) return undefined
     return hit.kind === 'body' || hit.kind === 'header' || hit.kind === 'widget' ||
-      hit.kind === 'section' || hit.kind === 'growth' || hit.kind === 'button' || hit.kind === 'resize' || hit.kind === 'text-box-edge' ||
+      hit.kind === 'section' || hit.kind === 'line' || hit.kind === 'growth' || hit.kind === 'button' || hit.kind === 'resize' || hit.kind === 'text-box-edge' ||
       hit.kind === 'preview-caption'
       ? hit.node
       : undefined
@@ -3100,6 +3115,7 @@ export class InteractionController {
         ? 'nwse-resize'
         : 'nesw-resize'
       : hit?.kind === 'text-box-edge' ? 'ns-resize'
+      : hit?.kind === 'line' ? 'pointer'
       : hit?.kind === 'grip' && hit.grip.alone !== true ? 'grab' : ''
     const controllerChip = hit?.kind === 'widget' && hit.row.controllerMode !== undefined
       && this.controllerChipContains(hit)
@@ -3184,7 +3200,19 @@ export class InteractionController {
         const dy = w.y - g.startWY
         const ids = [...g.nodeIds, ...g.rerouteIds, ...g.boundarySides.map(boundarySceneId), ...g.groupIds, ...g.netViewIds]
         const offsets = new Map(ids.map((id) => [id, { dx, dy }]))
-        this.pushOverlay({ dragOffsets: offsets })
+        const scene = this.renderer.getScene()
+        const geometry = groupItemGeometry(scene)
+        const membership = scene.groupMembership ?? initialGroupMembership(geometry)
+        const snap = (v: number) => Math.round(v * 100) / 100
+        const preview = geometry.map((item) => (item.kind === 'nodes' && g.nodeIds.includes(item.id)) || (item.kind === 'groups' && g.groupIds.includes(item.id))
+          ? { ...item, x: snap(item.x + dx), y: snap(item.y + dy) } : item)
+        const receivingGroups = new Set(preview.flatMap((item) => {
+          if (item.kind !== 'nodes' || !g.nodeIds.includes(item.id) ||
+            g.groupIds.some((group) => belongsToGroup(membership, 'nodes', item.id, group))) return []
+          const parent = containingGroup(item, preview, membership)
+          return parent === undefined ? [] : [parent]
+        }))
+        this.pushOverlay({ dragOffsets: offsets, receivingGroups })
         return
       }
       case 'reroute-move': {
@@ -3298,6 +3326,7 @@ export class InteractionController {
       case 'widget-affordance':
       case 'preview-affordance':
       case 'section':
+      case 'line':
       case 'preview-caption':
         if (passed) g.moved = true
         return
@@ -3363,6 +3392,7 @@ export class InteractionController {
           dragOffsets: new Map([
             ...g.memberIds.map((id) => [id, { dx, dy }] as const),
             ...g.rerouteIds.map((id) => [id, { dx, dy }] as const),
+            ...g.groupIds.map((id) => [id, { dx, dy }] as const),
             ...g.boundarySides.map((side) => [boundarySceneId(side), { dx, dy }] as const),
           ]),
           groupDragOffset: { groupId: g.groupId, dx, dy },
@@ -3592,6 +3622,13 @@ export class InteractionController {
           })
         }
         return
+      case 'line':
+        this.pushOverlay()
+        if (!g.moved) this.host.dispatch({
+          command: 'view.setLineFolded',
+          params: { graphId: scene.graphId, nodeId: g.hit.node.id, lineKey: g.hit.line.key, folded: true },
+        })
+        return
       case 'grip':
         this.pushOverlay()
         if (g.index !== undefined) {
@@ -3818,6 +3855,7 @@ export class InteractionController {
             const positions: Record<string, { x: number; y: number }> = {}
             const reroutes: Record<string, { x: number; y: number }> = {}
             const boundary: Partial<Record<'inputs' | 'outputs', { x: number; y: number }>> = {}
+            const groups: Record<string, { x: number; y: number }> = {}
             for (const id of g.memberIds) {
               const node = scene.nodes.find((n) => n.id === id)
               if (node) positions[id] = { x: snap(node.x + dx), y: snap(node.y + dy) }
@@ -3825,6 +3863,10 @@ export class InteractionController {
             for (const id of g.rerouteIds) {
               const reroute = scene.reroutes.find((r) => r.id === id)
               if (reroute) reroutes[id] = { x: snap(reroute.x + dx), y: snap(reroute.y + dy) }
+            }
+            for (const id of g.groupIds) {
+              const child = scene.groups.find((item) => item.id === id)
+              if (child) groups[id] = { x: snap(child.x + dx), y: snap(child.y + dy) }
             }
             for (const side of g.boundarySides) {
               const node = scene.boundaryNodes.find((b) => b.side === side)
@@ -3838,6 +3880,7 @@ export class InteractionController {
                 groupId: g.groupId,
                 bounds: { x: snap(group.x + dx), y: snap(group.y + dy) },
                 positions,
+                ...(Object.keys(groups).length ? { groups } : {}),
                 ...(Object.keys(reroutes).length ? { reroutes } : {}),
                 ...(Object.keys(boundary).length ? { boundary } : {}),
               },
@@ -4416,6 +4459,8 @@ export class InteractionController {
         return j('widget', hit.node.id, hit.row.inputId)
       case 'section':
         return j('section', hit.node.id, hit.row.sectionId)
+      case 'line':
+        return j('line', hit.node.id, hit.line.key)
       case 'growth':
         return j('growth', hit.node.id, hit.row.construct)
       case 'lookupRetry':
@@ -4484,6 +4529,13 @@ export class InteractionController {
       const bnode = hit.kind === 'boundary-body' ? hit.bnode : undefined
       const node = hit.kind === 'body' ? hit.node : bnode === undefined ? undefined : boundaryFieldNode(bnode)
       if (node === undefined) return hit
+      if (hit.kind === 'body') {
+        const index = node.layout.rows.findIndex((row) => row.kind === 'note' &&
+          y >= node.y + row.y && y <= node.y + row.y + row.height &&
+          x >= node.x + row.inset && x <= node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2))
+        const line = node.layout.lines?.find((line) => index >= line.first && index <= line.last)
+        if (line !== undefined) return { kind: 'line', node, line }
+      }
       const space = node.layout.rows.find((row) => row.kind === 'editorSpace' &&
         y >= node.y + row.y && y <= node.y + row.y + row.height &&
         x >= node.x + row.inset && x <= node.x + row.inset + (row.width ?? node.layout.width - row.inset * 2))
@@ -4503,6 +4555,7 @@ export class InteractionController {
       case 'text-box-edge':
       case 'preview-caption':
       case 'section':
+      case 'line':
       case 'growth':
       case 'button':
       case 'pin':
@@ -4693,6 +4746,7 @@ export class InteractionController {
   private pushOverlay(
     extra: {
       dragOffsets?: ReadonlyMap<string, { dx: number; dy: number }>
+      receivingGroups?: ReadonlySet<string>
       ghostLink?: GhostLink
       ghostLinks?: readonly GhostLink[]
       hiddenLinkIds?: ReadonlySet<string>
@@ -4746,6 +4800,7 @@ export class InteractionController {
       ...(this.hoveredBoxNode !== undefined ? {
         hoveredBox: { nodeId: this.hoveredBoxNode, boxId: this.hoveredBoxId! },
       } : {}),
+      ...(this.hoveredLine !== undefined ? { hoveredLine: this.hoveredLine } : {}),
       ...(this.hoveredGrip !== undefined ? { hoveredGrip: this.hoveredGrip } : {}),
       ...(this.hoveredButton !== undefined ? { hoveredButton: this.hoveredButton } : {}),
       ...extra,
@@ -5058,6 +5113,7 @@ export class InteractionController {
     const widget = hit?.kind === 'widget' ? hit : undefined
     const boxNode = hit?.kind === 'section' ? hit.node.id : undefined
     const boxId = hit?.kind === 'section' ? hit.row.sectionId : undefined
+    const line = hit?.kind === 'line' ? { nodeId: hit.node.id, key: hit.line.key } : undefined
     const grip = hit?.kind === 'grip' && hit.grip.alone !== true
       ? { nodeId: hit.node.id, construct: hit.grip.construct, member: hit.grip.member }
       : undefined
@@ -5082,6 +5138,8 @@ export class InteractionController {
       titleControl.badge?.badgeId === this.hoveredBadge?.badgeId &&
       boxNode === this.hoveredBoxNode &&
       boxId === this.hoveredBoxId &&
+      line?.nodeId === this.hoveredLine?.nodeId &&
+      line?.key === this.hoveredLine?.key &&
       grip?.nodeId === this.hoveredGrip?.nodeId &&
       grip?.construct === this.hoveredGrip?.construct &&
       grip?.member === this.hoveredGrip?.member &&
@@ -5098,6 +5156,7 @@ export class InteractionController {
     this.hoveredBadge = titleControl.badge
     this.hoveredBoxNode = boxNode
     this.hoveredBoxId = boxId
+    this.hoveredLine = line
     this.hoveredGrip = grip
     this.hoveredButton = button
     this.pushOverlay()
@@ -5114,6 +5173,7 @@ export class InteractionController {
     this.hoveredBadge = undefined
     this.hoveredBoxNode = undefined
     this.hoveredBoxId = undefined
+    this.hoveredLine = undefined
     this.hoveredGrip = undefined
     this.hoveredButton = undefined
   }

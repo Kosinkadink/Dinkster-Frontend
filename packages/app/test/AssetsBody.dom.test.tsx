@@ -331,15 +331,39 @@ describe('Shared asset selection', () => {
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <AssetEntrySelection entry={entry()} adapters={[]} backendId="native" connection={connection()} visibilityConnection={connection()} backendUrl="" onVisibilityChanged={changed} />, root)
     try {
-      const button = () => root.querySelector<HTMLButtonElement>('[data-testid="model-visibility-action"] button:last-child')!
+      const button = () => [...root.querySelectorAll<HTMLButtonElement>('[data-testid="model-visibility-action"] button')].find((row) => row.textContent === 'Hide in this project')!
       button().click(); button().click()
-      expect(button().disabled).toBe(true)
+      expect(button().getAttribute('aria-disabled')).toBe('true')
+      expect(button().getAttribute('aria-busy')).toBe('true')
       if (change === 'engine') setConnection(second)
       else setEntry(item('second.safetensors'))
       finish(); await Promise.resolve(); await Promise.resolve()
       expect(changed).not.toHaveBeenCalled()
       expect(root.textContent).not.toContain('Hidden in this project.')
       expect(second.hideModel).not.toHaveBeenCalled()
+    } finally { dispose() }
+  })
+  it('requires confirmation before hiding a selected model', async () => {
+    const model = { virtualPath: 'mounts/checkpoints/a.safetensors', name: 'a.safetensors', digest: `blake3:${'d'.repeat(64)}`, size: 1031, mediaType: 'application/octet-stream', kind: 'model/checkpoint' }
+    let hidden = false
+    const connection = stubConnection({ hideModel: async () => { hidden = true; return {} }, fetchAssetLocations: async () => [] })
+    const entry = assetEntryOf({ ...model, id: 'model', rawRef: model, source: { id: 'mount:checkpoints', label: 'Checkpoints' } })
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <AssetEntrySelection entry={entry} adapters={[]} backendId="native" connection={connection}
+      visibilityConnection={connection} backendUrl="" />, root)
+    try {
+      const action = () => root.querySelector<HTMLElement>('[data-testid="model-visibility-action"]')!
+      const button = (text: string) => [...action().querySelectorAll<HTMLButtonElement>('button')].find((row) => row.textContent === text)!
+      button('Hide in this project').click()
+      expect(action().textContent).toContain('no files are deleted')
+      expect(hidden).toBe(false)
+      button('Cancel').click()
+      expect(hidden).toBe(false)
+      expect(action().textContent).not.toContain('no files are deleted')
+      button('Hide in this project').click()
+      button('Hide in this project').click()
+      await vi.waitFor(() => expect(action().textContent).toContain('Hidden in this project.'))
+      expect(hidden).toBe(true)
     } finally { dispose() }
   })
 

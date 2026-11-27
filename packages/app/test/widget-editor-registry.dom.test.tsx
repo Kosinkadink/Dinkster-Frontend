@@ -10,6 +10,55 @@ import { CurveSpace, SaveTargetSpace } from '../src/InNodeEditorSpaces.js'
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it.each([false, true])('commits arithmetic in a local in-row editor on Tab (reverse: %s)', async (reverse) => {
+  const registry = createWidgetRegistry()
+  const app = { widgetRegistryForTab: () => registry } as unknown as AppState
+  let value: unknown = 1
+  let closed = false
+  const root = document.createElement('div'); document.body.append(root)
+  const dispose = render(() => <WidgetEditor app={app} ed={{
+    tab: {} as Tab, graphId: 'g0', label: 'Amount',
+    target: { kind: 'local', commit: (next) => { value = next }, cancel: () => {} },
+    spec: { widgetType: 'INT', options: { min: 0, max: 100, step: 1 }, default: 1 },
+    multiline: false, initial: 1,
+    rect: { x: 0, y: 0, width: 180, height: 24 },
+    inRow: { look: 'flat-title', nodeTop: 0, nodeBottom: 100, storedAtOpen: 1 },
+  }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => { closed = true }} />, root)
+  try {
+    const input = root.querySelector<HTMLInputElement>('input')!
+    input.value = '13+6'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: reverse, bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(closed).toBe(true))
+    expect(value).toBe(19)
+  } finally { dispose() }
+})
+
+it('keeps the Save mount filter query while narrowing choices and clears it when reopened', async () => {
+  const dispose = render(() => <SaveTargetSpace value={{ mount: 'output', prefix: 'renders/first' }} wired={false}
+    fetchMounts={async () => ({ activeOutputMount: 'output', mountChangesAllowed: false, mounts: [
+      { id: 'output', mode: 'readwrite', state: 'ready' }, { id: 'alternate', mode: 'readwrite', state: 'ready' },
+    ] })} commit={async () => true} queue={() => {}} />, document.body)
+  try {
+    const mount = document.querySelector<HTMLButtonElement>('button')!
+    await vi.waitFor(() => expect(mount.textContent).toContain('output'))
+    mount.click()
+    const filter = document.querySelector<HTMLInputElement>('input[role="combobox"]')!
+    for (const character of 'tern') {
+      filter.value += character
+      filter.dispatchEvent(new Event('input', { bubbles: true }))
+      await Promise.resolve()
+    }
+    expect(filter.value).toBe('tern')
+    expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual(['alternate'])
+    filter.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    expect(document.querySelector('input[role="combobox"]')).toBeNull()
+    mount.click()
+    expect(document.querySelector<HTMLInputElement>('input[role="combobox"]')!.value).toBe('')
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(3)
+  } finally { dispose() }
+})
+
 it('edits only unwired mapped Save parts and discards a draft when that part becomes blocked', async () => {
   const [mode, setMode] = createSolidSignal<'name-wired' | 'mount-unknown' | 'readOnly' | 'disabled'>('name-wired')
   const changes: Json[] = []

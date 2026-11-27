@@ -761,6 +761,8 @@ export interface NodeViewState {
    * default-collapsed section can also be explicitly expanded.
    */
   readonly sections?: Readonly<Record<string, { readonly collapsed: boolean }>>
+  /** Fold state by the flattened id of a line's first field; absent means folded. */
+  readonly lines?: Readonly<Record<string, { readonly folded: boolean }>>
   /**
    * Per-editor fold OVERRIDES by value key, for editors shown in the node.
    * Absent = the declaration's starting state (folded unless it declares
@@ -778,11 +780,7 @@ export interface NodeViewState {
   readonly ext?: ExtData
 }
 
-/**
- * A visual grouping rectangle. Pure view state with NO stored membership:
- * which nodes a group contains is derived spatially (node center inside
- * bounds) at interaction time, so there is nothing to keep in sync.
- */
+/** A visual grouping rectangle. Membership is stored separately in its graph view. */
 export interface GroupViewState {
   readonly id: string
   readonly title: string
@@ -812,6 +810,14 @@ export interface BoundaryNodeViewState {
   readonly ext?: ExtData
 }
 
+/** Each canvas item has at most one immediate containing group. */
+export interface GroupMembership {
+  readonly nodes: Readonly<Record<string, string>>
+  readonly reroutes: Readonly<Record<string, string>>
+  readonly groups: Readonly<Record<string, string>>
+  readonly boundary: Readonly<Record<string, string>>
+}
+
 /** Per-graph-definition view data. Key: graph def id. */
 export interface GraphViewState {
   /** Key: node id. */
@@ -820,6 +826,8 @@ export interface GraphViewState {
   readonly reroutes?: Readonly<Record<string, RerouteViewState>>
   /** Key: group id. */
   readonly groups?: Readonly<Record<string, GroupViewState>>
+  /** Absent only in older workflows, initialized from geometry on their first edit. */
+  readonly groupMembership?: GroupMembership
   /**
    * Group id allocation cursor (never-reuse, like surfaceSeq): group ids
    * outlive their groups in surface bindings, so a removed group's id must

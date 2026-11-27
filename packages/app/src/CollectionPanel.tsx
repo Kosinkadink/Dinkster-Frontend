@@ -186,20 +186,11 @@ export function CollectionPanel(props: {
   const [pageOwner, setPageOwner] = createSolidSignal<string | undefined>(undefined)
   const [selectedId, setSelectedId] = createSolidSignal<string | undefined>(undefined)
   const [expandedIds, setExpandedIds] = createSolidSignal<ReadonlySet<string>>(new Set())
-  const [armedAction, setArmedAction] = createSolidSignal<string>()
   const instanceId = createUniqueId()
   const resultsId = `collection-results-${instanceId}`
   const descriptionId = `collection-description-${instanceId}`
   let rootEl: HTMLDivElement | undefined
   let searchEl: HTMLInputElement | undefined
-  let actionArmTimer: ReturnType<typeof setTimeout> | undefined
-  createEffect(() => {
-    const selection = `${sourceId()}:${selectedId() ?? ''}`
-    void selection
-    if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
-    actionArmTimer = undefined
-    setArmedAction(undefined)
-  })
   const clearSearch = (): void => {
     const input = props.search?.input() ?? searchEl
     if (input === undefined || input.value === '') return
@@ -428,7 +419,6 @@ export function CollectionPanel(props: {
   })
   onCleanup(() => {
     if (debounceTimer !== undefined) clearTimeout(debounceTimer)
-    if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
     generation++ // orphan any in-flight page
     controller?.abort()
   })
@@ -558,32 +548,18 @@ export function CollectionPanel(props: {
   const Actions = (p: { entry: CollectionEntry }) => (
     <div class="collection-actions" data-testid="collection-actions">
       <For each={p.entry.actions ?? []}>
-        {(a) => {
-          const key = () => `${sourceId()}:${p.entry.id}:${a.id}`
-          const armed = () => a.id === 'delete' && armedAction() === key()
-          return <button
-              class="collection-action"
-              data-testid="collection-action"
-              data-action={a.id}
-              data-tone={a.id === 'delete' ? 'danger' : 'accent'}
-              aria-pressed={a.id === 'delete' ? armed() : undefined}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (a.id === 'delete' && !armed()) {
-                  setArmedAction(key())
-                  if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
-                  actionArmTimer = setTimeout(() => setArmedAction(undefined), 4000)
-                  return
-                }
-                if (actionArmTimer !== undefined) clearTimeout(actionArmTimer)
-                actionArmTimer = undefined
-                setArmedAction(undefined)
-                props.onAction?.(sourceId(), p.entry, a.id)
-              }}
-            >
-              {armed() ? message('collection.action.confirmDelete') : a.label}
-            </button>
-        }}
+        {(a) => <button
+          class="collection-action"
+          data-testid="collection-action"
+          data-action={a.id}
+          data-tone={a.id === 'delete' ? 'danger' : 'accent'}
+          onClick={(e) => {
+            e.stopPropagation()
+            props.onAction?.(sourceId(), p.entry, a.id)
+          }}
+        >
+          {a.label}
+        </button>}
       </For>
     </div>
   )

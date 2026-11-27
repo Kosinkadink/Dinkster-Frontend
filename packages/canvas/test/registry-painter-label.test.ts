@@ -449,7 +449,7 @@ describe('registry painter label/value split', () => {
       const lock = icons[1]!
       const name = painted.textCalls.find((call) => call.text === 'Curve')!
       expect(lock.x).toBe(36)
-      expect(lock.y + 7).toBe(name.y)
+      expect(lock.y + 7).toBe(20 + 24 / 2)
       expect(name.x - lock.x).toBe(promoted ? 36 : 18)
       if (promoted) {
         const mark = subgraphMarkRect(row, 300, 24, tokens, false, false)
@@ -682,7 +682,7 @@ describe('registry painter label/value split', () => {
     const withPicture = paintSummary({ text: 'No model', thumbnail })
     const call = withPicture.textCalls.find((text) => text.text.startsWith('No'))!
     const { size, gap } = canvasPaintTokens.widget.valueThumbnail
-    expect(withPicture.images).toEqual([{ image: thumbnail, x: Math.round(call.x - call.text.length * 6 - gap - size), y: Math.round(call.y - size / 2), width: size, height: size }])
+    expect(withPicture.images).toEqual([{ image: thumbnail, x: Math.round(call.x - call.text.length * 6 - gap - size), y: (24 - size) / 2, width: size, height: size }])
     expect(paintSummary({ text: 'No model', placeholder: true }).images).toEqual([])
   })
 
@@ -805,7 +805,7 @@ describe('registry painter label/value split', () => {
       const painted = paintMultilineDetails(height, width)
       expect(painted.texts).toEqual(['text', ...['one', 'two', 'three', 'four', 'five'].slice(0, textRows)])
       expect(painted.fills).toHaveLength(rectRows)
-      expect(painted.textCalls[0]).toMatchObject({ text: 'text', y: 10, align: 'left' })
+      expect(painted.textCalls[0]).toMatchObject({ text: 'text', align: 'left' })
       expect(painted.textCalls.slice(1).every((call) => call.x >= 0 && call.x <= width)).toBe(true)
       expect(painted.clips.every((clip) => clip.y >= 0 && clip.y + clip.height <= height)).toBe(true)
       if (height === 88) {

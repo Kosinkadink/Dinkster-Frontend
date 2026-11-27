@@ -505,8 +505,11 @@ describe('typed overview detail', () => {
     const scene = fixtureScene('clean')
     const node = scene.nodes[0]!
     const link = scene.links[0]!
-    for (const [scale, contentDetail] of [[0.49, false], [0.5, true]] as const) {
-      const calls = paintWith(scene, (renderer) => renderer.setViewport({ x: 0, y: 0, scale }))
+    for (const [scale, threshold, contentDetail] of [[0.29, undefined, false], [0.3, undefined, true], [0.5, 0.6, false], [0.6, 0.6, true]] as const) {
+      const calls = paintWith(scene, (renderer) => {
+        renderer.setViewport({ x: 0, y: 0, scale })
+        if (threshold !== undefined) renderer.setDetailMinScale(threshold)
+      })
       expect(calls.some((call) => call.method === 'fillText' && call.args[0] === node.layout.title)).toBe(true)
       expect(calls.some((call) =>
         call.method === 'arc' &&
@@ -517,16 +520,16 @@ describe('typed overview detail', () => {
     }
   })
 
-  it('only paints overview titles that fit their node width', () => {
+  it('keeps short overview titles whole and cuts long titles with three dots', () => {
     const base = fixtureScene('clean')
     const node = base.nodes[0]!
     const fittingTitle = 'ImgSrc'
-    const oversizedTitle = 'This title is wider than its node'
+    const oversizedTitle = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
     const scene = {
       ...base,
       nodes: [
-        { ...node, layout: { ...node.layout, title: fittingTitle } },
-        { ...node, id: 'oversized-title', x: node.x + node.layout.width + 20, layout: { ...node.layout, title: oversizedTitle } },
+        { ...node, layout: { ...node.layout, width: 140, title: fittingTitle } },
+        { ...node, id: 'oversized-title', x: node.x + 160, layout: { ...node.layout, width: 140, title: oversizedTitle } },
       ],
       links: [],
     }
@@ -534,7 +537,7 @@ describe('typed overview detail', () => {
       renderer.setViewport({ x: 0, y: 0, scale: CANVAS_DETAIL_MIN_SCALE - 0.01 }))
 
     expect(calls.some((call) => call.method === 'fillText' && call.args[0] === fittingTitle)).toBe(true)
-    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === oversizedTitle)).toBe(false)
+    expect(calls.some((call) => call.method === 'fillText' && call.args[0] === 'ABCDEFGHIJKLMN...')).toBe(true)
   })
 
 })
@@ -1099,11 +1102,12 @@ describe('scene visual bounds and fitting', () => {
     const { ctx } = recordingCtx()
     const tracked = mutableCanvas(ctx, 800, 600)
     const renderer = new CanvasRenderer(tracked.canvas, defaultTokens)
+    renderer.setDetailMinScale(0.5)
     renderer.setScene(emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 1576, height: 1000 }] }))
 
     renderer.fitToScene(50)
 
-    expect(renderer.getViewport()).toEqual({ x: -44, y: -50, scale: CANVAS_DETAIL_MIN_SCALE })
+    expect(renderer.getViewport()).toEqual({ x: -44, y: -50, scale: 0.5 })
     renderer.dispose()
   })
 
@@ -1111,12 +1115,13 @@ describe('scene visual bounds and fitting', () => {
     const { ctx } = recordingCtx()
     const tracked = mutableCanvas(ctx, 800, 600)
     const renderer = new CanvasRenderer(tracked.canvas, defaultTokens)
+    renderer.setDetailMinScale(0.5)
     renderer.setScene(emptyScene({ groups: [{ id: 'g', title: 'g', x: 100, y: 200, width: 1577, height: 1000 }] }))
 
     renderer.fitToScene(50)
 
     expect(renderer.getViewport().scale).toBeCloseTo(700 / 1577)
-    expect(renderer.getViewport().scale).toBeLessThan(CANVAS_DETAIL_MIN_SCALE)
+    expect(renderer.getViewport().scale).toBeLessThan(0.5)
     renderer.dispose()
   })
 
@@ -2084,12 +2089,24 @@ describe('node chrome paint on the live renderer', () => {
     const row = fs.layout.rows.find((candidate) => candidate.kind === 'widget')!
     const calls = paint(scene)
     const connectedText = calls.find((c) => c.method === 'fillText' && c.args[0] === row.label &&
-      c.args[2] === fs.y + row.y + row.height / 2)
+      (c.args[2] as number) >= fs.y + row.y && (c.args[2] as number) <= fs.y + row.y + row.height)
     expect(connectedText?.globalAlpha).toBeCloseTo(0.45)
-    expect(calls.some((c) => c.method === 'fillText' && c.args[0] === '3.5')).toBe(true)
-    expect(calls.some((c) =>
-      c.method === 'stroke' && c.strokeStyle === defaultTokens.colors.value && c.lineWidth === 1.5,
-    )).toBe(true)
+    const valueText = calls.find((c) => c.method === 'fillText' && c.args[0] === '3.5')!
+    const strike = calls.slice(calls.indexOf(valueText) + 1).find((c) => c.method === 'stroke')!
+    const strikeIndex = calls.indexOf(strike)
+    expect(strike).toMatchObject({
+      strokeStyle: defaultTokens.colors.value,
+      lineWidth: 1.5,
+      globalAlpha: 0.45,
+    })
+    expect(calls[strikeIndex - 2]).toMatchObject({
+      method: 'moveTo',
+      args: [(valueText.args[1] as number) - 18, fs.y + row.y + defaultTokens.rowHeight / 2],
+    })
+    expect(calls[strikeIndex - 1]).toMatchObject({
+      method: 'lineTo',
+      args: [valueText.args[1], fs.y + row.y + defaultTokens.rowHeight / 2],
+    })
 
     const companionCalls = paintWith(scene, (renderer) => {
       renderer.setCompanions({ fs: { f: { value: 2.5 } } })

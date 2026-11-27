@@ -25,7 +25,7 @@ import {
 import { controllerChipRect, controllerChipTextRight, CONTROLLER_CHIP_TEXT_GAP, EDGE_ACTION_GLYPH_HALF, edgeActionCenterX, widgetFieldBounds } from './controller-chip.js'
 import { linkBounds, linkControlOffset, minimizeArrowRect, previewEdgeShown } from './hit.js'
 import { animationFrameAt, containRect, minimizedStripContent, previewHasPanel, splitPreviewRect, type OutputTextMap, type PreviewMap } from './previews.js'
-import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
+import { memberSpans, projectNodeLayoutHeight, projectPictureHeight, projectTextBoxLines, TITLE_START, widgetChromeRect, withCompactPreviewRegion, withFoldedPreviewRegion, withPreviewRegion, withTextOutputRegion, type LayoutLine, type LayoutRow, type MemberGrip, type NodeLayout, type NoteLookupLine, type PinLayout, noteLookupRows } from './layout.js'
 import {
   boundaryFieldNode,
   boundarySceneId,
@@ -55,8 +55,8 @@ import {
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
 import { isButtonIcon, paintButtonIcon } from './button-icons.js'
-import { CANVAS_DETAIL_MIN_SCALE, canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
-import { fitText, measureWidth, shareRowWidth, wrapText } from './text-fit.js'
+import { canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
+import { fitText, measureWidth, paintCenteredText, shareRowWidth, wrapText } from './text-fit.js'
 
 /**
  * Views whose editor is parked. Such a row opens nothing, so the
@@ -344,6 +344,8 @@ export type CompanionMap = Readonly<Record<string, Readonly<Record<string, Compa
 export interface EditorSummary {
   /** What the row reads in place of the view's own value text. */
   readonly text?: string
+  /** A problem still held by the editor, painted only while its row is folded. */
+  readonly problem?: 'error' | 'warning'
   /** The value the row draws in place of the stored one, such as what a wire brought; null when nothing is known yet. */
   readonly value?: Json
   /** Drawn in the placeholder color, for an editor that holds nothing. */
@@ -697,6 +699,8 @@ export interface OverlayState {
   /** A box's header, closed row or tab under the idle pointer, by box key. */
   /** A box under the pointer; `target` names the field a held wire would reach in a closed box. */
   readonly hoveredBox?: { readonly nodeId: string; readonly boxId: string; readonly target?: string }
+  /** A field line whose rail or pin list is under the pointer. */
+  readonly hoveredLine?: { readonly nodeId: string; readonly key: string; readonly listRow?: number }
   /** A button on a node under the idle pointer, by `growth:<group>` or `button:<id>`: its face lightens. */
   readonly hoveredButton?: { readonly nodeId: string; readonly key: string }
   /** A button on a node held down, keyed as hoveredButton: it sinks. */
@@ -732,6 +736,8 @@ export interface OverlayState {
   readonly resizePreview?: { readonly nodeId: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number }
   /** Live group-drag offset (member nodes ride dragOffsets); committed as view.moveGroup. */
   readonly groupDragOffset?: { readonly groupId: string; readonly dx: number; readonly dy: number }
+  /** Groups that directly dragged nodes would join on release. */
+  readonly receivingGroups?: ReadonlySet<string>
   /** Live group-resize preview; committed as view.setGroupBounds on release. */
   readonly groupResizeGhost?: { readonly groupId: string; readonly x: number; readonly y: number; readonly width: number; readonly height: number }
   /** Pending node placement preview, centered near the live pointer in world coordinates. */
@@ -807,6 +813,7 @@ export const boundaryTargetKey = (side: 'inputs' | 'outputs', item: string): str
 /** Dim factor for ghost (unmaterialized dynamic) pins, labels, and widgets. */
 const GHOST_ALPHA = canvasPaintTokens.opacity.ghost
 const PIN_HOVER_GROWTH = canvasPaintTokens.pin.hoverGrowth
+const LINE_LIST_UNFOLD = 'Unfold'
 const STATUS_RING_GAP = canvasPaintTokens.pin.statusRingGap
 const STATUS_RING_STROKE_WIDTH = canvasPaintTokens.pin.statusRingStroke
 
@@ -897,21 +904,6 @@ const paintPinLabel = (
   ctx.fillText(label, x, edgePinPoint(t, 'in', x, rowCenterY).y + t.fontSize * canvasPaintTokens.type.capHeight / 2)
   ctx.textBaseline = 'middle'
   ctx.textAlign = 'left'
-}
-
-const paintHeaderLabel = (
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  centerY: number,
-  fontSize: number,
-  maxWidth?: number,
-): void => {
-  ctx.textBaseline = 'alphabetic'
-  const baseline = centerY + fontSize * canvasPaintTokens.type.capHeight / 2
-  if (maxWidth === undefined) ctx.fillText(text, x, baseline)
-  else ctx.fillText(text, x, baseline, maxWidth)
-  ctx.textBaseline = 'middle'
 }
 
 /**
@@ -1150,6 +1142,88 @@ export class CanvasRenderer {
     return this.overlay
   }
 
+  /**
+   * Where the list a folded line shows under the pointer stands, beside the
+   * node's right edge: one entry per field with its pin, then "Unfold".
+   */
+  getLineListLayout(): { readonly node: SceneNode; readonly line: LayoutLine; readonly x: number; readonly y: number; readonly width: number; readonly height: number } | undefined {
+    const hovered = this.overlay.hoveredLine
+    const node = hovered && this.scene.nodes.find((candidate) => candidate.id === hovered.nodeId)
+    const line = node?.layout.lines?.find((candidate) => candidate.key === hovered!.key)
+    if (node === undefined || line === undefined || !line.folded || node.layout.minimized) return undefined
+    const list = canvasPaintTokens.node.line.list
+    const offset = this.overlay.dragOffsets?.get(node.id)
+    const ctx = this.canvas.getContext('2d')!
+    ctx.save()
+    ctx.font = `${list.fontSize}px ${this.tokens.fontFamily}`
+    const labelWidth = Math.max(...[...line.fields.map((field) => field.label), LINE_LIST_UNFOLD].map((text) => ctx.measureText(text).width))
+    ctx.restore()
+    const row = node.layout.rows[line.first]!
+    return {
+      node,
+      line,
+      x: node.x + (offset?.dx ?? 0) + node.layout.width + list.gap,
+      y: node.y + (offset?.dy ?? 0) + row.y + row.height / 2 - list.padY - list.rowHeight * (line.fields.length / 2 + 0.5),
+      width: list.padX * 2 + list.pinSize + list.labelGap + labelWidth,
+      height: list.padY * 2 + (line.fields.length + 1) * list.rowHeight + list.separatorStroke,
+    }
+  }
+
+  private drawLineList(ctx: CanvasRenderingContext2D): void {
+    const layout = this.getLineListLayout()
+    if (layout === undefined) return
+    const { line, x, y, width, height } = layout
+    const t = this.tokens
+    const list = canvasPaintTokens.node.line.list
+    ctx.save()
+    ctx.font = `${list.fontSize}px ${t.fontFamily}`
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = t.colors.nodeHeader
+    ctx.strokeStyle = t.colors.listOutline
+    ctx.lineWidth = list.stroke
+    ctx.beginPath()
+    ctx.roundRect(x, y, width, height, list.radius)
+    ctx.fill()
+    ctx.stroke()
+    ctx.clip()
+    const pointed = this.overlay.hoveredLine?.listRow
+    if (pointed !== undefined && pointed >= 0 && pointed <= line.fields.length) {
+      ctx.fillStyle = t.colors.nodeSelectedHeader
+      ctx.fillRect(x, y + list.padY + pointed * list.rowHeight + (pointed === line.fields.length ? list.separatorStroke : 0), width, list.rowHeight)
+    }
+    ctx.textAlign = 'left'
+    for (const [index, field] of line.fields.entries()) {
+      const cy = y + list.padY + (index + 0.5) * list.rowHeight
+      const name = canonicalTypeIdOf(field.type)
+      ctx.fillStyle = name !== undefined ? typeColor(t, name) : t.colors.linkDefault
+      ctx.beginPath()
+      ctx.arc(x + list.padX + list.pinSize / 2, cy, list.pinSize / 2, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = t.colors.value
+      ctx.fillText(field.label, x + list.padX + list.pinSize + list.labelGap, cy)
+    }
+    const actionTop = y + list.padY + line.fields.length * list.rowHeight
+    ctx.strokeStyle = t.colors.nodeHeaderRule
+    ctx.lineWidth = list.separatorStroke
+    ctx.beginPath()
+    ctx.moveTo(x, actionTop)
+    ctx.lineTo(x + width, actionTop)
+    ctx.stroke()
+    const cy = actionTop + list.separatorStroke + list.rowHeight / 2
+    const chevron = canvasPaintTokens.node.line.chevron
+    const cx = x + list.padX + list.pinSize / 2
+    ctx.strokeStyle = t.colors.title
+    ctx.lineWidth = chevron.stroke
+    ctx.beginPath()
+    ctx.moveTo(cx - chevron.width / 2, cy - chevron.height / 2)
+    ctx.lineTo(cx, cy + chevron.height / 2)
+    ctx.lineTo(cx + chevron.width / 2, cy - chevron.height / 2)
+    ctx.stroke()
+    ctx.fillStyle = t.colors.title
+    ctx.fillText(LINE_LIST_UNFOLD, x + list.padX + list.pinSize + list.labelGap, cy)
+    ctx.restore()
+  }
+
   setOverlay(overlay: OverlayState): void {
     const previous = this.overlay
     if (this.getDetailLevel() === 'overview' &&
@@ -1312,6 +1386,12 @@ export class CanvasRenderer {
   setReducedMotion(reduced: boolean): void {
     if (this.reducedMotion === reduced) return
     this.reducedMotion = reduced
+    this.invalidate()
+  }
+
+  setDetailMinScale(scale: number): void {
+    if (this.tokens.detailMinScale === scale) return
+    this.tokens = { ...this.tokens, detailMinScale: scale }
     this.invalidate()
   }
 
@@ -1525,7 +1605,7 @@ export class CanvasRenderer {
   }
 
   getDetailLevel(): CanvasDetailLevel {
-    return canvasDetailLevel(this.viewport.scale, this.tokens.mediaControlMinScale)
+    return canvasDetailLevel(this.viewport.scale, this.tokens.mediaControlMinScale, this.tokens.detailMinScale)
   }
 
   private badges: BadgeMap = {}
@@ -1793,13 +1873,14 @@ export class CanvasRenderer {
     ctx.textAlign = 'left'
   }
 
-  private sceneWithBodyRegions(scene: Scene): Scene {
-    if (Object.keys(this.previews).length === 0 && Object.keys(this.outputTexts).length === 0 &&
+  /** Project a measurement scene with the same preview/text regions the canvas paints, without installing it. */
+  sceneWithBodyRegions(scene: Scene, previews: PreviewMap = this.previews, outputTexts: OutputTextMap = this.outputTexts): Scene {
+    if (Object.keys(previews).length === 0 && Object.keys(outputTexts).length === 0 &&
         !scene.nodes.some((node) => node.previewCapable === true)) return scene
     const nodes = scene.nodes.map((node) => {
       const folded = previewFoldedOf(node)
-      const preview = this.previews[node.id]
-      const outputText = this.outputTexts[node.id]
+      const preview = previews[node.id]
+      const outputText = outputTexts[node.id]
       if (node.layout.minimized === true) {
         const content = minimizedStripContent(preview, outputText)
         return content === 'picture'
@@ -2124,10 +2205,11 @@ export class CanvasRenderer {
     const spanX = Math.max(1, bounds.maxX - bounds.minX)
     const spanY = Math.max(1, bounds.maxY - bounds.minY)
     const fitScale = Math.min((w - margin * 2) / spanX, (h - margin * 2) / spanY)
+    const detailMinScale = this.tokens.detailMinScale
     const detailFits =
-      (spanX + PIN_OVERHANG * 2) * CANVAS_DETAIL_MIN_SCALE <= w &&
-      (spanY + PIN_OVERHANG * 2) * CANVAS_DETAIL_MIN_SCALE <= h
-    const scale = Math.min(canvasPaintTokens.viewport.maxFitScale, Math.max(canvasPaintTokens.viewport.minFitScale, detailFits ? Math.max(CANVAS_DETAIL_MIN_SCALE, fitScale) : fitScale))
+      (spanX + PIN_OVERHANG * 2) * detailMinScale <= w &&
+      (spanY + PIN_OVERHANG * 2) * detailMinScale <= h
+    const scale = Math.min(canvasPaintTokens.viewport.maxFitScale, Math.max(canvasPaintTokens.viewport.minFitScale, detailFits ? Math.max(detailMinScale, fitScale) : fitScale))
     this.setViewport({
       x: (w - spanX * scale) / 2 - bounds.minX * scale,
       y: (h - spanY * scale) / 2 - bounds.minY * scale,
@@ -2898,6 +2980,8 @@ export class CanvasRenderer {
       ctx.restore()
     }
 
+    this.drawLineList(ctx)
+
     if (this.overlay.ghostLinks) {
       ctx.save()
       for (const g of this.overlay.ghostLinks) {
@@ -2957,7 +3041,7 @@ export class CanvasRenderer {
       ctx.beginPath()
       ctx.rect(g.x + this.tokens.padX, g.y, g.width - this.tokens.padX * 2, this.tokens.headerHeight)
       ctx.clip()
-      paintHeaderLabel(ctx, g.title, g.x + this.tokens.padX, g.y + this.tokens.headerHeight / 2, this.tokens.titleFontSize)
+      paintCenteredText(ctx, g.title, g.x + this.tokens.padX, g.y + this.tokens.headerHeight / 2, this.tokens.titleFontSize)
       ctx.restore()
       ctx.restore()
     }
@@ -3331,10 +3415,11 @@ export class CanvasRenderer {
     ctx.globalAlpha = canvasPaintTokens.group.headerOpacity
     ctx.fill()
     // Border.
-    ctx.globalAlpha = canvasPaintTokens.group.borderOpacity
+    const receiving = this.overlay.receivingGroups?.has(group.id) === true
+    ctx.globalAlpha = receiving ? 1 : canvasPaintTokens.group.borderOpacity
     ctx.beginPath()
     ctx.roundRect(x, y, group.width, group.height, t.cornerRadius)
-    ctx.strokeStyle = color
+    ctx.strokeStyle = receiving ? t.colors.label : color
     ctx.lineWidth = screenAwareStroke(canvasPaintTokens.group.stroke, this.viewport.scale, canvasPaintTokens.group.stroke)
     ctx.stroke()
     // Title.
@@ -3344,7 +3429,7 @@ export class CanvasRenderer {
       ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
-      paintHeaderLabel(ctx, group.title, x + t.padX, y + GROUP_HEADER_HEIGHT / 2, t.titleFontSize, group.width - t.padX * 2)
+      paintCenteredText(ctx, group.title, x + t.padX, y + GROUP_HEADER_HEIGHT / 2, t.titleFontSize, group.width - t.padX * 2)
     }
     ctx.restore()
   }
@@ -3558,7 +3643,7 @@ export class CanvasRenderer {
       ctx.fillStyle = t.colors.label
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
-      paintHeaderLabel(ctx, text, x, y, t.titleFontSize)
+      paintCenteredText(ctx, text, x, y, t.titleFontSize)
     }
     ctx.restore()
   }
@@ -3712,17 +3797,17 @@ export class CanvasRenderer {
     this.drawMinimizeArrow(ctx, node)
     if (!contentDetail) {
       ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
+      ctx.fillStyle = t.colors.title
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'left'
+      paintCenteredText(ctx, fitText(ctx, title, l.width - TITLE_START - t.padX), node.x + TITLE_START, node.y + l.headerHeight / 2, t.titleFontSize)
       if (measureWidth(ctx, title) <= l.width - TITLE_START - t.padX) {
-        ctx.fillStyle = t.colors.title
-        ctx.textBaseline = 'middle'
-        ctx.textAlign = 'left'
-        paintHeaderLabel(ctx, title, node.x + TITLE_START, node.y + l.headerHeight / 2, t.titleFontSize)
         this.drawTitleSuffix(ctx, suffix, node.x + TITLE_START + measureWidth(ctx, title), node.x + l.width - t.padX, node.y + l.headerHeight / 2, false)
       }
     }
 
     // Detailed text and chips are omitted in the overview tier; structural
-    // state, fitting titles, and typed connectivity remain visible.
+    // state, fitted titles, and typed connectivity remain visible.
     if (contentDetail) {
       // Title fitting respects the space left by header marks.
       ctx.fillStyle = t.colors.title
@@ -3749,16 +3834,16 @@ export class CanvasRenderer {
         ctx.fillStyle = t.colors.title
         ctx.fill()
         ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${Math.max(paint.fontMinSize, t.titleFontSize - paint.fontReduction)}px ${t.fontFamily}`
-        paintHeaderLabel(ctx, node.regionKind, titleX + paint.labelInset, glyphY, Math.max(paint.fontMinSize, t.titleFontSize - paint.fontReduction))
+        paintCenteredText(ctx, node.regionKind, titleX + paint.labelInset, glyphY, Math.max(paint.fontMinSize, t.titleFontSize - paint.fontReduction))
         titleX += paint.labelInset + ctx.measureText(node.regionKind).width + paint.titleGap
         ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       }
       const titleRoom = Math.max(0, badgeLeft - titleX - canvasPaintTokens.node.titleBadgeGap)
       const titleWidth = measureWidth(ctx, title)
       if (t.titleOverflow === 'ellipsis') {
-        paintHeaderLabel(ctx, fitText(ctx, title, titleRoom), titleX, node.y + l.headerHeight / 2, t.titleFontSize)
+        paintCenteredText(ctx, fitText(ctx, title, titleRoom), titleX, node.y + l.headerHeight / 2, t.titleFontSize)
       } else {
-        paintHeaderLabel(ctx, title, titleX, node.y + l.headerHeight / 2, t.titleFontSize, titleRoom)
+        paintCenteredText(ctx, title, titleX, node.y + l.headerHeight / 2, t.titleFontSize, titleRoom)
       }
       if (titleWidth <= titleRoom) {
         this.drawTitleSuffix(ctx, suffix, titleX + titleWidth, titleX + titleRoom, node.y + l.headerHeight / 2, true)
@@ -3893,6 +3978,37 @@ export class CanvasRenderer {
         ctx.closePath()
         ctx.fill()
       }
+      const linePaint = canvasPaintTokens.node.line
+      for (const line of l.lines ?? []) {
+        if (line.folded || line.railInset === undefined) continue
+        const firstRow = l.rows[line.first]!
+        const lastRow = l.rows[line.last]!
+        const x = node.x + line.railInset
+        const top = node.y + firstRow.y + canvasPaintTokens.widget.verticalInset
+        const bottom = node.y + lastRow.y + lastRow.height - canvasPaintTokens.widget.verticalInset
+        const lit = this.overlay.hoveredLine?.nodeId === sceneNode.id && this.overlay.hoveredLine.key === line.key
+        if (lit) {
+          ctx.fillStyle = t.colors.boxHover
+          ctx.beginPath()
+          ctx.roundRect(x, top, linePaint.railWidth, bottom - top, linePaint.railRadius)
+          ctx.fill()
+        }
+        const cx = x + linePaint.railWidth / 2
+        const chevron = linePaint.chevron
+        ctx.strokeStyle = lit ? t.colors.title : t.colors.label
+        ctx.lineWidth = chevron.stroke
+        ctx.beginPath()
+        ctx.moveTo(cx - chevron.width / 2, top + chevron.top)
+        ctx.lineTo(cx, top + chevron.top + chevron.height)
+        ctx.lineTo(cx + chevron.width / 2, top + chevron.top)
+        ctx.stroke()
+        ctx.strokeStyle = lit ? t.colors.title : t.colors.nodeOutline
+        ctx.lineWidth = boxPaint.stroke
+        ctx.beginPath()
+        ctx.moveTo(cx, top + linePaint.railLineTop)
+        ctx.lineTo(cx, bottom - linePaint.railLineBottom)
+        ctx.stroke()
+      }
       /** A remove cross centered on `cy`, its right edge at `right`. */
       const paintCross = (right: number, cy: number, disabled: boolean): void => {
         const cross = boxPaint.cross
@@ -3992,7 +4108,7 @@ export class CanvasRenderer {
             ctx.fillStyle = textColor
             ctx.textAlign = 'right'
             const text = fitText(ctx, target, (right - left) / 2)
-            paintHeaderLabel(ctx, text, textRight, cy, t.fontSize)
+            paintCenteredText(ctx, text, textRight, cy, t.fontSize)
             textRight -= ctx.measureText(text).width + boxPaint.dotGap
           } else if (row.collapsed || row.box === 'group') {
             ctx.font = `${boxPaint.countFontSize}px ${t.fontFamily}`
@@ -4000,7 +4116,7 @@ export class CanvasRenderer {
             ctx.textAlign = 'right'
             // A group that declares a maximum says how near it is: "3 of 16".
             const count = row.maxCount === undefined ? String(row.count) : translate('canvas.box.countOfMax', { count: row.count, max: row.maxCount })
-            paintHeaderLabel(ctx, count, textRight, cy, boxPaint.countFontSize)
+            paintCenteredText(ctx, count, textRight, cy, boxPaint.countFontSize)
             textRight -= ctx.measureText(count).width + boxPaint.dotGap
             ctx.font = `${t.fontSize}px ${t.fontFamily}`
           }
@@ -4014,7 +4130,7 @@ export class CanvasRenderer {
           const textX = arrowX + boxPaint.arrow.halfWidth + boxPaint.labelGap
           ctx.fillStyle = textColor
           ctx.textAlign = 'left'
-          paintHeaderLabel(ctx, fitText(ctx, row.label, Math.max(0, textRight - textX)), textX, cy, t.fontSize)
+          paintCenteredText(ctx, fitText(ctx, row.label, Math.max(0, textRight - textX)), textX, cy, t.fontSize)
         } else if (row.kind === 'member') {
           // A member's own box: its label and the remove cross.
           const rowAlpha = ctx.globalAlpha
@@ -4029,7 +4145,7 @@ export class CanvasRenderer {
           if (row.crossInset !== undefined && row.remove !== undefined) paintCross(node.x + l.width - row.crossInset, cy, row.remove.disabledReason !== undefined)
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
-          paintHeaderLabel(ctx, fitText(ctx, row.label, Math.max(0, right - boxPaint.cross.reserve - textX)), textX, cy, t.fontSize)
+          paintCenteredText(ctx, fitText(ctx, row.label, Math.max(0, right - boxPaint.cross.reserve - textX)), textX, cy, t.fontSize)
           ctx.globalAlpha = rowAlpha
         } else if (row.kind === 'growth') {
           // A group that grows by hand ends in an Add button, as wide as a member's box.
@@ -4639,7 +4755,10 @@ export class CanvasRenderer {
       hovered,
       tokens: t,
     })
-    if (hovered && !(t.widgetRowLook === 'raised-editors' && PARKED_EDITOR_VIEWS.has(row.viewId))) {
+    const linePointed = this.overlay.hoveredLine?.nodeId === sceneNode.id &&
+      l.lines?.some((line) => line.folded && line.key === this.overlay.hoveredLine!.key &&
+        line.fields.some((field) => field.portId === row.inputId))
+    if ((hovered || linePointed) && !(t.widgetRowLook === 'raised-editors' && PARKED_EDITOR_VIEWS.has(row.viewId))) {
       // A neutral wash preserves the widget's own active/connected
       // styling without making value selection look like live blue data.
       const hoverAlpha = ctx.globalAlpha
@@ -5143,12 +5262,12 @@ export class CanvasRenderer {
       ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
-      paintHeaderLabel(ctx, l.title, x + t.padX, y + l.headerHeight / 2, t.titleFontSize, l.width - t.padX * 2)
+      paintCenteredText(ctx, l.title, x + t.padX, y + l.headerHeight / 2, t.titleFontSize, l.width - t.padX * 2)
       const subtitleX = x + t.padX + ctx.measureText(l.title).width + paint.subtitleGap
       ctx.font = `${t.fontSize}px ${t.fontFamily}`
       if (l.subtitle !== undefined) {
         ctx.fillStyle = t.colors.label
-        paintHeaderLabel(ctx, l.subtitle, subtitleX, y + l.headerHeight / 2, t.fontSize, Math.max(0, x + l.width - t.padX - subtitleX))
+        paintCenteredText(ctx, l.subtitle, subtitleX, y + l.headerHeight / 2, t.fontSize, Math.max(0, x + l.width - t.padX - subtitleX))
       }
 
       // Pin rows, and on an Inputs panel the field rows of the subgraph
@@ -5295,7 +5414,7 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
     ctx.fillStyle = tokens.colors.label
     ctx.textAlign = 'left'
     const labelLeft = x + field.left + (numeric ? tokens.rowGeometry.stepperLabelInset : paint.labelInset)
-    ctx.fillText(fitText(ctx, row.label, Math.max(0, companionZone - lockReserve - paint.labelClipPadding)), labelLeft + lockReserve, y + rowHeight / 2)
+    paintCenteredText(ctx, fitText(ctx, row.label, Math.max(0, companionZone - lockReserve - paint.labelClipPadding)), labelLeft + lockReserve, y + rowHeight / 2, tokens.fontSize)
     lock(labelLeft)
     paintCompanionValue(args)
     return
@@ -5315,14 +5434,14 @@ export const defaultWidgetPainter: WidgetPainter = (args) => {
   const valueWidth = Math.max(0, usable - labelZone)
   ctx.fillStyle = tokens.colors.label
   ctx.textAlign = 'left'
-  ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - lockReserve - paint.labelClipPadding)), x + paint.labelInset + lockReserve, y + rowHeight / 2)
+  paintCenteredText(ctx, fitText(ctx, row.label, Math.max(0, labelZone - lockReserve - paint.labelClipPadding)), x + paint.labelInset + lockReserve, y + rowHeight / 2, tokens.fontSize)
   lock(x + paint.labelInset)
   ctx.fillStyle = tokens.colors.value
   ctx.textAlign = 'right'
   const displayText = fitText(ctx, text, valueWidth)
   const textRight = x + valueRight
   const textY = y + rowHeight / 2
-  ctx.fillText(displayText, textRight, textY)
+  paintCenteredText(ctx, displayText, textRight, textY, tokens.fontSize)
   if (args.connected) paintStaleValueStrikethrough(ctx, displayText, textRight, textY, 'right', tokens.colors.value)
   ctx.textAlign = 'left'
 }
@@ -5515,7 +5634,7 @@ export function paintSummaryParts(ctx: CanvasRenderingContext2D, parts: readonly
   const align = ctx.textAlign
   if (parts.every((part) => part.thumbnail === undefined)) {
     ctx.textAlign = 'right'
-    ctx.fillText(parts.map((part) => (part.separator ?? '') + part.text).join(''), right, y)
+    paintCenteredText(ctx, parts.map((part) => (part.separator ?? '') + part.text).join(''), right, y, tokens.fontSize)
     ctx.textAlign = align
     return
   }
@@ -5524,7 +5643,7 @@ export function paintSummaryParts(ctx: CanvasRenderingContext2D, parts: readonly
     // The separator belongs before the next picture, not between that picture and its name.
     const separator = part.separator ?? ''
     if (separator !== '') {
-      ctx.fillText(separator, left, y)
+      paintCenteredText(ctx, separator, left, y, tokens.fontSize)
       left += measureWidth(ctx, separator)
     }
     if (part.thumbnail !== undefined) {
@@ -5544,7 +5663,7 @@ export function paintSummaryParts(ctx: CanvasRenderingContext2D, parts: readonly
       ctx.restore()
       left += size + fileNameGap
     }
-    if (part.text !== '') ctx.fillText(part.text, left, y)
+    if (part.text !== '') paintCenteredText(ctx, part.text, left, y, tokens.fontSize)
     left += measureWidth(ctx, part.text)
   }
   ctx.textAlign = align

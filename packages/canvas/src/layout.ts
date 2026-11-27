@@ -483,6 +483,16 @@ export interface CurveHistogramPin extends DynamicAnnotations {
 /** A port inside a closed box: a pin once a wire reaches it. */
 export type HiddenPort = Omit<PinLayout, 'y'>
 
+/** A shared field line and the rail beside its unfolded rows. */
+export interface LayoutLine {
+  readonly key: string
+  readonly folded: boolean
+  readonly first: number
+  readonly last: number
+  readonly railInset?: number
+  readonly fields: readonly { readonly portId: string; readonly label: string; readonly type: TypeExpr }[]
+}
+
 export interface PinLayout extends DynamicAnnotations {
   readonly portId: string
   /** Human-readable port label retained when rows are hidden. */
@@ -558,12 +568,15 @@ export interface NodeLayout {
   readonly titleSuffix?: string
   readonly rows: readonly LayoutRow[]
   readonly pins: readonly PinLayout[]
+  /** Room after the last body line for its transient button results, before output surfaces. */
+  readonly trailingButtonNoticeHeight?: number
   /** Body rows are hidden while title, compact preview, and endpoint anchors remain visible. */
   readonly minimized?: true
   /** On a minimized node: the preview region's height on the open node, which a caption-opened preview takes. */
   readonly openPreviewHeight?: number
   /** Boxes drawn around rows, outer boxes before the boxes inside them. */
   readonly boxes?: readonly LayoutBox[]
+  readonly lines?: readonly LayoutLine[]
   /**
    * Optional imagery area appended inside the node body after all rows: the
    * "Preview" caption row on top, then the picture.
@@ -941,7 +954,7 @@ export function withPreviewRegion(layout: NodeLayout, tokens: DesignTokens): Nod
     ? Math.max(minHeight, layout.height)
     : boxedMinHeight(layout, tokens) + tokens.previewGap + previewPanelDefaultHeight(tokens)
   const rows = ownHeightRows(layout, tokens)
-  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight)
+  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), layout.headerHeight) + (layout.trailingButtonNoticeHeight ?? 0)
   return {
     ...layout,
     height,
@@ -996,7 +1009,7 @@ export function withTextOutputRegion(
       : Math.max(minRows, Math.min(maxRows, Math.trunc(lineCount)))
   const regionHeight = tokens.previewCaptionHeight + tokens.rowHeight * rowCount
   const rows = ownHeightRows(open, tokens)
-  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), open.headerHeight)
+  const y = rows.reduce((bottom, row) => Math.max(bottom, row.y + row.height), open.headerHeight) + (open.trailingButtonNoticeHeight ?? 0)
   return {
     ...open,
     height: captionBottom + tokens.rowHeight * rowCount,
@@ -1100,6 +1113,10 @@ export interface LayoutOptions {
   readonly minimized?: true
   /** Per-section collapse overrides from view state (view.setSectionCollapsed). */
   readonly sectionOverrides?: Readonly<Record<string, boolean>>
+  /** Fold state per line of fields, keyed by its first field's flattened id; absent lines are folded. */
+  readonly lineFolds?: Readonly<Record<string, boolean>>
+  /** Boundary-driven inputs whose wires and pins are not drawn. */
+  readonly wirelessInputs?: ReadonlySet<string>
   /** Client-owned named widget representation selections by value key. */
   readonly widgetRepresentations?: Readonly<Record<string, string>>
   /** Height in lines of each text box the user sized, by value key (view.setTextBoxLines). */
@@ -1112,6 +1129,8 @@ export interface LayoutOptions {
   readonly editorsStartFolded?: true
   /** Height of each unfolded editor's picture the user dragged, by value key (view.setPictureHeight). */
   readonly pictureHeights?: Readonly<Record<string, number>>
+  /** Measured result-box heights in world space, by elaborated button id; never stored. */
+  readonly buttonNoticeHeights?: Readonly<Record<string, number>>
   /** Measured controls height, excluding the shared editor's padding, by value key. */
   readonly editorControls?: Readonly<Record<string, number>>
   /** Host-owned status height under each field's line, by value key. */
@@ -1565,8 +1584,11 @@ export function layoutNode(
         else pending.push({ kind: 'ports', boxes: chain, output: slot })
         continue
       }
-      outputs.push({ boxes: chain, slot, ...rowRemoval(item, chain),
-        ...(removable(item, chain) ? { removable: true as const } : {}) })
+      outputs.push({
+        boxes: chain, slot,
+        ...rowRemoval(item, chain),
+        ...(removable(item, chain) ? { removable: true as const } : {}),
+      })
       continue
     }
     // input
@@ -1766,6 +1788,20 @@ export function layoutNode(
   for (const row of pending) emit(row)
   pending.splice(0, pending.length, ...positioned)
 
+  const foldable: { key: string; line: PendingRow[]; folded: boolean }[] = []
+  const unfolded = new Set<PendingRow>()
+  for (const line of new Set(lines.values())) {
+    const key = line.length > 1 ? line.find((row) => row.widget !== undefined)?.widget!.inputId : undefined
+    if (key === undefined) continue
+    const folded = options.lineFolds?.[key] ?? true
+    foldable.push({ key, line, folded })
+    if (folded) continue
+    for (const row of line) {
+      lines.set(row, [row])
+      unfolded.add(row)
+    }
+  }
+
   // An unfolded editor takes its space under the whole line of its row. A
   // declaration may start it unfolded; a growing group's members start folded.
   const space = canvasPaintTokens.node.editorSpace
@@ -1863,6 +1899,8 @@ export function layoutNode(
     const rowIndex = new Map<PendingRow, number>()
     const open: { decl: BoxDecl; top: number; first: number }[] = []
     let flexibleIndex = 0
+    let noticeHeight = 0
+    let trailingNoticeHeight = 0
     let y = tokens.headerHeight + stackInsets.top
     let slack = 0
     // Room under the last thing placed before the outline closing below it:
@@ -1931,6 +1969,7 @@ export function layoutNode(
       }
     }
     for (const row of pending) {
+      trailingNoticeHeight = 0
       if (row.header !== undefined) {
         const decl = row.header
         enter(row.boxes)
@@ -2034,7 +2073,7 @@ export function layoutNode(
       } else if (row.kind === 'note' || row.kind === 'button') {
         const line = lines.get(row)!
         const height = rowBaseHeight(row)
-        const inset = fieldInset(depth)
+        const inset = fieldInset(depth) + (unfolded.has(row) ? canvasPaintTokens.node.line.railReserve : 0)
         const member = row.kind === 'button' && line.at(-1) === row
           ? line.find((cell) => cell.removable)
           : undefined
@@ -2077,7 +2116,8 @@ export function layoutNode(
         // Keep the capsule and its edge controls clear of sockets on either
         // border. The symmetric side also reserves space for output widgets.
         // A choice's dropdown reaches the outline of its option box instead.
-        const inset = w.lead ? outlineX(depth + 1) : fieldInset(depth)
+        const inset = w.lead ? outlineX(depth + 1)
+          : fieldInset(depth) + (unfolded.has(row) ? canvasPaintTokens.node.line.railReserve : 0)
         rowIndex.set(row, rows.length)
         // A member drawn as one line of fields has its grip once, before the
         // line, and its cross once, after it.
@@ -2120,19 +2160,31 @@ export function layoutNode(
         lineBottoms.set(line, Math.max(lineBottoms.get(line) ?? y, y + height))
         if (line.at(-1) === row) y = lineBottoms.get(line)!
       }
+      const line = lines.get(row)
+      if (line?.at(-1) === row) {
+        for (const cell of line) {
+          const notice = cell.button === undefined ? undefined : options.buttonNoticeHeights?.[cell.button.buttonId]
+          if (notice !== undefined) {
+            const height = notice + verticalInset * 2
+            y += height
+            noticeHeight += height
+            trailingNoticeHeight += height
+          }
+        }
+      }
       slack = verticalInset
       under = row.kind === 'growth' ? box.step : box.bottomGap
     }
     const endsInBox = open.length > 0
     close(0)
-    return { rows, pins, boxes, rowDepth, anchorY, rowIndex, bottom: y, endsInBox }
+    return { rows, pins, boxes, rowDepth, anchorY, rowIndex, bottom: y, endsInBox, noticeHeight, trailingNoticeHeight }
   }
 
   const natural = place(0, 0)
   const naturalHeight = natural.bottom + (natural.endsInBox ? boxEndInset(tokens) : stackInsets.bottom)
   const requestedExtra = options.size === undefined
     ? 0
-    : Math.max(0, options.size.height - naturalHeight)
+    : Math.max(0, options.size.height + natural.noticeHeight - naturalHeight)
   const flexibleShare = flexibleRows.length === 0 ? 0 : Math.floor(requestedExtra / flexibleRows.length)
   const flexibleRemainder = flexibleRows.length === 0
     ? 0
@@ -2241,7 +2293,7 @@ export function layoutNode(
   if (sizeOverride) {
     width = Math.max(minWidth, sizeOverride.width)
   }
-  const height = sizeOverride ? Math.max(minHeight, sizeOverride.height) : naturalHeight
+  const height = sizeOverride ? Math.max(minHeight, sizeOverride.height + natural.noticeHeight) : naturalHeight
 
   for (const line of new Set(lines.values())) {
     if (line.length < 2) continue
@@ -2274,7 +2326,7 @@ export function layoutNode(
     const center = rows[rowIndex.get(line[0]!)!]!.y + tokens.rowHeight / 2
     for (const direction of ['in', 'out'] as const) {
       const own = (pin: PinLayout): boolean => fields.has(pin.portId) && pin.direction === direction &&
-        (direction === 'in' ? pin.widgetBacked === true : pin.widgetTap === true)
+        (direction === 'in' ? pin.widgetBacked === true && !options.wirelessInputs?.has(pin.portId) : pin.widgetTap === true)
       const wired = pins.filter((pin) => own(pin) && isConnected(direction, pin.portId))
       pins.splice(0, pins.length, ...pins.filter((pin) => !own(pin)), ...wired.map((pin, index) => {
         const { dy, stacked } = pressed(index, wired.length)
@@ -2305,6 +2357,12 @@ export function layoutNode(
       ? row.inset + (row.width ?? width - row.inset * 2)
       : width - row.crossInset - box.cross.size - gap
     rows[index] = { ...row, inset: row.inset + gripRoom, width: right - row.inset - gripRoom, ...reorder }
+  }
+  for (const row of unfolded) {
+    const index = rowIndex.get(row)!
+    const placedRow = rows[index]!
+    if ((placedRow.kind === 'widget' || placedRow.kind === 'note' || placedRow.kind === 'button') && placedRow.width === undefined)
+      rows[index] = { ...placedRow, width: width - placedRow.inset * 2 + canvasPaintTokens.node.line.railReserve }
   }
   // An unfolded editor and its row are one box: the space takes the row's
   // place and width, so a member's grip and cross stay beside both.
@@ -2347,6 +2405,19 @@ export function layoutNode(
     }
   }
 
+  const layoutLines: LayoutLine[] = foldable.map(({ key, line, folded }) => {
+    const indexes = line.map((row) => rowIndex.get(row)!)
+    const first = rows[indexes[0]!]!
+    return {
+      key, folded, first: Math.min(...indexes), last: Math.max(...indexes),
+      ...(!folded && 'inset' in first
+        ? { railInset: first.inset - canvasPaintTokens.node.line.railReserve - canvasPaintTokens.node.line.railOverhang }
+        : {}),
+      fields: line.flatMap((row) => row.widget
+        ? [{ portId: row.widget.inputId, label: row.widget.label, type: row.widget.type }]
+        : []),
+    }
+  })
   // Outer boxes first, so a box inside a box draws over it.
   const boxes = placed.boxes
     .map((b) => ({ ...b, width: width - b.x * 2 }))
@@ -2363,7 +2434,9 @@ export function layoutNode(
     ...(elaborated.titleSuffix !== undefined ? { titleSuffix: elaborated.titleSuffix } : {}),
     rows,
     pins,
+    ...(placed.trailingNoticeHeight > 0 ? { trailingButtonNoticeHeight: placed.trailingNoticeHeight } : {}),
     ...(boxes.length > 0 ? { boxes } : {}),
+    ...(layoutLines.length > 0 ? { lines: layoutLines } : {}),
   }
 }
 
