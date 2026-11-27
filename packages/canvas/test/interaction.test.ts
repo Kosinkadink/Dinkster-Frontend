@@ -165,6 +165,7 @@ describe('field-line rail', () => {
     }
     if (member) {
       if (first.kind !== 'widget' || first.reorder === undefined) throw new Error('expected member grip')
+      expect(memberAt(node.layout, last.y + last.height / 2)?.member).toBe('layer1')
       const gripX = node.x + first.reorder.gripX
       const targetX = node.x + node.layout.width / 2
       const targetY = node.y + node.layout.rows[node.layout.lines![0]!.first]!.y - 2

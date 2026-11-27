@@ -617,17 +617,19 @@ export function memberSpans(layout: NodeLayout, construct: string): MemberSpan[]
   for (const row of layout.rows) {
     if ((row.kind !== 'member' && row.kind !== 'widget' && row.kind !== 'ports') || row.reorder?.construct !== construct) continue
     const own = row.kind === 'member' ? layout.boxes?.find((candidate) => candidate.id === row.memberId) : undefined
+    const line = layout.lines?.find((line) => !line.folded && layout.rows[line.first] === row)
+    const lastRow = line === undefined ? row : layout.rows[line.last]!
     const x = own?.x ?? (row.kind === 'widget' ? row.inset : (group?.x ?? 0) + box.stroke + box.fieldGap)
     // One span per member, however many rows it draws.
     const last = spans.at(-1)
     if (last?.member === row.reorder.member) {
-      spans[spans.length - 1] = { ...last, bottom: own === undefined ? row.y + row.height : own.y + own.height }
+      spans[spans.length - 1] = { ...last, bottom: own === undefined ? lastRow.y + lastRow.height : own.y + own.height }
       continue
     }
     spans.push({
       member: row.reorder.member,
       top: own?.y ?? row.y,
-      bottom: own === undefined ? row.y + row.height : own.y + own.height,
+      bottom: own === undefined ? lastRow.y + lastRow.height : own.y + own.height,
       x,
       width: own?.width ?? layout.width - x * 2,
     })
@@ -2345,6 +2347,16 @@ export function layoutNode(
           reorder: { ...placedRow.reorder, gripX: placedRow.reorder.gripX - canvasPaintTokens.node.line.railReserve },
         } : {}),
       }
+    }
+  }
+  for (const { line, folded } of foldable) {
+    if (folded) continue
+    for (const row of line.slice(1)) {
+      const index = rowIndex.get(row)!
+      const placedRow = rows[index]!
+      if (placedRow.kind !== 'widget') continue
+      const { reorder: _reorder, remove: _remove, ...field } = placedRow
+      rows[index] = field
     }
   }
   // An unfolded editor and its row are one box: the space takes the row's
