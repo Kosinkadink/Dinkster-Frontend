@@ -82,6 +82,8 @@ export interface CollectionEntry {
 
 export interface CollectionPage {
   readonly items: readonly CollectionEntry[]
+  /** A partial source failure; successful entries remain usable beside shared Retry. */
+  readonly error?: string
   /** Opaque cursor for the NEXT page; absent = exhausted. */
   readonly cursor?: string
   /** Total matches for the query, when the source knows it cheaply. */

@@ -342,6 +342,7 @@ export function CollectionPanel(props: {
         setTotal(page.total)
         setDisabledActions(page.disabledActions ?? [])
         setPageOwner(page.owner)
+        setError(page.error)
         setLoading(false)
         if (!append && pendingInitialSelection !== undefined && selectedId() === undefined) {
           const match = pendingInitialSelection

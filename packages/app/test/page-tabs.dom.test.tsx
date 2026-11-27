@@ -9,7 +9,7 @@ import { App } from '../src/App.js'
 import { ASSET_DRAG_TYPE } from '../src/asset-browser/drag.js'
 import * as boardMedia from '../src/board-media.js'
 import { setPanelOpen } from '../src/panel-location.js'
-import { BOARD_MEDIA_TYPE, emptyBoard, exposedKey } from '@dinkster/core'
+import { BOARD_MEDIA_TYPE, boundaryOf, emptyBoard, exposedKey, loadDocument } from '@dinkster/core'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import {
   layoutGroups,
@@ -358,7 +358,7 @@ describe('app page tabs', () => {
     }
   })
 
-  it('chooses workflows from the Board backend, cancels late placement, and selects undoable independent cards', async () => {
+  it('chooses workflows and both blueprint sources from the Board backend, cancels late placement, and selects undoable independent cards', async () => {
     const app = createWorkflowApp()
     const tabs = app.tabs.get()
     const root = document.createElement('div')
@@ -383,11 +383,11 @@ describe('app page tabs', () => {
       app.pages.open(`board:${entry.id}`)
       const tab = app.pages.tabs().find((tab) => tab.id === `page:board:${entry.id}`) as PageTab
       dispose = render(() => <PageTabPanel host={app.pages} tab={tab} />, root)
-      const choose = async () => {
+      const choose = async (kind = 'Workflow', row = 'saved-card') => {
         [...root.querySelectorAll<HTMLButtonElement>('.dinkster-board button')].find((button) => button.textContent === 'Add')!.click()
-        const workflow = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === 'Workflow')!
+        const workflow = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === kind)!
         workflow.click()
-        await vi.waitFor(() => expect(root.querySelector('[data-entry="saved-card"]')).not.toBeNull())
+        await vi.waitFor(() => expect([...root.querySelectorAll('[data-entry]')].some((item) => item.getAttribute('data-entry') === row)).toBe(true))
       }
       await choose()
       root.querySelector<HTMLButtonElement>('[data-testid="board-card-picker"] [data-testid="modal-close"]')!.click()
@@ -415,6 +415,27 @@ describe('app page tabs', () => {
       expect(entry.session.undo()).toBe(true)
       expect(entry.session.doc.order).toHaveLength(1)
       expect(root.querySelector('.dinkster-board-card')?.textContent).toContain('Saved card')
+      expect(app.tabs.get()).toEqual(tabs)
+      const blueprint = { ...source, graphs: { g0: { ...source.graphs.g0, boundary: boundaryOf([], []) } } }
+      const digest = `sha256:${'d'.repeat(64)}`
+      backend.registry.set({ ...app.registry.get()!, connection: backend.id, packs: new Map([['pack', { displayName: 'Installed pack',
+        blueprints: [{ id: 'saved-card', name: 'Pack card', digest }],
+      }]]) })
+      vi.mocked(backend.connection.listLibrary).mockResolvedValue({ records: [{ ...record, labels: ['blueprint'] }] })
+      vi.mocked(backend.connection.getLibraryRecord).mockResolvedValue({ ...record, labels: ['blueprint'] })
+      fetch.mockResolvedValue(JSON.stringify(blueprint))
+      vi.spyOn(backend.connection, 'fetchBlueprintBody').mockResolvedValue(loadDocument(blueprint).document)
+      await choose('Blueprint', 'saved:saved-card')
+      root.querySelector<HTMLElement>('[data-entry="saved:saved-card"]')!.click()
+      await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(2))
+      const saved = entry.session.doc.items[entry.session.doc.order[1]!]!
+      expect(saved).toMatchObject({ kind: 'blueprint', source: { kind: 'library', recordId: 'saved-card' } })
+      await choose('Blueprint', 'saved:saved-card')
+      const packed = [...root.querySelectorAll<HTMLElement>('[data-entry]')].find((item) => item.textContent?.includes('Pack card'))!
+      packed.click()
+      await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(3))
+      expect(entry.session.doc.items[entry.session.doc.order[2]!]).toMatchObject({ kind: 'blueprint',
+        source: { kind: 'pack', packId: 'pack', blueprintId: 'saved-card', digest } })
       expect(app.tabs.get()).toEqual(tabs)
     } finally {
       dispose()

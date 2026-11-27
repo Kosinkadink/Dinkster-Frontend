@@ -1,4 +1,4 @@
-import { BOARD_MAX_NAME, boardMediaKindOf, emptyBoard, t, type CollectionEntry, type CollectionSource } from '@dinkster/core'
+import { BOARD_MAX_NAME, boardMediaKindOf, emptyBoard, t, type BoardCardSource, type CollectionEntry, type CollectionSource } from '@dinkster/core'
 import { ProductBoard, ProductErrorBanner } from '@dinkster/ui'
 import { Images } from 'lucide-solid'
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
@@ -15,8 +15,9 @@ import { UploadDestination } from './UploadDestination.js'
 import { activeProjectId } from './projects.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 import { CollectionPanel } from './CollectionPanel.js'
-import { workflowsSource } from './collections.js'
+import { boardBlueprintsSource, workflowsSource } from './collections.js'
 import { BoardCard } from './BoardCard.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
 
 function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string | undefined; clearSaveError: () => void }) {
   const [menu, setMenu] = createSignal<CanvasCornerMenu>()
@@ -32,6 +33,7 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
   const [busy, setBusy] = createSignal(false)
   const [picking, setPicking] = createSignal<{
     entry: BoardEntry; backend: Extract<Backend, { protocol: 'dinkster' }>; project: string
+    kind: 'workflow' | 'blueprint'
     point: { x: number; y: number }; source: CollectionSource; finish: (id?: string) => void
   }>()
   const [placing, setPlacing] = createSignal(false)
@@ -41,16 +43,18 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
     setPlacing(false)
     request?.finish()
   }
-  const chooseWorkflow = (point: { x: number; y: number }): Promise<string | undefined> => {
+  const chooseCard = (kind: 'workflow' | 'blueprint', point: { x: number; y: number }): Promise<string | undefined> => {
     cancelPicker()
     const backend = boardBackend()
     if (!backend || backend.protocol !== 'dinkster') return Promise.resolve(undefined)
+    const project = activeProjectId()
+    const owner = () => props.app.backends.get().includes(backend) ? backend : undefined
     return new Promise((finish) => setPicking({
-      entry: props.entry, backend, project: activeProjectId(), point: { ...point }, finish,
-      source: workflowsSource(props.app, () => props.app.backends.get().includes(backend) ? backend : undefined),
+      entry: props.entry, backend, project, kind, point: { ...point }, finish,
+      source: kind === 'workflow' ? workflowsSource(props.app, owner, project) : boardBlueprintsSource(owner, project),
     }))
   }
-  const pickWorkflow = async (selected: CollectionEntry) => {
+  const pickCard = async (selected: CollectionEntry) => {
     const request = picking()
     if (!request || placing() || selected.owner !== request.backend.id) return
     const current = () => live && picking() === request && props.entry === request.entry &&
@@ -59,8 +63,9 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
     setPlacing(true)
     try {
       const id = await props.app.boards.placeCard(request.entry.id, {
-        project: request.project, baseUrl: request.backend.baseUrl, kind: 'workflow',
-        source: { kind: 'library', recordId: selected.id }, name: selected.title,
+        project: request.project, baseUrl: request.backend.baseUrl, kind: request.kind,
+        source: request.kind === 'workflow' ? { kind: 'library', recordId: selected.id } : selected.ref as BoardCardSource,
+        name: selected.title,
       }, request.point, current)
       if (!current()) return
       clearError()
@@ -171,7 +176,9 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
     <div class="board-page-canvas"><ProductBoard
     fill
     store={props.entry.session}
-    onAddCard={boardBackend() ? { workflow: chooseWorkflow } : {}}
+    onAddCard={boardBackend() ? {
+      workflow: (point) => chooseCard('workflow', point), blueprint: (point) => chooseCard('blueprint', point),
+    } : {}}
     card={(card, remove) => <BoardCard app={props.app} entry={props.entry} card={card()}
       onOpen={() => { const source = card().source; if (source.kind === 'library') void openWorkflow(source.recordId, false) }}
       onChooseInputs={() => { const source = card().source; if (source.kind === 'library') void openWorkflow(source.recordId, true) }}
@@ -206,11 +213,13 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
       onFit={view.onFit} onZoomBy={view.onZoomBy} onZoomTo={view.onZoomTo}
     />}
   /></div>
-    <Show when={picking()} keyed>{(request) => <ModalSurface title={t('board.chooseWorkflow')}
+    <Show when={picking()} keyed>{(request) => <ModalSurface title={t(request.kind === 'workflow' ? 'board.chooseWorkflow' : 'board.chooseBlueprint')}
       modalId="board-card-picker" testId="board-card-picker" onRequestClose={cancelPicker}>
       <CollectionPanel sources={[request.source]} variant="select" defaultMode="list" searchPriority="primary"
+        renderState={(state) => state.kind === 'empty' ? <ProductEmptyState
+          title={t(request.kind === 'workflow' ? 'board.noWorkflows' : 'board.noBlueprints')} /> : undefined}
         pick={{ pickable: (entry) => entry.owner === request.backend.id,
-          onPick: (entry) => void pickWorkflow(entry) }} onEscape={cancelPicker} />
+          onPick: (entry) => void pickCard(entry) }} onEscape={cancelPicker} />
     </ModalSurface>}</Show>
     <Show when={importing()} keyed>{(request) => <ModalSurface
       title={t('board.import.title')} modalId="canvas-import" testId="board-import-dialog"
