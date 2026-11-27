@@ -1,5 +1,5 @@
 import {
-  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, DocumentStore, boardMediaKindOf, connectSharedBoardSession, coreCommandRegistry, createLocalBoardSession, createSignal, defaultValuesOf, documentResolver, elabInputsOf, elaborateInterface, exposedKey, exposedToJson, isValidCollabTitle, jsonSameValue, loadBoard, loadDocument, planBoardCommand, t,
+  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, DocumentStore, boardMediaKindOf, buildGraphConnectivity, connectSharedBoardSession, coreCommandRegistry, createLocalBoardSession, createSignal, defaultValuesOf, documentResolver, elabInputsOf, elaborateInterface, exposedKey, exposedToJson, isValidCollabTitle, jsonSameValue, loadBoard, loadDocument, planBoardCommand, t, valueKeyOf,
   type BoardAsset, type BoardCardItem, type BoardCardSource, type BoardDocument, type BoardItemInput, type BoardSession, type CollabSessionDescriptor, type Json, type NodeSchema, type SharedBoardSession, type WorkflowDocument,
 } from '@dinkster/core'
 import type { AssetUploadDestination, DinksterConnection, LibraryRecord } from '@dinkster/client'
@@ -29,7 +29,7 @@ export interface BoardEntry {
   }
 }
 
-/** Apply only currently exposed editable values to a private workflow snapshot. */
+/** Apply exposed overrides and private advancing controls without changing source bytes. */
 export function applyCardInputs(document: WorkflowDocument, values: Readonly<Record<string, Json>>,
   resolve: (type: string) => NodeSchema | undefined,
 ): WorkflowDocument {
@@ -38,7 +38,18 @@ export function applyCardInputs(document: WorkflowDocument, values: Readonly<Rec
   while (pending.size > 0) {
     const row = buildParamRows(store.doc, documentResolver(store.doc, resolve))
       .find((candidate) => pending.has(exposedKey(candidate.entry)))
-    if (!row) break
+    if (!row) {
+      const controller = cardControllerInputs(store.doc, resolve)
+        .find((input) => !input.fixed && (pending.has(input.key) || pending.has(exposedKey(input))))
+      if (!controller) break
+      const key = pending.has(controller.key) ? controller.key : exposedKey(controller)
+      pending.delete(key)
+      const result = store.dispatch({ command: 'node.setValue', params: {
+        graphId: controller.graphId, nodeId: controller.nodeId, inputId: controller.inputId, value: values[key]!,
+      } })
+      if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      continue
+    }
     const key = exposedKey(row.entry)
     pending.delete(key)
     if (row.kind === 'stale') throw new Error(`Card input is unavailable: ${row.reason}`)
@@ -49,6 +60,26 @@ export function applyCardInputs(document: WorkflowDocument, values: Readonly<Rec
     if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
   }
   return store.doc
+}
+
+function cardControllerInputs(document: WorkflowDocument, resolve: (type: string) => NodeSchema | undefined) {
+  const resolver = documentResolver(document, resolve)
+  return Object.values(document.graphs).flatMap((graph) => {
+    const connectivity = buildGraphConnectivity(graph)
+    return Object.values(graph.nodes).flatMap((node) => {
+      const schema = resolver(node.type)
+      if (!schema) return []
+      return elabInputsOf(elaborateInterface(schema, node, connectivity(node.id))).flatMap((input) => {
+        const widget = input.spec.widget
+        if (widget?.controller !== 'after_generate' || input.derivedValue !== undefined ||
+          connectivity(node.id).isInputConnected(input.address.port as string)) return []
+        const inputId = valueKeyOf(input)
+        return [{ graphId: graph.id, nodeId: node.id, inputId,
+          key: exposedKey({ graphId: graph.id, nodeId: node.id, inputId: input.spec.id }),
+          fixed: (node.controllers?.[inputId] ?? widget.controllerInitial ?? 'randomize') === 'fixed' }]
+      })
+    })
+  })
 }
 
 /** Board documents share the existing transport, without pretending to be workflows. */
@@ -259,7 +290,15 @@ export class BoardWorkspace {
     const document = await this.loadCardSource(id, cardId, resolve, () => stillWanted() && entry.session.doc.items[cardId] === card)
     if (this.disposed || !stillWanted() || !this.entries.get().includes(entry) || entry.session.doc.items[cardId] !== card ||
       this.options.mediaConnection(entry.baseUrl) !== connection) throw new Error('Card changed while loading')
-    return applyCardInputs(document, card.values, resolve)
+    const snapshot = applyCardInputs(document, card.values, resolve)
+    const exposed = new Set(buildParamRows(snapshot, documentResolver(snapshot, resolve))
+      .flatMap((row) => [exposedKey(row.entry), ...(row.kind === 'live' ? [exposedKey({ ...row.entry, inputId: row.valueKey })] : [])]))
+    const fixed = new Set(cardControllerInputs(snapshot, resolve)
+      .filter((input) => input.fixed && !exposed.has(exposedKey(input)) && !exposed.has(input.key))
+      .flatMap((input) => [exposedKey(input), input.key]))
+    const values = Object.fromEntries(Object.entries(card.values).filter(([key]) => !fixed.has(key)))
+    if (!jsonSameValue(card.values, values)) entry.session.dispatch({ command: 'board.card.inputs', params: { id: cardId, values } })
+    return snapshot
   }
 
   /** The source defaults stay separate from overrides so undo can restore them without another fetch. */

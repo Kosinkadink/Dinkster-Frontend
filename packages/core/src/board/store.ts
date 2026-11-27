@@ -8,7 +8,7 @@
 
 import { createSignal, type ReadonlySignal } from '../reactive/signal.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
-import type { Json } from '../format/document.js'
+import type { Json, JsonObject } from '../format/document.js'
 import { applyOwnedOps, invertOps, type PatchOp } from '../commands/patch.js'
 import { jsonSameValue } from '../commands/store.js'
 import { exposedKey, type ExposedParameter } from '../format/exposed.js'
@@ -35,6 +35,7 @@ export type BoardCommandInvocation =
   | { readonly command: 'board.item.remove'; readonly params: { readonly ids: readonly string[] } }
   | { readonly command: 'board.note.edit'; readonly params: { readonly id: string; readonly text: string } }
   | { readonly command: 'board.section.rename'; readonly params: { readonly id: string; readonly name: string } }
+  | { readonly command: 'board.card.inputs'; readonly params: { readonly id: string; readonly values: JsonObject } }
   | { readonly command: 'board.card.input'; readonly params: {
       readonly id: string
       readonly input: Pick<ExposedParameter, 'graphId' | 'nodeId' | 'inputId'>
@@ -186,6 +187,14 @@ export function planBoardCommand(
       if (item.kind !== 'section') return refuse('item.kind', `'${item.id}' is not a section`)
       if (item.name === invocation.params.name) return refuse('edit.none', 'the section already has that name')
       return { ok: true, created: [], forward: [{ op: 'replace', path: ['items', item.id, 'name'], value: invocation.params.name, oldValue: item.name }] }
+    }
+    case 'board.card.inputs': {
+      const { id, values } = invocation.params
+      const item = board.items[id]
+      if (item === undefined) return missing(id)
+      if (item.kind !== 'workflow' && item.kind !== 'blueprint') return refuse('item.kind', `'${id}' is not a workflow or blueprint card`)
+      if (jsonSameValue(item.values, values)) return refuse('edit.none', 'the card already has those input values')
+      return { ok: true, created: [], forward: [{ op: 'replace', path: ['items', id, 'values'], value: owned(values), oldValue: item.values }] }
     }
     case 'board.card.input': {
       const { id, input, value } = invocation.params

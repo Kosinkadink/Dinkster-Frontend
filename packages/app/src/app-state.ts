@@ -62,6 +62,7 @@ import {
   emptyGates,
   environmentDrift,
   executionKey,
+  exposedKey,
   ExtensionHost,
   type ExtensionHostOptions,
   type ExtensionEditorKind,
@@ -269,6 +270,7 @@ import {
 } from './execution-result-persistence.js'
 import { COLLAB_SCOPE, httpCollabTransport, stableActorId, type CollabTransport } from './collab.js'
 import { BoardWorkspace, type BoardEntry } from './board-workspace.js'
+import { buildParamRows } from './app-view-rows.js'
 import { installBoardPages } from './BoardPage.js'
 import { PresenceChannel } from './collab-presence.js'
 import {
@@ -915,6 +917,11 @@ export interface AdvancementPlan {
   /** Per-input value mutation generation captured with the queue-time snapshot. */
   readonly generations: ReadonlyMap<string, number>
   readonly modeGenerations: ReadonlyMap<string, number>
+}
+
+interface BoardAdvancementPlan {
+  readonly apply: () => void
+  readonly dispose: () => void
 }
 
 type AdvancementInputLocation = { readonly graphId: string; readonly nodeId: string; readonly inputId: string }
@@ -3661,7 +3668,7 @@ export class AppState {
       for (const key of [...executionStatuses.keys()]) {
         if (executions.has(key)) continue
         executionStatuses.delete(key)
-        this.advancementPlans.delete(key)
+        this.dropAdvancement(key)
       }
       for (const execution of executions.values()) {
         const key = executionKey(execution.ref)
@@ -3683,7 +3690,7 @@ export class AppState {
           execution.status === 'error' ||
           execution.status === 'cancelled' ||
           (execution.status === 'interrupted' && !this.store.isProvisionallyLost(execution.ref))
-        ) this.advancementPlans.delete(key)
+        ) this.dropAdvancement(key)
         if (
           previous !== undefined &&
           previous !== execution.status &&
@@ -3850,6 +3857,7 @@ export class AppState {
     if (this.disposed) return
     this.disposed = true
     this.uninstallBoardPages()
+    for (const key of this.advancementPlans.keys()) this.dropAdvancement(key)
     this.boards.dispose()
     for (const projects of this.modelDownloadControllers.values()) for (const controller of projects.values()) controller.dispose()
     this.modelDownloadControllers.clear()
@@ -9491,15 +9499,51 @@ export class AppState {
     if (scopes?.fromOnwards) await this.queue(tab, scopes.fromOnwards, scopes.analysis.last)
   }
 
-  /**
-   * Controller advancement plans captured at queue time, keyed by
-   * executionKey. Each plan owns the exact DocumentSession it was
-   * planned against - completion applies to that session only if a live tab
-   * still holds it (a replacement session sharing the lineage never
-   * qualifies), and each step is compare-and-set on the raw stored value so
-   * inputs the user edited after queueing are preserved.
-   */
-  private readonly advancementPlans = new Map<string, AdvancementPlan>()
+  /** Completion targets the exact live document owner and preserves later input edits. */
+  private readonly advancementPlans = new Map<string, AdvancementPlan | BoardAdvancementPlan>()
+
+  private dropAdvancement(key: string): void {
+    const plan = this.advancementPlans.get(key)
+    this.advancementPlans.delete(key)
+    if (plan && 'dispose' in plan) plan.dispose()
+  }
+
+  private boardAdvancementPlan(entry: BoardEntry, cardId: string, artifact: CompileArtifact): BoardAdvancementPlan {
+    const card = entry.session.doc.items[cardId]!
+    if (card.kind !== 'workflow' && card.kind !== 'blueprint') throw new Error('Card is no longer available')
+    const registry = this.retainedRegistries.get(artifact)!
+    const rows = buildParamRows(artifact.snapshot, documentResolver(artifact.snapshot, registry.resolve))
+    const steps = controllerAdvancementPlan(artifact.snapshot, artifact).map((step) => {
+      const row = rows.find((row) => row.kind === 'live' && row.entry.graphId === step.graphId &&
+        row.entry.nodeId === step.nodeId && row.valueKey === step.inputId)
+      return row ? { ...step, inputId: row.entry.inputId } : step
+    })
+    const invalid = new Set<AdvancementStep>()
+    let replaced = false
+    const dispose = entry.session.document.subscribe((document) => {
+      const latest = document.items[cardId]
+      if (!latest || latest.kind !== card.kind || !jsonSameValue(latest.source, card.source)) {
+        replaced = true
+        return
+      }
+      for (const step of steps) {
+        const key = exposedKey(step)
+        if (!jsonSameValue(latest.values[key], card.values[key])) invalid.add(step)
+      }
+    })
+    return { dispose, apply: () => {
+      dispose()
+      if (replaced || !this.boards.entries.get().includes(entry)) return
+      const latest = entry.session.doc.items[cardId]
+      if (!latest || latest.kind !== card.kind) return
+      const values = { ...latest.values }
+      for (const step of steps) {
+        if (invalid.has(step)) continue
+        values[exposedKey(step)] = step.value
+      }
+      if (!jsonSameValue(values, latest.values)) entry.session.dispatch({ command: 'board.card.inputs', params: { id: cardId, values } })
+    } }
+  }
 
   /**
    * Latest mutation generation by document path. Value equality alone has
@@ -9650,7 +9694,7 @@ export class AppState {
   private installRun(
     ref: ExecutionRef,
     artifact: CompileArtifact,
-    plan: AdvancementPlan | undefined,
+    plan: AdvancementPlan | BoardAdvancementPlan | undefined,
     timestamp?: number,
     identity?: { readonly jobRef?: string; readonly sourceDocument?: string; readonly workflowName?: string },
   ): void {
@@ -9780,6 +9824,11 @@ export class AppState {
     const plan = this.advancementPlans.get(key)
     if (!plan) return
     this.advancementPlans.delete(key)
+    if ('apply' in plan) {
+      if (this.settings.get<boolean>('features.seedController.enabled')) plan.apply()
+      else plan.dispose()
+      return
+    }
     // Disabling the controller mid-run suppresses in-flight plans too.
     if (!this.settings.get<boolean>('features.seedController.enabled')) return
     const tab = this.liveTabContinuing(plan.session)
@@ -10114,6 +10163,8 @@ export class AppState {
     const subscriptions = [this.boards.changed.subscribe(invalidate), this.backendsTick.subscribe(invalidate)]
     this.boardCardSubmissions.set(new Map([...this.boardCardSubmissions.get(), [key, controller]]))
     let releaseWorld: (() => void) | undefined
+    let advancement: BoardAdvancementPlan | undefined
+    let installed = false
     try {
       const source = await this.boards.loadCard(entry.id, cardId, registry.resolve, current)
       if (!current()) return undefined
@@ -10135,6 +10186,7 @@ export class AppState {
       let result = compile(input)
       if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
       this.retainedRegistries.set(result.artifact, registry)
+      if (this.settings.get<boolean>('features.seedController.enabled')) advancement = this.boardAdvancementPlan(entry, cardId, result.artifact)
       const lease = this.retainSubmissionWorld(undefined, result.artifact)
       releaseWorld = lease.release
       const capture = this.captureQueueViews({ document, backend, resolve, current,
@@ -10171,7 +10223,8 @@ export class AppState {
       ) })
       const install = (ok: Extract<DinksterSubmitResult, { ok: true }>): ExecutionRef | undefined => {
         if (this.disposed) return undefined
-        this.installRun(ok.execution, artifact, undefined, undefined, { ...identity,
+        installed = true
+        this.installRun(ok.execution, artifact, advancement, undefined, { ...identity,
           ...(ok.jobRef === undefined ? {} : { jobRef: ok.jobRef }),
         })
         // Closing a Board does not cancel an accepted run; an explicit Stop does.
@@ -10200,6 +10253,7 @@ export class AppState {
       if (!controller.signal.aborted) throw error
       return undefined
     } finally {
+      if (!installed) advancement?.dispose()
       for (const unsubscribe of subscriptions) unsubscribe()
       releaseWorld?.()
       const pending = new Map(this.boardCardSubmissions.get())

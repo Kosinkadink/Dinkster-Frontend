@@ -107,6 +107,134 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 }
 
 describe('Board card sources', () => {
+  it.each(['workflow', 'blueprint'] as const)('advances private %s seeds and dropdowns only on success, preserves in-flight edits, and persists them without source writes', async (kind) => {
+    const { backend, tab } = await nativeSetup()
+    const schema: NodeSchema = { type: 'CardControls', displayName: 'Card controls', category: 'test', source: 'v3', isOutputNode: true,
+      body: [
+        { kind: 'input', id: 'seed', optional: false, type: { kind: 'concrete', name: 'INT' },
+          widget: { widgetType: 'INT', options: { min: 0, max: 100, step: 2 }, controller: 'after_generate' } },
+        { kind: 'input', id: 'choice', optional: false, type: { kind: 'concrete', name: 'STRING' },
+          widget: { widgetType: 'COMBO', options: { options: ['alpha', 'beta', 'gamma'] }, controller: 'after_generate' } },
+      ] }
+    const registry = backend.registry.get()!
+    backend.registry.set({ ...registry, resolve: (type) => type === schema.type ? schema : registry.resolve(type) })
+    let source = { ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0,
+      nodes: { n0: { id: 'n0', type: schema.type, values: { seed: 7, choice: 'beta' }, controllers: { seed: 'increment', choice: 'decrement' } } },
+      links: {}, ...(kind === 'blueprint' ? { boundary: boundaryOf([
+        { id: 'seed', binds: { kind: 'port' as const, node: asNodeId('n0'), port: asPortId('seed') }, promoted: true },
+      ], []) } : {}),
+    } } }
+    const original = tab.store.doc
+    const tabs = app.tabs.get()
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record({ labels: [kind] }))
+    vi.spyOn(backend.connection, 'fetchAssetText').mockImplementation(async () => JSON.stringify(source))
+    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
+    const submitted: JsonObject[] = []
+    vi.spyOn(backend.connection, 'submit').mockImplementation(async (artifact) => {
+      submitted.push(Object.values(artifact.prompt)[0]!.inputs as JsonObject)
+      return { ok: true, execution: { connection: backend.id, prompt: asPromptId(`advance-${submitted.length}`) } }
+    })
+    const board = app.boards.open(emptyBoard(), 'Private controls', backend.baseUrl)
+    const selection = { project: activeProjectId(), baseUrl: backend.baseUrl, kind,
+      source: { kind: 'library' as const, recordId: 'r1' }, name: 'Controls' }
+    const a = await app.boards.placeCard(board.id, selection, { x: 0, y: 0 })
+    const b = await app.boards.placeCard(board.id, selection, { x: 400, y: 0 })
+    const first = (await app.queueBoardCard(board, a))!
+    const second = (await app.queueBoardCard(board, b))!
+    expect(submitted).toEqual([{ seed: 7, choice: 'beta' }, { seed: 7, choice: 'beta' }])
+    app.store.apply({ kind: 'completed', execution: first, timestamp: 1 })
+    const advanced = structuredClone(board.session.doc)
+    app.store.apply({ kind: 'completed', execution: first, timestamp: 2 })
+    expect(board.session.doc).toEqual(advanced)
+    expect(board.session.undo()).toBe(true)
+    expect((await app.boards.loadCard(board.id, a, backend.registry.get()!.resolve)).graphs.g0!.nodes.n0!.values.choice).toBe('beta')
+    expect(board.session.redo()).toBe(true)
+    app.store.apply({ kind: 'cancelled', execution: second, timestamp: 3 })
+    const third = (await app.queueBoardCard(board, a))!
+    const fourth = (await app.queueBoardCard(board, b))!
+    expect(submitted.slice(2)).toEqual([{ seed: 8, choice: 'alpha' }, { seed: 7, choice: 'beta' }])
+    const seedInput = { graphId: kind === 'blueprint' ? 'board-root' : 'g0', nodeId: 'n0', inputId: 'seed' }
+    board.session.dispatch({ command: 'board.card.input', params: { id: a, input: seedInput, value: 40 } })
+    board.session.dispatch({ command: 'board.card.input', params: { id: a, input: seedInput, value: 8 } })
+    app.store.apply({ kind: 'completed', execution: third, timestamp: 4 })
+    app.store.apply({ kind: 'error', execution: fourth, timestamp: 5,
+      detail: { exceptionType: 'Error', exceptionMessage: 'Failed', traceback: [] } })
+    const retried = (await app.queueBoardCard(board, b))!
+    expect(submitted[4]).toEqual({ seed: 7, choice: 'beta' })
+    app.store.apply({ kind: 'cancelled', execution: retried, timestamp: 6 })
+    expect((board.session.doc.items[a] as { values: JsonObject }).values[exposedKey(seedInput)]).toBe(8)
+    if (kind === 'workflow') {
+      vi.mocked(backend.connection.fetchAssetText).mockResolvedValueOnce(JSON.stringify({ ...source, ext: { 'dinkster.exposed': [
+        seedInput, { graphId: 'g0', nodeId: 'n0', inputId: 'choice' },
+      ] } }))
+      const exposed = await app.boards.loadCard(board.id, a, backend.registry.get()!.resolve)
+      expect(buildParamRows(exposed, documentResolver(exposed, backend.registry.get()!.resolve))
+        .map((row) => row.kind === 'live' ? row.value : undefined)).toEqual([8, 'gamma'])
+      expect(exposed.graphs.g0!.nodes.n0!.controllers).toEqual({ seed: 'increment', choice: 'decrement' })
+    }
+    const fifth = (await app.queueBoardCard(board, a))!
+    expect(submitted[5]).toEqual({ seed: 8, choice: 'gamma' })
+    app.store.apply({ kind: 'cancelled', execution: fifth, timestamp: 6 })
+    const persisted = JSON.parse(JSON.stringify(board.session.doc))
+    app.boards.close(board.id)
+    const reopened = app.boards.open(persisted, 'Reopened', backend.baseUrl)
+    const sixth = (await app.queueBoardCard(reopened, a))!
+    expect(submitted[6]).toEqual({ seed: 8, choice: 'gamma' })
+    app.store.apply({ kind: 'cancelled', execution: sixth, timestamp: 7 })
+    source = { ...source, graphs: { g0: { ...source.graphs.g0, nodes: { n0: { ...source.graphs.g0.nodes.n0,
+      values: { seed: 31, choice: 'beta' }, controllers: { seed: 'fixed', choice: 'fixed' },
+    } } } } }
+    const seventh = (await app.queueBoardCard(reopened, a))!
+    expect(submitted[7]).toEqual({ seed: kind === 'blueprint' ? 8 : 31, choice: 'beta' })
+    expect((reopened.session.doc.items[a] as { values: JsonObject }).values[exposedKey({ graphId: 'g0', nodeId: 'n0', inputId: 'choice' })]).toBeUndefined()
+    app.store.apply({ kind: 'cancelled', execution: seventh, timestamp: 8 })
+    source = { ...source, graphs: { g0: { ...source.graphs.g0, nodes: { n0: { ...source.graphs.g0.nodes.n0,
+      controllers: { seed: 'increment', choice: 'decrement' },
+    } } } } }
+    const eighth = (await app.queueBoardCard(reopened, a))!
+    expect(submitted[8]).toEqual({ seed: kind === 'blueprint' ? 8 : 31, choice: 'beta' })
+    app.store.apply({ kind: 'cancelled', execution: eighth, timestamp: 9 })
+    expect(app.tabs.get()).toBe(tabs)
+    expect(tab.store.doc).toBe(original)
+    expect(source.graphs.g0.nodes.n0.values).toEqual({ seed: 31, choice: 'beta' })
+  })
+
+  it('advances a card when completion beats its submit reply but never advances a replacement Board', async () => {
+    const { backend } = await nativeSetup()
+    const registry = backend.registry.get()!
+    const schema = registry.resolve('test.numeric_union')!
+    backend.registry.set({ ...registry, resolve: (type) => type !== schema.type ? registry.resolve(type) : {
+      ...schema, body: schema.body.map((row) => row.kind === 'input' ? { ...row,
+        widget: { ...row.widget!, controller: 'after_generate', controllerInitial: 'increment' },
+      } : row),
+    } })
+    const source = { ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0,
+      nodes: { n0: { id: 'n0', type: schema.type, values: { frame_rate: 25 } } }, links: {},
+    } } }
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
+    vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(source))
+    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
+    const board = app.boards.open(emptyBoard(), 'Early completion', backend.baseUrl)
+    const id = await app.boards.placeCard(board.id, { project: activeProjectId(), baseUrl: backend.baseUrl,
+      kind: 'workflow', source: { kind: 'library', recordId: 'r1' }, name: 'Rate' }, { x: 0, y: 0 })
+    const first = { connection: backend.id, prompt: asPromptId('already-completed') }
+    const submit = vi.spyOn(backend.connection, 'submit').mockImplementation(async () => {
+      app.store.apply({ kind: 'completed', execution: first, timestamp: 1 })
+      return { ok: true, execution: first }
+    })
+    await app.queueBoardCard(board, id)
+    const key = exposedKey({ graphId: 'g0', nodeId: 'n0', inputId: 'frame_rate' })
+    expect((board.session.doc.items[id] as { values: JsonObject }).values[key]).toBe(25.01)
+    const second = { connection: backend.id, prompt: asPromptId('closed-owner') }
+    submit.mockResolvedValue({ ok: true, execution: second })
+    await app.queueBoardCard(board, id)
+    const snapshot = board.session.doc
+    app.boards.close(board.id)
+    const replacement = app.boards.open(snapshot, 'Replacement', backend.baseUrl)
+    app.store.apply({ kind: 'completed', execution: second, timestamp: 2 })
+    expect(replacement.session.doc).toEqual(snapshot)
+  })
+
   it('runs independent full card snapshots on the Board backend, keeps editing tabs unchanged, and stops a posted run even when its reply arrives late', async () => {
     const { backend, tab } = await nativeSetup()
     const input = { graphId: 'g0', nodeId: 'n0', inputId: 'frame_rate', label: 'Rate' }
