@@ -2,11 +2,87 @@
 
 import { render } from 'solid-js/web'
 import { describe, expect, it, vi } from 'vitest'
-import type { WorkflowDocument } from '@dinkster/core'
+import { asPromptId, type WorkflowDocument } from '@dinkster/core'
 import { AppView } from '../src/AppView.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 describe('App View occurrence fields', () => {
+  it.each([0, 1, 2])('requests cold automatic values and hidden presentation dependencies at depth %s', async (depth) => {
+    const requests: { function: string; args: number[]; nodeType: string }[] = []
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (!url.endsWith('/api/lookups')) return new Response('{}', { status: 503 })
+      const call = JSON.parse(String(init?.body)) as typeof requests[number]
+      requests.push(call)
+      return new Response(JSON.stringify({ answer: call.args[0]! * 2 }), { headers: { 'content-type': 'application/json' } })
+    })
+    const field = (id: string) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'INT' },
+      optional: false, widget: { widgetType: 'INT', options: {}, default: 5 } })
+    const app = createWorkflowApp([{
+      type: 'Calculated', displayName: 'Calculated', category: 'test', source: 'v3', isOutputNode: true,
+      body: [field('seed'), { ...field('hidden'), hidden: true, automatic: { lookup: 'hidden_for', args: ['seed'] } },
+        { ...field('direct'), automatic: { lookup: 'total_for', args: ['seed'] } },
+        { ...field('dependent'), automatic: { formula: 'hidden * 2' }, visible: { formula: 'hidden > 10' } },
+        { ...field('unused'), automatic: { lookup: 'unused_for', args: ['seed'] } }],
+    }])
+    app.settings.set('features.appView.enabled', true)
+    const bind = (id: string, node: string, port: string) => ({ kind: 'input', id, promoted: true, binds: { kind: 'port', node, port } })
+    const graph = (id: string, nodes: unknown, body?: unknown) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 20,
+      ...(body === undefined ? {} : { boundary: { body } }) })
+    const seed = depth === 0 ? 'seed' : depth === 1 ? 'start' : 'control'
+    const direct = depth === 0 ? 'direct' : depth === 1 ? 'total' : 'result'
+    const dependent = depth === 0 ? 'dependent' : depth === 1 ? 'calculated' : 'shown'
+    const document = { format: 'dinkster-workflow', formatVersion: 1, lineage: `cold-app-${depth}`, root: 'root', graphs: {
+      root: graph('root', Object.fromEntries([['first', 21], ['second', 13]].map(([id, value]) => [id, {
+        id, type: depth === 0 ? 'Calculated' : depth === 1 ? '#detail' : '#portrait', values: { [seed]: value },
+      }]))),
+      ...(depth > 0 ? { detail: graph('detail', { sample: { id: 'sample', type: 'Calculated', values: { seed: 3 } } },
+        [bind('start', 'sample', 'seed'), bind('total', 'sample', 'direct'), bind('calculated', 'sample', 'dependent')]) } : {}),
+      ...(depth === 2 ? { portrait: graph('portrait', { detail: { id: 'detail', type: '#detail', values: { start: 7 } } },
+        [bind('control', 'detail', 'start'), bind('result', 'detail', 'total'), bind('shown', 'detail', 'calculated')]) } : {}),
+    }, view: { graphs: {} }, ext: { 'dinkster.exposed': ['first', 'second'].flatMap((nodeId) => [direct, dependent].map((inputId) => ({
+      graphId: 'root', nodeId, inputId, label: `${nodeId} ${inputId}`,
+    }))) } } as unknown as WorkflowDocument
+    await app.openDocument(document, 'Cold calculations')
+    const root = window.document.createElement('div')
+    window.document.body.append(root)
+    const dispose = render(() => <AppView app={app} />, root)
+    try {
+      const values = () => [...root.querySelectorAll<HTMLInputElement>('[data-testid="app-view-row"] input')].map((input) => input.value)
+      await vi.waitFor(() => expect(values()).toEqual(['42', '84', '26', '52']))
+      expect(requests.map((call) => [call.nodeType, call.function, call.args]).sort()).toEqual([
+        ['Calculated', 'hidden_for', [13]], ['Calculated', 'hidden_for', [21]],
+        ['Calculated', 'total_for', [13]], ['Calculated', 'total_for', [21]],
+      ].sort())
+      const store = app.activeTab()!.store
+      expect(store.doc).toEqual(document)
+      expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: seed, value: 3 } }).ok).toBe(true)
+      await vi.waitFor(() => expect(values()).toEqual(['6', '26', '52']))
+      expect(requests.some((call) => call.function === 'hidden_for' && call.args[0] === 3)).toBe(true)
+      expect(store.doc.graphs.detail).toEqual(document.graphs.detail)
+      expect(store.doc.graphs.portrait).toEqual(document.graphs.portrait)
+      expect(store.undo()).toBe(true)
+      await vi.waitFor(() => expect(values()).toEqual(['42', '84', '26', '52']))
+      expect(store.doc).toEqual(document)
+      const tab = app.activeTab()!
+      const compiled = app.compileTab(tab)
+      expect(compiled?.ok).toBe(true)
+      if (!compiled?.ok) throw new Error('cold App View document did not compile')
+      const backend = app.backendForTab(tab)
+      const ref = { connection: backend.id, prompt: asPromptId(`cold-frozen-${depth}`) }
+      app.store.register(ref, compiled.artifact, 1)
+      expect(await app.openExecutionView(ref)).toBe(true)
+      backend.lookups.invalidate()
+      for (let i = 0; i < 30; i += 1) await Promise.resolve()
+      expect(root.querySelectorAll('[data-testid="app-view-row"] input')).toHaveLength(0)
+      expect(requests).toHaveLength(6)
+    } finally {
+      dispose()
+      root.remove()
+      app.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it.each([0, 1, 2])('honors calculated read-only, disabled and visible fields at depth %s', async (depth) => {
     const app = createWorkflowApp([{
       type: 'Controlled', displayName: 'Controlled', category: 'test', source: 'v3', isOutputNode: true,

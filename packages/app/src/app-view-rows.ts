@@ -130,11 +130,13 @@ function resolveRow(
 /**
  * All exposed entries resolved to rows, in declared order. Connectivity is
  * built once per touched graph (one pass over links and nets), not per row.
+ * Include hidden rows when collecting the lookup demand that can reveal them.
  */
 export function buildParamRows(
   doc: WorkflowDocument,
   resolve: ((type: string) => NodeSchema | undefined) | undefined,
   lookupAnswers?: ElaborateOptions['lookupAnswers'],
+  includeHidden = false,
 ): readonly ParamRow[] {
   const resolveSchema = resolve === undefined ? undefined : documentNodeResolver(doc, resolve, documentPrimitiveResolver(doc, resolve))
   const cache = new Map<string, (node: NodeId) => Connectivity>()
@@ -145,7 +147,7 @@ export function buildParamRows(
   }
   return exposedParameters(doc).flatMap((entry) => {
     const row = resolveRow(doc, entry, resolveSchema, connectivityFor, lookupAnswers)
-    return row.kind === 'live' && row.item.spec.hidden === true ? [] : [row]
+    return !includeHidden && row.kind === 'live' && row.item.spec.hidden === true ? [] : [row]
   })
 }
 

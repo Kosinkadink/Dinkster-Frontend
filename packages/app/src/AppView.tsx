@@ -44,7 +44,7 @@ import {
   type ExposedPreview,
   type Json,
 } from '@dinkster/core'
-import type { RefreshableScopedClient } from '@dinkster/client'
+import type { LookupClient, RefreshableScopedClient } from '@dinkster/client'
 import {
   buildParamRows,
   buildPreviewRows,
@@ -85,7 +85,7 @@ import {
   type NodePreviewSurface,
 } from './node-previews.js'
 import { parseAppViewText } from './app-view-text.js'
-import { lookupAnswersOf } from './lookup-demand.js'
+import { LookupDemand, lookupAnswersOf } from './lookup-demand.js'
 import { useAppMessage } from './locale.js'
 import ArrowDown from 'lucide-solid/icons/arrow-down'
 import ArrowUp from 'lucide-solid/icons/arrow-up'
@@ -473,19 +473,42 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     onCleanup(unsubscribe)
   })
 
-  const rows = createMemo((): readonly ParamRow[] => {
+  const resolvedRows = createMemo((): readonly ParamRow[] => {
     docTick()
     extensionsTick()
     const tab = activeTab()
     if (!tab) return []
     const reg = registry()
     const resolve = reg ? (type: string) => reg.resolve(type) : undefined
-    // An automatic lookup field shows the answer the canvas holds; a frozen
-    // view of a run calls no lookups.
     lookupTick()
     const backend = props.app.backendForTab(tab)
-    return buildParamRows(tab.store.doc, resolve, tab.execution === undefined ? lookupAnswersOf(backend.lookups) : undefined)
+    return buildParamRows(tab.store.doc, resolve, tab.execution === undefined ? lookupAnswersOf(backend.lookups) : undefined, true)
   })
+  const rows = createMemo(() => resolvedRows().filter((row) => row.kind !== 'live' || row.item.spec.hidden !== true))
+
+  const lookupDemands = new Map<LookupClient, LookupDemand>()
+  createEffect(() => {
+    backendsTick()
+    const tab = activeTab()
+    const lookups = tab !== undefined && tab.execution === undefined && registry() !== undefined
+      ? props.app.backendForTab(tab).lookups : undefined
+    for (const [client, demand] of lookupDemands) {
+      if (client === lookups) continue
+      demand.dispose()
+      lookupDemands.delete(client)
+    }
+    if (lookups === undefined || tab === undefined) return
+    let demand = lookupDemands.get(lookups)
+    if (demand === undefined) lookupDemands.set(lookups, (demand = new LookupDemand(lookups)))
+    demand.show(resolvedRows().flatMap((row) => row.kind !== 'live' ? [] : [{
+      nodeType: row.node.type,
+      node: JSON.stringify([tab.id, row.entry.graphId, row.entry.nodeId, row.entry.inputId]),
+      items: row.item.spec.hidden === true ? [] : [row.item],
+      // A hidden field still asks for the dependencies that can reveal it.
+      ...(row.item.lookupDependencies === undefined ? {} : { lookupDependencies: row.item.lookupDependencies }),
+    }]))
+  })
+  onCleanup(() => { for (const demand of lookupDemands.values()) demand.dispose() })
 
   const previewCandidates = createMemo((): readonly PreviewRow[] => {
     docTick()
