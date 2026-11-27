@@ -1996,7 +1996,7 @@ export class DinksterConnection {
   private readonly listeners = new Set<(e: NormalizedEvent) => void>()
   private readonly resumedListeners = new Set<() => void>()
   private readonly problemListeners = new Set<(problem: Diagnostic) => void>()
-  private readonly liveCompletionListeners = new Set<(execution: ExecutionRef) => void>()
+  private readonly liveTerminalListeners = new Set<(execution: ExecutionRef) => void>()
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
   private readonly mountListeners = new Set<() => void>()
   private readonly libraryListeners = new Set<() => void>()
@@ -2117,10 +2117,10 @@ export class DinksterConnection {
     return new ExecutionRequestError(problem)
   }
 
-  /** Subscribe to persisted completed job_state messages, excluding fetched replays. */
-  onLiveCompletion(listener: (execution: ExecutionRef) => void): () => void {
-    this.liveCompletionListeners.add(listener)
-    return () => this.liveCompletionListeners.delete(listener)
+  /** Subscribe to persisted terminal job_state messages, excluding fetched replays. */
+  onLiveTerminal(listener: (execution: ExecutionRef) => void): () => void {
+    this.liveTerminalListeners.add(listener)
+    return () => this.liveTerminalListeners.delete(listener)
   }
 
   /** Subscribe to the server's droppable memory telemetry stream. */
@@ -2165,10 +2165,11 @@ export class DinksterConnection {
     if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw)
     const events = this.normalizer.normalize(raw)
     this.emit(events)
-    if (!live || raw instanceof ArrayBuffer || raw.type !== 'job_state' || raw['state'] !== 'completed') return
+    if (!live || raw instanceof ArrayBuffer || raw.type !== 'job_state' ||
+      (raw['state'] !== 'completed' && raw['state'] !== 'failed' && raw['state'] !== 'cancelled')) return
     const jobId = raw['jobId']
     if (typeof jobId !== 'string' || jobId === '') return
-    for (const listener of [...this.liveCompletionListeners]) listener(this.executionFor(jobId))
+    for (const listener of [...this.liveTerminalListeners]) listener(this.executionFor(jobId))
   }
 
   // -- Schemas ----------------------------------------------------------------

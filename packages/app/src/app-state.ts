@@ -163,7 +163,7 @@ import {
   createLookupClient,
   type LookupClient,
   discoverBackend,
-  hydrateDinksterCompletedExecution,
+  hydrateDinksterTerminalExecution,
   noEngineOpen,
   probeSupervisorStatus,
   reconcileDinksterExecutions,
@@ -5352,14 +5352,14 @@ export class AppState {
         if (registry.get() !== undefined) startRefresh('registry static prefix changed')
         else void this.loadBackendSchemas(nativeBackend)
       })
-      const disposeCompletionHydration = connection.onLiveCompletion((ref) => {
-        hydrateDinksterCompletedExecution(connection, this.store, ref, prepareHydration).catch((error: unknown) => {
+      const disposeTerminalHydration = connection.onLiveTerminal((ref) => {
+        hydrateDinksterTerminalExecution(connection, this.store, ref, prepareHydration).catch((error: unknown) => {
           this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
             diag(
               'error',
               'runtime',
               'execution.artifactHydrationFailed',
-              `[${label}] failed to hydrate completed execution artifacts: ${error instanceof Error ? error.message : String(error)}`,
+              `[${label}] failed to hydrate terminal execution artifacts: ${error instanceof Error ? error.message : String(error)}`,
             ),
           ])
         })
@@ -5374,7 +5374,7 @@ export class AppState {
           this.clearProblems(schemaProblemsOwner)
           this.clearProblems(packProblemsOwner)
           disposeCatalogSetting()
-          disposeCompletionHydration()
+          disposeTerminalHydration()
           disposeLibraryChanges()
           disposeMountHealth()
           disposeLookupChanges()
@@ -10594,7 +10594,7 @@ export class AppState {
   private hydrateCachedOutputs(execs: ReadonlyMap<string, ExecutionState>): void {
     if (this.disposed) return
     for (const state of execs.values()) {
-      if (state.status !== 'completed' || state.artifactsHydrated) continue
+      if (!['completed', 'error', 'cancelled'].includes(state.status) || state.artifactsHydrated) continue
       if (this.hydrated.has(state.key)) continue
       // Route by the execution's OWN connection; a removed backend's runs
       // simply stay unhydrated (retried if it is ever re-added).
@@ -10602,7 +10602,7 @@ export class AppState {
       if (!backend) continue
       this.hydrated.add(state.key)
       this.pendingExecutionHydrations += 1
-      void hydrateDinksterCompletedExecution(backend.connection, this.store, state.ref, this.prepareExecutionHydration(backend))
+      void hydrateDinksterTerminalExecution(backend.connection, this.store, state.ref, this.prepareExecutionHydration(backend))
         .then(() => {
           if (!this.store.get(state.ref)?.artifactsHydrated) this.hydrated.delete(state.key)
         })
