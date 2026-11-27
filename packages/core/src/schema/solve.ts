@@ -305,6 +305,8 @@ export interface SolveOptions extends ElaborateOptions {
   readonly projectedInputs?: readonly {
     readonly type: TypeExpr
     readonly to: PortRef
+    /** Exact count from this occurrence's producer; absent means unknown. */
+    readonly listCount?: number
     readonly label?: string
     /** Shared identity for multiple edges from one projected producer node. */
     readonly variableSource?: symbol
@@ -1081,6 +1083,13 @@ export function solveGraphTypes(
     return declared === undefined ? undefined : substitute(declared, node)
   }
   const counts = new Map<string, number | undefined>()
+  const projectedCounts = new Map<string, (number | undefined)[]>()
+  for (const input of options.projectedInputs ?? []) {
+    const key = JSON.stringify([input.to.node, input.to.port])
+    const arrivals = projectedCounts.get(key) ?? []
+    arrivals.push(input.listCount)
+    projectedCounts.set(key, arrivals)
+  }
   const reading = new Set<string>()
   const countOf = (node: NodeId, side: 'input' | 'output', port: string): number | undefined => {
     const key = JSON.stringify([node, side, port])
@@ -1098,17 +1107,21 @@ export function solveGraphTypes(
     if (side === 'input') {
       const input = countInputs.get(node)?.get(port)
       if (input === undefined) return undefined
+      const projected = projectedCounts.get(JSON.stringify([node, port])) ?? []
       const traces = traceEndpointAll(def, { node, tap: asPortId(port) }, reroutes)
-      const results = traces.map((trace) => {
-        if (trace.kind === 'output') return countOf(trace.ref.node, 'output', trace.ref.port)
-        if (trace.kind !== 'tapValue') return undefined
-        if (trace.node !== node || trace.input !== port) return countOf(trace.node, 'input', trace.input)
+      const results = [...projected, ...traces.flatMap((trace): (number | undefined)[] => {
+        if (trace.kind === 'output') return [countOf(trace.ref.node, 'output', trace.ref.port)]
+        if (trace.kind !== 'tapValue') return [undefined]
+        if (trace.node !== node || trace.input !== port) return [countOf(trace.node, 'input', trace.input)]
+        // An arriving occurrence value replaces the inner widget's value,
+        // even when its producer's count is not known.
+        if (projected.length > 0 || connectivityOf(node).isInputConnected(port)) return []
         const value = Object.hasOwn(data.values, port) ? data.values[port] : input.derivedValue ??
           (input.spec.widget === undefined ? input.spec.ext?.['default'] : effectiveWidgetDefault(input.spec.widget))
-        if (value === undefined || value === null) return undefined
-        if (cardinalityOf(portTypeOf(node, side, port) ?? input.spec.type) === 'list' || input.spec.widget?.widgetType === 'LIST' || input.spec.acceptsList && Array.isArray(value)) return Array.isArray(value) ? value.length : undefined
-        return 1
-      })
+        if (value === undefined || value === null) return [undefined]
+        if (cardinalityOf(portTypeOf(node, side, port) ?? input.spec.type) === 'list' || input.spec.widget?.widgetType === 'LIST' || input.spec.acceptsList && Array.isArray(value)) return [Array.isArray(value) ? value.length : undefined]
+        return [1]
+      })]
       const first = results[0]
       return first !== undefined && results.every((count) => count === first) ? first : undefined
     }
@@ -1136,6 +1149,8 @@ export function solveGraphTypes(
       const traces = traceEndpointAll(def, { node, tap: asPortId(path) }, reroutes)
       if (input.spec.optional && traces.length === 1 && traces[0]?.kind === 'tapValue' &&
           traces[0].node === node && traces[0].input === path && !Object.hasOwn(data.values, path) &&
+          !connectivityOf(node).isInputConnected(path) &&
+          !projectedCounts.has(JSON.stringify([node, path])) &&
           input.derivedValue === undefined && input.spec.widget === undefined && input.spec.ext?.['default'] === undefined) continue
       const count = countOf(node, 'input', path)
       if (count === undefined) return undefined

@@ -370,6 +370,8 @@ export interface SceneLink {
   /** Declared endpoint types, retained for link-splice search. */
   readonly fromType?: TypeExpr
   readonly toType?: TypeExpr
+  /** Exact item count for a list wire; absent means unknown, not empty. */
+  readonly listCount?: number
   /** Concrete type name driving link color, when statically known. */
   readonly typeName?: string
   /**
@@ -632,13 +634,20 @@ function projectedTypeConstraints(
     const solved = solveProjectionGraph(link.from.graphId, link.from.instancePath)
     if (solved === undefined) return []
     return traceEndpointAll(solved.graph, link.from.endpoint, buildRerouteIndex(solved.graph)).flatMap((trace) => {
-      if (trace.kind !== 'output') return []
-      const type = solved.result.portTypeOf(trace.ref.node, 'output', trace.ref.port)
-      return type === undefined ? [] : [{
-        type: projectTypeThroughRegionInputs(document, link, type),
+      const source = trace.kind === 'output' ? { ...trace.ref, side: 'output' as const }
+        : trace.kind === 'tapValue' ? { node: trace.node, port: trace.input, side: 'input' as const } : undefined
+      if (source === undefined) return []
+      const type = solved.result.portTypeOf(source.node, source.side, source.port)
+      if (type === undefined) return []
+      const projectedType = projectTypeThroughRegionInputs(document, link, type)
+      // A region's element is not the list that drives its iterations.
+      const listCount = projectedType === type ? solved.result.listCountOf(source.node, source.side, source.port) : undefined
+      return [{
+        type: projectedType,
+        ...(listCount !== undefined ? { listCount } : {}),
         to: link.to.endpoint as PortRef,
         label: `projected ${JSON.stringify(link.identity)}`,
-        variableSource: solved.variableSources.get(trace.ref.node)!,
+        variableSource: solved.variableSources.get(source.node)!,
       }]
     })
   })
@@ -1445,6 +1454,14 @@ export function buildScene(input: BuildSceneInput): Scene {
     if (trace.kind !== 'output') return undefined
     return outputTypeName(trace.ref)
   }
+  const countReroutes = buildRerouteIndex(effectiveGraph)
+  const tracedListCount = (from: LinkEndpoint): number | undefined => {
+    const counts = traceEndpointAll(effectiveGraph, from, countReroutes).map((trace) =>
+      trace.kind === 'output' ? solvedTypes.listCountOf(trace.ref.node, 'output', trace.ref.port)
+        : trace.kind === 'tapValue' ? solvedTypes.listCountOf(trace.node, 'input', trace.input) : undefined)
+    const first = counts[0]
+    return first !== undefined && counts.every((count) => count === first) ? first : undefined
+  }
   const bypassInput = (ref: PortRef, consumerType?: TypeExpr) => {
     const node = byId.get(ref.node)
     const elab = node?.elaborated
@@ -1656,6 +1673,7 @@ export function buildScene(input: BuildSceneInput): Scene {
     const to = endPoint(c.to, 'in')
     if (!from || !to) continue
     const typeName = tracedTypeName(c.from)
+    const listCount = tracedListCount(c.from)
     const types = consumerTypes(c.to)
     if (types.length === 0) types.push(undefined)
     links.push({
@@ -1669,6 +1687,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       ...(from.type !== undefined ? { fromType: from.type } : typeName !== undefined ? { fromType: typeExprFromTypeId(typeName) } : {}),
       ...(to.type !== undefined ? { toType: to.type } : typeName !== undefined ? { toType: typeExprFromTypeId(typeName) } : {}),
       ...(typeName !== undefined ? { typeName } : {}),
+      ...(listCount !== undefined ? { listCount } : {}),
       ...(types.every((type) => tracedMaybeAbsent(c.from, type)) ? { maybeAbsent: true as const } : {}),
       ...(types.every((type) => tracedSourceMuted(c.from, type)) ? { sourceMuted: true as const } : {}),
       ...(from.kept === true ? { dimmed: true as const } : {}),
@@ -2060,6 +2079,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         }) === true
         const targets = projected.length > 0 ? projected : fallback === undefined || locallyDriven ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
+          const listCount = to.end.kind === 'port' ? solvedTypes.listCountOf(asNodeId(to.end.node), 'input', to.end.port) : undefined
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,
             from: { kind: 'boundary', side: 'inputs', item: item.id },
@@ -2069,6 +2089,7 @@ export function buildScene(input: BuildSceneInput): Scene {
             x2: to.x,
             y2: to.y,
             ...(typeName !== undefined ? { typeName } : {}),
+            ...(listCount !== undefined ? { listCount } : {}),
             boundary: true,
             ...(item.wireHidden === true ? { hidden: true as const } : {}),
             ...(identities.length === 1 ? { effectiveIdentity: identities[0] } : {}),
@@ -2105,6 +2126,8 @@ export function buildScene(input: BuildSceneInput): Scene {
             ? widgetTapTypeName(item.binds.node, item.binds.tap)
           : undefined
       const typeName = traced ?? (pinType === undefined ? undefined : canonicalTypeIdOf(pinType))
+      const listCount = item.binds.kind === 'port' ? tracedListCount({ node: item.binds.node, port: item.binds.port })
+        : item.binds.kind === 'widgetTap' ? tracedListCount({ node: item.binds.node, tap: item.binds.tap }) : undefined
       const maybeAbsent = item.binds.kind === 'port' && tracedMaybeAbsent({ node: item.binds.node, port: item.binds.port })
       const sourceMuted = item.binds.kind === 'port' && tracedSourceMuted({ node: item.binds.node, port: item.binds.port })
       const projected = projectedAnchors('out', item, item.binds)
@@ -2120,6 +2143,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           x2: to.x,
           y2: to.y,
           ...(typeName !== undefined ? { typeName } : {}),
+          ...(listCount !== undefined ? { listCount } : {}),
           ...(maybeAbsent ? { maybeAbsent: true as const } : {}),
           ...(sourceMuted ? { sourceMuted: true as const } : {}),
           boundary: true,

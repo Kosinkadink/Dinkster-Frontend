@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   asConnectionId,
+  asNodeId,
   boundaryOf,
   compile,
   DocumentStore,
@@ -153,6 +154,7 @@ const schemas: Record<string, NodeSchema> = {
 type End =
   | [node: string, port: string]
   | { reroute: string }
+  | { node: string; tap: string }
 type NodeSpec = {
   type: string
   values?: Record<string, unknown>
@@ -234,6 +236,60 @@ const sceneOf = (doc: WorkflowDocument, graphId = 'g0'): Scene =>
 
 const makeStore = (doc: WorkflowDocument) => new DocumentStore(doc, coreCommandRegistry())
 const sceneFrom = (store: DocumentStore, graphId = 'g0'): Scene => sceneOf(store.doc, graphId)
+
+it('carries independent counts through nested occurrence wires without using an inner default', () => {
+  const texts: TypeExpr = { kind: 'list', element: { kind: 'concrete', name: 'STRING' } }
+  const local = schemaOf('Local texts', [{
+    ...input('texts', { type: texts }),
+    widget: { widgetType: 'LIST', options: {}, element: { widgetType: 'STRING', options: {} }, default: ['inner default'] },
+  }])
+  const preserve = schemaOf('Preserve texts', [input('texts', { type: texts }), {
+    kind: 'output', id: 'texts', type: texts, listCount: { input: 'texts' },
+  }])
+  const unknown = schemaOf('Unknown texts', [{ kind: 'output', id: 'texts', type: texts }])
+  const document = docOf({
+    g0: {
+      nodes: {
+        two: { type: local.type, values: { texts: ['a', 'b'] } },
+        five: { type: local.type, values: { texts: ['c', 'd', 'e', 'f', 'g'] } },
+        first: { type: '#outer' }, second: { type: '#outer' },
+      },
+      links: [[{ node: 'two', tap: 'texts' }, ['first', 'texts']]],
+      nets: { fiveTexts: { source: { node: 'five', tap: 'texts' }, sinks: [['second', 'texts']] } },
+    },
+    outer: {
+      nodes: { nested: { type: '#inner' } },
+      boundary: { inputs: [{ id: 'texts', binds: { kind: 'port', node: 'nested', port: 'texts' } }], outputs: [] },
+    },
+    inner: {
+      nodes: { local: { type: local.type }, copy: { type: preserve.type } },
+      links: [[{ node: 'local', tap: 'texts' }, ['copy', 'texts']]],
+      boundary: { inputs: [{ id: 'texts', binds: { kind: 'port', node: 'local', port: 'texts' } }],
+        outputs: [{ id: 'result', binds: { kind: 'port', node: 'copy', port: 'texts' } }] },
+    },
+  })
+  const resolve = (type: string) => type === local.type ? local : type === preserve.type ? preserve : type === unknown.type ? unknown : undefined
+  const store = new DocumentStore(document, coreCommandRegistry())
+  const counts = (outer: string) => buildScene({
+    document: store.doc, graphId: 'inner', resolve: documentResolver(store.doc, resolve),
+    occurrence: { owner: { instancePath: [asNodeId(outer)], node: asNodeId('nested') }, plannerAvailable: true },
+    tokens: defaultTokens, measure, widgetMeasure,
+  }).links.map((link) => link.listCount)
+  expect(counts('first')).toEqual([2, 2, 2])
+  expect(counts('second')).toEqual([5, 5, 5])
+  const edit = store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'two', inputId: 'texts', value: [] } })
+  expect(edit.ok, JSON.stringify(edit)).toBe(true)
+  expect(counts('first')).toEqual([0, 0, 0])
+  expect(counts('second')).toEqual([5, 5, 5])
+  expect(store.undo()).toBe(true)
+  expect(counts('first')).toEqual([2, 2, 2])
+  expect(store.doc).toEqual(document)
+  expect(store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: unknown.type, position: { x: 0, y: 0 } } })).toMatchObject({ ok: true })
+  const unknownId = Object.values(store.doc.graphs['g0']!.nodes).find((node) => node.type === unknown.type)!.id
+  expect(store.dispatch({ command: 'link.connect', params: { graphId: 'g0', from: { node: unknownId, port: 'texts' }, to: { node: 'first', port: 'texts' } } })).toMatchObject({ ok: true })
+  expect(counts('first')).toEqual([undefined, undefined, undefined])
+  expect(counts('second')).toEqual([5, 5, 5])
+})
 
 const nodeOf = (scene: Scene, id: string) => {
   const n = scene.nodes.find((x) => x.id === id)

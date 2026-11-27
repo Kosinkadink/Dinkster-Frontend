@@ -166,6 +166,32 @@ describe('declared list counts', () => {
     }
     expect(solveGraphTypes(rerouted, resolveCounts).listCountOf(n('copy'), 'output', 'out')).toBe(0)
   })
+
+  it('uses each occurrence producer count instead of an inner default, preserving unknown and conflicting arrivals', () => {
+    const body = defOf({ nodes: { local: { type: 'Local' }, copy: { type: 'Preserve' } } })
+    const graph: GraphDef = {
+      ...body,
+      nodes: { ...body.nodes, local: { ...body.nodes['local']!, values: { in: ['default'] } } },
+      links: { tap: { id: asLinkId('tap'), from: { node: n('local'), tap: asPortId('in') }, to: { node: n('copy'), port: asPortId('in') } } },
+    }
+    const to = { node: n('local'), port: asPortId('in') }
+    const project = (listCount?: number) => ({ to, type: strings, ...(listCount === undefined ? {} : { listCount }) })
+    const seven = solveGraphTypes(graph, resolveCounts, { projectedInputs: [project(7)] })
+    const two = solveGraphTypes(graph, resolveCounts, { projectedInputs: [project(2)] })
+    expect(seven.listCountOf(n('copy'), 'output', 'out')).toBe(7)
+    expect(two.listCountOf(n('copy'), 'output', 'out')).toBe(2)
+    expect(seven.listCountOf(n('copy'), 'output', 'out')).toBe(7)
+    expect(seven.portTypeOf(n('copy'), 'output', 'out')).toEqual(strings)
+    expect(solveGraphTypes(graph, resolveCounts).listCountOf(n('copy'), 'output', 'out')).toBe(1)
+    expect(solveGraphTypes(graph, resolveCounts, { projectedInputs: [project(0)] }).listCountOf(n('copy'), 'output', 'out')).toBe(0)
+    for (const projectedInputs of [[project()], [project(2), project(7)], [project(2), project()]]) {
+      expect(solveGraphTypes(graph, resolveCounts, { projectedInputs }).listCountOf(n('copy'), 'output', 'out')).toBeUndefined()
+    }
+    expect(solveGraphTypes(graph, resolveCounts, {
+      connectivityOf: (node) => ({ isInputConnected: (port) => node === to.node && port === to.port, isOutputConnected: () => false }),
+    }).listCountOf(n('copy'), 'output', 'out')).toBeUndefined()
+    expect(graph.nodes['local']!.values).toEqual({ in: ['default'] })
+  })
 })
 
 // ---------------------------------------------------------------------------
