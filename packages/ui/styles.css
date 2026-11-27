@@ -1305,6 +1305,8 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-canvas-file-copy > * { flex: 1; }
 .dinkster-canvas-file-copy-label { display: flex; min-width: 0; overflow: hidden; white-space: nowrap; }
 .dinkster-canvas-file-copy-prefix, .dinkster-canvas-file-copy-amount { flex: none; white-space: nowrap; }
+/* ResizeObserver needs a box when waiting/checking text changes without a resize. */
+.dinkster-canvas-file-copy-prefix { display: inline-block; }
 /* Keep the full label measurable so the short form cannot oscillate on resize. */
 .dinkster-canvas-file-copy-prefix[data-measuring='true'] { position: absolute; visibility: hidden; width: max-content; }
 .dinkster-canvas-file-copy-mount { min-width: 1em; overflow: hidden; text-overflow: ellipsis; margin-left: 0.25em; }

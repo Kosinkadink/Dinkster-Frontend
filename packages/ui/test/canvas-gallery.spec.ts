@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
+import { build } from 'vite'
+import solid from 'vite-plugin-solid'
+import { fileURLToPath } from 'node:url'
 import {
   canvasGalleryPages,
   galleryWidgetInputs,
@@ -26,6 +29,48 @@ async function choosePage(page: Page, id: string) {
 /** Opens a page by its own link; the light theme is reached by `theme=light`. */
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
+
+test('import wording follows phase changes without resizing the node', async ({ page }) => {
+  const bundle = await build({
+    configFile: false,
+    logLevel: 'error',
+    plugins: [solid()],
+    build: { write: false, lib: {
+      entry: fileURLToPath(new URL('./fixtures/file-copy.tsx', import.meta.url)),
+      name: 'fileCopyFixture', formats: ['iife'],
+    } },
+  })
+  const output = Array.isArray(bundle) ? bundle[0] : bundle
+  if (!output || !('output' in output)) throw new Error('Missing file-copy fixture bundle')
+  const script = output.output.find((item) => item.type === 'chunk')
+  if (!script) throw new Error('Missing file-copy fixture script')
+  await openPage(page, 'row-file-previews')
+  await page.addScriptTag({ content: script.code })
+  await page.evaluate(() => {
+    const browser = window as typeof window & {
+      fileCopyFixture: { mount: typeof import('./fixtures/file-copy.js').mount }
+      fileCopyState?: ReturnType<typeof import('./fixtures/file-copy.js').mount>
+    }
+    browser.fileCopyState = browser.fileCopyFixture.mount()
+  })
+  const state = (phase: 'waiting' | 'checking') => page.evaluate((phase) => {
+    (window as typeof window & { fileCopyState: ReturnType<typeof import('./fixtures/file-copy.js').mount> }).fileCopyState.setPhase(phase)
+  }, phase)
+  await expect(page.getByText('Checking the file', { exact: true })).toBeVisible()
+  for (let transition = 0; transition < 2; transition++) {
+    await state('waiting')
+    await expect(page.getByText('Waiting', { exact: true })).toBeVisible()
+    await expect(page.getByRole('progressbar')).toHaveAccessibleName('Waiting for another file')
+    await expect(page.locator('[title="Waiting for another file"]')).toBeVisible()
+    await state('checking')
+    await expect(page.getByText('Checking the file', { exact: true })).toBeVisible()
+  }
+  await state('waiting')
+  await page.evaluate(() => {
+    (window as typeof window & { fileCopyState: ReturnType<typeof import('./fixtures/file-copy.js').mount> }).fileCopyState.setWidth(176)
+  })
+  await expect(page.getByText('Waiting for another file', { exact: true })).toBeVisible()
+})
 
 test('copy amounts and Stop stay readable without widening the node', async ({ page }) => {
   await openPage(page, 'row-file-previews')
