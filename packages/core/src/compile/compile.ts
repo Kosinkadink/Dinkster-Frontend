@@ -1818,6 +1818,26 @@ function compileImpl(
       if (!byInput.has(target.inputId)) byInput.set(target.inputId, v)
     }
     for (const item of boundaryItems(child.boundary, 'inputs')) {
+      if (item.binds.kind === 'construct') {
+        for (const input of parentElab?.inputs ?? []) {
+          if (!valueKeyOf(input).startsWith(`${item.id}.`) || input.apiName === undefined ||
+            input.spec.sent === false || input.spec.widget?.controller !== 'after_generate') continue
+          if (boundaryProblem(parentCtx.defId, node, item.id) !== undefined) continue
+          let ownerPriority = 0
+          for (const binding of [item.binds, ...(item.alsoBinds ?? [])]) {
+            if (binding.kind !== 'construct') continue
+            const port = innerConstructAddress(child, binding, item.id, input.spec.id, (inner) => resolveNode(childId, inner))
+            if (port === undefined) continue
+            const targets = resolveInputPort(childPath, childId, { node: binding.node, port: asPortId(port) })
+            if (!targets || targets === 'muted' || targets === 'bypassed') continue
+            for (const target of targets) {
+              recordControllerSource(target, parentCtx.defId, ownerOccurrence, input, ownerPriority)
+              ownerPriority += 1
+            }
+          }
+        }
+        continue
+      }
       if (item.binds.kind !== 'port') continue
       if (boundaryProblem(parentCtx.defId, node, item.id) !== undefined) continue
       const v = node.values[item.id]
