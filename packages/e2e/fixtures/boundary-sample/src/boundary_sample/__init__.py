@@ -7,6 +7,9 @@ from collections.abc import Mapping
 
 import numpy as np
 from dinkster_api.v1 import (
+    ASSET_TYPE,
+    AssetRef,
+    AssetWidget,
     Button,
     Choice,
     ComboWidget,
@@ -34,11 +37,14 @@ from dinkster_api.v1 import (
     Use,
     Variant,
     decode_image_array,
+    digest_bytes,
     encode_image_array,
     image_array_fingerprint,
     image_array_meta,
     lookup,
     mask_array_meta,
+    register_asset_type,
+    resolver_from_env,
     validate_image_encoded,
 )
 
@@ -47,9 +53,12 @@ INT = TypeExpr.concrete("INT")
 STRING = TypeExpr.concrete("STRING")
 IMAGE = TypeExpr.concrete("IMAGE")
 MASK = TypeExpr.concrete("MASK")
+ASSET = TypeExpr.concrete(ASSET_TYPE)
 
 
 def register_types(registry: TypeRegistry) -> None:
+    if ASSET_TYPE not in registry:
+        register_asset_type(registry, resolver_from_env())
     for name, meta in (("IMAGE", image_array_meta), ("MASK", mask_array_meta)):
         registry.register(
             name,
@@ -433,7 +442,9 @@ class GroupPicker(Node):
             result=values.get(pick, -1),
             receipt=json.dumps(
                 {
-                    "layers": [{"key": member.key, "value": member.value} for member in layers],
+                    "layers": [
+                        {"key": member.key, "value": member.value} for member in layers
+                    ],
                     "pick": pick,
                     "order": order,
                 },
@@ -454,6 +465,71 @@ class GroupChoiceSource(Node):
         return cls.outputs(value="gold")
 
 
+def asset_value(digit: int) -> AssetRef:
+    data = str(digit).encode() * (digit * 10)
+    return AssetRef(
+        digest=digest_bytes(data),
+        name=f"{digit}.bin",
+        size=len(data),
+        media_type="application/octet-stream",
+        virtual_path=f"assets/{digit}.bin",
+    )
+
+
+def asset_field(id: str) -> Input:
+    return Input(
+        id,
+        ASSET,
+        default=asset_value(9).to_wire(),
+        widget=AssetWidget(accept=("application/octet-stream",)),
+        label="Source asset",
+        tooltip="Choose the source asset",
+    )
+
+
+class AssetConsumer(Node):
+    @classmethod
+    def define_schema(cls) -> NodeSchema:
+        return NodeSchema(
+            "boundary-sample.asset-consumer",
+            output_node=True,
+            body=(asset_field("asset"), Output("receipt", STRING)),
+        )
+
+    @classmethod
+    def execute(cls, *, asset: AssetRef):
+        return cls.outputs(
+            receipt=json.dumps(
+                {"asset": asset.to_wire(), "bytes": asset.read_bytes().decode("ascii")}
+            )
+        )
+
+
+class AssetLiteral(Node):
+    @classmethod
+    def define_schema(cls) -> NodeSchema:
+        return NodeSchema(
+            "boundary-sample.asset-literal",
+            body=(asset_field("asset"), Output("value", ASSET)),
+        )
+
+    @classmethod
+    def execute(cls, *, asset: AssetRef):
+        return cls.outputs(value=asset)
+
+
+class AssetSource(Node):
+    @classmethod
+    def define_schema(cls) -> NodeSchema:
+        return NodeSchema(
+            "boundary-sample.asset-source", body=(Output("value", ASSET),)
+        )
+
+    @classmethod
+    def execute(cls):
+        return cls.outputs(value=asset_value(7))
+
+
 NODES = [
     BoundarySample,
     ImageSource,
@@ -466,4 +542,7 @@ NODES = [
     LookupCalculation,
     GroupPicker,
     GroupChoiceSource,
+    AssetConsumer,
+    AssetLiteral,
+    AssetSource,
 ]
