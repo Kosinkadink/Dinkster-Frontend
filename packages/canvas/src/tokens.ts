@@ -932,8 +932,6 @@ export interface DesignTokens {
     /** A box's outline, and the outline of a box inside a box. */
     readonly boxOutline: string
     readonly boxInnerOutline: string
-    /** The shared canvas choice list's outer frame. */
-    readonly listOutline: string
     /** A box's header or closed row under the pointer. */
     readonly boxHover: string
     /** A box's member or row count. */
@@ -1171,7 +1169,6 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     warningMark: tokens.meaning.warning.border,
     boxOutline: tokens.border.box,
     boxInnerOutline: theme === 'dark' ? '#2E3338' : '#E1E5E9',
-    listOutline: tokens.meaning.accent.restBorder,
     boxHover: theme === 'dark' ? '#22262B' : tokens.surface.raised,
     boxCount: tokens.text.muted,
     boxChanged: tokens.meaning.accent.border,
