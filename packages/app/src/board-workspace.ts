@@ -395,24 +395,27 @@ export class BoardWorkspace {
     readonly project: string
     readonly baseUrl: string
     readonly assets: readonly BoardAsset[]
+    readonly run?: { readonly job: string; readonly card: string }
   }, point: { readonly x: number; readonly y: number }): Promise<readonly string[]> {
     const entry = this.mediaEntry(id)
     if (source.project !== this.options.project || source.baseUrl !== entry.baseUrl)
       throw new Error('Media must come from this Board\'s project and backend')
+    const run = source.run === undefined ? undefined : { ...source.run }
+    if (run && Object.hasOwn(entry.session.doc.runs ?? {}, run.job)) return []
     const assets = structuredClone(source.assets)
-    const items = this.mediaItems(entry, assets, point)
+    const items = run && assets.length === 0 ? [] : this.mediaItems(entry, assets, point)
     const connection = this.options.mediaConnection(entry.baseUrl)
     if (!connection) throw new Error('This Board\'s backend is unavailable')
     const abort = new AbortController()
     this.importing.set(abort, id)
     try {
-      const availability = await connection.checkAssetAvailability([...new Set(assets.map((asset) => asset.digest))], {
+      const availability = assets.length === 0 ? [] : await connection.checkAssetAvailability([...new Set(assets.map((asset) => asset.digest))], {
         scope: 'local', signal: abort.signal,
       })
       this.assertMediaCurrent(entry, abort.signal, connection)
       if (assets.some((asset) => !availability.some((row) => row.digest === asset.digest && row.status === 'available')))
         throw new Error('Some media is unavailable; nothing was placed')
-      return this.commitMedia(entry, items)
+      return this.commitMedia(entry, items, run)
     } finally { this.importing.delete(abort) }
   }
 
@@ -487,8 +490,10 @@ export class BoardWorkspace {
     return items
   }
 
-  private commitMedia(entry: BoardEntry, items: readonly BoardItemInput[]): readonly string[] {
-    const result = entry.session.dispatch({ command: 'board.item.add', params: { items } })
+  private commitMedia(entry: BoardEntry, items: readonly BoardItemInput[], run?: { readonly job: string; readonly card: string }): readonly string[] {
+    const result = entry.session.dispatch(run === undefined
+      ? { command: 'board.item.add', params: { items } }
+      : { command: 'board.run.add', params: { ...run, items } })
     if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
     return result.created
   }

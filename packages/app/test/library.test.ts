@@ -107,6 +107,59 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 }
 
 describe('Board card sources', () => {
+  it('delivers only a card run\'s recorded saved files, including partial saves, without replaying removed results', async () => {
+    const { backend } = await nativeSetup()
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
+    vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(CHAIN_DOC))
+    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(DIGEST)
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+      digests.map((digest) => ({ digest, status: 'available' })))
+    let count = 0
+    vi.spyOn(backend.connection, 'submit').mockImplementation(async () => ({ ok: true,
+      execution: { connection: backend.id, prompt: asPromptId(`saved-${++count}`) }, jobRef: `native-${count}` }))
+    const board = app.boards.open(emptyBoard(), 'Results', backend.baseUrl)
+    const card = await app.boards.placeCard(board.id, { project: activeProjectId(), baseUrl: backend.baseUrl,
+      kind: 'workflow', source: { kind: 'library', recordId: 'r1' }, name: 'Rain' }, { x: 17, y: 29 })
+    const point = { x: 410, y: 29 }
+    for (const status of ['completed', 'error', 'cancelled'] as const) {
+      const ref = (await app.queueBoardCard(board, card))!
+      app.store.hydrateOutputs(ref, { n0: { images: [{ digest: DIGEST, name: 'preview-only.png' }] } })
+      expect(await app.placeBoardCardResults(board, ref, point)).toEqual([])
+      app.store.apply(status === 'error'
+        ? { kind: 'error', execution: ref, timestamp: count,
+          detail: { exceptionType: 'Error', exceptionMessage: 'Failed after saving', traceback: [] } }
+        : { kind: status, execution: ref, timestamp: count })
+      expect(await app.placeBoardCardResults(board, ref, point)).toEqual([])
+      app.store.hydrateArtifacts(ref, [
+        { nodeId: 'save-video', digest: DIGEST, name: 'rain.mp4', mediaType: 'video/mp4', size: 17, virtualPath: 'outputs/rain.mp4' },
+        { nodeId: 'save-sound', digest: DIGEST2, name: 'rain.wav', mediaType: 'audio/wav', size: 29, virtualPath: 'outputs/rain.wav' },
+        { nodeId: 'save-text', digest: DIGEST, name: 'notes.txt', mediaType: 'text/plain', size: 3, virtualPath: 'outputs/notes.txt' },
+      ])
+      const other = app.boards.open(emptyBoard(), 'Other', backend.baseUrl)
+      await expect(app.placeBoardCardResults(other, ref, point)).rejects.toThrow('does not belong')
+      const ids = await app.placeBoardCardResults(board, ref, point)
+      expect(ids.map((id) => board.session.doc.items[id]!.kind)).toEqual(['video', 'sound'])
+      expect(board.session.doc.items[ids[0]!]).toMatchObject({ asset: { digest: DIGEST,
+        origin: { job: `native-${count}`, node: 'save-video' } } })
+      expect(board.session.doc.runs?.[`native-${count}`]).toEqual({ card, items: ids })
+      expect(app.store.get(ref)!.status).toBe(status)
+      board.session.dispatch({ command: 'board.item.remove', params: { ids } })
+      expect(await app.placeBoardCardResults(board, ref, point)).toEqual([])
+      expect(board.session.doc.order).toEqual([card])
+    }
+    const empty = (await app.queueBoardCard(board, card))!
+    app.store.apply({ kind: 'completed', execution: empty, timestamp: 4 })
+    app.store.hydrateArtifacts(empty, [])
+    expect(await app.placeBoardCardResults(board, empty, point)).toEqual([])
+    expect(board.session.doc.runs?.['native-4']).toEqual({ card, items: [] })
+    const snapshot = board.session.doc
+    app.boards.close(board.id)
+    const reopened = app.boards.open(snapshot, 'Reopened', backend.baseUrl)
+    await expect(app.placeBoardCardResults(board, empty, point)).rejects.toThrow('does not belong')
+    expect(await app.placeBoardCardResults(reopened, empty, point)).toEqual([])
+    expect(reopened.session.doc.order).toEqual([card])
+  })
+
   it('keeps exposed after-run choices private, resets them with values, and ignores in-flight mode edits', async () => {
     const { backend, tab } = await nativeSetup()
     const registry = backend.registry.get()!

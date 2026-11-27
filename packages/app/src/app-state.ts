@@ -10,6 +10,7 @@ import { createAppPageTabs } from './app-page-tabs.js'
 import { isPageTab } from './page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
 import {
+  BOARD_MAX_NAME,
   CORE_VIRTUAL_NODE_KINDS,
   activeLocale,
   analyzeSelectionExecution,
@@ -18,6 +19,7 @@ import {
   asNodeId,
   asPortId,
   asPromptId,
+  boardMediaKindOf,
   canonicalJson,
   canonicalTypeIdOf,
   automaticValuesOfJob,
@@ -10139,6 +10141,30 @@ export class AppState {
     const active = this.executionsForBoardCard(entry, cardId)
       .find((run) => run.status === 'queued' || run.status === 'running')
     if (active) await this.cancelExecution(active.ref)
+  }
+
+  /** Place only a terminal run's recorded files, on its original Board/backend. */
+  async placeBoardCardResults(entry: BoardEntry, ref: ExecutionRef,
+    point: { readonly x: number; readonly y: number },
+  ): Promise<readonly string[]> {
+    const execution = this.store.get(ref)
+    const backend = this.backendFor(ref.connection)
+    const origin = execution?.artifact?.snapshot.ext?.['dinkster.boardCard']
+    if (!this.boards.entries.get().includes(entry) || backend?.protocol !== 'dinkster' ||
+      backend.baseUrl !== entry.baseUrl || !workspaceRecord(origin) ||
+      origin['board'] !== entry.id || typeof origin['card'] !== 'string')
+      throw new Error('Run does not belong to this Board and backend')
+    const job = execution?.jobRef
+    if (!job || !execution.artifactsHydrated ||
+      !['completed', 'error', 'interrupted', 'cancelled'].includes(execution.status)) return []
+    return this.boards.placeMedia(entry.id, {
+      project: activeProjectId(), baseUrl: backend.baseUrl,
+      run: { job, card: origin['card'] },
+      assets: execution.artifacts.filter((asset) => boardMediaKindOf(asset.mediaType)).map((asset) => ({
+        digest: asset.digest, mediaType: asset.mediaType, name: asset.name.slice(0, BOARD_MAX_NAME),
+        origin: { job, node: asset.nodeId },
+      })),
+    }, point)
   }
 
   /** Submit an independent full workflow; no editing session is opened or written. */
