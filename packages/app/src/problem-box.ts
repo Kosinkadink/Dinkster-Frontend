@@ -65,10 +65,10 @@ export function problemBoxLines(
       const diagnostic = problem.diagnostic
       const nodeMessage = diagnostic.data?.['nodeMessage']
       const actions: ProblemBoxAction[] = diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'
-        ? ['locate-asset']
+        ? [...(typeof diagnostic.data['kind'] === 'string' && diagnostic.data['kind'].startsWith('model/') ? ['review-model' as const] : []), 'locate-asset']
         : diagnostic.code.startsWith('model.availability.') && typeof diagnostic.data?.['input'] === 'string'
           ? [
-            ...(diagnostic.code === 'model.availability.missing' && diagnostic.data['plannable'] === true ? ['review-model' as const] : []),
+            ...(diagnostic.code === 'model.availability.missing' ? ['review-model' as const] : []),
             ...(diagnostic.code === 'model.availability.model-hidden' ? ['model-management' as const] : []),
             ...(diagnostic.code === 'model.availability.folder-disabled' ? ['model-storage' as const] : []),
             'locate-asset',
