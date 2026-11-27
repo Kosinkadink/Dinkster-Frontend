@@ -328,10 +328,10 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                 </ProductButton>
                 <div id={contentId()} class="problems-group-items" hidden={!disclosure.expanded(key)}>
                   <For each={group().diagnostics.map((diagnostic) =>
-                    typeof diagnostic.data?.['numberFixKey'] === 'string' ? diagnostic.data['numberFixKey'] : diagnostic)}>
+                    typeof diagnostic.data?.['problemFixKey'] === 'string' ? diagnostic.data['problemFixKey'] : diagnostic)}>
                     {(entry) => {
                       const diagnostic = () => typeof entry === 'string'
-                        ? group().diagnostics.find((candidate) => candidate.data?.['numberFixKey'] === entry)!
+                        ? group().diagnostics.find((candidate) => candidate.data?.['problemFixKey'] === entry)!
                         : entry
                       const problemKey = JSON.stringify([key, entry])
                       return (
@@ -355,7 +355,7 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                                 onPointerDown={(event) => event.preventDefault()}
                                 onClick={(event) => void runFix(action(), event.currentTarget)}>{action().label}</ProductButton>
                             )}</Show>
-                            <Show when={diagnostic().data && diagnostic().data!['numberFixKey'] === undefined}><pre>{JSON.stringify(diagnostic().data, null, 2)}</pre></Show>
+                            <Show when={diagnostic().data && diagnostic().data!['problemFixKey'] === undefined}><pre>{JSON.stringify(diagnostic().data, null, 2)}</pre></Show>
                             <Show when={diagnostic().anchor !== undefined}>
                               <Show when={diagnostic().code === 'model.availability.missing' && diagnostic().data?.['plannable'] === true}>
                                 <ProductButton type="button" variant="secondary" size="compact" onClick={() => {

@@ -94,8 +94,10 @@ import {
   scanReplacements,
   stepNumericValue,
   storedNumberFixes,
+  storedRuleFixes,
   applyStoredProblemFixes,
   type StoredNumberFix,
+  type StoredProblemFix,
   type PressOutcome,
   type PressOptions,
   subgraphDefIdOf,
@@ -250,7 +252,7 @@ import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
 import { registerAutomaticFixSettings } from './automatic-fixes.js'
 import { createActionHost } from './button-presses.js'
-import { NumberProblemFixes } from './number-problem-fixes.js'
+import { ProblemFixes, problemFixKey } from './problem-fixes.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
 import { activeProjectId, migrateBrowserProjects, scopedSharedName, scopedStorageKey } from './projects.js'
@@ -5500,19 +5502,24 @@ export class AppState {
     return invocation !== undefined && (await this.dispatchTo(tab, invocation)).ok
   }
 
-  readonly numberProblemFixes = new NumberProblemFixes(this)
+  readonly problemFixes = new ProblemFixes(this)
   private readonly keptNumberFixes = new WeakMap<DocumentSession, Map<string, Pick<StoredNumberFix, 'before' | 'stamp' | 'owner'>>>()
 
-  /** Every occurrence is checked: siblings can store different promoted values. */
   scanTabNumberFixes(tab: Tab, document = tab.store.doc): readonly StoredNumberFix[] {
+    return this.scanTabProblemFixes(tab, document).filter((fix): fix is StoredNumberFix => fix.kind === 'number')
+  }
+
+  /** Every occurrence is checked: siblings can store different promoted values. */
+  scanTabProblemFixes(tab: Tab, document = tab.store.doc): readonly StoredProblemFix[] {
     if (tab.execution || this.registryForTab(tab) === undefined) return []
-    const fixes = new Map<string, StoredNumberFix>()
+    const fixes = new Map<string, StoredProblemFix>()
     const visit = (graphId: string, instancePath: readonly string[], ancestors: ReadonlySet<string>): void => {
       if (ancestors.has(graphId)) return
       for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
         const place = { tab, graphId, nodeId: node.id, button: '', instancePath }
-        for (const fix of storedNumberFixes(document, place, createActionHost(this, undefined, place))) {
-          const key = JSON.stringify([fix.part.graphId, fix.part.instancePath ?? [], fix.part.nodeId, fix.valueKey])
+        const host = createActionHost(this, undefined, place)
+        for (const fix of [...storedNumberFixes(document, place, host), ...storedRuleFixes(document, place, host)]) {
+          const key = problemFixKey(fix)
           if (!fixes.has(key)) fixes.set(key, fix)
         }
         const child = subgraphDefIdOf(node.type)
@@ -5523,6 +5530,7 @@ export class AppState {
     for (const graphId of Object.keys(document.graphs)) if (graphId !== document.root) visit(graphId, [], new Set())
     const kept = this.keptNumberFixes.get(tab.store)
     return [...fixes.values()].filter((fix) => {
+      if (fix.kind === 'rule') return true
       const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey, fix.stamp])
       const cause = kept?.get(key)
       if (fix.before === cause?.before && fix.stamp === cause.stamp) return false
@@ -5531,14 +5539,15 @@ export class AppState {
     })
   }
 
-  /** Offered numeric corrections are rechecked and stored as one operation. */
-  applyNumberFixes(tab: Tab, fixes: readonly StoredNumberFix[], automatic = false, options: PressOptions = {}): Promise<PressOutcome> {
+  /** Offered corrections are rechecked and stored as one operation. */
+  applyProblemFixes(tab: Tab, fixes: readonly StoredProblemFix[], automatic = false, options: PressOptions = {}): Promise<PressOutcome> {
     const store = tab.store
     const first = fixes[0]
     if (tab.execution || first === undefined || !this.tabs.get().includes(tab))
       return Promise.resolve({ kind: 'cancelled', skipped: [], notes: [] })
     const place = { tab, ...first.part, button: '' }
     return applyStoredProblemFixes(store, fixes, createActionHost(this, undefined, place), {
+      noWait: automatic,
       ...options,
       stillCurrent: () => this.tabs.get().includes(tab) && tab.store === store && options.stillCurrent?.() !== false,
       staleMessage: t('problemFix.workflowChanged'),
@@ -5547,6 +5556,7 @@ export class AppState {
         if (!automatic || tab.store !== store) return
         const byOwner = new Map<string, StoredNumberFix[]>()
         for (const fix of fixes) {
+          if (fix.kind !== 'number') continue
           const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey])
           byOwner.set(key, [...byOwner.get(key) ?? [], fix])
         }
@@ -6046,7 +6056,7 @@ export class AppState {
         if (!this.tabs.get().includes(tab) || tab.store !== store) return
         this.reportUnresolvedTypes(tab)
         if (this.settings.get<string>('automaticFixes.numberOutsideLimits') === 'apply')
-          void this.applyNumberFixes(tab, this.scanTabNumberFixes(tab), true)
+          void this.applyProblemFixes(tab, this.scanTabNumberFixes(tab), true)
       }
       if (upgrade === undefined) finish()
       else void upgrade.then(finish)
@@ -6598,7 +6608,7 @@ export class AppState {
       return outcome
     }
     let stored: Extract<CommandOutcome, { ok: true }> | undefined
-    return this.applyNumberFixes(tab, fixes, true, {
+    return this.applyProblemFixes(tab, fixes, true, {
       lead: invocation.command === 'batch'
         ? (invocation.params as JsonObject).invocations as unknown as readonly CommandInvocation[] : [invocation],
       unchanged: (document) => tab.store === store && document === prepared.currentDocument,

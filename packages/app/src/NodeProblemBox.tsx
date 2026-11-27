@@ -7,7 +7,7 @@
 import { ProblemBox, type ProblemBoxViewLine } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
 import type { ProblemBoxAction, ProblemBoxLine } from './problem-box.js'
-import { numberProblemFixLabel, numberProblemFixLabels } from './number-problem-fixes.js'
+import { problemFixLabel, problemFixLabels } from './problem-fixes.js'
 
 export function NodeProblemBox(props: {
   readonly x: number
@@ -43,13 +43,13 @@ export function NodeProblemBox(props: {
     ...(line.row === undefined ? {} : { row: line.row }),
     ...(line.rowName === undefined ? {} : { rowName: line.rowName }),
     message: lineText(line),
-    actions: line.numberFix === undefined
+    actions: line.fix === undefined
       ? line.actions.map((action) => ({ id: action, label: actionLabel(action) }))
       : [{
-        id: line.numberFix.state === 'stale' ? 'check-number-fix' : 'apply-number-fix',
-        label: numberProblemFixLabel(line.numberFix, message),
-        labels: numberProblemFixLabels(line.numberFix, message),
-        disabled: line.numberFix.state === 'storing',
+        id: line.fix.state === 'stale' ? 'check-problem-fix' : 'apply-problem-fix',
+        label: problemFixLabel(line.fix, message),
+        labels: problemFixLabels(line.fix, message),
+        disabled: line.fix.state === 'storing',
       }],
   }))
   const lineOf = (view: ProblemBoxViewLine | undefined): ProblemBoxLine | undefined =>

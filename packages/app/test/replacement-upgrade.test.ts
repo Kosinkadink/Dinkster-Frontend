@@ -264,22 +264,64 @@ describe('native open-time replacement', () => {
     } } } }, 'Shared corrections')
     const tab = app.activeTab()!
     const values = () => Object.values(tab.store.doc.graphs.g0!.nodes).map((node) => node.values)
-    const offered = app.numberProblemFixes.scan(tab)
-    expect(offered.map((fix) => fix.offered.after)).toEqual([12, 20])
+    const offered = app.problemFixes.scan(tab)
+    expect(offered.map((fix) => fix.offered.kind === 'number' ? fix.offered.after : fix.offered.label)).toEqual([12, 20])
     expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: 'cap', value: 9 } }).ok).toBe(true)
     // Reading the second surface must not silently replace the first surface's offer.
-    await app.numberProblemFixes.apply(tab, app.numberProblemFixes.scan(tab))
+    await app.problemFixes.apply(tab, app.problemFixes.scan(tab))
     expect(values()).toEqual([{ amount: 14, cap: 9 }, { amount: 29, cap: 20 }])
-    expect(app.numberProblemFixes.diagnostics(tab).map((problem) => problem.message)).toEqual([
+    expect(app.problemFixes.diagnostics(tab).map((problem) => problem.message)).toEqual([
       'Numbers: amount: Could not apply this fix. The workflow changed.',
       'Numbers: amount: Could not apply this fix. The workflow changed.',
     ])
-    for (const fix of offered) app.numberProblemFixes.recheck(tab, fix.key)
-    await app.numberProblemFixes.apply(tab, app.numberProblemFixes.scan(tab))
+    for (const fix of offered) app.problemFixes.recheck(tab, fix.key)
+    await app.problemFixes.apply(tab, app.problemFixes.scan(tab))
     expect(values()).toEqual([{ amount: 8, cap: 9 }, { amount: 20, cap: 20 }])
-    expect(app.numberProblemFixes.diagnostics(tab)).toEqual([])
+    expect(app.problemFixes.diagnostics(tab)).toEqual([])
     expect(tab.store.undo()).toBe(true)
     expect(values()).toEqual([{ amount: 14, cap: 9 }, { amount: 29, cap: 20 }])
+  })
+
+  it('always offers declared fixes and stores mixed fixes as one stale-checked undo step', async () => {
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...payload, nodes: { Current: {
+      displayName: 'Resize', body: ['width', 'cap', 'amount'].map((id) => ({
+        kind: 'input', id, type: { kind: 'concrete', types: ['INT'] }, default: 0,
+        ...(id === 'amount' ? { widget: { type: 'NUMBER', min: 0, max: 20, step: 4 } } : {}),
+      })),
+      validate: [{ check: { formula: 'width <= cap' }, message: 'Width exceeds cap.', fixLabel: 'Use less than the cap',
+        fix: [{ step: 'set', field: 'width', value: { formula: 'cap - 1' } }] }],
+    } } }))
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    const source = document()
+    await app.openDocument({ ...source, graphs: { g0: { ...source.graphs.g0, links: {}, nodes: {
+      first: { id: 'first', type: 'Current', values: { width: 17, cap: 9, amount: 14 } },
+    } } } }, 'Declared fixes')
+    const tab = app.activeTab()!
+    const values = () => tab.store.doc.graphs.g0!.nodes.first!.values
+    const diagnostics = app.problemFixes.diagnostics(tab)
+    const rule = diagnostics.find((diagnostic) => diagnostic.code === 'node.rule.failed')!
+    const numeric = diagnostics.find((diagnostic) => diagnostic.code === 'automatic.numberOutsideLimits')!
+    expect(rule.message).toBe('Resize: Width exceeds cap.')
+    app.settings.set('automaticFixes.numberOutsideLimits', 'apply')
+    expect(app.problemFixes.forProblem(tab, rule)?.offered.label).toBe('Use less than the cap')
+    expect(app.problemFixes.forProblem(tab, numeric)).toBeUndefined()
+    expect(values()).toEqual({ width: 17, cap: 9, amount: 14 })
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    const offers = app.problemFixes.scan(tab)
+    tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: 'cap', value: 8 } })
+    await app.problemFixes.apply(tab, offers, { noWait: true })
+    expect(values()).toEqual({ width: 17, cap: 8, amount: 14 })
+    expect(app.problemFixes.diagnostics(tab).every((diagnostic) => diagnostic.message.includes('The workflow changed.'))).toBe(true)
+    for (const fix of offers) app.problemFixes.recheck(tab, fix.key)
+    await app.problemFixes.apply(tab, app.problemFixes.scan(tab), { noWait: true })
+    expect(values()).toEqual({ width: 7, cap: 8, amount: 12 })
+    expect(app.problemFixes.diagnostics(tab)).toEqual([])
+    expect(tab.store.undo()).toBe(true)
+    expect(values()).toEqual({ width: 17, cap: 8, amount: 14 })
+    expect(tab.store.redo()).toBe(true)
+    expect(values()).toEqual({ width: 7, cap: 8, amount: 12 })
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
   })
 
   it('stores numeric fixes atomically, keeps later field edits on notice Undo, and does not repeat undone causes', async () => {
@@ -301,7 +343,7 @@ describe('native open-time replacement', () => {
     const values = () => Object.values(tab.store.doc.graphs.g0!.nodes).map((node) => node.values)
     const offered = app.scanTabNumberFixes(tab)
     expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: 'amount', value: 18 } }).ok).toBe(true)
-    expect(await app.applyNumberFixes(tab, offered)).toMatchObject({ kind: 'failed', message: 'Could not apply this fix. The workflow changed.' })
+    expect(await app.applyProblemFixes(tab, offered)).toMatchObject({ kind: 'failed', message: 'Could not apply this fix. The workflow changed.' })
     expect(values()).toEqual([{ amount: 18, other: 12.5 }, { amount: 29, other: 7.53 }])
     expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
     const stop = tab.store.onOp((op) => {
@@ -309,7 +351,7 @@ describe('native open-time replacement', () => {
       stop()
       tab.store.dispatch({ command: 'node.move', params: { graphId: 'g0', positions: { first: { x: 280, y: 190 } } } })
     })
-    expect(await app.applyNumberFixes(tab, app.scanTabNumberFixes(tab), true)).toMatchObject({ kind: 'done' })
+    expect(await app.applyProblemFixes(tab, app.scanTabNumberFixes(tab), true)).toMatchObject({ kind: 'done' })
     expect(values()).toEqual([{ amount: 16, other: 10 }, { amount: 20, other: 7.53 }])
     expect(app.adjustmentNotices.get().get(tab.id)!.adjustments.map((change) => change.details)).toEqual([
       ['amount: 18 to 16'], ['other: 12.5 to 10'], ['amount: 29 to 20'],
@@ -332,13 +374,13 @@ describe('native open-time replacement', () => {
         ? { ...row, widget: { ...row.widget, max: 16 } } : row),
     } } }))
     expect(app.scanTabNumberFixes(tab).map((fix) => [fix.owner.nodeId, fix.before, fix.after])).toEqual([['second', 29, 16]])
-    expect(await app.applyNumberFixes(tab, app.scanTabNumberFixes(tab))).toMatchObject({ kind: 'done' })
+    expect(await app.applyProblemFixes(tab, app.scanTabNumberFixes(tab))).toMatchObject({ kind: 'done' })
     expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
     expect(tab.store.undo()).toBe(true)
     expect(values()[1]!.amount).toBe(29)
-    expect(await app.applyNumberFixes(tab, app.scanTabNumberFixes(tab), true)).toMatchObject({ kind: 'done' })
+    expect(await app.applyProblemFixes(tab, app.scanTabNumberFixes(tab), true)).toMatchObject({ kind: 'done' })
     tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'second', inputId: 'amount', value: 25 } })
-    expect(await app.applyNumberFixes(tab, app.scanTabNumberFixes(tab), true)).toMatchObject({ kind: 'done' })
+    expect(await app.applyProblemFixes(tab, app.scanTabNumberFixes(tab), true)).toMatchObject({ kind: 'done' })
     expect(app.undoAdjustments(tab.id)).toBe(true)
     expect(values()[1]!.amount).toBe(25)
 
@@ -355,7 +397,7 @@ describe('native open-time replacement', () => {
     await app.openDocument(nested, 'Two uses')
     const nestedTab = app.activeTab()!
     const nestedFixes = app.scanTabNumberFixes(nestedTab)
-    expect(await app.applyNumberFixes(nestedTab, nestedFixes, true)).toMatchObject({ kind: 'done' })
+    expect(await app.applyProblemFixes(nestedTab, nestedFixes, true)).toMatchObject({ kind: 'done' })
     expect(Object.values(nestedTab.store.doc.graphs.g0!.nodes).map((node) => node.values)).toEqual([{ shown: 12 }, { shown: 16 }])
     expect(nestedTab.store.doc.graphs.g1!.nodes.inner!.values).toEqual({ amount: 8, other: 7.53 })
     expect(app.undoAdjustments(nestedTab.id)).toBe(true)
@@ -370,7 +412,7 @@ describe('native open-time replacement', () => {
       } },
     } }, 'Inherited numbers')
     const inheritedTab = app.activeTab()!
-    expect(await app.applyNumberFixes(inheritedTab, app.scanTabNumberFixes(inheritedTab), true)).toMatchObject({ kind: 'done' })
+    expect(await app.applyProblemFixes(inheritedTab, app.scanTabNumberFixes(inheritedTab), true)).toMatchObject({ kind: 'done' })
     expect(Object.values(inheritedTab.store.doc.graphs.g0!.nodes).map((node) => node.values)).toEqual([{}, {}])
     expect(inheritedTab.store.doc.graphs.g1!.nodes.inner!.values.amount).toBe(12)
     expect(app.adjustmentNotices.get().get(inheritedTab.id)!.adjustments).toHaveLength(1)
@@ -397,8 +439,8 @@ describe('native open-time replacement', () => {
     const sharedTab = app.activeTab()!
     const sharedOffers = app.scanTabNumberFixes(sharedTab)
     sharedTab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'second', inputId: 'cap', value: 16 } })
-    expect(await app.applyNumberFixes(sharedTab, sharedOffers)).toMatchObject({ kind: 'failed', message: 'Could not apply this fix. The workflow changed.' })
-    expect(await app.applyNumberFixes(sharedTab, app.scanTabNumberFixes(sharedTab))).toMatchObject({ kind: 'failed' })
+    expect(await app.applyProblemFixes(sharedTab, sharedOffers)).toMatchObject({ kind: 'failed', message: 'Could not apply this fix. The workflow changed.' })
+    expect(await app.applyProblemFixes(sharedTab, app.scanTabNumberFixes(sharedTab))).toMatchObject({ kind: 'failed' })
     expect(sharedTab.store.doc.graphs.g1!.nodes.inner!.values.amount).toBe(29)
   })
 

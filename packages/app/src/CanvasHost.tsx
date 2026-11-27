@@ -1386,7 +1386,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const backendsTick = useSignal(props.app.backendsTick)
   const tabTargets = useSignal(props.app.tabTargets)
   const settingsTick = useSignal(props.app.settings.changed)
-  const numberFixesChanged = useSignal(props.app.numberProblemFixes.changed)
+  const problemFixesChanged = useSignal(props.app.problemFixes.changed)
   const detailMinScale = (): number => (settingsTick(), props.app.settings.get<number>('canvas.detailMinPercent') / 100)
   const extensionRevision = useSignal(props.app.extensionRevision)
   const selectionScopesChanged = useSignal(props.app.selectionScopesChanged)
@@ -4620,10 +4620,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const text = line.diagnostic.message
           return place !== undefined && text.startsWith(place) ? text.slice(place.length) : text
         }).map((line): ProblemBoxLine => {
-          if (line.problem.diagnostic.code !== 'automatic.numberOutsideLimits' ||
-            props.app.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'ask') return line
-          const numberFix = props.app.numberProblemFixes.forProblem(tab, line.problem.diagnostic)
-          return numberFix === undefined ? line : { ...line, key: numberFix.key, numberFix }
+          const fix = props.app.problemFixes.forProblem(tab, line.problem.diagnostic)
+          return fix === undefined ? line : { ...line, key: fix.key, fix }
         })
       },
       title: (nodeId) => renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.title ?? nodeId,
@@ -5079,8 +5077,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const widgetValueDiagnostics = (): Diagnostic[] => {
       const out: Diagnostic[] = []
       const tab = activeTab()
-      const numberProblems = tab === undefined ? [] : props.app.numberProblemFixes.diagnostics(tab).filter((problem) =>
-        problem.refs?.[0]?.graphId === scene.graphId &&
+      const numberProblems = tab === undefined ? [] : props.app.problemFixes.diagnostics(tab).filter((problem) =>
+        problem.code === 'automatic.numberOutsideLimits' && problem.refs?.[0]?.graphId === scene.graphId &&
         JSON.stringify(problem.anchor?.occurrence?.instancePath ?? []) === JSON.stringify(viewInstancePath(tab)))
       for (const node of scene.nodes) {
         for (const row of node.fieldRows ?? node.layout.rows) {
@@ -5114,8 +5112,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // projection outlines that row.
       const ruleDiags = scene.nodes.flatMap(({ node, elaborated }) =>
         (elaborated?.diagnostics ?? [])
-          .filter((d) => d.code === 'node.rule.failed')
+          .filter((d) => d.code === 'node.rule.failed' && (tab.execution || d.data?.['hasFix'] !== true))
           .map((d): Diagnostic => ({ ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) })))
+      ruleDiags.push(...props.app.problemFixes.diagnostics(tab).filter((problem) =>
+        problem.code === 'node.rule.failed' && problem.refs?.[0]?.graphId === scene.graphId &&
+        JSON.stringify(problem.anchor?.occurrence?.instancePath ?? []) === JSON.stringify(viewInstancePath(tab))))
       const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags, ...lastRunAutomatic]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
@@ -5126,7 +5127,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (tab) untrack(() => refreshSceneDiagnostics(tab))
     }, { defer: true }))
 
-    createEffect(on(numberFixesChanged, () => {
+    createEffect(on(problemFixesChanged, () => {
       const tab = activeTab()
       if (tab) untrack(() => { refreshSceneDiagnostics(tab); refreshSceneOverlays(tab) })
     }, { defer: true }))
@@ -8116,11 +8117,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   onAction={(line, action) => {
                     const open = problemBox()
                     if (!open) return
-                    if (action === 'check-number-fix' || action === 'apply-number-fix') {
+                    if (action === 'check-problem-fix' || action === 'apply-problem-fix') {
                       const tab = activeTab()
-                      if (tab === undefined || open.owner !== problemBoxHost?.owner() || line.numberFix === undefined) return
-                      if (action === 'check-number-fix') props.app.numberProblemFixes.recheck(tab, line.numberFix.key)
-                      else void props.app.numberProblemFixes.apply(tab, [line.numberFix])
+                      if (tab === undefined || open.owner !== problemBoxHost?.owner() || line.fix === undefined) return
+                      if (action === 'check-problem-fix') props.app.problemFixes.recheck(tab, line.fix.key)
+                      else void props.app.problemFixes.apply(tab, [line.fix])
                     } else if (action === 'edit-field' && line.row !== undefined) {
                       closeProblemBox()
                       problemBoxHost?.editField(open.nodeId, line.row)

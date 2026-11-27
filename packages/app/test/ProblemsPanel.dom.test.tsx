@@ -101,7 +101,7 @@ afterEach(() => {
 describe('ProblemsPanel browser interactions', () => {
   it('keeps numeric details focused through stale messages and moves focus only when a fix removes it', async () => {
     const offered = diag('warning', 'environment', 'automatic.numberOutsideLimits', 'Numbers: amount: Stored value 14 is outside the allowed values.', {
-      data: { numberFixKey: 'number-fix' },
+      data: { problemFixKey: 'number-fix' },
     })
     const [list, setList] = createSolidSignal<readonly Diagnostic[]>([offered])
     let remove = false

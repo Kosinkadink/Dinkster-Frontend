@@ -314,6 +314,17 @@ export function problemBoxGallery(
       }] }],
       width: 'narrow' in card ? LEFT * 2 + 200 : BOXED,
     })),
+    {
+      id: 'declared-fix',
+      caption: 'A node-declared fix always asks, even when every Automatic fixes setting is Apply. Its declared label is shown unchanged; it has no settings row. Use 512 stores width 512 in one undo step.',
+      scene: scene([{ id: 'resize', schema: resizeImage, x: LEFT, values: { width: 0 } }]),
+      badges: { resize: [warnings(1)] }, rowMarks: { resize: { width: 'warning' } },
+      boxes: [{ nodeId: 'resize', nodeTitle: 'Resize image', lines: [{
+        ...line('warning', 'width', 'Width must be positive.'),
+        actions: [{ label: 'Use 512', labels: ['Use 512', 'Storing...', 'Check again'] }],
+      }] }],
+      width: BOXED,
+    },
     solverCard('type-warning', 'An image sent to samples that needs latent data. The same warning names the node in Problems and the row once in its own box. The wire and its handle are warning yellow.', [
       { id: 'load', schema: loadImage, x: column(0) },
       { id: 'decode', schema: latentSink, x: column(1) },
