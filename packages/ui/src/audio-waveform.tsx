@@ -160,6 +160,9 @@ export function ProductAudioWaveform(props: {
             />
           </mask>
         </defs>
+        <Show when={props.image}>
+          <path class="dinkster-audio-waveform-centerline" d="M0 36H288" />
+        </Show>
         <Show when={props.image} fallback={<path d={props.path ?? 'M0 36H288'} />}>
           <path d={bars} mask={`url(#${mask})`} />
         </Show>
