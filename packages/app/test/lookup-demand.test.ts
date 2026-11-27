@@ -187,6 +187,33 @@ describe('recorded run answers', () => {
         expect(store.undo()).toBe(true)
         expect(store.undo()).toBe(true)
         expect(store.doc).toEqual(edited)
+        expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'second', inputId: category, value: 'broken' } }).ok).toBe(true)
+        client.setPartition({ backend: '', epoch: 2, principal: 0 })
+        const beforeCold = pending.length
+        draw()
+        await settle()
+        expect(pending).toHaveLength(beforeCold + 1)
+        const cold = pending.at(-1)!
+        expect(cold.args).toEqual(['broken'])
+        expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: category, value: 'sd' } }).ok).toBe(true)
+        draw()
+        await settle()
+        expect(cold.aborted).toBe(false)
+        cold.answer(200, { answer: ['cold-second'] })
+        await settle()
+        const coldFirst = pending.at(-1)!
+        expect(coldFirst.args).toEqual(['sd'])
+        coldFirst.answer(200, { answer: ['cold-first'] })
+        await settle()
+        expect(draw()).toEqual([
+          { node: 'first', value: 'kept-first', state: 'ready', options: ['cold-first'] },
+          { node: 'second', value: 'kept-second', state: 'ready', options: ['cold-second'] },
+        ])
+        expect(pending).toHaveLength(beforeCold + 2)
+        checkPrompt()
+        expect(store.undo()).toBe(true)
+        expect(store.undo()).toBe(true)
+        expect(store.doc).toEqual(edited)
         expect(store.doc.graphs.detail).toEqual(doc.graphs.detail)
         expect(store.doc.graphs.portrait).toEqual(doc.graphs.portrait)
       } finally {

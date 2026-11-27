@@ -63,7 +63,8 @@ export class LookupDemand {
         if (previous?.call === callKey) return
         previous?.controller.abort()
         this.held.delete(key)
-        if (this.lookups.entry(call) !== undefined && !this.lookups.isOld(call)) return
+        const entry = this.lookups.entry(call)
+        if (entry !== undefined && entry.state !== 'loading' && !this.lookups.isOld(call)) return
         const controller = new AbortController()
         this.held.set(key, { call: callKey, controller })
         this.lookups.request(call, { accept: site.accepts, signal: controller.signal }).then(
