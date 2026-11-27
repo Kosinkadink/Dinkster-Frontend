@@ -475,6 +475,14 @@ describe('buildParamRows', () => {
         expect(result.artifact.prompt[`first${suffix}`]!.inputs).toEqual({ seed: 31, steps: 19 })
         expect(result.artifact.prompt[`second${suffix}`]!.inputs).toEqual({ seed: 13 })
       }
+      const fixed = store.doc
+      expect(store.dispatch({ command: 'node.setValues', params: {
+        graphId: 'root', nodeId: 'first', values: {}, unset: [steps],
+      } }).ok).toBe(true)
+      check(store.doc, 31)
+      check(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!, 31)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(fixed)
       expect(store.undo()).toBe(true)
       expect(store.doc).toEqual(edited)
       check(store.doc, 31)
