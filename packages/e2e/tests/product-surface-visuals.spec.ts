@@ -1523,7 +1523,7 @@ test('Saved connection rows retain actions, credential editing and connection fa
     document.querySelector('.canvas-pane')!.append(host)
     desktopWindow.dinksterDesktop = {
       locale: async () => 'en',
-      status: async () => ({ phase: 'running', detail: 'Ready' }),
+      info: async () => ({}),
       connectionCredentials: async () => ({ custody: true, profiles: [profile.id] }),
       setConnectionCredential: async () => { host.dataset['savedToken'] = 'true' },
     }

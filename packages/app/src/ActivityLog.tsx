@@ -12,6 +12,17 @@ export function formatActivityTimestamp(timestamp: number): string {
   return new Date(timestamp).toISOString().replace('T', ' ').replace('Z', ' UTC')
 }
 
+export function LogTimestamp(props: { readonly timestamp: number; readonly class: string }) {
+  const timestamp = () => formatActivityTimestamp(props.timestamp)
+  return (
+    <time class={props.class} datetime={new Date(props.timestamp).toISOString()} title={timestamp()}>
+      <span class="log-time-full">{timestamp().slice(0, 11)}</span>
+      <span>{timestamp().slice(11, 19)}</span>
+      <span class="log-time-full">{timestamp().slice(19)}</span>
+    </time>
+  )
+}
+
 export function ActivityLog(props: ActivityLogProps) {
   const message = useAppMessage()
   let list: HTMLDivElement | undefined
@@ -80,21 +91,18 @@ export function ActivityLog(props: ActivityLogProps) {
           fallback={<ProductEmptyState class="activity-log-empty" testId="activity-log-empty" title={message('activityLog.empty.title')} hint={message('activityLog.empty.description')} />}
         >
           <For each={props.entries()}>
-            {(entry) => {
-              const timestamp = formatActivityTimestamp(entry.timestamp)
-              return (
-                <ProductListRow
-                  class="activity-log-row"
-                  dataAttributes={{ 'data-severity': entry.severity }}
-                  primary={<>
-                    <time class="activity-log-time" datetime={new Date(entry.timestamp).toISOString()}>{timestamp}</time>
-                    <span class="activity-log-severity">{entry.severity}</span>
-                    <span class="activity-log-source">{entry.source}</span>
-                    <span class="activity-log-message">{entry.message}</span>
-                  </>}
-                />
-              )
-            }}
+            {(entry) => (
+              <ProductListRow
+                class="activity-log-row"
+                dataAttributes={{ 'data-severity': entry.severity }}
+                primary={<>
+                  <LogTimestamp class="activity-log-time" timestamp={entry.timestamp} />
+                  <span class="activity-log-severity">{entry.severity}</span>
+                  <span class="activity-log-source">{entry.source}</span>
+                  <span class="activity-log-message">{entry.message}</span>
+                </>}
+              />
+            )}
           </For>
         </Show>
       </div>
