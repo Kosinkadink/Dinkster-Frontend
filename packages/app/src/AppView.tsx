@@ -1733,6 +1733,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     const liveRow = (): Extract<ParamRow, { kind: 'live' }> => row() as Extract<ParamRow, { kind: 'live' }>
     const comboControl = (): boolean => liveRow().spec?.widgetType === 'COMBO'
     const videoControl = (): boolean => liveRow().spec?.widgetType === 'VIDEO_EDIT'
+    const booleanControl = (): boolean => liveRow().spec?.widgetType === 'BOOLEAN'
     const productControl = (): boolean => editableKinds.has(liveRow().spec?.widgetType ?? '') && !videoControl()
     const accessibleLabelId = `app-view-control-${createUniqueId()}`
     const label = (): string => {
@@ -1812,7 +1813,7 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               onRevert={() => setError(liveRow().entry, undefined)}
             />
           </Match>
-          <Match when={spec().widgetType === 'BOOLEAN'}>
+          <Match when={booleanControl()}>
             <ProductCheckbox
               class="app-view-control"
               testId="app-view-boolean"
@@ -1958,8 +1959,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             <Show
               when={editable(liveRow())}
               fallback={
-                <p class="app-view-readonly" data-testid="app-view-readonly" tabindex="0" aria-label={`${productControl() ? display(liveRow().value) : label()}. ${readOnlyHint(liveRow())}`} data-tooltip-label={readOnlyHint(liveRow())}>
-                  <Show when={productControl()}>{display(liveRow().value)}</Show>
+                <p class="app-view-readonly" data-testid="app-view-readonly" tabindex="0" aria-label={`${productControl() && !booleanControl() ? display(liveRow().value) : label()}. ${readOnlyHint(liveRow())}`} data-tooltip-label={readOnlyHint(liveRow())}>
+                  <Show when={booleanControl()}>
+                    <ProductCheckbox class="app-view-control" ariaLabel={label()} checked={liveRow().value === true} disabled onChange={() => {}} />
+                  </Show>
+                  <Show when={productControl() && !booleanControl()}>{display(liveRow().value)}</Show>
                   <span class="app-view-hint">{readOnlyHint(liveRow())}</span>
                 </p>
               }

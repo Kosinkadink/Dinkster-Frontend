@@ -72,7 +72,16 @@ it('shows each product value once and keeps canvas-only values out of read-only 
         expect(editable.querySelector('canvas')).toBeNull()
         expect(connected.querySelector('canvas')).toBeNull()
         expect(editable.querySelector('input, textarea, button')).not.toBeNull()
-        expect(readonly.textContent).toContain(typeof specs[id]!.default === 'string' ? specs[id]!.default : JSON.stringify(specs[id]!.default))
+        if (id === 'boolean') {
+          const checkbox = readonly.querySelector<HTMLButtonElement>('[role="checkbox"]')!
+          expect(checkbox.disabled).toBe(true)
+          expect(checkbox.getAttribute('aria-checked')).toBe('true')
+          expect(readonly.textContent).not.toContain('true')
+          checkbox.click()
+          expect(checkbox.getAttribute('aria-checked')).toBe('true')
+        } else {
+          expect(readonly.textContent).toContain(typeof specs[id]!.default === 'string' ? specs[id]!.default : JSON.stringify(specs[id]!.default))
+        }
       }
     }
   } finally {
