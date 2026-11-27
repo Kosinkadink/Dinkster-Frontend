@@ -192,7 +192,7 @@
 .product-number .product-number-field:focus-visible { outline: 0; }
 .product-number-field:disabled { color: var(--dinkster-text-disabled); }
 .product-number-steppers { display: flex; flex: none; border-left: 1px solid var(--dinkster-border-subtle); }
-.product-number-steppers button { min-width: var(--dinkster-control-compact-height); min-height: var(--dinkster-control-compact-height); padding: 0; border: 0; color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); line-height: 1; cursor: pointer; }
+.product-number-steppers button { min-width: var(--dinkster-control-compact-height); min-height: calc(var(--dinkster-control-compact-height) - 2 * var(--dinkster-border-width)); padding: 0; border: 0; color: var(--dinkster-text-secondary); background: var(--dinkster-surface-raised); line-height: 1; cursor: pointer; }
 .product-number-steppers button + button { border-left: 1px solid var(--dinkster-border-subtle); }
 .product-number-steppers button:hover:not(:disabled) { background: var(--dinkster-interaction-hover); color: var(--dinkster-text-primary); }
 .product-number-steppers button:disabled { color: var(--dinkster-text-disabled); }
