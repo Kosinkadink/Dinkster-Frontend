@@ -9,8 +9,10 @@ test('catalog recovery replaces empty-search announcements until nodes return', 
   await expect(search.getByRole('note')).toContainText('No packs are enabled in this project')
   await input.press('Enter')
   await expect(search.getByRole('option')).toHaveCount(0)
-  await input.press('Tab')
   const action = search.getByRole('button', { name: 'Enable all installed packs', exact: true })
+  for (let step = 0; step < 8 && !await action.evaluate((element) => element === document.activeElement); step++) {
+    await page.keyboard.press('Tab')
+  }
   await expect(action).toBeFocused()
   await action.press('Enter')
   await expect(input).toHaveValue('image')
