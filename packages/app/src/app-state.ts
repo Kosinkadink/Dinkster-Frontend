@@ -11,6 +11,11 @@ import { isPageTab } from './page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
 import {
   BOARD_MAX_NAME,
+  BOARD_MAX_EXTENT,
+  BOARD_MIN_SIDE,
+  type BoardRect,
+  isDinksterRegionEntry,
+  type DinksterGraphWire,
   CORE_VIRTUAL_NODE_KINDS,
   activeLocale,
   analyzeSelectionExecution,
@@ -3020,7 +3025,11 @@ export class AppState {
   readonly activeTabId: Signal<string> = createSignal('')
   readonly pages: ReturnType<typeof createAppPageTabs>
   readonly boards: BoardWorkspace
-  readonly boardCardSubmissions = createSignal<ReadonlyMap<string, AbortController>>(new Map())
+  readonly boardCardSubmissions = createSignal<ReadonlyMap<string, {
+    readonly controller: AbortController
+    readonly entry: BoardEntry
+    readonly places?: readonly BoardRect[]
+  }>>(new Map())
   private readonly uninstallBoardPages: () => void
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
@@ -3877,7 +3886,7 @@ export class AppState {
     this.pendingSelectionScopes.clear()
     this.unsubscribePackLocale()
     this.unsubscribeAppView()
-    for (const controller of this.boardCardSubmissions.get().values()) controller.abort()
+    for (const submission of this.boardCardSubmissions.get().values()) submission.controller.abort()
     for (const controller of this.submissionWorlds.keys()) controller.abort()
     this.submissionWorlds.clear()
     for (const worlds of this.extensionWorlds.values()) for (const world of worlds.values()) world.dispose()
@@ -10137,10 +10146,28 @@ export class AppState {
   }
 
   async stopBoardCard(entry: BoardEntry, cardId: string): Promise<void> {
-    this.boardCardSubmissions.get().get(this.boardCardKey(entry, cardId))?.abort('stop')
+    this.boardCardSubmissions.get().get(this.boardCardKey(entry, cardId))?.controller.abort('stop')
     const active = this.executionsForBoardCard(entry, cardId)
       .find((run) => run.status === 'queued' || run.status === 'running')
     if (active) await this.cancelExecution(active.ref)
+  }
+
+  /** Recorded geometry belongs to the submitted snapshot, not the card's current position. */
+  boardResultPlaces(entry: BoardEntry, execution: ExecutionState): readonly BoardRect[] {
+    const origin = execution.artifact?.snapshot.ext?.['dinkster.boardCard']
+    const backend = this.backendFor(execution.ref.connection)
+    if (backend?.baseUrl !== entry.baseUrl || !workspaceRecord(origin) || origin['board'] !== entry.id ||
+      !Array.isArray(origin['places']) || origin['places'].length > 8) return []
+    const places: BoardRect[] = []
+    for (const place of origin['places']) {
+      if (!workspaceRecord(place)) return []
+      const { x, y, width, height } = place
+      if (!(typeof x === 'number' && typeof y === 'number' && typeof width === 'number' && typeof height === 'number' &&
+        [x, y, width, height].every((value) => Number.isFinite(value) && Math.abs(value) <= BOARD_MAX_EXTENT) &&
+        width >= BOARD_MIN_SIDE && height >= BOARD_MIN_SIDE)) return []
+      places.push({ x, y, width, height })
+    }
+    return places
   }
 
   /** Place only a terminal run's recorded files, on its original Board/backend. */
@@ -10159,7 +10186,7 @@ export class AppState {
       !['completed', 'error', 'interrupted', 'cancelled'].includes(execution.status)) return []
     return this.boards.placeMedia(entry.id, {
       project: activeProjectId(), baseUrl: backend.baseUrl,
-      run: { job, card: origin['card'] },
+      run: { job, card: origin['card'], places: this.boardResultPlaces(entry, execution) },
       assets: execution.artifacts.filter((asset) => boardMediaKindOf(asset.mediaType)).map((asset) => ({
         digest: asset.digest, mediaType: asset.mediaType, name: asset.name.slice(0, BOARD_MAX_NAME),
         origin: { job, node: asset.nodeId },
@@ -10188,7 +10215,7 @@ export class AppState {
     }
     const invalidate = (): void => { if (!current()) controller.abort() }
     const subscriptions = [this.boards.changed.subscribe(invalidate), this.backendsTick.subscribe(invalidate)]
-    this.boardCardSubmissions.set(new Map([...this.boardCardSubmissions.get(), [key, controller]]))
+    this.boardCardSubmissions.set(new Map([...this.boardCardSubmissions.get(), [key, { controller, entry }]]))
     let releaseWorld: (() => void) | undefined
     let advancement: BoardAdvancementPlan | undefined
     let installed = false
@@ -10196,6 +10223,14 @@ export class AppState {
       const source = await this.boards.loadCard(entry.id, cardId, registry.resolve, current)
       if (!current()) return undefined
       const resolve = this.resolverWithVirtualNodes(registry.resolve)
+      const previous = this.executionsForBoardCard(entry, cardId).find((run) =>
+        run.status !== 'queued' && run.status !== 'running' && run.jobRef && entry.session.doc.runs?.[run.jobRef])
+      const occupied = [
+        ...[...this.store.executions.get().values()].filter((run) => run.status === 'queued' || run.status === 'running')
+          .flatMap((run) => this.boardResultPlaces(entry, run)),
+        ...[...this.boardCardSubmissions.get().values()].filter((submission) => submission.entry === entry)
+          .flatMap((submission) => submission.places ?? []),
+      ]
       let document: WorkflowDocument = { ...source,
         lineage: asLineageId(`board-card:${entry.id}:${cardId}`),
         ext: { ...source.ext, 'dinkster.boardCard': { board: entry.id, card: cardId, source: card.source } },
@@ -10211,6 +10246,26 @@ export class AppState {
         lookupAnswers: lookupAnswersOf(backend.lookups), pickCandidate: ({ count }) => Math.floor(Math.random() * count),
       }
       let result = compile(input)
+      if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      const saves = (type: string) => {
+        const schema = resolve(type)
+        return schema !== undefined && inputsOf(schema).some((input) => canonicalTypeIdOf(input.type) === 'SAVE_TARGET') ? 1 : 0
+      }
+      const graphSaves = (graph: DinksterGraphWire): number => Object.values(graph.nodes)
+        .reduce((count, node) => count + (isDinksterRegionEntry(node) ? graphSaves(node.region.body) : saves(node.nodeType)), 0)
+      const savingNodes = result.artifact.dinksterGraph ? graphSaves(result.artifact.dinksterGraph)
+        : Object.values(result.artifact.prompt).reduce((count, node) => count + saves(node.class_type), 0)
+      const places = this.boards.reserveResultPlaces(entry.id, cardId, savingNodes, occupied, previous?.jobRef)
+      this.boardCardSubmissions.set(new Map([...this.boardCardSubmissions.get(), [key, { controller, entry, places }]]))
+      document = { ...document, ext: { ...document.ext, 'dinkster.boardCard': {
+        board: entry.id, card: cardId, source: card.source, places: places.map((place) => ({ ...place })),
+      } } }
+      const choices = new Map((result.artifact.choices ?? []).map((choice) => [JSON.stringify([choice.graph, choice.selector]), choice.candidate]))
+      const recompile = () => compile({ ...input, document, candidateOverride: ({ graph, selector, candidates }) => {
+        const selected = choices.get(JSON.stringify([graph, selector]))
+        return selected !== undefined && candidates.includes(selected) ? selected : undefined
+      } })
+      result = recompile()
       if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
       this.retainedRegistries.set(result.artifact, registry)
       if (this.settings.get<boolean>('features.seedController.enabled')) advancement = this.boardAdvancementPlan(entry, cardId, result.artifact)
@@ -10229,11 +10284,7 @@ export class AppState {
         if (!current()) return undefined
         if (captured !== document) {
           document = captured
-          const choices = new Map((result.artifact.choices ?? []).map((choice) => [JSON.stringify([choice.graph, choice.selector]), choice.candidate]))
-          result = compile({ ...input, document, candidateOverride: ({ graph, selector, candidates }) => {
-            const selected = choices.get(JSON.stringify([graph, selector]))
-            return selected !== undefined && candidates.includes(selected) ? selected : undefined
-          } })
+          result = recompile()
           if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
         }
       }

@@ -1,6 +1,6 @@
 import {
   BOARD_MAX_NAME, BOARD_MEDIA_TYPE, DocumentStore, boardMediaKindOf, buildGraphConnectivity, connectSharedBoardSession, coreCommandRegistry, createLocalBoardSession, createSignal, defaultValuesOf, documentResolver, elabInputsOf, elaborateInterface, exposedKey, exposedToJson, isValidCollabTitle, jsonSameValue, loadBoard, loadDocument, planBoardCommand, t, valueKeyOf,
-  type BoardAsset, type BoardCardItem, type BoardCardSource, type BoardDocument, type BoardItemInput, type BoardSession, type CollabSessionDescriptor, type ControllerMode, type Json, type NodeSchema, type SharedBoardSession, type WorkflowDocument,
+  type BoardAsset, type BoardCardItem, type BoardCardSource, type BoardDocument, type BoardItemInput, type BoardRect, type BoardSession, type CollabSessionDescriptor, type ControllerMode, type Json, type NodeSchema, type SharedBoardSession, type WorkflowDocument,
 } from '@dinkster/core'
 import type { AssetUploadDestination, DinksterConnection, LibraryRecord } from '@dinkster/client'
 import type { CollabTransport } from './collab.js'
@@ -395,12 +395,12 @@ export class BoardWorkspace {
     readonly project: string
     readonly baseUrl: string
     readonly assets: readonly BoardAsset[]
-    readonly run?: { readonly job: string; readonly card: string }
+    readonly run?: { readonly job: string; readonly card: string; readonly places?: readonly BoardRect[] }
   }, point: { readonly x: number; readonly y: number }): Promise<readonly string[]> {
     const entry = this.mediaEntry(id)
     if (source.project !== this.options.project || source.baseUrl !== entry.baseUrl)
       throw new Error('Media must come from this Board\'s project and backend')
-    const run = source.run === undefined ? undefined : { ...source.run }
+    const run = source.run === undefined ? undefined : structuredClone(source.run)
     if (run && Object.hasOwn(entry.session.doc.runs ?? {}, run.job)) return []
     const assets = structuredClone(source.assets)
     const items = run && assets.length === 0 ? [] : this.mediaItems(entry, assets, point)
@@ -415,8 +415,89 @@ export class BoardWorkspace {
       this.assertMediaCurrent(entry, abort.signal, connection)
       if (assets.some((asset) => !availability.some((row) => row.digest === asset.digest && row.status === 'available')))
         throw new Error('Some media is unavailable; nothing was placed')
-      return this.commitMedia(entry, items, run)
+      return this.commitMedia(entry, run?.places?.length
+        ? this.fitRunMedia(entry, items, run.places) : items, run)
     } finally { this.importing.delete(abort) }
+  }
+
+  /** Fix a run's held places before submission; saved and removed results still inform its count. */
+  reserveResultPlaces(id: string, cardId: string, savingNodes: number,
+    occupied: readonly BoardRect[] = [], previousJob?: string,
+  ): readonly BoardRect[] {
+    const entry = this.mediaEntry(id)
+    const board = entry.session.doc
+    const card = board.items[cardId]
+    if (!card || (card.kind !== 'workflow' && card.kind !== 'blueprint'))
+      throw new Error('This card is unavailable')
+    const previous = previousJob === undefined
+      ? Object.values(board.runs ?? {}).reverse().find((run) => run.card === cardId)
+      : board.runs?.[previousJob]
+    const count = Math.min(8, Math.max(1, previous?.items.length ?? savingNodes))
+    const places: BoardRect[] = []
+    const left = card.rect.x + card.rect.width + 24
+    let top = card.rect.y
+    for (let index = 0; index < count; index += 1) {
+      const prior = board.items[previous?.items[index] ?? '']
+      const size = prior && 'asset' in prior ? prior.rect : { width: 280, height: 175 }
+      if (index > 0 && index % 2 === 0) {
+        const row = places.slice(-2)
+        top = Math.max(...row.map((place) => place.y + place.height)) + 24
+      }
+      const before = places.at(-1)
+      places.push({ x: index % 2 === 0 ? left : before!.x + before!.width + 24,
+        y: top, width: size.width, height: size.height })
+    }
+    const box = { x: left, y: card.rect.y,
+      width: Math.max(...places.map((place) => place.x + place.width)) - left,
+      height: Math.max(...places.map((place) => place.y + place.height)) - card.rect.y }
+    const obstacles = [...Object.values(board.items).filter((item) => item.kind !== 'section').map((item) => item.rect), ...occupied]
+    const y = this.freeResultRow(box, obstacles)
+    return places.map((place) => ({ ...place, y: place.y + y - box.y }))
+  }
+
+  private freeResultRow(box: BoardRect, obstacles: readonly BoardRect[]): number {
+    let y = box.y
+    for (;;) {
+      const hits = obstacles.filter((item) => box.x < item.x + item.width + 24 &&
+        box.x + box.width + 24 > item.x && y < item.y + item.height + 24 && y + box.height + 24 > item.y)
+      if (!hits.length) return y
+      y = Math.max(...hits.map((item) => item.y + item.height + 24))
+    }
+  }
+
+  private fitRunMedia(entry: BoardEntry, items: readonly BoardItemInput[], held: readonly BoardRect[]): readonly BoardItemInput[] {
+    const obstacles = Object.values(entry.session.doc.items).filter((item) => item.kind !== 'section').map((item) => item.rect)
+    const last = held.at(-1)!
+    const left = held[0]!.x
+    let offset = 0
+    let column = 0
+    let sizes = [held[0]!, held[1] ?? last]
+    let rowTop = held[0]!.y
+    const nextRow = () => {
+      const below = rowTop + Math.max(...sizes.map((size) => size.height)) + 24
+      offset += 2
+      sizes = [held[offset] ?? last, held[offset + 1] ?? last]
+      rowTop = Math.max(below, held[offset]?.y ?? below)
+      if (offset >= held.length) rowTop = this.freeResultRow({ x: left, y: rowTop,
+        width: sizes[0]!.width + sizes[1]!.width + 24,
+        height: Math.max(...sizes.map((size) => size.height)) }, obstacles)
+      column = 0
+    }
+    return items.map((item) => {
+      if (column === 2) nextRow()
+      let place = { x: left + (column === 0 ? 0 : sizes[0]!.width + 24),
+        y: rowTop, width: sizes[column]!.width, height: sizes[column]!.height }
+      if (this.freeResultRow(place, obstacles) !== rowTop) {
+        nextRow()
+        rowTop = this.freeResultRow({ x: left, y: rowTop,
+          width: sizes[0]!.width + sizes[1]!.width + 24,
+          height: Math.max(...sizes.map((size) => size.height)) }, obstacles)
+        place = { x: left, y: rowTop, width: sizes[0]!.width, height: sizes[0]!.height }
+      }
+      column += 1
+      const scale = Math.min(1, place.width / item.rect.width, place.height / item.rect.height)
+      return { ...item, rect: { x: place.x, y: place.y, width: item.rect.width * scale, height: item.rect.height * scale } }
+    })
   }
 
   /** Upload the whole batch before placing it as one undoable Board edit. */
@@ -493,7 +574,7 @@ export class BoardWorkspace {
   private commitMedia(entry: BoardEntry, items: readonly BoardItemInput[], run?: { readonly job: string; readonly card: string }): readonly string[] {
     const result = entry.session.dispatch(run === undefined
       ? { command: 'board.item.add', params: { items } }
-      : { command: 'board.run.add', params: { ...run, items } })
+      : { command: 'board.run.add', params: { job: run.job, card: run.card, items } })
     if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
     return result.created
   }

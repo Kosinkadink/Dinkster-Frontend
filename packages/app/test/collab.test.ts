@@ -288,6 +288,48 @@ describe('Board workspace collaboration', () => {
     expect(joined.session.doc).toEqual(shared.session.doc)
   })
 
+  it('places saved runs around existing items without shifting them and reuses the freed home', async () => {
+    const app = makeApp(new FakeCollabServer())
+    const entry = app.boards.open(emptyBoard(), 'Results', 'http://collab')
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'card', kind: 'workflow', name: 'Rain', source: { kind: 'library', recordId: 'saved' },
+      values: {}, rect: { x: 17, y: 29, width: 340, height: 188 },
+    }, { id: 'note', kind: 'note', text: 'Keep this here',
+      rect: { x: 685, y: 29, width: 200, height: 240 } }, {
+      id: 'section', kind: 'section', name: 'Background', rect: { x: 0, y: 0, width: 1400, height: 1200 },
+    }] } })
+    const connection = app.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)!.connection
+    vi.spyOn(connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+      digests.map((digest) => ({ digest, status: 'available' })))
+    const assets = Array.from({ length: 4 }, (_, index) => ({ digest: `blake3:${String(index + 1).repeat(64)}`,
+      name: `Saved ${index}`, mediaType: 'image/png', width: 160, height: 320 }))
+    const held = app.boards.reserveResultPlaces(entry.id, 'card', 1)
+    expect(held).toEqual([{ x: 381, y: 29, width: 280, height: 175 }])
+    const note = entry.session.doc.items['note']
+    const source = { project: activeProjectId(), baseUrl: entry.baseUrl, assets,
+      run: { job: 'first', card: 'card', places: held } }
+    const ids = await app.boards.placeMedia(entry.id, source, held[0]!)
+    expect(ids.map((id) => entry.session.doc.items[id]!.rect)).toEqual([
+      { x: 381, y: 29, width: 87.5, height: 175 },
+      { x: 381, y: 293, width: 87.5, height: 175 },
+      { x: 685, y: 293, width: 87.5, height: 175 },
+      { x: 381, y: 492, width: 87.5, height: 175 },
+    ])
+    expect(entry.session.doc.items['note']).toEqual(note)
+    const later = app.boards.reserveResultPlaces(entry.id, 'card', 1)
+    expect(later).toHaveLength(4)
+    expect(later[0]).toEqual({ x: 381, y: 691, width: 87.5, height: 175 })
+    for (const id of ids) entry.session.dispatch({ command: 'board.item.move', params: {
+      moves: [{ id, x: -600, y: entry.session.doc.items[id]!.rect.y }],
+    } })
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1)[0]).toEqual({ x: 381, y: 29, width: 87.5, height: 175 })
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1, [{ x: 381, y: 29, width: 280, height: 175 }])[0]!.y).toBe(228)
+    entry.session.dispatch({ command: 'board.item.remove', params: { ids } })
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1)).toHaveLength(4)
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1)[0]).toEqual({ x: 381, y: 293, width: 280, height: 175 })
+    app.dispose()
+  })
+
   it('records checked run deliveries once and never restores removed results on reopening', async () => {
     const app = makeApp(new FakeCollabServer())
     const entry = app.boards.open(emptyBoard(), 'Results', 'http://collab')

@@ -123,6 +123,14 @@ describe('Board card sources', () => {
     const point = { x: 410, y: 29 }
     for (const status of ['completed', 'error', 'cancelled'] as const) {
       const ref = (await app.queueBoardCard(board, card))!
+      const execution = app.store.get(ref)!
+      const held = app.boardResultPlaces(board, execution)
+      const cardRect = board.session.doc.items[card]!.rect
+      expect(held[0]).toEqual({ x: cardRect.x + cardRect.width + 24, y: cardRect.y, width: 280, height: 175 })
+      board.session.dispatch({ command: 'board.item.move', params: {
+        moves: [{ id: card, x: cardRect.x - 400, y: cardRect.y + 300 }],
+      } })
+      expect(app.boardResultPlaces(board, execution)).toEqual(held)
       app.store.hydrateOutputs(ref, { n0: { images: [{ digest: DIGEST, name: 'preview-only.png' }] } })
       expect(await app.placeBoardCardResults(board, ref, point)).toEqual([])
       app.store.apply(status === 'error'
@@ -139,6 +147,7 @@ describe('Board card sources', () => {
       await expect(app.placeBoardCardResults(other, ref, point)).rejects.toThrow('does not belong')
       const ids = await app.placeBoardCardResults(board, ref, point)
       expect(ids.map((id) => board.session.doc.items[id]!.kind)).toEqual(['video', 'sound'])
+      expect(board.session.doc.items[ids[0]!]!.rect).toEqual(held[0])
       expect(board.session.doc.items[ids[0]!]).toMatchObject({ asset: { digest: DIGEST,
         origin: { job: `native-${count}`, node: 'save-video' } } })
       expect(board.session.doc.runs?.[`native-${count}`]).toEqual({ card, items: ids })
