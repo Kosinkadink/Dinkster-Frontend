@@ -154,6 +154,7 @@ describe('Board card sources', () => {
     expect(await app.openExecutionView(restored!)).toBe(true)
     expect(app.activeTab()?.execution).toEqual(restored)
     expect(app.activeTab()?.store.doc).toEqual(snapshot)
+    expect(app.activeTab()?.title).toMatch(/^Original, \d{2}:\d{2}$/)
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => new Response(JSON.stringify({ available: true,
       descriptor: { typeId: 'INT', fingerprint: 'sum', value: new URL(String(url)).searchParams.get('clientId') === 'original-browser' ? 17 : 99 },
       renditions: [],

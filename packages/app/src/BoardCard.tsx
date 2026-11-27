@@ -266,7 +266,7 @@ export function BoardCard(props: {
   return <ProductBoardCard name={props.card.name} kind={props.card.kind}
     lastRun={status()}
     running={running()} disabled={!source() || !registry() || !!projection().error}
-    error={error() ?? projection().error ?? latest()?.errors[0]?.message}
+    error={error() ?? projection().error}
     onRun={() => void run()} onStop={() => void props.app.stopBoardCard(props.entry, props.card.id)}
     onOpenLastRun={openRef() ? () => void openRecorded() : undefined}
     onContentHeight={(height) => {

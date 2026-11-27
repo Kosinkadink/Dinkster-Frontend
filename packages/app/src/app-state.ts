@@ -11344,8 +11344,9 @@ export class AppState {
 
   tabTitleFor(ref: ExecutionRef): string {
     const state = this.store.executions.get().get(executionKey(ref))
-    const lineage = state?.artifact?.snapshot.lineage
-    return (lineage && this.liveTabFor(lineage)?.title) ?? '(external)'
+    const snapshot = state?.artifact?.snapshot
+    return (snapshot && this.liveTabFor(snapshot.lineage)?.title) ?? state?.workflowName ??
+      (snapshot && snapshot.graphs[snapshot.root]?.name) ?? 'Untitled'
   }
 }
 

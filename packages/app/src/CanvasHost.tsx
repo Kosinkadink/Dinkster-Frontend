@@ -7259,6 +7259,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       progress: state?.status === 'running' ? executionProgress(state) : undefined,
       queuedAt: state?.queuedAt,
       sync: props.app.frozenSyncStatus(tab),
+      boardRun: state?.artifact?.snapshot.ext?.['dinkster.boardCard'] !== undefined,
       tooltip: message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
         state: state === undefined ? '' : executionStatusLabel(state.status).toLocaleLowerCase() }),
       live: props.app.liveTabFor(tab.store.doc.lineage),
@@ -8039,7 +8040,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   : f().status === 'queued'
                     ? message('frozen.queued')
                     : f().queuedAt === undefined ? '' : message('frozen.ran', { time: runClock(f().queuedAt!) })}
-                {' '}{message(f().sync === 'in-sync' ? 'frozen.sync.inSync' : f().sync === 'diverged' ? 'frozen.sync.diverged' : 'frozen.sync.noLive')}
+                <Show when={!f().boardRun}>
+                  {' '}{message(f().sync === 'in-sync' ? 'frozen.sync.inSync' : f().sync === 'diverged' ? 'frozen.sync.diverged' : 'frozen.sync.noLive')}
+                </Show>
               </span>
               <Show when={f().schemasUnavailable}>
                 <span class="frozen-schema-warning" data-testid="frozen-schema-missing">
