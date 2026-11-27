@@ -3,9 +3,11 @@ import { SetupForm, type SetupStatus } from './SetupForm.js'
 import { setupInProgress } from './setup-job.js'
 import { readHomeStatus } from './shell-route.js'
 
-/** Offer local setup only for a confirmed first run or a job already in progress. */
+/** The empty editor and catalog recovery share the process-owned setup flow. */
 export function EditorFirstRunSetup(props: {
   readonly backendUrl: string
+  readonly requested?: boolean
+  readonly onComplete?: () => void
   readonly onStatusChange?: (status: SetupStatus | undefined) => void
 }) {
   const [completed, setCompleted] = createSignal(false)
@@ -24,8 +26,8 @@ export function EditorFirstRunSetup(props: {
       return false
     }
   })
-  const visible = () => !firstRun.loading && firstRun() === true && !completed()
+  const visible = () => (props.requested === true || !firstRun.loading && firstRun() === true) && !completed()
   return <Show when={visible()}>
-    <div class="editor-first-run-setup"><SetupForm surface="editor" onStatusChange={props.onStatusChange} onInstallation={() => setCompleted(true)} /></div>
+    <div class="editor-first-run-setup"><SetupForm surface="editor" onStatusChange={props.onStatusChange} onInstallation={() => { setCompleted(true); props.onComplete?.() }} /></div>
   </Show>
 }

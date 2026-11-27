@@ -183,6 +183,7 @@ import { FixesNotice } from './FixesNotice.js'
 import { cornerMenuMaxHeight, setupMinimap, type MinimapMarker } from './minimap.js'
 import { CanvasCornerControls, MINIMAP_SWITCHES, type CanvasCornerMenu } from './CanvasChrome.js'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from './NodePalette.js'
+import { NodeCatalogRecovery } from './NodeCatalogRecovery.js'
 import { ContextMenu } from './ContextMenu.js'
 import { canvasMenuContext, curveHistogramMenuGroup, memberRemovalInvocation, menuTargetOf, mirrorCapabilityOf, previewCapabilityOf, resolveNodeMenuGroups, selectionLifecycleMenuGroups, widgetMenuTarget, widgetRepresentationAddress, widgetRepresentationMenuGroup, type MenuAnchor } from './menu-target.js'
 import { BadgePopover, type BadgeAnchor } from './BadgePopover.js'
@@ -978,8 +979,7 @@ export function NodeMediaOverlay(props: {
           {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
         </Show>
         <Show when={props.media.kind === 'video'} fallback={
-          <AudioTransport media={props.media} interactive onActiveChange={(active) => props.onActiveChange?.(active)}
-            onMediaError={() => props.onMediaError?.()} />
+          <AudioTransport media={props.media} interactive onActiveChange={(active) => props.onActiveChange?.(active)} />
         }>
           <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
             onActiveChange={props.onActiveChange} onMediaError={props.onMediaError} />
@@ -2590,6 +2590,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     clearPaletteGhost() // any pending noodle dies with its palette
     if (restoreCanvasFocus) queueMicrotask(() => canvasEl.focus())
   }
+
+  const catalogSetupRequested = useSignal(props.app.nodeCatalogSetupRequested)
+  createEffect(() => { if (catalogSetupRequested()) closePalette() })
 
   // Canvas overlays cannot rely on focus-scoped handlers: focus may move to
   // a rail control (or elsewhere). One capture-phase pair supplies dismissal
@@ -8044,6 +8047,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             entries={paletteEntries}
             recentTypes={recentNodeTypes}
             widgetRegistry={widgetRegistry()}
+            catalogRecovery={registry()?.schemas.size === 0 && activeTab() !== undefined
+              ? <Show when={props.app.backendForTab(activeTab()!)} keyed>{(backend) => <NodeCatalogRecovery app={props.app} backend={backend} />}</Show>
+              : undefined}
             bounds={() => canvasClientRect()}
             onCommit={async (entry) => {
               if (entry.install !== undefined) {

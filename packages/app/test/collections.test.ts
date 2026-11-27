@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { asPromptId, DINKSTER_SCHEMA_WIRE_VERSION, executionKey, type DinksterNodesPayload, type ExecutionRef } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { AppState } from '../src/app-state.js'
-import { historySource, packsSource, readCollectionViewMode, safeLocalStorage, templateAssetLines, writeCollectionViewMode } from '../src/collections.js';
+import { historySource, packsSource, readCollectionViewMode, safeLocalStorage, templateAssetLines, templatesSource, writeCollectionViewMode } from '../src/collections.js';
 (globalThis as { location?: unknown }).location = { protocol: 'http:', host: 'test' }
 
 const nodesPayload: DinksterNodesPayload = {
@@ -93,8 +93,8 @@ describe('packsSource', () => {
     loadDinksterSchemas()
     const page = await packsSource(app).page({ query: '', limit: 10 })
     // Unfiltered browse is title-sorted.
-    expect(page.items.map((e) => e.id)).toEqual(['core', 'dev.local', 'vhs.video'])
-    expect(page.total).toBe(3)
+    expect(page.items.map((e) => e.id)).toEqual(['core', 'vhs.video'])
+    expect(page.total).toBe(2)
 
     const core = page.items[0]!
     expect(core.title).toBe('Dinkster Core')
@@ -102,7 +102,7 @@ describe('packsSource', () => {
     expect(core.badges).toEqual(['v1.2.0', '2 nodes'])
     expect(core.thumbUrl).toBeUndefined()
 
-    const vhs = page.items[2]!
+    const vhs = page.items[1]!
     expect(vhs.badges).toEqual(['VHS', 'v3.1.4', 'registry', '1 node', '1 asset'])
     expect(vhs.thumbUrl).toBeUndefined()
     expect(vhs.thumbRender).toBeDefined()
@@ -117,9 +117,6 @@ describe('packsSource', () => {
     expect(vhs.details).toContainEqual({ label: 'publisher', text: 'kosinkadink' })
     expect(vhs.details).toContainEqual({ label: 'digest', text: 'sha256:' + 'b'.repeat(64) })
     expect(vhs.details).toContainEqual({ label: 'asset: Video VAE', text: 'model/vae - 1.5 MB' })
-
-    const dev = page.items[1]!
-    expect(dev.badges).toEqual(['local', '0 nodes'])
   })
 
   it('ranks the whole corpus for a query, not a loaded page', async () => {
@@ -134,7 +131,7 @@ describe('packsSource', () => {
     const source = packsSource(app)
     expect((await source.page({ query: '', limit: 10 })).items).toEqual([])
     loadDinksterSchemas()
-    expect((await source.page({ query: '', limit: 10 })).items).toHaveLength(3)
+    expect((await source.page({ query: '', limit: 10 })).items).toHaveLength(2)
   })
 })
 
@@ -144,6 +141,40 @@ describe('templateAssetLines', () => {
     expect(templateAssetLines({
       pack: 'vhs.video', id: 'starter', name: 'Starter', digest: 'sha256:x', assets: ['vae', 'missing-id'],
     }, app.backends.get()[0])).toEqual(['Video VAE - model/vae - 1.5 MB', 'missing-id'])
+  })
+
+  it('keeps model names intact and counts overlapping model and asset requirements once', async () => {
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, {
+      ...nodesPayload,
+      packs: {
+        native: { displayName: 'Native', assets: [
+          { id: 'vae', name: 'Video - VAE', digest: 'blake3:vae', size: 1572864 },
+          { id: 'dit', name: 'Video DiT', digest: 'blake3:dit', size: 5242880 },
+        ] },
+      },
+    }))
+    vi.spyOn(backend.connection, 'listTemplates').mockResolvedValue({ templates: [{
+      pack: 'native', id: 'starter', name: 'Video starter', digest: 'sha256:a',
+      tags: ['video'], models: ['Video - VAE', 'unknown-size'], assets: ['vae', 'dit', 'undeclared'],
+    }] })
+    vi.spyOn(backend.connection, 'guessAssets').mockImplementation(async (names) => names.map((query) => ({
+      query, candidates: query === 'Video - VAE'
+        ? [{ digest: 'blake3:vae', name: query, confidence: 'name', held: true }]
+        : [],
+    })))
+    const page = await templatesSource(app).page({ query: 'video', limit: 10 })
+    expect(page.items[0]?.details?.filter((item) => item.label === 'model missing').map((item) => item.text))
+      .toEqual(['unknown-size', 'Video DiT', 'undeclared'])
+    expect(page.items[0]?.ref).toMatchObject({
+      template: { tags: ['video'] },
+      models: [
+        { name: 'Video - VAE', here: true, size: 1572864 },
+        { name: 'unknown-size', here: false },
+        { name: 'Video DiT', here: false, size: 5242880 },
+        { name: 'undeclared', here: false },
+      ],
+    })
   })
 })
 

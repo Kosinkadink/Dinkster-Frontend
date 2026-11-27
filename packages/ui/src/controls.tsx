@@ -233,6 +233,7 @@ export function ProductIconButton(
     labelContent?: JSX.Element
     icon: LucideIcon
     intent?: ProductRole
+    pending?: boolean
     'data-tooltip-label'?: string
   },
 ) {
@@ -241,17 +242,19 @@ export function ProductIconButton(
     'labelContent',
     'icon',
     'intent',
+    'pending',
   ])
   return (
     <Button
       {...button}
       intent={local.intent}
       fill="quiet"
+      pending={local.pending}
       iconOnly={local.labelContent === undefined}
       aria-label={local.label}
       title={button['data-tooltip-label'] ? undefined : local.label}
     >
-      <ProductIcon icon={local.icon} />
+      <Show when={!local.pending}><ProductIcon icon={local.icon} /></Show>
       {local.labelContent}
     </Button>
   )

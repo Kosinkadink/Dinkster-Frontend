@@ -27,8 +27,6 @@ async function openTargets(page: Page, mounts: Mounts = (route) => route.fulfill
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
   await waitForWorkspaceReady(page)
-  const close = page.locator('.template-gallery-close')
-  if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
   await page.evaluate(async (wired) => {
     const target = (optional: boolean) => ({
       kind: 'input', id: 'target', type: { kind: 'concrete', name: 'dinkster.save_target' }, optional,

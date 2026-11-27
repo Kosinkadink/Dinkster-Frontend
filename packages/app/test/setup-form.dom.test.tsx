@@ -11,9 +11,9 @@ import type { SetupJob, SetupPlan } from '../src/setup-job.js'
 const plan: SetupPlan = {
   id: 'plan-1', root: '/install/nightly', channel: 'nightly', variant: 'linux-nvidia',
   buildLabel: 'NVIDIA graphics card build', buildReason: 'Supported graphics card',
-  engineRelease: 'release-1', baseId: 'base-1', detectedCards: [], choices: [
-    { variant: 'linux-nvidia', label: 'NVIDIA graphics', reason: 'Needs NVIDIA driver 580 or newer.' },
-    { variant: 'linux-cpu', label: 'CPU only', reason: 'Does not use the graphics card and is much slower.' },
+  engineRelease: 'release-1', baseId: 'base-1', detectedCards: [], graphicsVendor: 'nvidia', choices: [
+    { variant: 'linux-nvidia', vendor: 'nvidia', gpus: ['0'], label: 'NVIDIA graphics', reason: 'Needs NVIDIA driver 580 or newer.' },
+    { variant: 'linux-cpu', vendor: null, gpus: [], label: 'CPU only', reason: 'Does not use the graphics card and is much slower.' },
   ], gpus: ['0'],
   downloadBytes: null, runtimeDownloadBytes: 2048, freeBytes: 9000, refusal: null,
 }
@@ -23,6 +23,100 @@ const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body
 const button = (label: string) => [...document.querySelectorAll('button')].find((node) => node.textContent === label)!
 let dispose: (() => void) | undefined
 afterEach(() => { dispose?.(); document.body.replaceChildren(); vi.unstubAllGlobals(); vi.useRealTimers() })
+
+it.each(['projects', 'editor'] as const)('requires an explicit CPU choice for repairable graphics and redetects repaired cards on %s', async (surface) => {
+  vi.useFakeTimers()
+  const unusable: SetupPlan['unusableCards'] = [
+    { id: '0', name: 'NVIDIA Quadro P400', vendor: 'nvidia', reason: 'driver-too-old', minimumDriver: '580', driver: '535.12' },
+    { id: '1', name: 'NVIDIA Quadro P400', vendor: 'nvidia', reason: 'driver-too-old', minimumDriver: '580', driver: '535.12' },
+    { id: '0', name: 'Intel Arc A770', vendor: 'intel', reason: 'detection-tool-missing', tool: 'xpu-smi' },
+    { id: '0', name: null, vendor: 'amd', reason: 'detection-tool-failed', tool: 'amd-smi' },
+    { id: '3', name: 'NVIDIA Quadro P600', vendor: 'nvidia', reason: 'driver-too-old', minimumDriver: '580', driver: null },
+  ]
+  const cpu = { variant: 'linux-cpu', vendor: null, gpus: [], label: 'CPU only', reason: 'Does not use the graphics card and is much slower.' }
+  const repairable: SetupPlan = { ...plan, variant: null, graphicsVendor: null, buildLabel: null, gpus: [], choices: [cpu],
+    unusableCards: unusable, system: 'linux', runtimeDownloadBytes: null }
+  let repaired = false
+  let selectedPlan: SetupPlan = repairable
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') return answer({ ...job, variant: selectedPlan.variant! }, 202)
+    const variant = new URL(url, location.href).searchParams.get('variant')
+    selectedPlan = variant === cpu.variant ? { ...repairable, id: 'explicit-cpu', variant: cpu.variant, buildLabel: cpu.label }
+      : repaired ? { ...plan, id: 'repaired', graphicsVendor: 'nvidia', system: 'linux',
+        detectedCards: [
+          { id: '0', vendor: 'nvidia', name: 'NVIDIA Quadro P400', driver: '580.95', computeCapability: '6.1', memoryMiB: 2048 },
+          { id: '1', vendor: 'nvidia', name: 'NVIDIA Quadro P400', driver: '580.95', computeCapability: '6.1', memoryMiB: 2048 },
+          { id: '0', vendor: 'intel', name: 'Intel Arc A770', driver: null, computeCapability: null, memoryMiB: null },
+        ],
+        choices: [{ ...plan.choices![0]!, vendor: 'nvidia', gpus: ['0', '1'] }, cpu], gpus: ['0', '1'],
+        unusableCards: [unusable[2]!, unusable[3]!, unusable[4]!,
+          { id: '4', name: 'NVIDIA GeForce GTX 580', vendor: 'nvidia', reason: 'card-too-old' },
+          { id: '2', name: 'Built-in graphics', vendor: 'amd', reason: 'no-published-build' }] }
+      : repairable
+    return answer({ plan: selectedPlan, activeJob: null })
+  })
+  vi.stubGlobal('fetch', fetch)
+  dispose = render(() => <SetupForm surface={surface} />, document.body)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(document.querySelector('.setup-facts')?.textContent).toContain('Not chosen')
+  expect(button('Change build')).toBeUndefined()
+  expect(button('Set up')).toBeUndefined()
+  const notice = document.querySelector('[role="note"]')!
+  expect(notice.textContent).toBe([
+    'Update or repair the graphics driver, then check again. Or use CPU only, which is much slower.',
+    '2 x NVIDIA Quadro P400: needs NVIDIA driver 580 or newer, has 535.12.',
+    'Intel Arc A770: xpu-smi is missing, so its driver cannot be checked.',
+    'AMD graphics card: amd-smi failed, so its driver cannot be checked.',
+    'NVIDIA Quadro P600: needs NVIDIA driver 580 or newer.',
+  ].join(''))
+  expect(document.querySelectorAll('[role="note"]')).toHaveLength(1)
+  expect(notice.previousElementSibling).toBe(document.querySelector('.setup-facts'))
+  expect(notice.nextElementSibling).toBe(document.querySelector('.setup-actions'))
+  button('Use CPU only').click()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(document.querySelector('.setup-facts')?.textContent).toContain('CPU only')
+  expect(document.querySelector('[role="note"]')?.textContent).toContain('Dinkster will run on the CPU, which is much slower. Update or repair the graphics driver and check again to use the card.')
+  expect(button('Use CPU only')).toBeUndefined()
+  expect(button('Set up').disabled).toBe(false)
+  repaired = true
+  button('Check again').click()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(document.querySelector('.setup-facts')?.textContent).toContain('NVIDIA graphics card build')
+  expect(document.querySelector('[role="note"]')).toBeNull()
+  expect([...document.querySelectorAll('.setup-facts p')].map((node) => node.textContent)).toEqual([
+    '2 x NVIDIA Quadro P400', 'Not used: Intel Arc A770. Its driver could not be checked.',
+    'Not used: AMD graphics card. Its driver could not be checked.',
+    'Not used: NVIDIA Quadro P600. Needs NVIDIA driver 580 or newer.',
+    'Not used: NVIDIA GeForce GTX 580. Too old for this build.',
+  ])
+  expect(document.body.textContent).not.toContain('Built-in graphics')
+  button('Set up').click()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(fetch.mock.calls.find(([, init]) => init?.method === 'POST')?.[1]?.body).toBe('{"planId":"repaired"}')
+})
+
+it('keeps CPU selected for unfixable cards and explains grouped cards with unknown names', async () => {
+  vi.useFakeTimers()
+  const current: SetupPlan = { ...plan, variant: 'linux-cpu', graphicsVendor: null, buildLabel: 'CPU only', gpus: [], system: 'linux',
+    choices: [plan.choices![1]!], unusableCards: [
+      { id: '0', name: 'NVIDIA GeForce GTX 580', vendor: 'nvidia', reason: 'card-too-old' },
+      { id: '0', name: null, vendor: 'intel', reason: 'no-published-build' },
+      { id: '1', name: null, vendor: 'intel', reason: 'no-published-build' },
+      { id: '2', name: null, vendor: null, reason: 'no-published-build' },
+    ] }
+  vi.stubGlobal('fetch', async () => answer({ plan: current, activeJob: null }))
+  dispose = render(() => <SetupForm surface="projects" />, document.body)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(document.querySelector('[role="note"]')?.textContent).toBe([
+    'Dinkster will run on the CPU, which is much slower.',
+    'NVIDIA GeForce GTX 580: too old for any build.',
+    '2 x Intel graphics card: no build for Intel graphics on Linux yet.',
+    'Graphics card: no build for it on Linux yet.',
+  ].join(''))
+  expect(button('Check again')).toBeUndefined()
+  expect(button('Use CPU only')).toBeUndefined()
+  expect(button('Set up').disabled).toBe(false)
+})
 
 it.each(['projects', 'editor'] as const)('starts the same process-owned job from the %s form and waits for cancellation cleanup', async (surface) => {
   vi.useFakeTimers()
@@ -55,27 +149,33 @@ it.each(['projects', 'editor'] as const)('starts the same process-owned job from
   expect(button('Set up').disabled).toBe(false)
 })
 
-it('shows completed setup without changes or a note about setup running', async () => {
+it.each([false, true])('shows completed setup without changes or a note about setup running (CPU warning: %s)', async (cpuWarning) => {
   vi.useFakeTimers()
-  vi.stubGlobal('fetch', async () => answer({ plan, activeJob: { ...job, state: 'completed', installation: { root: plan.root, engine: 'main' } } }))
+  const current: SetupPlan = cpuWarning ? { ...plan, variant: null, graphicsVendor: null, buildLabel: null, gpus: [],
+    unusableCards: [{ id: '0', name: 'NVIDIA Quadro P400', vendor: 'nvidia', reason: 'driver-too-old', minimumDriver: '580', driver: '535.12' }] } : plan
+  vi.stubGlobal('fetch', async () => answer({ plan: current, activeJob: { ...job, variant: cpuWarning ? 'linux-cpu' : job.variant,
+    state: 'completed', installation: { root: plan.root, engine: 'main' } } }))
   dispose = render(() => <SetupForm surface="editor" />, document.body)
   await vi.advanceTimersByTimeAsync(0)
   expect(document.body.textContent).toContain('Dinkster is ready')
   expect(document.body.textContent).not.toContain('You can build a workflow while setup runs.')
   expect([...document.querySelectorAll('button')].map((node) => node.textContent)).not.toContain('Change build')
   expect([...document.querySelectorAll('button')].map((node) => node.textContent)).not.toContain('Choose another folder')
+  expect(button('Check again')).toBeUndefined()
+  expect(button('Use CPU only')).toBeUndefined()
+  expect(button('Set up')).toBeUndefined()
 })
 
 it.each(['win-nvidia-cu126', 'linux-cpu', 'unlisted-build'])('labels a running %s job without exposing identifiers and groups matching cards', async (variant) => {
   vi.useFakeTimers()
   const card = { id: '0', name: 'NVIDIA GeForce RTX 4090', driver: '595.84', computeCapability: '8.9', memoryMiB: 24564 }
   const current = { ...plan, detectedCards: [card, { ...card, id: '1', name: 'NVIDIA GeForce RTX 3090' }, { ...card, id: '2' }],
-    choices: [...plan.choices!, { variant: 'win-nvidia-cu126', label: 'NVIDIA graphics, older drivers', reason: 'Needs NVIDIA driver 525 or newer.' }] }
+    choices: [...plan.choices!, { variant: 'win-nvidia-cu126', vendor: 'nvidia', gpus: ['0', '1', '2'], label: 'NVIDIA graphics, older drivers', reason: 'Needs NVIDIA driver 525 or newer.' }] }
   vi.stubGlobal('fetch', async () => answer({ plan: current, activeJob: { ...job, variant } }))
   dispose = render(() => <SetupForm surface="projects" />, document.body)
   await vi.advanceTimersByTimeAsync(0)
   const facts = document.querySelector('.setup-facts')!
-  expect([...facts.querySelectorAll('p')].map((node) => node.textContent)).toEqual(variant === 'linux-cpu' ? [] : ['2 x NVIDIA GeForce RTX 4090', 'NVIDIA GeForce RTX 3090'])
+  expect([...facts.querySelectorAll('p')].map((node) => node.textContent)).toEqual(variant === 'win-nvidia-cu126' ? ['2 x NVIDIA GeForce RTX 4090', 'NVIDIA GeForce RTX 3090'] : [])
   expect(facts.textContent).not.toContain(variant)
   expect(facts.textContent).not.toContain(plan.buildLabel)
   expect(facts.textContent?.includes('NVIDIA graphics, older drivers')).toBe(variant === 'win-nvidia-cu126')

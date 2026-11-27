@@ -7,7 +7,7 @@
 
 import { desktopSaveBridge } from './desktop-bridge.js'
 import { createAppPageTabs } from './app-page-tabs.js'
-import { isPageTab } from './page-tabs.js'
+import { isPageTab, type PageTab } from './page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
 import {
   CORE_VIRTUAL_NODE_KINDS,
@@ -2660,6 +2660,7 @@ export class AppState {
   readonly searchCatalog = createSignal<readonly CatalogNode[]>([])
   readonly searchCatalogRequests = createSignal(0)
   readonly nodeInstallRequest = createSignal<(CatalogNode & { readonly backendId: string }) | undefined>(undefined)
+  readonly nodeCatalogSetupRequested = createSignal(false)
   readonly projectNeedsReview = createSignal<ProjectNeedsReview | undefined>(undefined)
   readonly projectPackNotification = createSignal<{ readonly message: string } | undefined>(undefined)
   private readonly projectNeedsChecks = new WeakMap<Backend, object>()
@@ -2671,7 +2672,6 @@ export class AppState {
   readonly projectPackInstallations = new Map<Backend, 'applying' | 'uncertain'>()
   /** Unacknowledged mutations survive closing the prompt until the installed node is observed. */
   readonly nodeInstallUncertain = new Map<string, string>()
-  readonly templateGalleryOpen = createSignal(false)
   /** Node docs page requested by the canvas, palette, or F1 command. */
   readonly nodeHelpRequest = createSignal<NodeHelpRequest | undefined>(undefined)
   /**
@@ -3787,7 +3787,6 @@ export class AppState {
     })
     this.activeTabId.subscribe((activeId) => {
       this.workflowOpenIntent += 1
-      this.templateGalleryOpen.set(false)
       this.selectExtensionWorld()
       const glslTarget = this.glslEditorTarget.get()
       if (glslTarget && glslTarget.tabId !== activeId) {
@@ -4532,7 +4531,7 @@ export class AppState {
         occurrence.node === diagnostic.data?.['node'] && occurrence.input === diagnostic.data?.['input']) : undefined
     const focusedModel = exact ? { name: exact.name, kind: exact.kind, asset: exact.asset! } : (diagnostic && missing.models.find((model) => model.asset === undefined &&
       model.name === diagnostic.data?.['name'] && model.kind === diagnostic.data?.['kind']))
-    this.openModelDownloads(this.backendForTab(tab), missing.models, { workflowTitle: tab.title, tab,
+    this.openModelDownloads(this.backendForTab(tab), missing.models, { workflowTitle: tab.title, tab, missing: missing.models,
       ...(focusedModel === undefined ? {} : { focusedModel }),
     })
   }
@@ -4541,6 +4540,7 @@ export class AppState {
   openModelDownloads(backend: Backend, models: readonly (ModelDownloadRequirement & { readonly source?: string })[], options: {
     readonly workflowTitle?: string
     readonly focusedModel?: ModelDownloadRequirement
+    readonly missing?: readonly ModelDownloadRequirement[]
     readonly tab?: Tab
     readonly signal?: AbortSignal
     readonly stillCurrent?: () => boolean
@@ -4560,6 +4560,7 @@ export class AppState {
     this.modelReview = controller
     const transfers = this.modelDownloadsFor(backend, project)
     transfers.ensure(models)
+    if (options.missing) transfers.ensure(options.missing, true)
     for (const requirement of models) {
       const row = this.modelDownloadStateFor(backend, requirement, project).get()
       if (requirement.source !== undefined && !row?.source && !row?.plan && !row?.job)
@@ -7493,7 +7494,6 @@ export class AppState {
       this.dropCollabFor(tab.id) // a replaced shared tab leaves its session
       this.releaseFrozenPin(tab.id) // a displaced frozen view drops its pin
       // Session-keyed caches (sourceDocCache etc.) die with the replaced Tab.
-      this.templateGalleryOpen.set(false)
       if (target !== undefined) this.tabTargets.update((targets) => new Map(targets).set(tab.id, target.id))
       batch(() => {
         if (replaceFrozen) {
@@ -8310,8 +8310,9 @@ export class AppState {
    * The template is fetched from the backend that served its descriptor
    * (owner) - pack/template ids are that backend's namespace.
    */
-  async openTemplate(packId: string, templateId: string, title: string, owner: string): Promise<boolean> {
-    const stillWanted = this.beginDocumentOpen()
+  async openTemplate(packId: string, templateId: string, title: string, owner: string, replacePage?: PageTab): Promise<boolean> {
+    const currentIntent = this.beginDocumentOpen()
+    const stillWanted = () => currentIntent() && (replacePage === undefined || this.pages.tabs().includes(replacePage))
     const backend = this.ownedLibraryBackend(owner)
     if (!backend?.templatesEnabled.get()) return false
     try {
@@ -8327,6 +8328,7 @@ export class AppState {
         return false
       }
       if (!this.tabs.get().includes(tab)) return false
+      if (replacePage && !this.pages.replaceWithWorkflow(replacePage, tab)) return false
       void this.offerImportAssetResolution(tab, backend, [])
       return true
     } catch (e) {
@@ -8337,9 +8339,10 @@ export class AppState {
     }
   }
 
-  async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string): Promise<boolean> {
-    const stillWanted = this.beginDocumentOpen()
-    const backend = this.libraryBackend()
+  async openRemoteTemplate(template: RemoteTemplateDescriptor, title: string, owner: string, replacePage?: PageTab): Promise<boolean> {
+    const currentIntent = this.beginDocumentOpen()
+    const stillWanted = () => currentIntent() && (replacePage === undefined || this.pages.tabs().includes(replacePage))
+    const backend = this.ownedLibraryBackend(owner)
     if (backend?.protocol !== 'dinkster' || !backend.templatesEnabled.get()) return false
     const catalog = new RemoteTemplateCatalog(this.settings.get<string>('templates.registryUrl'))
     try {
@@ -8347,6 +8350,7 @@ export class AppState {
       if (!this.ownerStillLive(backend) || document === undefined) return false
       const tab = await this.openDocumentOnBackend(readableRegionTemplateLayout(document), title, backend, stillWanted)
       if (!tab || !this.tabs.get().includes(tab)) return false
+      if (replacePage && !this.pages.replaceWithWorkflow(replacePage, tab)) return false
       void this.offerImportAssetResolution(tab, backend, [])
       return true
     } catch (error) {
