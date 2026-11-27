@@ -5110,13 +5110,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // origin compile gives it. A rule whose check reads exactly one field
       // is that field's problem: its ref names the field, so the problem
       // projection outlines that row.
+      const managedRules = tab.execution ? [] : props.app.problemFixes.diagnostics(tab).filter((problem) =>
+        problem.code === 'node.rule.failed' && problem.refs?.[0]?.graphId === scene.graphId &&
+        JSON.stringify(problem.anchor?.occurrence?.instancePath ?? []) === JSON.stringify(viewInstancePath(tab)))
       const ruleDiags = scene.nodes.flatMap(({ node, elaborated }) =>
         (elaborated?.diagnostics ?? [])
-          .filter((d) => d.code === 'node.rule.failed' && (tab.execution || d.data?.['hasFix'] !== true))
-          .map((d): Diagnostic => ({ ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) })))
-      ruleDiags.push(...props.app.problemFixes.diagnostics(tab).filter((problem) =>
-        problem.code === 'node.rule.failed' && problem.refs?.[0]?.graphId === scene.graphId &&
-        JSON.stringify(problem.anchor?.occurrence?.instancePath ?? []) === JSON.stringify(viewInstancePath(tab))))
+          .filter((d) => d.code === 'node.rule.failed')
+          .map((d): Diagnostic => managedRules.find((problem) => problem.refs?.[0]?.nodeId === node.id &&
+            problem.data?.['rule'] === d.data?.['rule']) ??
+            { ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) }))
       const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags, ...lastRunAutomatic]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)

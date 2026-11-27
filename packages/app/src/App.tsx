@@ -1759,10 +1759,17 @@ export function App(props: {
       ...(execution?.errors ?? []),
     ]
     const diagnostics = [...withoutPassedOnDefaults(solveDiagnostics(), others), ...others]
-    return tab === undefined || tab.execution ? diagnostics : [
+    if (tab === undefined || tab.execution) return diagnostics
+    const managed = app.problemFixes.diagnostics(tab)
+    return [
       ...diagnostics.filter((diagnostic) => diagnostic.code !== 'automatic.numberOutsideLimits' &&
-        !(diagnostic.code === 'node.rule.failed' && diagnostic.data?.['hasFix'] === true)),
-      ...app.problemFixes.diagnostics(tab),
+        !(diagnostic.code === 'node.rule.failed' && managed.some((problem) => problem.code === diagnostic.code &&
+          problem.data?.['rule'] === diagnostic.data?.['rule'] &&
+          problem.refs?.[0]?.graphId === diagnostic.refs?.[0]?.graphId &&
+          problem.refs?.[0]?.nodeId === diagnostic.refs?.[0]?.nodeId &&
+          (diagnostic.anchor?.occurrence === undefined ||
+            JSON.stringify(problem.anchor?.occurrence) === JSON.stringify(diagnostic.anchor.occurrence))))),
+      ...managed,
     ]
   }
   const problemFixActions: ProblemFixActions = {

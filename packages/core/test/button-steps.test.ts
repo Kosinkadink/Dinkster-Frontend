@@ -196,6 +196,12 @@ describe('one press is one undo step, or nothing', () => {
     expect(await applyStoredProblemFixes(wired, [storedRuleFixes(wired.doc, target, host)[0]!], host))
       .toMatchObject({ kind: 'done' })
     expect(valuesOf(wired)).toEqual({ width: 7, amount: 14 })
+
+    SCHEMAS.set(type, { ...schema, validate: [{ ...schema.validate![0]!, fix: [{ step: 'future-step' }] }] })
+    expect(storedRuleFixes(session.doc, target, host)).toEqual([])
+    expect(await applyStoredProblemFixes(session, storedNumberFixes(session.doc, target, host), host))
+      .toMatchObject({ kind: 'done' })
+    expect(valuesOf(session)).toEqual({ width: 17, cap: 6, amount: 12 })
   })
 
   it('corrects stored numbers through steps in one undo, leaving wired values, specials and decimals alone', async () => {

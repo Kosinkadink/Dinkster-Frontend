@@ -594,8 +594,10 @@ export function storedRuleFixes(doc: WorkflowDocument, target: StepPlace, host: 
     if (!failed.has(index) || rule.fix.length === 0 || !rule.fixLabel?.trim()) return []
     const diagnostic = view.elaborated.diagnostics.find((candidate) => candidate.code === 'node.rule.failed' && candidate.data?.['rule'] === index)!
     const fields = diagnostic.data?.['fields'] as readonly string[]
+    let steps: readonly Step[]
+    try { steps = decodeSteps(rule.fix) } catch { return [] }
     return [{ kind: 'rule', rule: index, label: rule.fixLabel, message: rule.message, fields, stamp,
-      part: { ...target, prefix: '', steps: decodeSteps(rule.fix) } }]
+      part: { ...target, prefix: '', steps } }]
   })
 }
 
