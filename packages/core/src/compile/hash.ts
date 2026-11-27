@@ -401,6 +401,9 @@ export function semanticHashOf(
   const semantic = {
     root: doc.root,
     graphs: Object.fromEntries(Object.entries(doc.graphs).map(([k, g]) => [k, semanticGraph(g, isVirtualType, bypassedTypes.has(`#${k}`))])),
+    ...(Object.keys(doc.occurrenceListCounts ?? {}).length > 0
+      ? { occurrenceListCounts: doc.occurrenceListCounts }
+      : {}),
     ...(occurrenceTopologies.length > 0
       ? { occurrenceTopologies: Object.fromEntries(occurrenceTopologies) }
       : {}),

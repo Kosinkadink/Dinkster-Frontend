@@ -686,6 +686,11 @@ function compileImpl(
     occCtxByPath.set(pathKey(path), ctx)
     return ctx
   }
+  const valuesAt = (ctx: OccCtx, node: NodeData): Readonly<Record<string, Json>> | undefined => {
+    const values = ctx.values.get(node.id)
+    const stored = doc.occurrenceListCounts?.[occurrenceKey({ instancePath: ctx.path, node: node.id })]
+    return stored?.graphId === ctx.defId ? { ...(values ?? node.values), ...stored.counts } : values
+  }
   const projectedLegSuppressions = new Set(
     Object.values(doc.occurrenceTopologies ?? {}).flatMap((topology) =>
       (topology.suppressedDeliveries ?? [])
@@ -828,7 +833,7 @@ function compileImpl(
   const occElabCache = new Map<string, NodeElab>()
   const elabAt = (ctx: OccCtx, node: NodeData, schema: NodeSchema): NodeElab => {
     const overlay = ctx.overlays.get(node.id)
-    const valuesOverlay = ctx.values.get(node.id)
+    const valuesOverlay = valuesAt(ctx, node)
     const extraIn = ctx.extraIn.get(node.id)
     const extraOut = ctx.extraOut.get(node.id)
     const runtimeId = occurrenceKey({ instancePath: ctx.path, node: node.id })
@@ -1588,7 +1593,7 @@ function compileImpl(
     graphOccurrences.push({ defId, path })
     for (const authored of Object.values(def.nodes)) {
       const overlay = ctx.overlays.get(authored.id)
-      const valuesOverlay = ctx.values.get(authored.id)
+      const valuesOverlay = valuesAt(ctx, authored)
       const node = overlay === undefined && valuesOverlay === undefined
         ? authored
         : { ...authored, ...(overlay !== undefined ? { dynamic: overlay } : {}), ...(valuesOverlay !== undefined ? { values: valuesOverlay } : {}) }
@@ -1942,7 +1947,11 @@ function compileImpl(
           nodeDiags.push(diag('error', 'compile', 'compile.internal.overrideUnresolved', `internal: promoted override targets unknown input '${inputId}' on '${fn.node.type}'`, { anchor: { occurrence: fn.occ } }))
           continue
         }
-        const lowered = lowerWidgetLiteral(fn, input, v, nodeDiags)
+        // Elaboration already used the concrete occurrence's saved count;
+        // an older promoted field must not send a different count to execution.
+        const stored = doc.occurrenceListCounts?.[occurrenceKey(fn.occ)]
+        const count = stored?.graphId === fn.graphId ? stored.counts[valueKeyOf(input)] : undefined
+        const lowered = lowerWidgetLiteral(fn, input, count ?? v, nodeDiags)
         if (lowered !== undefined) fn.inputs[inputId] = lowered
       }
     }

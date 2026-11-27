@@ -803,6 +803,17 @@ export function validateDocumentShape(
     for (const [key, topology] of Object.entries(json['occurrenceTopologies']))
       checkOccurrenceTopology(c, topology, `$.occurrenceTopologies.${key}`)
   }
+  if (json['occurrenceListCounts'] !== undefined && c.obj(json['occurrenceListCounts'], '$.occurrenceListCounts')) {
+    for (const [key, state] of Object.entries(json['occurrenceListCounts'])) {
+      const path = `$.occurrenceListCounts.${key}`
+      if (!c.obj(state, path)) continue
+      checkOccurrenceRef(c, state['owner'], `${path}.owner`)
+      c.str(state['graphId'], `${path}.graphId`, { nonEmpty: true })
+      if (c.obj(state['counts'], `${path}.counts`)) {
+        for (const [field, count] of Object.entries(state['counts'])) c.int(count, `${path}.counts.${field}`, 0)
+      }
+    }
+  }
   if (json['surfaces'] !== undefined && c.obj(json['surfaces'], '$.surfaces')) {
     for (const [k, s] of Object.entries(json['surfaces'])) checkSurface(c, s, `$.surfaces.${k}`)
   }

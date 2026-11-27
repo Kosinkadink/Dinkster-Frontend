@@ -2142,6 +2142,12 @@ const occurrenceLocalize: CommandDefinition = {
     if (Object.values(topologies).some((topology, index) => topology !== Object.values(doc.occurrenceTopologies ?? {})[index])) {
       tx.set(['occurrenceTopologies'], topologies as unknown as Json)
     }
+    for (const [key, state] of Object.entries(doc.occurrenceListCounts ?? {})) {
+      if (state.graphId === sourceId &&
+          localizedOccurrenceRelation(doc, state.owner, params.graphId as string, params.nodeId as string).affected) {
+        tx.set(['occurrenceListCounts', key, 'graphId'], freshId)
+      }
+    }
     return []
   },
 }

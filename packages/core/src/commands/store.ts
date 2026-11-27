@@ -31,7 +31,7 @@ import {
   type TransactionRecord,
 } from './contract.js'
 import { applyOwnedOps, getAtPath, invertOps, type PatchOp } from './patch.js'
-import { nodesChangedBy, storeKnownListCounts, storeStartState } from './start-state.js'
+import { nodesChangedBy, pruneOccurrenceListCounts, storeKnownListCounts, storeStartState } from './start-state.js'
 import { groupMembershipAfter, type GroupGeometryResolver } from '../group-membership.js'
 
 export type BoundaryPositionResolver = (
@@ -522,13 +522,15 @@ export class DocumentStore implements DocumentStoreContract {
     try {
       const context = this.executionContext()
       commandDiags = executeCommand(def, this.doc, ownedInvocation.params, tx, context)
+      if (context.kind === 'initial' && !hasErrors(commandDiags) && !def.replaysHistory) pruneOccurrenceListCounts(tx)
       // The last part of every command: a required choice that now exists
       // with nothing stored gets its start key, and a group that grows by hand
       // its minimum members, in the same undo step.
       const resolve = context.kind === 'initial' && !hasErrors(commandDiags) ? context.schemaResolverFor?.(tx.current) : undefined
       if (resolve !== undefined) {
         storeStartState(tx, resolve, nodesChangedBy(tx.current, tx.forward))
-        if (!def.replaysHistory && tx.forward.some((op) => op.path[0] === 'graphs')) {
+        if (!def.replaysHistory && tx.forward.some((op) =>
+          op.path[0] === 'graphs' || op.path[0] === 'occurrenceTopologies' || op.path[0] === 'occurrenceListCounts')) {
           storeKnownListCounts(tx, resolve)
         }
       }

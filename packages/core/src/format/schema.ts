@@ -196,6 +196,17 @@ export const WORKFLOW_SCHEMA = {
       type: 'object',
       additionalProperties: { $ref: '#/$defs/occurrenceTopology' },
     },
+    occurrenceListCounts: {
+      type: 'object',
+      additionalProperties: {
+        type: 'object', required: ['owner', 'graphId', 'counts'],
+        properties: {
+          owner: { $ref: '#/$defs/occurrenceRef' },
+          graphId: { type: 'string', minLength: 1 },
+          counts: { type: 'object', additionalProperties: { type: 'integer', minimum: 0, maximum: 9007199254740991 } },
+        },
+      },
+    },
     surfaces: {
       type: 'object',
       additionalProperties: { $ref: '#/$defs/controlSurface' },

@@ -39,14 +39,10 @@ function projectTypeThroughRegionInputs(
   return projected
 }
 
-/** Resolve parent producers outward so each drilled graph receives only its occurrence's constraints. */
-export function occurrenceSolveOptions(
+function occurrenceTypeSolver(
   document: WorkflowDocument,
   resolve: SchemaResolver,
-  topology: EffectiveOccurrenceTopology | undefined,
-  graph: GraphDef,
-  instancePath: readonly NodeId[],
-): Pick<SolveOptions, 'projectedInputs' | 'outputListCountOf'> {
+) {
   const resolveDocumentNode = documentNodeResolver(document, resolve)
   type ProjectionSolve = {
     readonly graph: GraphDef
@@ -191,5 +187,31 @@ export function occurrenceSolveOptions(
     cache.set(key, solved)
     return solved
   }
-  return { projectedInputs: constraintsOf(topology, graph), outputListCountOf: outputListCountOf(graph, instancePath) }
+  return {
+    solve: solveProjectionGraph,
+    options: (topology: EffectiveOccurrenceTopology | undefined, graph: GraphDef, instancePath: readonly NodeId[]) => ({
+      projectedInputs: constraintsOf(topology, graph), outputListCountOf: outputListCountOf(graph, instancePath),
+    }),
+  }
+}
+
+/** Resolve parent producers outward so each drilled graph receives only its occurrence's constraints. */
+export function occurrenceSolveOptions(
+  document: WorkflowDocument,
+  resolve: SchemaResolver,
+  topology: EffectiveOccurrenceTopology | undefined,
+  graph: GraphDef,
+  instancePath: readonly NodeId[],
+): Pick<SolveOptions, 'projectedInputs' | 'outputListCountOf'> {
+  return occurrenceTypeSolver(document, resolve).options(topology, graph, instancePath)
+}
+
+/** Solve the concrete graph, including its local topology, values and parent arrivals. */
+export function solveOccurrenceTypes(
+  document: WorkflowDocument,
+  resolve: SchemaResolver,
+  graphId: string,
+  instancePath: readonly NodeId[],
+): SolveResult | undefined {
+  return occurrenceTypeSolver(document, resolve).solve(graphId, instancePath)?.result
 }

@@ -7,15 +7,13 @@
  * so they are not the user's to add.
  */
 
-import type { DynamicPortState, Json, WorkflowDocument } from '../format/document.js'
-import { documentNodeResolver } from '../compile/compile.js'
-import { occurrenceSolveOptions } from '../compile/occurrence-solve.js'
-import { asNodeId, isPortEndpoint, type LinkEndpoint } from '../ids.js'
-import { subgraphDefIdOf } from '../invariants.js'
+import type { DynamicPortState, GraphDef, Json, WorkflowDocument } from '../format/document.js'
+import { solveOccurrenceTypes } from '../compile/occurrence-solve.js'
+import { asNodeId, isPortEndpoint, occurrenceKey, type LinkEndpoint, type NodeId } from '../ids.js'
+import { graphAtInstancePath, subgraphDefIdOf } from '../invariants.js'
 import type { SchemaResolver } from '../schema/derive-boundary.js'
 import { buildGraphConnectivity, DEFAULT_ELAB_BUDGET, elaborateInterface } from '../schema/elaborate.js'
 import { inputsOf } from '../schema/model.js'
-import { solveGraphTypes } from '../schema/solve.js'
 import type { PatchOp } from './patch.js'
 import type { TransactionBuilder } from './contract.js'
 
@@ -72,28 +70,50 @@ export function allNodesOf(doc: WorkflowDocument): NodeAt[] {
 
 /** Known list counts are stored with the edit, not by elaboration or execution. */
 export function storeKnownListCounts(tx: TransactionBuilder, resolve: SchemaResolver): void {
-  for (const [graphId, graph] of Object.entries(tx.current.graphs)) {
+  const visit = (graph: GraphDef, path: readonly NodeId[], ancestors: ReadonlySet<string>): void => {
+    if (ancestors.has(graph.id)) return
+    const nextAncestors = new Set([...ancestors, graph.id])
     const targets = Object.values(graph.nodes).flatMap((node) => {
       const schema = resolve(node.type)
       return schema === undefined ? [] : inputsOf(schema)
         .filter((input) => input.listCountOf !== undefined)
         .map((input) => ({ node, input }))
     })
-    if (targets.length === 0) continue
-    const resolveNode = documentNodeResolver(tx.current, resolve)
-    const facts = solveGraphTypes(graph, resolve, {
-      resolveNode: (node) => resolveNode(graphId, node),
-      ...(graphId === tx.current.root ? occurrenceSolveOptions(tx.current, resolve, undefined, graph, []) : {}),
-    })
+    const facts = targets.length === 0 ? undefined : solveOccurrenceTypes(tx.current, resolve, graph.id, path)
     for (const { node, input } of targets) {
-      const count = facts.listCountOf(node.id, 'input', input.listCountOf!)
-      if (count === undefined || node.values[input.id] === count) continue
+      const count = facts?.listCountOf(node.id, 'input', input.listCountOf!)
+      if (count === undefined) continue
       const min = input.widget?.options['min']
       const max = input.widget?.options['max']
       if (typeof min === 'number' && count < min || typeof max === 'number' && count > max) continue
-      tx.set(['graphs', graphId, 'nodes', node.id, 'values', input.id], count)
+      if (path.length === 0) {
+        if (node.values[input.id] !== count) tx.set(['graphs', graph.id, 'nodes', node.id, 'values', input.id], count)
+      } else {
+        const owner = { instancePath: path, node: node.id }
+        const key = occurrenceKey(owner)
+        const state = tx.current.occurrenceListCounts?.[key]
+        if (state?.counts[input.id] === count) continue
+        if (tx.current.occurrenceListCounts === undefined) tx.set(['occurrenceListCounts'], {})
+        tx.set(['occurrenceListCounts', key], { owner, graphId: graph.id, counts: { ...state?.counts, [input.id]: count } } as unknown as Json)
+      }
+    }
+    for (const node of Object.values(graph.nodes)) {
+      const childId = subgraphDefIdOf(node.type)
+      const child = childId === undefined ? undefined : tx.current.graphs[childId]
+      if (child) visit(child, [...path, node.id], nextAncestors)
     }
   }
+  const root = tx.current.graphs[tx.current.root]
+  if (root) visit(root, [], new Set())
+}
+
+/** Removing an instance or a shared inner node removes its saved counts in the same transaction. */
+export function pruneOccurrenceListCounts(tx: TransactionBuilder): void {
+  for (const [key, state] of Object.entries(tx.current.occurrenceListCounts ?? {})) {
+    const graph = graphAtInstancePath(tx.current, state.owner.instancePath)
+    if (graph?.id !== state.graphId || graph.nodes[state.owner.node] === undefined) tx.remove(['occurrenceListCounts', key])
+  }
+  if (tx.current.occurrenceListCounts !== undefined && Object.keys(tx.current.occurrenceListCounts).length === 0) tx.remove(['occurrenceListCounts'])
 }
 
 /**

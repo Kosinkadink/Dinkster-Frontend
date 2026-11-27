@@ -65,6 +65,17 @@ export function subgraphDefIdOf(nodeType: string): string | undefined {
   return nodeType.startsWith(SUBGRAPH_PREFIX) ? nodeType.slice(1) : undefined
 }
 
+/** Resolve a concrete instance path without falling back to a shared definition. */
+export function graphAtInstancePath(doc: WorkflowDocument, path: readonly string[]): GraphDef | undefined {
+  let graph = doc.graphs[doc.root]
+  for (const hop of path) {
+    const node = graph?.nodes[hop]
+    const childId = node && subgraphDefIdOf(node.type)
+    graph = childId === undefined ? undefined : doc.graphs[childId]
+  }
+  return graph
+}
+
 export function checkDocument(doc: WorkflowDocument): readonly Diagnostic[] {
   const diags: Diagnostic[] = []
 
@@ -277,6 +288,14 @@ function projectedDeliveryEndpoints(
 }
 
 function checkOccurrenceTopologies(doc: WorkflowDocument, diags: Diagnostic[]): void {
+  for (const [key, state] of Object.entries(doc.occurrenceListCounts ?? {})) {
+    const graph = graphAtInstancePath(doc, state.owner.instancePath)
+    if (key !== occurrenceKey(state.owner) || state.owner.instancePath.length === 0 ||
+        graph?.id !== state.graphId || graph.nodes[state.owner.node] === undefined) {
+      diags.push(diag('error', 'invariant', 'doc.occurrenceListCounts.ownerInvalid',
+        `stored list counts ${JSON.stringify(key)} do not resolve to their node occurrence`))
+    }
+  }
   for (const [key, topology] of Object.entries(doc.occurrenceTopologies ?? {})) {
     const where = `[occurrence topology ${JSON.stringify(key)}]`
     if (occurrenceKey(topology.owner) !== key) {

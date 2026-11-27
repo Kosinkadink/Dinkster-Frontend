@@ -652,6 +652,13 @@ export interface OccurrenceTopology {
   readonly ext?: ExtData
 }
 
+/** Counts retained by one concrete node, independently of its shared definition. */
+export interface OccurrenceListCounts {
+  readonly owner: OccurrenceRef
+  readonly graphId: GraphDefId
+  readonly counts: Readonly<Record<string, number>>
+}
+
 const boundaryBindingIdentity = (binding: BoundaryBinding): readonly Json[] =>
   binding.kind === 'unbound'
     ? [binding.kind, binding.type as unknown as Json]
@@ -963,6 +970,8 @@ export interface WorkflowDocument {
    * occurrenceKey(owner) values; validators regenerate rather than parse.
    */
   readonly occurrenceTopologies?: Readonly<Record<string, OccurrenceTopology>>
+  /** Stored list-count fields, keyed by occurrenceKey(owner). */
+  readonly occurrenceListCounts?: Readonly<Record<string, OccurrenceListCounts>>
   readonly surfaces?: Readonly<Record<string, ControlSurfaceData>>
   /**
    * Saved surface id allocation cursor. Retained even without a surface

@@ -170,6 +170,12 @@ export function occurrenceDynamicView(
         if (!targetOwners.has(valueKey)) targetOwners.set(valueKey, valueOwners.get(hop)?.get(outerKey) ?? { graphId: def.id, nodeId: hop, valueKey: outerKey })
       }
     }
+    for (const target of Object.values(child.nodes)) {
+      const stored = doc.occurrenceListCounts?.[occurrenceKey({ instancePath: [...traversedPath, hop].map(asNodeId), node: target.id })]
+      if (stored?.graphId === child.id) childValues.set(target.id, {
+        ...(childValues.get(target.id) ?? target.values), ...stored.counts,
+      })
+    }
     def = child
     overlays = childOverlays
     values = childValues

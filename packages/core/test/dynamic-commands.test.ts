@@ -12,9 +12,13 @@
 import { describe, expect, it } from 'vitest'
 import { coreCommandRegistry } from '../src/commands/core-commands.js'
 import { DocumentStore } from '../src/commands/store.js'
+import type { PatchOp } from '../src/commands/patch.js'
 import { semanticHashOf } from '../src/compile/hash.js'
+import { compile } from '../src/compile/compile.js'
+import { occurrenceDynamicView } from '../src/compile/occurrence-view.js'
+import { loadDocument } from '../src/format/migrate.js'
 import type { GraphDef, WorkflowDocument } from '../src/format/document.js'
-import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, asRerouteId } from '../src/ids.js'
+import { asConnectionId, asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, asRerouteId, occurrenceKey } from '../src/ids.js'
 import {
   elabInputsOf,
   elabOutputsOf,
@@ -1068,11 +1072,14 @@ describe('a count that shrinks', () => {
       { ...socketInput('count', 'INT'), socketless: true, hidden: true, listCountOf: 'list', widget: { widgetType: 'INT', options: { min: 0, max: 4 }, default: 0 } },
       { kind: 'group', id: 'items', keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 }, grows: { count: 'count' }, minMembers: 0, maxMembers: 4, value: { kind: 'output', id: 'item', type: listType.element, optional: true } },
     ])
-    const resolve = (type: string) => type === 'Texts' ? source : type === 'Batch' ? unpack : undefined
+    const sink = { ...schemaOf([socketInput('value', 'STRING', { optional: true }), socketInput('live', 'STRING', { optional: true })]), type: 'Sink', isOutputNode: true }
+    const resolve = (type: string) => type === 'Texts' ? source : type === 'Batch' ? unpack : type === 'Sink' ? sink : undefined
     const initial = doc({ g0: graph({ id: 'g0',
       nodes: {
         texts: node('texts', { type: 'Texts', values: { texts: ['red', 'green', 'blue'] } }),
-        pass: node('pass', { type: '#body' }),
+        pass: node('pass', { type: '#body', values: { count: 3 } }),
+        other: node('other', { type: '#body', values: { in: ['first', 'second'], count: 3 } }),
+        nested: node('nested', { type: '#wrapper', values: { in: ['a', 'b', 'c', 'd'], count: 3 } }),
         n1: node('n1', { values: { count: 3 } }),
         sink: node('sink', { type: 'Sink' }),
       },
@@ -1082,14 +1089,34 @@ describe('a count that shrinks', () => {
         kept: { id: asLinkId('kept'), from: port('n1', 'items.2'), to: port('sink', 'value') },
       },
     }), body: graph({ id: 'body',
-      nodes: { inner: node('inner', { type: 'Texts', values: { texts: ['default', 'must', 'not', 'win'] } }) },
+      nodes: {
+        inner: node('inner', { type: 'Texts', values: { texts: ['default', 'must', 'not', 'win'] } }),
+        local: node('local', { values: { count: 3 } }),
+        sink: node('sink', { type: 'Sink' }),
+      },
+      links: {
+        feed: { id: asLinkId('feed'), from: { node: asNodeId('inner'), tap: asPortId('texts') }, to: port('local', 'list') },
+        live: { id: asLinkId('live'), from: port('local', 'items.0'), to: port('sink', 'live') },
+        kept: { id: asLinkId('kept'), from: port('local', 'items.2'), to: port('sink', 'value') },
+      },
       boundary: boundaryOf(
-        [{ id: 'in', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('texts') } }],
+        [
+          { id: 'in', binds: { kind: 'port', node: asNodeId('inner'), port: asPortId('texts') } },
+          { id: 'count', promoted: true, binds: { kind: 'port', node: asNodeId('local'), port: asPortId('count') } },
+        ],
         [{ id: 'out', binds: { kind: 'widgetTap', node: asNodeId('inner'), tap: asPortId('texts') } }],
       ),
+    }), wrapper: graph({ id: 'wrapper',
+      nodes: { nestedBody: node('nestedBody', { type: '#body', values: { count: 3 } }) },
+      boundary: boundaryOf([
+        { id: 'in', binds: { kind: 'port', node: asNodeId('nestedBody'), port: asPortId('in') } },
+        { id: 'count', promoted: true, binds: { kind: 'port', node: asNodeId('nestedBody'), port: asPortId('count') } },
+      ], []),
     }) })
     const store = new DocumentStore(initial, coreCommandRegistry(), 200, undefined,
       () => ({ kind: 'initial', schemaResolverFor: () => resolve }))
+    let recorded: readonly PatchOp[] = []
+    store.onTransaction((event) => { recorded = event.patch })
     const edit = (texts: string[]) => store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'texts', inputId: 'texts', value: texts } })
     const outputs = () => {
       const graph = store.doc.graphs['g0']!
@@ -1097,6 +1124,22 @@ describe('a count that shrinks', () => {
     }
     expect(edit(['red']).ok).toBe(true)
     expect(store.doc.graphs['g0']!.nodes['n1']!.values['count']).toBe(1)
+    const countAt = (instance: string) => occurrenceDynamicView(store.doc, resolve, [instance]).values.get('local')?.['count']
+    expect([countAt('pass'), countAt('other')]).toEqual([1, 2])
+    expect(store.doc.graphs['body']).toEqual(initial.graphs['body'])
+    const replay = new DocumentStore(initial, coreCommandRegistry())
+    expect(replay.replayRecorded(recorded)).toBe(true)
+    expect(replay.doc).toEqual(store.doc)
+    const saved = loadDocument(JSON.parse(JSON.stringify(store.doc)))
+    if (!saved.document) throw new Error(JSON.stringify(saved.diagnostics))
+    expect(occurrenceDynamicView(saved.document, resolve, ['other']).values.get('local')?.['count']).toBe(2)
+    const compiled = compile({ document: saved.document, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('counts'), schemaHash: 'counts' })
+    expect(compiled.ok).toBe(true)
+    if (!compiled.ok) throw new Error(JSON.stringify(compiled.diagnostics))
+    expect(compiled.artifact.prompt['pass.local']!.inputs['count']).toBe(1)
+    expect(compiled.artifact.prompt['other.local']!.inputs['count']).toBe(2)
+    expect(occurrenceDynamicView(saved.document, resolve, ['nested', 'nestedBody']).values.get('local')?.['count']).toBe(4)
+    expect(compiled.artifact.prompt['nested.nestedBody.local']!.inputs['count']).toBe(4)
     expect(outputs().map((out) => [out.address.port, out.kept !== undefined])).toEqual([['items.0', false], ['items.2', true]])
     expect(store.doc.graphs['g0']!.links).toEqual(initial.graphs['g0']!.links)
     expect(store.undo()).toBe(true)
@@ -1105,6 +1148,7 @@ describe('a count that shrinks', () => {
     expect(edit(['red', 'green', 'blue']).ok).toBe(true)
     expect(outputs().map((out) => out.kept)).toEqual([undefined, undefined, undefined])
     expect(edit([]).ok).toBe(true)
+    expect([countAt('pass'), countAt('other')]).toEqual([0, 2])
     expect(store.doc.graphs['g0']!.nodes['n1']!.values['count']).toBe(0)
     expect(outputs().map((out) => [out.address.port, out.kept !== undefined])).toEqual([['items.2', true]])
     expect(edit(['a', 'b', 'c', 'd', 'e']).ok).toBe(true)
@@ -1120,6 +1164,24 @@ describe('a count that shrinks', () => {
     expect(edit(['direct']).ok).toBe(true)
     expect(store.doc.graphs['g0']!.nodes['n1']!.values['count']).toBe(1)
     expect(store.doc.graphs['body']).toEqual(initial.graphs['body'])
+    const beforeRemove = store.doc
+    const beforeHash = semanticHashOf(beforeRemove)
+    expect(store.dispatch({ command: 'node.remove', params: { graphId: 'g0', nodeIds: ['other'] } }).ok).toBe(true)
+    expect(store.doc.occurrenceListCounts?.[occurrenceKey({ instancePath: [asNodeId('other')], node: asNodeId('local') })]).toBeUndefined()
+    expect(countAt('pass')).toBe(1)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(beforeRemove)
+    expect(semanticHashOf(store.doc)).toBe(beforeHash)
+    expect(semanticHashOf({ ...store.doc, occurrenceListCounts: {} })).not.toBe(beforeHash)
+    expect(store.dispatch({ command: 'link.disconnect', params: { graphId: 'body', linkId: 'feed' } }).ok).toBe(true)
+    expect([countAt('pass'), countAt('other')]).toEqual([1, 2])
+    const beforeLocalize = store.doc
+    expect(store.dispatch({ command: 'occurrence.localize', params: { graphId: 'g0', nodeId: 'other' } }).ok).toBe(true)
+    expect(store.doc.graphs['g0']!.nodes['other']!.type).not.toBe('#body')
+    expect([countAt('pass'), countAt('other')]).toEqual([1, 2])
+    expect(store.doc.graphs['body']).toEqual(beforeLocalize.graphs['body'])
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(beforeLocalize)
   })
 
   it('keeps wired later outputs, nets and forwards in the same undo step', () => {
