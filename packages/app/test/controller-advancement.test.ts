@@ -8,7 +8,9 @@ import {
   coreCommandRegistry,
   documentResolver,
   DocumentStore,
+  inputsOf,
   loadDocument,
+  outputsOf,
   type CommandInvocation,
   type CompileArtifact,
   type ExecutionRef,
@@ -351,22 +353,102 @@ describe('compiled occurrence controller ownership', () => {
     })
   })
 
-  it('keeps promoted sibling controllers occurrence-local and inherits definition fallbacks', () => {
-    const doc = document({
-      g0: graph('g0', {
-        left: { id: 'left', type: '#sub', values: { seed: 10 }, controllers: { seed: 'decrement' } },
-        right: { id: 'right', type: '#sub', values: {} },
-      }),
-      sub: graph('sub', {
-        leaf: { id: 'leaf', type: promotedSchema.type, values: { seed: 5 }, controllers: { seed: 'increment' } },
-      }, {}, promotedBoundary('leaf')),
-    }) as any
-    expect(controllerAdvancement(doc, compileControllers(doc), () => 0)).toEqual({
-      command: 'batch', params: { invocations: [
-        { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'left', inputId: 'seed', value: 9 } },
-        { command: 'node.setValue', params: { graphId: 'g0', nodeId: 'right', inputId: 'seed', value: 6 } },
-      ] },
+  it('keeps promoted sibling controllers occurrence-local and inherits definition fallbacks', async () => {
+    const controllerSchema: NodeSchema = {
+      ...promotedSchema,
+      body: [
+        { ...controlled('seed', 1), displayName: 'Run seed', tooltip: 'Seed used by this run' },
+        { kind: 'output', id: 'out', displayName: 'Result', type: INT },
+      ],
+    }
+    const resolveController = (type: string) => type === controllerSchema.type ? controllerSchema : dynamicResolve(type)
+    const binding = (id: string, node: string, port: string) => ({
+      kind: 'input', id, binds: { kind: 'port', node, port }, promoted: true,
     })
+    for (const depth of [1, 2]) {
+      const fallback = depth === 1 ? 5 : 10
+      const siblingNext = depth === 1 ? 6 : 9
+      const inheritedMode = depth === 1 ? 'increment' : 'decrement'
+      for (const wrapped of [false, true]) {
+        const field = !wrapped ? 'seed' : depth === 1 ? 'amount' : 'gain'
+        const output = wrapped ? 'result' : 'out'
+        const suffix = !wrapped ? '' : depth === 1 ? '.leaf' : '.inner.leaf'
+        const type = !wrapped ? controllerSchema.type : depth === 1 ? '#sub' : '#wrapper'
+        const doc = document({
+          g0: graph('g0', {
+            left: { id: 'left', type, values: { [field]: 20 }, controllers: { [field]: 'decrement' } },
+            right: { id: 'right', type, values: wrapped ? {} : { seed: fallback },
+              ...(wrapped ? {} : { controllers: { seed: inheritedMode } }) },
+            leftSink: { id: 'leftSink', type: sinkSchema.type, values: {} },
+            rightSink: { id: 'rightSink', type: sinkSchema.type, values: {} },
+          }, {
+            leftWire: { id: 'leftWire', from: { node: 'left', port: output }, to: { node: 'leftSink', port: 'in' } },
+            rightWire: { id: 'rightWire', from: { node: 'right', port: output }, to: { node: 'rightSink', port: 'in' } },
+          }),
+          ...(wrapped ? { sub: graph('sub', {
+            leaf: { id: 'leaf', type: controllerSchema.type, values: { seed: 5 }, controllers: { seed: 'increment' } },
+          }, {}, { body: [binding('amount', 'leaf', 'seed'),
+            { kind: 'output', id: 'result', binds: { kind: 'port', node: 'leaf', port: 'out' } }] }) } : {}),
+          ...(wrapped && depth === 2 ? { wrapper: graph('wrapper', {
+            inner: { id: 'inner', type: '#sub', values: { amount: 10 }, controllers: { amount: 'decrement' } },
+          }, {}, { body: [binding('gain', 'inner', 'amount'),
+            { kind: 'output', id: 'result', binds: { kind: 'port', node: 'inner', port: 'result' } }] }) } : {}),
+        }) as any
+        const app = createWorkflowApp([controllerSchema, sinkSchema])
+        expect(await app.openDocument(doc, 'Controller equivalence')).toEqual([])
+        const tab = app.activeTab()!
+        const resolved = documentResolver(tab.store.doc, resolveController)(type)!
+        const { outer: _inputScope, ...input } = inputsOf(resolved)[0]!
+        expect(input).toEqual({
+          ...inputsOf(controllerSchema)[0]!, id: field,
+          optional: wrapped,
+          widget: { ...inputsOf(controllerSchema)[0]!.widget!, ...(wrapped ? {
+            default: fallback, controllerInitial: inheritedMode,
+          } : {}) },
+        })
+        const { outer: _outputScope, ...resultRow } = outputsOf(resolved)[0]!
+        expect(resultRow).toEqual({ ...outputsOf(controllerSchema)[0]!, id: output })
+        const compileCurrent = () => {
+          const result = compile({ document: tab.store.doc, revision: tab.store.revision, resolve: resolveController,
+            scope: { kind: 'full' }, connection: asConnectionId('local'), schemaHash: 'controller-equivalence' })
+          if (!result.ok) throw new Error(JSON.stringify(result.diagnostics))
+          return result.artifact
+        }
+        const artifact = compileCurrent()
+        const prompt = (left: number, right: number) => ({
+          [`left${suffix}`]: { class_type: controllerSchema.type, inputs: { seed: left }, outputIds: ['out'] },
+          [`right${suffix}`]: { class_type: controllerSchema.type, inputs: { seed: right }, outputIds: ['out'] },
+          leftSink: { class_type: sinkSchema.type, inputs: { in: [`left${suffix}`, 0] }, outputIds: [] },
+          rightSink: { class_type: sinkSchema.type, inputs: { in: [`right${suffix}`, 0] }, outputIds: [] },
+        })
+        expect(artifact.prompt).toEqual(prompt(20, fallback))
+        const ref = { connection: asConnectionId('local'), prompt: asPromptId(`controller-${depth}-${wrapped}`) }
+        app.registerRun(tab, ref, artifact, 1)
+        expect(await app.openExecutionView(ref)).toBe(true)
+        const frozen = app.tabs.get().find((item) => item.execution)!
+        app.store.apply({ kind: 'completed', execution: ref, timestamp: 2 })
+        await expect.poll(() => tab.store.doc.graphs.g0!.nodes.left!.values[field]).toBe(19)
+        expect(tab.store.doc.graphs.g0!.nodes.right!.values[field]).toBe(siblingNext)
+        expect(compileCurrent().prompt).toEqual(prompt(19, siblingNext))
+        expect(frozen.store.doc).toEqual(doc)
+        expect(artifact.prompt).toEqual(prompt(20, fallback))
+        expect(tab.store.doc.graphs.sub).toEqual(doc.graphs.sub)
+        expect(tab.store.doc.graphs.wrapper).toEqual(doc.graphs.wrapper)
+        const advanced = tab.store.doc
+        app.store.apply({ kind: 'completed', execution: ref, timestamp: 3 })
+        expect(tab.store.doc).toBe(advanced)
+        expect(tab.store.undo()).toBe(true)
+        expect(tab.store.doc).toEqual(doc)
+        expect(tab.store.redo()).toBe(true)
+        expect(tab.store.doc).toEqual(advanced)
+        const reopened = loadDocument(JSON.parse(JSON.stringify(tab.store.doc))).document!
+        expect(reopened).toEqual(advanced)
+        const recompiled = compile({ document: reopened, revision: 1, resolve: resolveController,
+          scope: { kind: 'full' }, connection: asConnectionId('local'), schemaHash: 'controller-equivalence' })
+        expect(recompiled.ok).toBe(true)
+        if (recompiled.ok) expect(recompiled.artifact.prompt).toEqual(prompt(19, siblingNext))
+      }
+    }
   })
 
   it.each([
