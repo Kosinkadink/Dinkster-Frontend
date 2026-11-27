@@ -2307,7 +2307,22 @@ describe('an editor on the Inputs panel', () => {
             ['bundle.other', { graphId: 'root', nodeId: id, construct: 'pack.other', valueKey: `${key}.other` }],
           ])
           expect([fields[0]!.y, fields[1]!.y]).toEqual([notes[0]!.y, notes[0]!.y])
+          const cells = [fields[0]!, fields[1]!, notes[0]!]
+          for (const [index, cell] of cells.entries()) {
+            const right = cell.inset + (cell.width ?? panel.layout.width - cell.inset * 2)
+            expect(cell.inset).toBeGreaterThanOrEqual(0)
+            expect(right).toBeGreaterThan(cell.inset)
+            expect(right).toBeLessThanOrEqual(panel.layout.width)
+            if (index > 0) {
+              const previous = cells[index - 1]!
+              expect(previous.inset + previous.width!).toBeLessThanOrEqual(cell.inset)
+            }
+          }
+          expect(notes[0]!.y + notes[0]!.height).toBeLessThanOrEqual(notes[1]!.y)
+          expect(notes[1]!.y + notes[1]!.height).toBeLessThanOrEqual(notes[2]!.y)
+          expect(notes[2]!.y + notes[2]!.height).toBeLessThanOrEqual(panel.layout.height)
           const face = boundaryFieldNode(panel)!
+          expect(face.node.values['bundle.other']).toBe(other)
           if (id === 'first' && linked !== undefined) expect(panel.fields!.wired['bundle.seed']).toEqual(linked === 'literal' ? { value: 47 } : {})
           else expect(face.node.values).toMatchObject({ 'bundle.seed': seed, 'bundle.other': other })
           expect(scene.nodes.find((node) => node.id === 'sample')!.layout.rows.filter((row) => row.kind === 'note')
