@@ -23,7 +23,7 @@ import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { LibraryStorageSettings } from './LibraryStorageSettings.js'
-import { ProductButton, ProductShortcut } from '@dinkster/ui'
+import { ProductButton, ProductSettingsSection, ProductShortcut } from '@dinkster/ui'
 import { AgentPermissionsPanel } from './AgentPermissionsPanel.js'
 import { RuntimeSettingsPanel } from './RuntimeSettingsPanel.js'
 import type { Backend } from './app-state.js'
@@ -416,7 +416,22 @@ export function SettingsDialog(props: {
                     <For each={(changed(), props.commands.list())}>{keybindingRow}</For>
                   </div>
                 }>
-                  <For each={visible()}>{settingRow}</For>
+                  <Show when={category() === 'automaticFixes'} fallback={<For each={visible()}>{settingRow}</For>}>
+                    <div class="dinkster-stack">
+                      <For each={[
+                        { id: 'lists', kinds: ['listGrows', 'listShrinks', 'listShrinksWithWires', 'itemOutsideList'] },
+                        { id: 'values', kinds: ['unresolvedAutomatic', 'numberOutsideLimits'] },
+                        { id: 'nodes', kinds: ['nodeReplacement', 'switchBranchRemoved', 'subgraphRowRemoved', 'boundaryFieldRemoved'] },
+                      ]}>{(group) => <ProductSettingsSection title={message(`automaticFixes.group.${group.id}`)}>
+                        <div class="dinkster-stack">
+                          <For each={group.kinds}>{(id) => {
+                            const kind = automaticFixKinds.find((candidate) => candidate.id === id)!
+                            return <AutomaticFixField kind={kind} settings={props.settings} changed={changed} />
+                          }}</For>
+                        </div>
+                      </ProductSettingsSection>}</For>
+                    </div>
+                  </Show>
                 </Show>
               }>
                 <Show when={props.packSettings}>{(packSettings) =>

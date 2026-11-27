@@ -2098,7 +2098,7 @@ button.dinkster-row-main { cursor: pointer; }
 .product-field-invalid .product-field-label,
 .product-field-invalid .product-field-metadata { color: var(--dinkster-danger-foreground); }
 .product-field-control { grid-area: control; min-width: 0; display: flex; justify-content: flex-end; }
-.automatic-fix-setting { grid-template-columns: minmax(0, 1fr) auto minmax(calc(var(--dinkster-space-32) * 5), calc(var(--dinkster-space-32) * 7)); grid-template-areas: 'copy actions control' '. message message'; }
+.automatic-fix-setting { grid-template-columns: minmax(0, 1fr) auto minmax(calc(var(--dinkster-space-32) * 5), calc(var(--dinkster-space-32) * 7)); grid-template-areas: 'copy actions control' '. message message'; border-bottom: 0; }
 .automatic-fix-setting .product-field-control { display: contents; }
 .automatic-fix-setting .product-field-control > .product-select { grid-area: control; }
 .automatic-fix-wire { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; }
