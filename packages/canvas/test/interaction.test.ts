@@ -4459,33 +4459,70 @@ describe('Inputs panel fields', () => {
       .toEqual(Object.fromEntries(Object.entries(expected).map(([key, value]) => [key, expect.closeTo(value)])))
   })
 
-  it('edits whole-construct fields at the entered owner and folds their panel independently at both depths', () => {
+  it.each([1, 2] as const)('edits whole-construct fields at the entered owner with independent history at depth %s', (depth) => {
     const field = (id: string) => ({ kind: 'input' as const, id, type: { kind: 'concrete' as const, name: 'FLOAT' }, optional: false,
       widget: { widgetType: 'FLOAT', options: { min: 0, max: 1 }, default: 0.3 } })
-    const sample: NodeSchema = { type: 'Sample', displayName: 'Sample', category: 'test', source: 'v3', isOutputNode: false, body: [
+    const sample: NodeSchema = { type: 'Sample', displayName: 'Sample', category: 'test', source: 'v3', isOutputNode: true, body: [
       { kind: 'group', id: 'layers', keys: { kind: 'numbered', prefix: 'layer', start: 0, pad: 0 }, grows: 'button',
         minMembers: 0, maxMembers: 8, reorderable: true, value: field('strength') },
       { kind: 'choice', id: 'mode', required: true, default: 'image', shared: [field('mix')], options: [
         { key: 'image', rows: [{ kind: 'use', id: 'mix' }] }, { key: 'text', rows: [{ kind: 'use', id: 'mix' }] },
       ] },
     ] }
-    for (const depth of [1, 2] as const) {
       const graph = (id: string, nodes: unknown, target?: string) => ({ id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 10,
         ...(target === undefined ? {} : { boundary: { body: ['group', 'mode'].map((id) => ({ kind: 'input', id,
           binds: { kind: 'construct', node: target, port: id === 'group' && target === 'sample' ? 'layers' : id } })) } }),
       })
       const document = loadDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'panel-construct', root: 'root',
         graphs: {
-          root: graph('root', { first: { id: 'first', type: depth === 2 ? '#portrait' : '#detail', values: { 'mode.mix': 0.2 },
-            dynamic: { group: { members: ['layer0', 'layer1'] } } },
-            second: { id: 'second', type: depth === 2 ? '#portrait' : '#detail', values: { 'mode.mix': 0.8 } } }),
+          root: graph('root', { first: { id: 'first', type: depth === 2 ? '#portrait' : '#detail',
+            values: { 'mode.mix': 0.2, 'group.layer0': 0.2, 'group.layer1': 0.7 },
+            dynamic: { group: { members: ['layer0', 'layer1'] }, mode: { selected: 'image' } } },
+            second: { id: 'second', type: depth === 2 ? '#portrait' : '#detail',
+              values: { 'mode.mix': 0.8, 'group.layer0': 0.9 },
+              dynamic: { group: { members: ['layer0'] }, mode: { selected: 'text' } } } }),
           portrait: graph('portrait', { detail: { id: 'detail', type: '#detail', values: {} } }, 'detail'),
-          detail: graph('detail', { sample: { id: 'sample', type: 'Sample', values: {}, dynamic: { layers: { members: ['layer0', 'layer1'] } } } }, 'sample'),
+          detail: graph('detail', { sample: { id: 'sample', type: 'Sample', values: { 'layers.layer0': 0.1, 'layers.layer1': 0.4 },
+            dynamic: { layers: { members: ['layer0', 'layer1'] } } } }, 'sample'),
         }, view: { graphs: {} },
       }).document as WorkflowDocument
       const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined, () => ({ kind: 'initial',
         schemaResolverFor: (doc) => documentResolver(doc, (type) => type === sample.type ? sample : undefined),
       }))
+      const promptOf = (current: WorkflowDocument) => {
+        const result = compile({ document: current, revision: 1, resolve: (type) => type === sample.type ? sample : undefined,
+          scope: { kind: 'full' }, connection: 'entered-construct' as never, schemaHash: 'entered-construct' })
+        expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+        if (!result.ok) throw new Error('entered construct did not compile')
+        return result.artifact.prompt
+      }
+      const suffix = depth === 1 ? '.sample' : '.detail.sample'
+      const original = promptOf(document)
+      expect(original[`first${suffix}`]!.inputs).toEqual({
+        'layers.layer0': 0.1, 'layers.layer1': 0.4, 'layers.layer2': 0.2, 'layers.layer3': 0.7, 'mode.mix': 0.2,
+      })
+      expect(original[`second${suffix}`]!.inputs).toEqual({
+        'layers.layer0': 0.1, 'layers.layer1': 0.4, 'layers.layer2': 0.9, 'mode.mix': 0.8,
+      })
+      expect(original[`first${suffix}`]!.slotVariants?.mode).toBe('image')
+      expect(original[`second${suffix}`]!.slotVariants?.mode).toBe('text')
+      const checkHistory = (before: WorkflowDocument) => {
+        const after = store.doc
+        const compiled = promptOf(after)
+        expect(store.undo()).toBe(true)
+        const seq = after.graphs.root!.nodes.first!.dynamic?.group?.seq
+        // Member allocation cursors remain monotonic after an Add is undone.
+        expect(store.doc).toEqual(seq === undefined ? before : { ...before, graphs: { ...before.graphs,
+          root: { ...before.graphs.root!, nodes: { ...before.graphs.root!.nodes, first: { ...before.graphs.root!.nodes.first!,
+            dynamic: { ...before.graphs.root!.nodes.first!.dynamic, group: { ...before.graphs.root!.nodes.first!.dynamic!.group!, seq } },
+          } } },
+        } })
+        expect(store.redo()).toBe(true)
+        expect(store.doc).toEqual(after)
+        const reopened = loadDocument(JSON.parse(JSON.stringify(after))).document!
+        expect(reopened).toEqual(after)
+        expect(promptOf(reopened)).toEqual(compiled)
+      }
       const sceneOf = (entered = true) => {
         const resolve = documentResolver(store.doc, (type) => type === sample.type ? sample : undefined)
         const path = depth === 2 ? ['first', 'detail'] : ['first']
@@ -4507,10 +4544,18 @@ describe('Inputs panel fields', () => {
         harness.fire('pointerdown', x, y)
         harness.fire('pointerup', x, y)
         expect(harness.dispatched).toHaveLength(1)
+        const before = store.doc
         expect(store.dispatch(harness.dispatched[0] as CommandInvocation).ok).toBe(true)
         const owner = entered ? store.doc.graphs.root!.nodes.first! : store.doc.graphs.detail!.nodes.sample!
         expect(owner.values['mode.mix']).toBeCloseTo(entered ? 0.3 : 0.4)
         expect(store.doc.graphs.root!.nodes.second!.values['mode.mix']).toBe(0.8)
+        if (entered) {
+          expect(promptOf(store.doc)[`first${suffix}`]!.inputs['mode.mix']).toBeCloseTo(0.3)
+          expect(promptOf(store.doc)[`second${suffix}`]).toEqual(original[`second${suffix}`])
+          expect(store.doc.graphs.detail).toEqual(document.graphs.detail)
+          expect(store.doc.graphs.portrait).toEqual(document.graphs.portrait)
+        }
+        checkHistory(before)
         expect(store.undo()).toBe(true)
       }
       const growthScene = sceneOf()
@@ -4523,10 +4568,18 @@ describe('Inputs panel fields', () => {
       growing.fire('pointerdown', gx, gy)
       growing.fire('pointerup', gx, gy)
       expect(growing.dispatched).toHaveLength(1)
+      const beforeGrowth = store.doc
       expect(store.dispatch(growing.dispatched[0] as CommandInvocation).ok).toBe(true)
       expect(store.doc.graphs.root!.nodes.first!.dynamic?.group?.members).toEqual(['layer0', 'layer1', 'layer2'])
       expect(store.doc.graphs.detail!.nodes.sample!.dynamic?.layers?.members).toEqual(['layer0', 'layer1'])
-      expect(store.doc.graphs.root!.nodes.second!.dynamic).toBeUndefined()
+      expect(store.doc.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
+      expect(promptOf(store.doc)[`first${suffix}`]!.inputs).toEqual({
+        ...original[`first${suffix}`]!.inputs, 'layers.layer4': 0.3,
+      })
+      expect(promptOf(store.doc)[`second${suffix}`]).toEqual(original[`second${suffix}`])
+      expect(store.doc.graphs.detail).toEqual(document.graphs.detail)
+      expect(store.doc.graphs.portrait).toEqual(document.graphs.portrait)
+      checkHistory(beforeGrowth)
       expect(store.undo()).toBe(true)
 
       const reorderScene = sceneOf()
@@ -4541,9 +4594,16 @@ describe('Inputs panel fields', () => {
       moving.fire('pointermove', mx, reorderPanel.y + to.y)
       moving.fire('pointerup', mx, reorderPanel.y + to.y)
       expect(moving.dispatched).toHaveLength(1)
+      const beforeReorder = store.doc
       expect(store.dispatch(moving.dispatched[0] as CommandInvocation).ok).toBe(true)
       expect(store.doc.graphs.root!.nodes.first!.dynamic?.group?.members).toEqual(['layer1', 'layer0'])
       expect(store.doc.graphs.detail!.nodes.sample!.dynamic?.layers?.members).toEqual(['layer0', 'layer1'])
+      expect(promptOf(store.doc)[`first${suffix}`]!.inputs).toEqual(original[`first${suffix}`]!.inputs)
+      expect(promptOf(store.doc)[`second${suffix}`]).toEqual(original[`second${suffix}`])
+      expect(store.doc.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
+      expect(store.doc.graphs.detail).toEqual(document.graphs.detail)
+      expect(store.doc.graphs.portrait).toEqual(document.graphs.portrait)
+      checkHistory(beforeReorder)
       expect(store.undo()).toBe(true)
 
       // Occurrence members cannot be moved in the definition's member stream.
@@ -4568,15 +4628,21 @@ describe('Inputs panel fields', () => {
       harness.fire('pointerdown', x, y)
       harness.fire('pointerup', x, y)
       expect(harness.dispatched).toHaveLength(1)
+      const beforeFold = store.doc
       expect(store.dispatch(harness.dispatched[0] as CommandInvocation).ok).toBe(true)
       expect(sceneOf().boundaryNodes[0]!.layout.rows.some((row) => row.kind === 'widget' && row.inputId.startsWith('group.'))).toBe(false)
       expect(sceneOf().nodes[0]!.layout.rows.some((row) => row.kind === 'widget' && row.inputId.startsWith('layers.'))).toBe(true)
       expect(loadDocument(JSON.parse(JSON.stringify(store.doc))).diagnostics).toEqual([])
+      expect(promptOf(store.doc)).toEqual(original)
+      checkHistory(beforeFold)
       expect(store.undo()).toBe(true)
       expect(sceneOf().boundaryNodes[0]!.layout.rows.some((row) => row.kind === 'widget' && row.inputId.startsWith('group.'))).toBe(true)
 
       for (const itemId of ['group', 'mode']) {
+        const beforeHide = store.doc
         expect(store.dispatch({ command: 'boundary.setWireHidden', params: { graphId: 'detail', itemId, hidden: true } }).ok).toBe(true)
+        expect(promptOf(store.doc)).toEqual(original)
+        checkHistory(beforeHide)
         const hidden = sceneOf()
         expect(hidden.boundaryNodes[0]!.layout.pins.some((pin) => pin.portId === itemId)).toBe(false)
         for (const node of [hidden.boundaryNodes[0]!, hidden.nodes[0]!]) {
@@ -4607,8 +4673,13 @@ describe('Inputs panel fields', () => {
           editing.fire('pointerdown', right, y)
           editing.fire('pointerup', right, y)
           expect(editing.dispatched).toHaveLength(1)
+          const beforeHiddenEdit = store.doc
           expect(store.dispatch(editing.dispatched[0] as CommandInvocation).ok).toBe(true)
-          expect(store.doc.graphs.root!.nodes.first!.values['group.layer1']).toBeCloseTo(0.4)
+          expect(store.doc.graphs.root!.nodes.first!.values['group.layer1']).toBeCloseTo(0.8)
+          expect(promptOf(store.doc)[`first${suffix}`]!.inputs['layers.layer3']).toBeCloseTo(0.8)
+          expect(promptOf(store.doc)[`second${suffix}`]).toEqual(original[`second${suffix}`])
+          expect(store.doc.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
+          checkHistory(beforeHiddenEdit)
           expect(store.undo()).toBe(true)
         }
         const inner = hidden.nodes[0]!
@@ -4624,7 +4695,6 @@ describe('Inputs panel fields', () => {
         expect(clicking.dispatched).toEqual([])
         expect(store.undo()).toBe(true)
       }
-    }
   })
 
   const blur: NodeSchema = {
