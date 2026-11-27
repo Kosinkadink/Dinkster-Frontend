@@ -81,7 +81,7 @@ describe('RegionIterationInspector', () => {
     expect(root.textContent).toContain('Renamed source')
     expect(root.textContent).toContain('Running')
     expect(root.textContent).toContain('Progress: 38%')
-    expect(root.querySelector('progress')).toHaveProperty('value', 0.375)
+    expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0.375')
 
     const iterationSelect = root.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Iteration"]')!
     iterationSelect.click()

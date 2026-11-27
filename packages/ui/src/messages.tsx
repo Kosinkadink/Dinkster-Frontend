@@ -1,4 +1,4 @@
-import { For, Show, createUniqueId, onCleanup, onMount, type JSX } from 'solid-js'
+import { For, Show, createUniqueId, onCleanup, onMount, splitProps, type JSX } from 'solid-js'
 import { Check, CircleAlert, Info, TriangleAlert, X } from 'lucide-solid'
 import {
   ProductButton,
@@ -37,19 +37,21 @@ export function ProductRecoveryNotice(props: {
   </div>
 }
 
-export function ProductProgress(props: { label: string; value?: number | undefined }) {
+export function ProductProgress(props: Omit<JSX.HTMLAttributes<HTMLDivElement>, 'children' | 'role' | 'aria-label' | 'class' | 'className'> & { label: string; value?: number | undefined }) {
+  const [local, attributes] = splitProps(props, ['label', 'value'])
   return (
     <div
+      {...attributes}
       class="dinkster-product-progress"
       role="progressbar"
-      aria-label={props.label}
+      aria-label={local.label}
       aria-valuemin={0}
       aria-valuemax={1}
-      aria-valuenow={props.value}
-      data-indeterminate={props.value === undefined ? '' : undefined}
+      aria-valuenow={local.value}
+      data-indeterminate={local.value === undefined ? '' : undefined}
     >
       <svg viewBox="0 0 100 1" preserveAspectRatio="none" aria-hidden="true">
-        <rect width={props.value === undefined ? 100 : props.value * 100} height="1" />
+        <rect width={local.value === undefined ? 100 : local.value * 100} height="1" />
       </svg>
     </div>
   )
