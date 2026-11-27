@@ -11,6 +11,7 @@ import {
   formatByteSize,
   formatDate,
   localCollectionSource,
+  t,
   type CollectionEntry,
   type CollectionSource,
   type BoardCardSource,
@@ -24,12 +25,19 @@ const COLLECTION_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
   year: 'numeric',
   month: 'numeric',
   day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-  second: '2-digit',
 }
 
-export const formatCollectionDate = (value: number): string => formatDate(value, COLLECTION_DATE_OPTIONS)
+export const formatCollectionDate = (value: number): string => formatDate(value, {
+  ...COLLECTION_DATE_OPTIONS, hour: 'numeric', minute: '2-digit', second: '2-digit',
+})
+
+export const formatCollectionRowDate = (value: number): string => {
+  const date = new Date(value)
+  const today = new Date()
+  return date.toDateString() === today.toDateString()
+    ? t('collection.date.today', { time: formatDate(value, { hour: 'numeric', minute: '2-digit' }) })
+    : formatDate(value, COLLECTION_DATE_OPTIONS)
+}
 
 /**
  * Bind a remote page cursor to the backend that minted it. A keyset cursor
@@ -342,14 +350,15 @@ const workflowEntry = (r: LibraryRecord, backend: Backend): CollectionEntry => (
   id: r.id,
   owner: backend.id,
   title: r.name,
-  subtitle: `Modified ${formatCollectionDate(r.modified * 1000)}`,
-  badges: [...r.labels.filter((l) => l !== WORKFLOW_LABEL), `rev ${r.revision}`],
+  kind: 'workflow',
+  subtitle: `Modified ${formatCollectionRowDate(r.modified * 1000)}`,
+  badges: r.labels.filter((l) => l !== WORKFLOW_LABEL),
   details: [
     { label: 'workflow id', text: r.id },
     { label: 'backend', text: backend.label },
     { label: 'digest', text: r.digest },
     { label: 'media type', text: r.mediaType },
-    { label: 'modified', text: formatCollectionDate(r.modified * 1000) },
+    { label: 'modified', text: formatDate(r.modified * 1000, { ...COLLECTION_DATE_OPTIONS, hour: 'numeric', minute: '2-digit' }) },
     { label: 'revision', text: String(r.revision) },
     ...(r.folder !== undefined ? [{ label: 'folder', text: r.folder }] : []),
   ],
@@ -463,8 +472,9 @@ export function boardsSource(app: AppState): CollectionSource {
           id: record.id,
           owner: backend.id,
           title: record.name,
-          subtitle: `Modified ${formatCollectionDate(record.modified * 1000)}`,
-          badges: [...record.labels.filter((label) => label !== 'board'), `rev ${record.revision}`],
+          kind: 'board',
+          subtitle: `Modified ${formatCollectionRowDate(record.modified * 1000)}`,
+          badges: record.labels.filter((label) => label !== 'board'),
           details: [
             { label: 'board id', text: record.id },
             { label: 'backend', text: backend.label },
@@ -534,7 +544,7 @@ const runEntry = (r: HistoryRunRecord, owner: string): CollectionEntry => ({
   ref: r,
   owner,
   title: r.workflowName ?? `${titleCase(r.state)} run`,
-  subtitle: `${timeText(r.finishedAt)} - ${r.jobId}`,
+  subtitle: `${formatCollectionRowDate(r.finishedAt * 1000)} - ${r.jobId}`,
   badges: [
     ...attributionBadges({ principalId: r.principalId, kind: r.principalKind }),
     'Durable record',
@@ -732,7 +742,7 @@ export function historySource(app: AppState): CollectionSource {
         return {
           id: exec.key,
           title: app.tabTitleFor(exec.ref),
-          subtitle: `${localTimeText(exec.queuedAt)} - ${exec.ref.prompt}`,
+          subtitle: `${formatCollectionRowDate(exec.queuedAt)} - ${exec.ref.prompt}`,
           badges: [
             ...attributionBadges({
               principalId: exec.submittedBy?.principalId,

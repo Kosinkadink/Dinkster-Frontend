@@ -183,7 +183,6 @@ function AssetSourceControl(props: {
 function assetState(state: CollectionPanelState, message: AssetMessage) {
   const source = state.sourceLabel === 'All assets' ? message('assets.source.all') : state.sourceLabel
   if (state.kind === 'loading') return <ProductEmptyState tone="loading" title={message('assets.state.loading.title')} hint={message('assets.state.loading.detail', { source })} />
-  if (state.kind === 'error') return <ProductEmptyState tone="error" title={message('assets.state.error.title')} hint={state.message ?? message('assets.state.error.detail', { source })} />
   if (state.kind === 'no-compatible') return <ProductEmptyState title={message('assets.state.noCompatible.title')} hint={message('assets.state.noCompatible.detail')} />
   if (state.kind === 'no-match') return <ProductEmptyState title={message('assets.state.noMatch.title')} hint={message('assets.state.noMatch.detail')} />
   return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source })} />
