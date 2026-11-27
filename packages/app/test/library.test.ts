@@ -10,7 +10,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BOARD_MEDIA_TYPE, asNodeId, asPortId, asPromptId, boundaryOf, compile, diag, documentResolver, emptyBoard, exposedKey, type DinksterNodesPayload, type JsonObject, type NodeSchema } from '@dinkster/core'
-import { buildDinksterRegistry, type LibraryRecord } from '@dinkster/client'
+import { buildDinksterRegistry, type HistoryRunRecord, type LibraryRecord } from '@dinkster/client'
 import {
   AppState,
   LIBRARY_SCOPE,
@@ -107,6 +107,61 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 }
 
 describe('Board card sources', () => {
+  it('opens a new recorded Board run frozen in another browser without trusting a changed source or compile proof', async () => {
+    const { backend } = await nativeSetup()
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
+    vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(JSON.stringify(CHAIN_DOC))
+    let source = ''
+    const upload = vi.spyOn(backend.connection, 'uploadAsset').mockImplementation(async (text) => { source = String(text); return DIGEST })
+    vi.spyOn(backend.connection, 'submit').mockResolvedValue({ ok: true,
+      execution: { connection: backend.id, prompt: asPromptId('recorded-job') }, jobRef: 'recorded-run' })
+    const board = app.boards.open(emptyBoard(), 'Saved Board', backend.baseUrl)
+    const card = await app.boards.placeCard(board.id, { project: activeProjectId(), baseUrl: backend.baseUrl,
+      kind: 'workflow', source: { kind: 'library', recordId: 'r1' }, name: 'Original' }, { x: 0, y: 0 })
+    upload.mockRejectedValueOnce(new Error('Source storage unavailable'))
+    await expect(app.queueBoardCard(board, card)).rejects.toThrow('Source storage unavailable')
+    expect(app.executionsForBoardCard(board, card)).toEqual([])
+    const ref = (await app.queueBoardCard(board, card))!
+    const snapshot = app.store.get(ref)!.artifact!.snapshot
+    const saved = { ...board.session.doc, runs: { 'recorded-run': { card, items: [] } } }
+    app.dispose()
+    app = createWorkflowApp(null)
+    const { backend: other } = await nativeSetup()
+    const reopened = app.boards.open(saved, 'Saved Board', other.baseUrl)
+    const run: HistoryRunRecord = { runId: 'recorded-run', jobRef: 'recorded-run', scope: LIBRARY_SCOPE,
+      clientId: 'original-browser', jobId: 'recorded-job', state: 'completed', priority: 0,
+      sourceDocument: DIGEST, workflowName: 'Original', submittedAt: 11, finishedAt: 13, executed: 2, cached: 0, skipped: 0 }
+    vi.spyOn(other.connection, 'fetchHistoryJob').mockResolvedValue({ state: 'completed',
+      outputs: { n1: { sum: { typeId: 'INT', value: 17 } } }, nodeStates: { n1: { state: 'done' } } })
+    const read = vi.spyOn(other.connection, 'fetchAssetText')
+    read.mockResolvedValue(JSON.stringify(CHAIN_DOC))
+    expect(await app.restoreBoardCardRun(reopened, card, run, () => true)).toBeUndefined()
+    const corrupted = JSON.parse(source)
+    corrupted.ext['dinkster.executionProof'].semanticHash = 'not-the-submitted-hash'
+    read.mockResolvedValue(JSON.stringify(corrupted))
+    expect(await app.restoreBoardCardRun(reopened, card, run, () => true)).toBeUndefined()
+    const changed = JSON.parse(source)
+    changed.graphs.g0.nodes.n0.values.a = 23
+    read.mockResolvedValue(JSON.stringify(changed))
+    expect(await app.restoreBoardCardRun(reopened, card, run, () => true)).toBeUndefined()
+    expect(app.executionsForBoardCard(reopened, card)).toEqual([])
+    read.mockResolvedValue(source)
+    expect(await app.restoreBoardCardRun(reopened, card, run, () => false)).toBeUndefined()
+    const restored = await app.restoreBoardCardRun(reopened, card, run, () => true)
+    expect(restored).toBeDefined()
+    expect(app.store.get(restored!)?.status).toBe('completed')
+    expect(app.store.get(restored!)?.outputs).toEqual({ n1: { sum: { typeId: 'INT', value: 17 } } })
+    expect(await app.openExecutionView(restored!)).toBe(true)
+    expect(app.activeTab()?.execution).toEqual(restored)
+    expect(app.activeTab()?.store.doc).toEqual(snapshot)
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => new Response(JSON.stringify({ available: true,
+      descriptor: { typeId: 'INT', fingerprint: 'sum', value: new URL(String(url)).searchParams.get('clientId') === 'original-browser' ? 17 : 99 },
+      renditions: [],
+    })))
+    expect(await app.valuesForExecution(restored!)!.peek({ jobId: restored!.prompt, nodeId: 'n1', outputId: 'sum' }))
+      .toMatchObject({ available: true, descriptor: { value: 17 } })
+  })
+
   it('delivers only a card run\'s recorded saved files, including partial saves, without replaying removed results', async () => {
     const { backend } = await nativeSetup()
     vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())

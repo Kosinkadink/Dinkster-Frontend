@@ -182,6 +182,7 @@ import {
   type ModelDownloadRequirement,
   type ExecutionState,
   type ExecutionStatus,
+  type HistoryRunRecord,
   type LibraryRecord,
   type LibraryProject,
   type ProjectNeeds,
@@ -5600,6 +5601,7 @@ export class AppState {
    * `schemas`/`resolve` while keeping the raw backend hash).
    */
   private readonly retainedRegistries = new WeakMap<CompileArtifact, SchemaRegistry>()
+  private readonly recordedRunValues = new WeakMap<CompileArtifact, DinksterValuesClient>()
   private readonly pendingWorkspaceRegistrations = new Map<string, WorkspaceRegistration>()
 
   /**
@@ -5648,6 +5650,9 @@ export class AppState {
 
   /** Read historical native values through their original owner, without reconnecting it. */
   valuesForExecution(ref: ExecutionRef): DinksterValuesClient | undefined {
+    const artifact = this.store.get(ref)?.artifact
+    const recorded = artifact && this.recordedRunValues.get(artifact)
+    if (recorded) return recorded
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
     return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
   }
@@ -10179,6 +10184,72 @@ export class AppState {
     return JSON.stringify([entry.baseUrl, entry.id, cardId])
   }
 
+  /** Restore only a recorded compile, never a new interpretation of an older source. */
+  async restoreBoardCardRun(entry: BoardEntry, cardId: string, run: HistoryRunRecord,
+    stillCurrent: () => boolean,
+  ): Promise<ExecutionRef | undefined> {
+    const backend = this.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)
+    const registry = backend?.registry.get()
+    const jobRef = run.jobRef ?? run.runId
+    if (!backend || !registry || !run.sourceDocument || run.scope !== LIBRARY_SCOPE ||
+      entry.session.doc.runs?.[jobRef]?.card !== cardId) return undefined
+    const project = activeProjectId()
+    const principal = backend.connection.principalGeneration.get()
+    const current = () => !this.disposed && stillCurrent() && this.backends.get().includes(backend) &&
+      activeProjectId() === project && backend.connection.principalGeneration.get() === principal &&
+      backend.registry.get() === registry && this.boards.entries.get().includes(entry) &&
+      entry.session.doc.runs?.[jobRef]?.card === cardId
+    const job = await backend.connection.fetchHistoryJob(run)
+    if (!job || !current()) return undefined
+    const text = await backend.connection.fetchAssetText(run.sourceDocument)
+    if (text === undefined || !current()) return undefined
+    const document: unknown = JSON.parse(text)
+    if (!workspaceRecord(document) || !workspaceRecord(document['ext'])) return undefined
+    const { ['dinkster.executionProof']: proof, ...ext } = document['ext']
+    if (!workspaceRecord(proof)) return undefined
+    const snapshot = { ...document, ext }
+    const ref = { connection: backend.id, prompt: asPromptId(run.jobId) }
+    const registration = decodeWorkspaceRegistration({ ref, artifact: { ...proof, snapshot,
+      connection: backend.id, diagnostics: [] } }, (type) => this.virtualNodeSchema(type)?.virtual === true)
+    const origin = registration?.snapshot.ext?.['dinkster.boardCard']
+    if (!registration || registration.schemaHash !== registry.hash || !workspaceRecord(origin) ||
+      origin['board'] !== entry.id || origin['card'] !== cardId) return undefined
+    const choices = new Map(registration.choices.map((choice) => [JSON.stringify([choice.graph, choice.selector]), choice.candidate]))
+    const compiled = compile({ document: registration.snapshot, revision: registration.revision,
+      resolve: this.resolverWithVirtualNodes(registry.resolve), scope: registration.scope, connection: backend.id, schemaHash: registry.hash,
+      candidateOverride: ({ graph, selector, candidates }) => {
+        const selected = choices.get(JSON.stringify([graph, selector]))
+        return selected !== undefined && candidates.includes(selected) ? selected : undefined
+      }, pickCandidate: () => 0,
+      ...(registry.graphFeatures === undefined ? {} : { graphFeatures: registry.graphFeatures }),
+    })
+    if (!compiled.ok || canonicalJson(persistedCompileProof(compiled.artifact)) !==
+      canonicalJson({ ...proof, connection: backend.id }) || !current()) return undefined
+    // Local job ids belong to a client; never replace another client's retained execution.
+    const existing = this.store.get(ref)
+    if (existing && existing.jobRef !== jobRef) return undefined
+    if (existing?.artifact) return ref
+    const artifact = compiled.artifact
+    this.retainedRegistries.set(artifact, registry)
+    this.recordedRunValues.set(artifact, backend.connection.historyValues(run))
+    batch(() => {
+      this.store.register(ref, artifact, run.submittedAt * 1000, { jobRef, sourceDocument: run.sourceDocument!,
+        ...(run.workflowName === undefined ? {} : { workflowName: run.workflowName }) })
+      this.store.hydrateArtifacts(ref, job.artifacts ?? [])
+      if (workspaceRecord(job.outputs) && Object.values(job.outputs).every(workspaceRecord))
+        this.store.hydrateOutputs(ref, job.outputs as ExecutionState['outputs'])
+      if (job.submittedBy) this.store.hydrateSubmittedBy(ref, job.submittedBy)
+      this.store.hydrateAutomaticValues(ref, automaticValuesOfJob(job))
+      this.store.apply({ kind: 'nodeStates', execution: ref, timestamp: run.finishedAt * 1000,
+        nodes: nodeStatesFromDinksterJob(job) })
+      this.store.apply(run.state === 'failed'
+        ? { kind: 'error', execution: ref, timestamp: run.finishedAt * 1000,
+          detail: { exceptionType: run.error?.kind ?? 'execution', exceptionMessage: run.error?.message ?? 'job failed', traceback: [] } }
+        : { kind: run.state, execution: ref, timestamp: run.finishedAt * 1000 })
+    })
+    return ref
+  }
+
   executionsForBoardCard(entry: BoardEntry, cardId: string): readonly ExecutionState[] {
     const backend = this.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)
     if (!backend) return []
@@ -10327,9 +10398,11 @@ export class AppState {
         ...[...this.boardCardSubmissions.get().values()].filter((submission) => submission.entry === entry)
           .flatMap((submission) => submission.places ?? []),
       ]
+      const sourceExt = { ...source.ext }
+      delete sourceExt['dinkster.executionProof']
       let document: WorkflowDocument = { ...source,
         lineage: asLineageId(`board-card:${entry.id}:${cardId}`),
-        ext: { ...source.ext, 'dinkster.boardCard': { board: entry.id, card: cardId, source: card.source } },
+        ext: { ...sourceExt, 'dinkster.boardCard': { board: entry.id, card: cardId, source: card.source } },
       }
       const stamp = stampEnvironment(document, { resolve,
         ...(registry.packs === undefined ? {} : { packs: registry.packs }),
@@ -10386,8 +10459,9 @@ export class AppState {
       }
       const artifact = result.artifact
       this.retainedRegistries.set(artifact, registry)
-      let sourceDocument: string | undefined
-      try { sourceDocument = await backend.connection.uploadAsset(JSON.stringify(document)) } catch { /* Advisory stamp. */ }
+      const sourceDocument = await backend.connection.uploadAsset(JSON.stringify({ ...document,
+        ext: { ...document.ext, 'dinkster.executionProof': persistedCompileProof(artifact) },
+      }))
       if (!current()) return undefined
       const identity = { workflowName: card.name, ...(sourceDocument === undefined ? {} : { sourceDocument }) }
       lease.markPosted()

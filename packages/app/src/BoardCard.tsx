@@ -1,4 +1,4 @@
-import { documentResolver, exposedKey, jsonSameValue, semanticDesignTokens, t, type BoardCardItem, type ControllerMode, type Json, type WorkflowDocument } from '@dinkster/core'
+import { documentResolver, exposedKey, jsonSameValue, semanticDesignTokens, t, type BoardCardItem, type ControllerMode, type ExecutionRef, type Json, type WorkflowDocument } from '@dinkster/core'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { CanvasSeedModeIcon, ProductBoardCard, ProductButton } from '@dinkster/ui'
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup } from 'solid-js'
@@ -163,24 +163,34 @@ export function BoardCard(props: {
   const recordedJobs = createMemo(() => JSON.stringify(Object.entries(board().runs ?? {})
     .filter(([, run]) => run.card === props.card.id).map(([job]) => job).sort()))
   const [recorded, setRecorded] = createSignal<HistoryRunRecord>()
+  const [openRef, setOpenRef] = createSignal<ExecutionRef>()
   createEffect(on([recordedJobs, backend, tick], ([jobs, owner]) => {
     setRecorded(undefined)
+    setOpenRef(undefined)
     const ids = JSON.parse(jobs) as string[]
     if (!ids.length || owner?.protocol !== 'dinkster') return
     let current = true
-    const unsubscribe = owner.connection.status.subscribe(() => {
+    const invalidate = () => {
       current = false
       setRecorded(undefined)
-    })
-    onCleanup(() => { current = false; unsubscribe() })
+      setOpenRef(undefined)
+    }
+    const unsubscribe = owner.connection.status.subscribe(invalidate)
+    const unprincipal = owner.connection.principalGeneration.subscribe(invalidate)
+    onCleanup(() => { current = false; unsubscribe(); unprincipal() })
     void Promise.all(ids.map((id) => owner.connection.getHistoryRun(id, LIBRARY_SCOPE)))
-      .then((records) => {
+      .then(async (records) => {
         if (!current || !props.app.backends.get().includes(owner) || !props.app.boards.entries.get().includes(props.entry)) return
         // A missing record may be newer than every readable one; never substitute an older status.
         if (records.some((record, index) => record === undefined || record.scope !== LIBRARY_SCOPE ||
           (record.jobRef ?? record.runId) !== ids[index])) return
-        setRecorded((records as HistoryRunRecord[]).sort((a, b) =>
-          b.submittedAt - a.submittedAt || b.finishedAt - a.finishedAt || b.runId.localeCompare(a.runId))[0])
+        const latest = (records as HistoryRunRecord[]).sort((a, b) =>
+          b.submittedAt - a.submittedAt || b.finishedAt - a.finishedAt || b.runId.localeCompare(a.runId))[0]
+        setRecorded(latest)
+        if (latest) {
+          const ref = await props.app.restoreBoardCardRun(props.entry, props.card.id, latest, () => current)
+          if (current) setOpenRef(ref)
+        }
       }).catch(() => { /* Unreadable history leaves the reserved status empty. */ })
   }))
   const pending = () => submissions().has(props.app.boardCardKey(props.entry, props.card.id))
@@ -192,9 +202,14 @@ export function BoardCard(props: {
     const run = recorded()
     return run === undefined ? '' : executionStatusLabel(run.state === 'failed' ? 'error' : run.state)
   }
-  const openable = () => {
-    const run = latest()
-    return run?.artifact && recorded() && run.jobRef === (recorded()!.jobRef ?? recorded()!.runId) ? run : undefined
+  const openRecorded = async () => {
+    const record = recorded()
+    if (!record) return
+    try {
+      const ref = await props.app.restoreBoardCardRun(props.entry, props.card.id, record,
+        () => live && recorded() === record)
+      if (ref) await props.app.openExecutionView(ref)
+    } catch { setOpenRef(undefined) }
   }
   let live = true
   onCleanup(() => { live = false })
@@ -258,7 +273,7 @@ export function BoardCard(props: {
     running={running()} disabled={!source() || !registry() || !!projection().error}
     error={error() ?? projection().error ?? latest()?.errors[0]?.message}
     onRun={() => void run()} onStop={() => void props.app.stopBoardCard(props.entry, props.card.id)}
-    onOpenLastRun={openable() ? () => void props.app.openExecutionView(openable()!.ref) : undefined}
+    onOpenLastRun={openRef() ? () => void openRecorded() : undefined}
     onContentHeight={(height) => {
       if (source() && !projection().error && props.card.autoSize === true)
         props.entry.session.dispatch({ command: 'board.card.fit', params: { id: props.card.id, height } })
