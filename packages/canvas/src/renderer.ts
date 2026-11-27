@@ -1103,11 +1103,13 @@ export class CanvasRenderer {
   /** Returns whether installation invalidated scene-derived interaction state. */
   setScene(scene: Scene): boolean {
     // Count metadata does not invalidate pin layouts captured by a held wire.
-    const countsChanged = !structuralEqual(this.baseScene.links.map(link => link.listCountFact), scene.links.map(link => link.listCountFact))
     const withoutCounts = (value: Scene): Scene => ({ ...value,
+      nodes: value.nodes.map(node => ({ ...node, layout: { ...node.layout,
+        pins: node.layout.pins.map(({ listCountFact: _count, ...pin }) => pin),
+      } })),
       links: value.links.map(({ listCountFact: _count, ...link }) => link),
     })
-    const countsOnly = countsChanged && structuralEqual(withoutCounts(this.baseScene), withoutCounts(scene))
+    const countsOnly = !structuralEqual(this.baseScene, scene) && structuralEqual(withoutCounts(this.baseScene), withoutCounts(scene))
     this.baseScene = scene
     this.replacePaintScene(this.sceneWithBodyRegions(scene))
     if (countsOnly) return false

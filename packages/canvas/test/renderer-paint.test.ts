@@ -394,9 +394,20 @@ it('keeps a held wire drag alive as recorded list counts arrive and disappear', 
     const install = (next: Scene) => {
       if (renderer.setScene(next)) controller.pruneSelection()
     }
-    install({ ...scene, links: scene.links.map(link => ({ ...link,
-      listCountFact: { kind: 'estimate', count: 8, sources: ['last-run'] },
-    })) })
+    const countedPins: Scene = { ...scene,
+      nodes: scene.nodes.map(node => ({ ...node, layout: { ...node.layout,
+        pins: node.layout.pins.map(pin => ({ ...pin,
+          listCountFact: { kind: 'estimate' as const, count: 8, sources: ['last-run' as const] },
+        })),
+      } })),
+    }
+    install(countedPins)
+    expect(renderer.getOverlay()).toEqual(heldOverlay)
+    install({ ...countedPins,
+      links: scene.links.map(link => ({ ...link,
+        listCountFact: { kind: 'estimate', count: 8, sources: ['last-run'] },
+      })),
+    })
     expect(renderer.getScene().links[0]?.listCountFact).toEqual({ kind: 'estimate', count: 8, sources: ['last-run'] })
     expect(renderer.getOverlay()).toEqual(heldOverlay)
     install(scene)
