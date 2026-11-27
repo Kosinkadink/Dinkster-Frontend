@@ -287,9 +287,9 @@ describe('canvas tooltip provider', () => {
       node: { node: { type: 'Numbers', values: { amount: 14 } } },
       row: { inputId: 'amount', valueKey: 'amount', label: 'amount', spec: { widgetType: 'INT', options: { min: 0, max: 20, step: 4 } } },
     } }
-    expect(resolveCanvasTooltip(target, { detailed: false })?.lines).toEqual([
-      'Value: 14', 'Not a multiple of 4. Kept until you change it.',
-    ])
+    expect(resolveCanvasTooltip(target, { detailed: false })).toEqual({
+      title: 'amount', lines: ['Value: 14'], note: 'Not a multiple of 4. Kept until you change it.',
+    })
     expect(resolveCanvasTooltip({ ...target, keptNumberNote: undefined }, { detailed: false })?.lines).toEqual(['Value: 14'])
   })
 
