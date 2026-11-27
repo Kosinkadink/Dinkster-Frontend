@@ -6597,7 +6597,8 @@ export class AppState {
     }
     let stored: Extract<CommandOutcome, { ok: true }> | undefined
     return this.applyNumberFixes(tab, fixes, true, {
-      lead: [invocation],
+      lead: invocation.command === 'batch'
+        ? (invocation.params as JsonObject).invocations as unknown as readonly CommandInvocation[] : [invocation],
       unchanged: (document) => tab.store === store && document === prepared.currentDocument,
       onStored: (record, document) => { stored = { ok: true, doc: document, ...record, diagnostics: [] } },
     }).then((outcome): CommandOutcome => {

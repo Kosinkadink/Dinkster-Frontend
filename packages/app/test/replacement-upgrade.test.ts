@@ -202,7 +202,7 @@ describe('native open-time replacement', () => {
     const tab = app.activeTab()!
     const values = () => tab.store.doc.graphs.g0!.nodes.first!.values
     const edit = (cap: number) => ({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: 'cap', value: cap } })
-    expect((await app.dispatchEditTo(tab, edit(13))).ok).toBe(true)
+    expect((await app.dispatchEditTo(tab, { command: 'batch', params: { invocations: [edit(13)] } })).ok).toBe(true)
     expect(values()).toEqual({ amount: 12, cap: 13 })
     expect(tab.store.undo()).toBe(true)
     expect(values()).toEqual({ amount: 16, cap: 20 })
