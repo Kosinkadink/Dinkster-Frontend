@@ -211,7 +211,7 @@ describe('schemaMatchesLinkDrop (noodle-drop compatibility)', () => {
     const batch = schema([input('images', { kind: 'list', element: concrete('IMAGE') })])
     expect(schemaMatchesLinkDrop(batch, listAnchor, 'in')).toBe(true)
     const either = schema([input('images', concrete('IMAGE'), { acceptsList: true })])
-    expect(autoConnectTarget(either, listAnchor, 'in')).toEqual({ port: 'images' })
+    expect(autoConnectTarget(either, listAnchor, 'in')).toEqual({ port: 'images', label: 'images' })
     expect(schemaMatchesPortFilters(either, { inputs: ['list<image>'] })).toBe(true)
     expect(schemaMatchesLinkDrop(either, concrete('IMAGE'), 'in')).toBe(true)
     expect(schemaMatchesLinkDrop(either, { kind: 'list', element: concrete('MASK') }, 'in')).toBe(false)
@@ -284,20 +284,20 @@ describe('autoConnectTarget (link-drop auto-connect target)', () => {
   ])
 
   it('returns the first compatible port, interface order', () => {
-    expect(autoConnectTarget(decode, concrete('core.vae'), 'in')).toEqual({ port: 'vae' })
-    expect(autoConnectTarget(decode, concrete('IMAGE'), 'out')).toEqual({ port: 'image' })
+    expect(autoConnectTarget(decode, concrete('core.vae'), 'in')).toEqual({ port: 'vae', label: 'vae' })
+    expect(autoConnectTarget(decode, concrete('IMAGE'), 'out')).toEqual({ port: 'image', label: 'image' })
     expect(autoConnectTarget(decode, concrete('MASK'), 'in')).toBeUndefined()
   })
 
   it('preserves intentional generic targets as fallbacks', () => {
     const genericInput = schema([input('value', { kind: 'variable', templateId: 'T' })])
     const genericOutput = schema([{ kind: 'output', id: 'value', type: { kind: 'wildcard' } }])
-    expect(autoConnectTarget(genericInput, concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'value' })
-    expect(autoConnectTarget(genericOutput, concrete('comfy.IMAGE'), 'out')).toEqual({ port: 'value' })
+    expect(autoConnectTarget(genericInput, concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'value', label: 'value' })
+    expect(autoConnectTarget(genericOutput, concrete('comfy.IMAGE'), 'out')).toEqual({ port: 'value', label: 'value' })
     expect(autoConnectTarget(schema([input('value', {
       kind: 'variable', templateId: 'mixed',
       allowedTypes: [concrete('comfy.IMAGE'), { kind: 'wildcard' }],
-    })]), concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'value' })
+    })]), concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'value', label: 'value' })
   })
 
   it('prefers a compatible closed target over an earlier generic target', () => {
@@ -305,8 +305,8 @@ describe('autoConnectTarget (link-drop auto-connect target)', () => {
       input('generic', { kind: 'wildcard' }),
       input('image', concrete('comfy.IMAGE')),
     ])
-    expect(autoConnectTarget(target, concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'image' })
-    expect(autoConnectTarget(target, concrete('comfy.MASK'), 'in')).toEqual({ port: 'generic' })
+    expect(autoConnectTarget(target, concrete('comfy.IMAGE'), 'in')).toEqual({ port: 'image', label: 'image' })
+    expect(autoConnectTarget(target, concrete('comfy.MASK'), 'in')).toEqual({ port: 'generic', label: 'generic' })
   })
 
   it('a group member is a target, with materialize frames when the node does not store it yet', () => {
@@ -326,10 +326,11 @@ describe('autoConnectTarget (link-drop auto-connect target)', () => {
       { kind: 'output', id: 'list', type: { kind: 'list', element: itemType } },
     ])
     // A new node stores its first minMembers members, so that member is a plain port.
-    expect(autoConnectTarget(make(1), concrete('IMAGE'), 'in')).toEqual({ port: 'items.item0' })
+    expect(autoConnectTarget(make(1), concrete('IMAGE'), 'in')).toEqual({ port: 'items.item0', label: 'item 1' })
     // With no minimum, the offered spare member carries the frame that stores it.
     expect(autoConnectTarget(make(0), concrete('IMAGE'), 'in')).toEqual({
       port: 'items.item0',
+      label: 'item 1',
       materialize: [{ construct: 'items', members: ['item0'], seq: 1 }],
     })
   })
@@ -346,7 +347,7 @@ describe('autoConnectTarget (link-drop auto-connect target)', () => {
     ])
     expect(schemaMatchesLinkDrop(s, concrete('MASK'), 'in')).toBe(true)
     // The start option's input is a real addressable port on a fresh node.
-    expect(autoConnectTarget(s, concrete('MASK'), 'in')).toEqual({ port: 'mode.mask' })
+    expect(autoConnectTarget(s, concrete('MASK'), 'in')).toEqual({ port: 'mode.mask', label: 'mask' })
   })
 })
 
@@ -375,9 +376,9 @@ describe('v14 COMBO link-drop compatibility', () => {
 
   it('matches and auto-connects combo-to-combo without inspecting choices', () => {
     expect(schemaMatchesLinkDrop(comboConsumer, concrete('COMBO'), 'in')).toBe(true)
-    expect(autoConnectTarget(comboConsumer, concrete('COMBO'), 'in')).toEqual({ port: 'mode' })
+    expect(autoConnectTarget(comboConsumer, concrete('COMBO'), 'in')).toEqual({ port: 'mode', label: 'mode' })
     expect(schemaMatchesLinkDrop(comboProducer, concrete('COMBO'), 'out')).toBe(true)
-    expect(autoConnectTarget(comboProducer, concrete('COMBO'), 'out')).toEqual({ port: 'choice' })
+    expect(autoConnectTarget(comboProducer, concrete('COMBO'), 'out')).toEqual({ port: 'choice', label: 'choice' })
   })
 
 })

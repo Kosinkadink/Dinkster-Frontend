@@ -116,7 +116,7 @@ describe('packsSource', () => {
     expect(vhs.details).toContainEqual({ label: 'backend', text: app.backends.get()[0]!.label })
     expect(vhs.details).toContainEqual({ label: 'publisher', text: 'kosinkadink' })
     expect(vhs.details).toContainEqual({ label: 'digest', text: 'sha256:' + 'b'.repeat(64) })
-    expect(vhs.details).toContainEqual({ label: 'asset: Video VAE', text: 'model/vae - 1.5 MiB' })
+    expect(vhs.details).toContainEqual({ label: 'asset: Video VAE', text: 'model/vae - 1.5 MB' })
   })
 
   it('ranks the whole corpus for a query, not a loaded page', async () => {
@@ -140,7 +140,7 @@ describe('templateAssetLines', () => {
     loadDinksterSchemas()
     expect(templateAssetLines({
       pack: 'vhs.video', id: 'starter', name: 'Starter', digest: 'sha256:x', assets: ['vae', 'missing-id'],
-    }, app.backends.get()[0])).toEqual(['Video VAE - model/vae - 1.5 MiB', 'missing-id'])
+    }, app.backends.get()[0])).toEqual(['Video VAE - model/vae - 1.5 MB', 'missing-id'])
   })
 })
 
