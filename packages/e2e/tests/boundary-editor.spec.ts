@@ -53,6 +53,7 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   await expect(previousRailTab).toHaveAttribute('aria-selected', 'true')
   await widenRail(page)
+  await expect(boundaryTab(page)).toBeVisible()
   if (await boundaryTab(page).getAttribute('aria-selected') === 'false') {
     await capture(page, 'boundary-tab-subgraph')
   }
@@ -428,7 +429,9 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
   const compact = page.locator('[data-region-output=image][data-role-choice=compact]')
   await compact.click()
   await expect(compact).toHaveAttribute('aria-pressed', 'true')
-  await compact.focus()
+  await compact.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(compact).toBeFocused()
   await expect(page.getByTestId('app-tooltip')).toContainText(
     'Compact output - Collect only values produced by present iterations, without gaps.',
   )
