@@ -62,6 +62,7 @@ export async function mountAssetSources(
   // have already reached the live catalog.
   const mounts = (discoveredMounts ?? await connection.listMounts())
     .filter((mount) => mount.state === 'ready' || mount.state === 'scanning')
+    .filter((mount) => kind?.startsWith('model/') === true || !mount.kind?.startsWith('model/'))
   if (kind === undefined) return mounts.map((mount) => mountAssetSource(connection, mount.id))
   const scoped = await Promise.all(mounts.map(async (mount) => {
     if (mount.kind !== undefined) return kindMatches(mount.kind, kind) ? mount : undefined

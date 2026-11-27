@@ -416,6 +416,8 @@
 .asset-editor .collection-content { flex: none; flex-wrap: nowrap; overflow: visible; }
 .asset-editor .collection-items,
 .asset-editor .collection-state-list { min-width: 0; min-height: 0; max-height: none; overflow: visible; }
+.asset-file-picker .collection-items { max-height: calc(var(--dinkster-space-32) * 12); overflow-y: auto; }
+.asset-file-picker .asset-view-controls { flex-wrap: wrap; }
 .asset-browser-selection { width: min(220px, 50%); box-sizing: border-box; flex: none; max-height: 100%; }
 .asset-browser-selection .asset-section-heading { flex-wrap: wrap; }
 .asset-browser-selection .asset-section-heading > div { flex: 1 1 120px; }

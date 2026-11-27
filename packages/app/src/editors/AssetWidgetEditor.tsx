@@ -1,24 +1,25 @@
-import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component } from 'solid-js'
-import { assetMultiSelect, formatByteSize, type CollectionEntry, type JsonObject } from '@dinkster/core'
+import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component, type ComponentProps } from 'solid-js'
+import { assetMultiSelect, formatByteSize, type CollectionEntry, type CollectionPageRequest, type JsonObject } from '@dinkster/core'
 import type { AssetGuessCandidate } from '@dinkster/client'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
+import { AssetBrowserNavigation } from '../asset-browser/AssetBrowserNavigation.js'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
 import { assetSourcesStatus, assetUploadPolicy, committableAssetRef, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
 import { importAssetFile } from '../asset-browser/import-file.js'
-import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
+import { mountAssetSource, mountAssetSources } from '../asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../asset-browser/localAssetSource.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
 import { ingestLogicalModels } from '../asset-browser/logical-model-merge.js'
-import { allAssetsCollectionSource, mountPresentationClass } from '../asset-browser/cross-mount-collection-source.js'
 import type { LogicalModel } from '../asset-browser/logical-model.js'
 import { logicalModelAssetRefOf, logicalModelCollectionSource, logicalModelEntrySelectable, logicalModelEntryVisible, logicalModelPickDetailOf, type LogicalModelPickDetail } from '../asset-browser/logical-model-collection-source.js'
-import { AssetEntryFallback } from '../asset-browser/presentation.js'
+import { AssetEntryContent, AssetEntryFallback } from '../asset-browser/presentation.js'
 import { isModel3dMime, model3dMimeFor } from '../model3d-mime.js'
 import { Model3dPosterImage } from '../Model3dPosterImage.js'
 import { PreviewDownload } from '../PreviewDownload.js'
 import { AudioRecorder } from '../AudioRecorder.js'
 import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
 import { ProductButton } from '../ProductControls.js'
+import { ProductSelect } from '../ProductSelect.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { AssetSelectionDetails, LogicalModelVariantFacts } from '../asset-browser/rail.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../asset-browser/types.js'
@@ -179,6 +180,8 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   onCleanup(() => assetUploadAbort?.abort())
   // undefined = discovery not settled; [] = settled with nothing browsable.
   const [assetSources, setAssetSources] = createSolidSignal<readonly AssetSourceAdapter[] | undefined>(undefined)
+  const [recursive, setRecursive] = createSolidSignal(true)
+  const [sort, setSort] = createSolidSignal<NonNullable<CollectionPageRequest['sort']>>('newest')
   const [assetSourcesError, setAssetSourcesError] = createSolidSignal<string | undefined>(undefined)
   const [mountDiscoveryError, setMountDiscoveryError] = createSolidSignal<string | undefined>(undefined)
   const [logicalModels, setLogicalModels] = createSolidSignal<readonly LogicalModel[] | undefined>(undefined)
@@ -379,17 +382,18 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     if (backend.protocol !== 'dinkster') {
       setAssetSourcesError('Asset browsing requires a native Dinkster backend')
     } else {
-      const local = localAssetSource(backend.connection)
-      setAssetSources([local])
+      const local = usesLogicalModelSource() ? [localAssetSource(backend.connection)] : []
+      if (local.length > 0) setAssetSources(local)
       void mountAssetSources(backend.connection, assetBrowseKind()).then((sources) => {
         if (!live) return
-        const combined = [local, ...sources]
+        const combined = [...local, ...sources]
         setAssetSources(combined)
         void loadLogicalModels(combined)
       }).catch((reason: unknown) => {
         if (!live) return
+        setAssetSources(local)
         setMountDiscoveryError(reason instanceof Error ? reason.message : String(reason))
-        void loadLogicalModels([local])
+        void loadLogicalModels(local)
       })
     }
   }
@@ -614,23 +618,16 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     if (usesLogicalModelSource()) {
       return logicalModels() === undefined ? [] : [logicalModelCollectionSource(() => logicalModels() ?? [])]
     }
-    if (fixedKind?.startsWith('media/') === true) {
-      const imported = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'input')
-      const generated = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'output')
-      return [
-        allAssetsCollectionSource(adapters, [], assetUrl, { fixedKind, failWhenAllSourcesFail: true }),
-        ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
-        ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
-      ]
-    }
-    return [
-      ...adapters.map((adapter) =>
-      assetCollectionSource(adapter, {
+    if (adapters.length === 0) return []
+    const connection = props.app.backendForTab(ed.tab).connection
+    return [mountAssetSource(connection, adapters.map((adapter) => adapter.id.slice('mount:'.length))), ...adapters].map((adapter) => ({
+      ...assetCollectionSource(adapter, {
         ...(assetUrl !== undefined ? { assetUrl } : {}),
         ...(fixedKind !== undefined ? { fixedKind } : {}),
-      }
-      )),
-    ]
+      }),
+      label: adapter.id === 'all-mounts' ? message('assets.mounts.all') : adapter.label,
+      filters: [],
+    }))
   })
   const pickAssetEntry = (entry: CollectionEntry): void => {
     if (usesLogicalModelSource()) {
@@ -675,7 +672,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               upload before closing. The host's window-capture dismissal runs
               before this body sees the event, so the refusal is advertised
               through data-dismiss-blocked. */}
-          <div class="widget-editor asset-editor widget-modal-editor" data-testid="asset-editor" data-dismiss-blocked={assetUploading() ? 'uploading' : undefined}>
+          <div class="widget-editor asset-editor widget-modal-editor" classList={{ 'asset-file-picker': !usesLogicalModelSource() }} data-testid="asset-editor" data-dismiss-blocked={assetUploading() ? 'uploading' : undefined}>
             <div class="asset-editor-scroll" ref={assetScroll}>
             <div class="asset-editor-context" data-testid="asset-schema-metadata" aria-label="Asset requirements">
               <strong>{assetMulti ? `Multiple ${assetVocabulary().plural}` : `Single ${assetVocabulary().singular}`}</strong>
@@ -769,6 +766,21 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                   <CollectionPanel
                     variant="select"
                     sources={assetPanelSources()}
+                    {...(usesLogicalModelSource() ? {} : {
+                      pageSize: 60,
+                      pagination: 'scroll',
+                      recursive: recursive(),
+                      sort: sort(),
+                      navigation: ({ selectedId, select, folder, navigate, mode, setMode }) =>
+                        <AssetBrowserNavigation sources={assetPanelSources()} selectedId={selectedId()} select={select}
+                          folder={folder()} navigate={navigate} recursive={recursive()} setRecursive={setRecursive}
+                          mode={mode()} setMode={setMode} />,
+                      entryContent: (entry) => <AssetEntryContent entry={entry()} />,
+                    } satisfies Partial<ComponentProps<typeof CollectionPanel>>)}
+                    toolbarActions={usesLogicalModelSource() ? undefined : <ProductSelect testId="asset-sort-select"
+                      ariaLabel={message('assets.order.label')} selectedId={sort()}
+                      options={(['newest', 'name', 'path'] as const).map((value) => ({ id: value, label: message(`assets.order.${value}`), value }))}
+                      onSelect={(option) => setSort(option.value)} />}
                     pick={{
                       pickable: usesLogicalModelSource()
                         ? logicalModelEntrySelectable

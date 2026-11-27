@@ -282,51 +282,92 @@ describe('ModalSurface', () => {
 })
 
 describe('ASSET widget modal integration', () => {
-  it('composes local and mounted media and retains local picks after mount failure', async () => {
-    const ref = (letter: string, name: string) => ({ digest: `blake3:${letter.repeat(64)}`, name, size: 12, mediaType: 'image/png', virtualPath: `images/${name}` })
-    const local = ref('a', 'local.png')
-    const mounted = ref('b', 'mounted.png')
-    const missing = ref('d', 'missing.png')
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'))
-    const connection = {
-      ...assetLocationMethods,
-      listMounts: vi.fn().mockResolvedValue([{ id: 'pictures', mode: 'read', state: 'ready', kind: 'media/image' }]),
-      listMountEntries: vi.fn().mockResolvedValue({ entries: [{ ...mounted, kind: 'media/image' }] }),
-      listLocalAssets: vi.fn().mockResolvedValue({ assets: [local, missing].map((asset) => ({ asset, aliases: [], observations: [{ kind: 'media/image', created: 1, origin: {} }] })) }),
-      checkAssetAvailability: vi.fn().mockResolvedValue([{ digest: local.digest, status: 'available' }, { digest: missing.digest, status: 'missing' }]),
-      assetUrl: (digest: string) => `/assets/${digest}`,
-      fetchAssetBytes: vi.fn().mockResolvedValue(undefined),
-    }
+  it.each([1, 2])('browses scoped files, subfolders and scroll pages before committing with %s mounts', async (count) => {
+    localStorage.clear()
+    const ref = (name: string) => ({ digest: `blake3:${'b'.repeat(64)}`, name, size: 12,
+      mediaType: 'image/png', kind: 'media/image', virtualPath: `mounts/pictures/${name}` })
+    const requests: URL[] = []
+    const connection = new DinksterConnection({ id: asConnectionId('native'), baseUrl: 'http://native', clientId: 'picker-test',
+      fetchFn: async (url) => {
+        const request = new URL(url); requests.push(request)
+        if (request.pathname === '/api/mounts') return new Response(JSON.stringify({ mounts: [
+          { id: 'pictures', mode: 'read', state: 'ready', kind: 'media/image' },
+          ...(count === 2 ? [{ id: 'archive', mode: 'read', state: 'ready', kind: 'media/image' }] : []),
+          { id: 'absent', mode: 'read', state: 'failed', kind: 'media/image' },
+          { id: 'models', mode: 'read', state: 'ready', kind: 'model/checkpoint' },
+        ], mountChangesAllowed: false }))
+        if (request.pathname === '/api/mounts/entries') return new Response(JSON.stringify(request.searchParams.has('cursor')
+          ? { entries: [ref('older.png')], total: 61 }
+          : { entries: Array.from({ length: 60 }, (_, index) => ref(`recent-${index}.png`)), cursor: 'more', total: 61 }))
+        if (request.pathname === '/api/mounts/pictures/entries') {
+          const deep = request.searchParams.get('recursive') === 'true'
+          const path = request.searchParams.get('path')
+          const search = request.searchParams.has('q')
+          return new Response(JSON.stringify({
+            entries: search ? deep ? [ref('portraits/nested/final.png')] : [] : [ref(path ? 'portraits/direct.png' : 'root.png')],
+            folders: !deep && !search ? [path ? 'nested' : 'portraits'] : [],
+          }))
+        }
+        return new Response(JSON.stringify({ entries: [], assets: [], locations: [] }))
+      },
+    })
     const dispatchTo = vi.fn()
     const backend = { protocol: 'dinkster', id: 'native', connection }
     const app = { backendForTab: () => backend, retainPickerAssets: vi.fn().mockResolvedValue(undefined), dispatchTo, widgetRegistry: { kind: () => undefined } } as unknown as AppState
     const ed: WidgetEditorState = {
-      ...widgetState('ASSET', { accept: ['image/png'] }, missing),
-      missingAssetDigest: missing.digest,
+      ...widgetState('ASSET', { accept: ['image/png'] }, null),
       spec: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] } },
     }
-    for (const offline of [false, true]) {
-      if (offline) connection.listMounts.mockRejectedValue(new Error('Mount discovery offline'))
-      const root = document.createElement('div')
-      document.body.append(root)
-      const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(offline ? 1 : 2))
-      expect(connection.fetchAssetBytes).not.toHaveBeenCalled()
-      const names = [...root.querySelectorAll('[data-testid="collection-entry"]')].map((entry) => entry.textContent)
-      expect(names.some((name) => name?.includes('local.png'))).toBe(true)
-      expect(names.some((name) => name?.includes('mounted.png'))).toBe(!offline)
-      if (offline) expect(root.textContent).toContain('Mount discovery offline')
-      const pick = [...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((entry) => entry.textContent?.includes(offline ? 'local.png' : 'mounted.png'))!
-      pick.click()
-      await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    const choose = (testId: string, id: string) => {
+      root.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!.click()
+      document.querySelector<HTMLElement>(`[data-option-id="${id}"]`)!.click()
+    }
+    const depth = (value: boolean) => {
+      const input = root.querySelector<HTMLInputElement>(`[aria-label="Folder depth"] input[value="${value}"]`)!
+      input.checked = true; input.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    try {
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(60))
+      const first = requests.find((request) => request.pathname === '/api/mounts/entries')!
+      expect(first.searchParams.getAll('mount')).toEqual(count === 1 ? ['pictures'] : ['pictures', 'archive'])
+      expect(first.searchParams.get('sort')).toBe('newest')
+      const viewport = root.querySelector<HTMLElement>('[data-testid="collection-items"]')!
+      expect(viewport.dataset.mode).toBe('grid')
+      expect(root.querySelector('[data-testid="collection-more"]')).toBeNull()
+      Object.defineProperties(viewport, { clientHeight: { value: 200 }, scrollHeight: { value: 1000 } })
+      viewport.scrollTop = 800; viewport.dispatchEvent(new Event('scroll'))
+      await vi.waitFor(() => expect(root.textContent).toContain('older.png'))
+      root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!.click()
+      expect(document.querySelector('[data-option-id="mount:absent"]')).toBeNull()
+      expect(document.querySelector('[data-option-id="mount:models"]')).toBeNull()
+      document.querySelector<HTMLElement>('[data-option-id="mount:pictures"]')!.click()
+      depth(false)
+      await vi.waitFor(() => expect(root.querySelector('[data-entry="mount:pictures:portraits"]')).not.toBeNull())
+      root.querySelector<HTMLElement>('[data-entry="mount:pictures:portraits"]')!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('pictures/portraits, this folder only'))
+      const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
+      search.value = 'final'; search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      await vi.waitFor(() => expect(root.textContent).toContain('No matching assets'))
+      depth(true)
+      await vi.waitFor(() => expect(root.textContent).toContain('portraits/nested/final.png'))
+      expect(search.value).toBe('final')
+      expect(root.textContent).toContain('pictures/portraits, with subfolders')
+      const names = root.querySelector<HTMLInputElement>('[aria-label="File view"] input[value="list"]')!
+      names.checked = true; names.dispatchEvent(new Event('change', { bubbles: true }))
+      expect(root.querySelector<HTMLElement>('[data-testid="collection-items"]')?.dataset.mode).toBe('list')
+      choose('asset-sort-select', 'name')
+      await vi.waitFor(() => expect(requests.at(-1)?.searchParams.get('sort')).toBe('name'))
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')).not.toBeNull())
+      root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('final.png'))
+      expect(dispatchTo).not.toHaveBeenCalled()
       root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
       expect(dispatchTo).toHaveBeenLastCalledWith(ed.tab, {
-        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: offline ? local : mounted },
+        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: expect.objectContaining({ name: 'portraits/nested/final.png', virtualPath: 'mounts/pictures/portraits/nested/final.png' }) },
       })
-      dispose()
-      root.remove()
-      connection.fetchAssetBytes.mockClear()
-    }
+    } finally { dispose(); connection.disconnect(); localStorage.clear() }
   })
 
   const catalogAssetEditor = (
@@ -760,41 +801,6 @@ describe('ASSET widget modal integration', () => {
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: null },
     })
     mounted.unmount()
-  })
-
-  it('offers media source facets by adapter ID while retaining unclassified assets only in All assets', async () => {
-    const mounted = catalogAssetEditor('media/image', undefined, null, false)
-    mounted.connection.listMounts.mockResolvedValue([
-      { id: 'comfy-input', mode: 'read', state: 'ready', kind: 'media/image' },
-      { id: 'comfy-output', mode: 'read', state: 'ready', kind: 'media/image' },
-      { id: 'archive', mode: 'read', state: 'ready', kind: 'media/image' },
-    ])
-    mounted.connection.listMountEntries.mockImplementation(async (mountId) => ({ entries: [{
-      digest: `blake3:${mountId === 'comfy-input' ? '1' : mountId === 'comfy-output' ? '2' : '3'}`.padEnd(71, mountId === 'archive' ? '3' : '0'),
-      name: `${mountId}.png`, size: 10, mediaType: 'application/x-safetensors', kind: 'media/image', virtualPath: `${mountId}.png`,
-    }] }))
-    const root = document.createElement('div')
-    document.body.append(root)
-    const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(({ backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: mounted.connection }), dispatchTo: vi.fn(), widgetRegistry: { kind: () => undefined } } as unknown as AppState), mounted.ed)} ed={mounted.ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-    await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(3))
-    expect(root.textContent).toContain('archive.png')
-    const source = root.querySelector<HTMLButtonElement>('[data-testid="collection-source-select"]')!
-    expect(source.textContent).toContain('All assets')
-    source.click()
-    expect(document.body.textContent).toContain('Imported')
-    expect(document.body.textContent).toContain('Generated')
-    Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent === 'Imported')!.click()
-    await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
-    expect(root.textContent).toContain('comfy-input.png')
-    expect(root.textContent).not.toContain('archive.png')
-    root.querySelector<HTMLButtonElement>('[data-testid="collection-source-select"]')!.click()
-    Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent === 'Generated')!.click()
-    await vi.waitFor(() => expect(root.textContent).toContain('comfy-output.png'))
-    expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1)
-    expect(root.textContent).toContain('comfy-output.png')
-    expect(root.textContent).not.toContain('comfy-input.png')
-    expect(root.textContent).not.toContain('archive.png')
-    unmount()
   })
 
   it('stages exact grouped variant refs for one multi-select Apply command', async () => {
@@ -1503,14 +1509,12 @@ describe('registered interactive widget expanded-editor integration', () => {
     }
     const backend = { protocol: 'dinkster', id: 'native', connection: {
       ...assetLocationMethods, fetchAssetBytes,
-      listLocalAssets: async () => ({ assets: [{
-        asset: { ...ref, digest: `blake3:${'b'.repeat(64)}`, name: 'replacement.png' },
-        aliases: ['replacement.png'], observations: [{ kind: 'media/image', created: 1, origin: {} }],
+      listMountEntries: async () => ({ entries: [{
+        ...ref, digest: `blake3:${'b'.repeat(64)}`, name: 'replacement.png', virtualPath: 'mounts/input/replacement.png', kind: 'media/image',
       }] }),
-      checkAssetAvailability: async () => [{ digest: `blake3:${'b'.repeat(64)}`, status: 'available' }],
       fetchAssetMetadata: async () => undefined,
       assetUrl: (digest: string) => `/api/assets/${encodeURIComponent(digest)}`,
-      listMounts: async () => [],
+      listMounts: async () => [{ id: 'input', mode: 'read', state: 'ready', kind: 'media/image' }],
     } }
     const app = { backendForTab: () => backend, dispatchTo: vi.fn(),
       workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
