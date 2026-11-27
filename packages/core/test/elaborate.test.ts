@@ -1055,6 +1055,32 @@ describe('formulas', () => {
 })
 
 describe('automatic values', () => {
+  it('does not use an unavailable input default for another row visibility or lookup', () => {
+    const leaf = intInput('leaf', {
+      unavailable: { code: 'boundary.branchInactive', message: 'Inactive option', inactive: true },
+      widget: { widgetType: 'INT', options: {}, default: 37 },
+    })
+    const observer = intInput('observer', { automatic: { lookup: 'captionFor', args: ['leaf'] } })
+    const visible = intInput('visible', { visible: { formula: 'leaf == 37' } })
+    const inspect = (source: InputSpec, values: Record<string, number> = {}) => {
+      const result = elaborateInterface(schemaOf([source, observer, visible]), { values })
+      return {
+        calls: lookupSitesOf(result.items).map((site) => site.call),
+        hidden: elabInputsOf(result).find((row) => row.spec.id === 'visible')?.spec.hidden === true,
+      }
+    }
+    expect(inspect(leaf)).toEqual({ calls: [], hidden: true })
+    expect(inspect(leaf, { leaf: 19 })).toEqual({
+      calls: [{ lookup: 'captionFor', args: [19] }], hidden: true,
+    })
+    const unsent = intInput('leaf', {
+      sent: false, widget: { widgetType: 'INT', options: {}, default: 37 },
+    })
+    expect(inspect(unsent)).toEqual({
+      calls: [{ lookup: 'captionFor', args: [37] }], hidden: false,
+    })
+  })
+
   const rate = intInput('rate', { widget: { widgetType: 'INT', options: {}, default: 48 } })
   const fps = intInput('fps', {
     automatic: { lookup: 'video.rate_of', args: ['rate'] },

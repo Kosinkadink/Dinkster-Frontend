@@ -1321,7 +1321,7 @@ function elaboratePass(
       } else if (row.kind === 'section' || row.kind === 'row') {
         defaultsUnder(row.rows, prefix, found, shared)
       } else if (row.kind === 'input') {
-        found.set(prefix + row.id, readWhenUnset(row))
+        found.set(prefix + row.id, row.unavailable === undefined ? readWhenUnset(row) : undefined)
       } else if (row.kind === 'state') {
         found.set(prefix + row.id, row.default)
       } else if (row.kind === 'choice') {
@@ -1339,7 +1339,7 @@ function elaboratePass(
       } else if (row.kind === 'group') {
         const path = prefix + row.id
         for (const key of membersFor(path)) {
-          if (row.value !== undefined) found.set(`${path}.${key}`, row.value.kind === 'input' ? readWhenUnset(row.value) : undefined)
+          if (row.value !== undefined) found.set(`${path}.${key}`, row.value.kind === 'input' && row.value.unavailable === undefined ? readWhenUnset(row.value) : undefined)
           else defaultsUnder(row.member ?? [], `${path}.${key}.`, found)
         }
       }
@@ -1469,7 +1469,7 @@ function elaboratePass(
       for (const row of scopeRowsOf(frame.rows)) {
         if (row.kind !== 'input' && row.kind !== 'state') continue
         const path = frame.prefix + row.id
-        if (!defaults.has(path)) defaults.set(path, row.kind === 'input' ? readWhenUnset(row) : row.default)
+        if (!defaults.has(path)) defaults.set(path, row.kind === 'input' ? (row.unavailable === undefined ? readWhenUnset(row) : undefined) : row.default)
       }
     }
     const member = [...scope.formulaFrames].reverse().find((frame) => frame.index !== undefined)
