@@ -3300,6 +3300,7 @@ export class AppState {
       backend: () => this.collabBackend()?.baseUrl,
       mediaConnection: (baseUrl) => activeProjectId() === boardProject
         ? this.backends.get().find((backend) => backend.baseUrl === baseUrl)?.connection : undefined,
+      uploadLimits: (baseUrl) => this.backends.get().find((backend) => backend.baseUrl === baseUrl)?.registry.get()?.uploadLimits,
       onConflict: (id, message) => this.reportProblems(id, [diag('warning', 'collab', 'board.session.conflict', message)]),
     })
     this.workspaceEvents = options?.workspaceEvents ?? (

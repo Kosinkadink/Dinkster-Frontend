@@ -18,7 +18,7 @@ function importName(name: string): string {
 /** Resolve mounted files first; missing native support or an explicit refusal permits byte upload. */
 export async function importAssetFile(file: File, options: {
   readonly baseUrl: string
-  readonly connection: DinksterConnection
+  readonly connection: Pick<DinksterConnection, 'fetchMountSettings' | 'uploadMediaAsset' | 'uploadLatentAsset' | 'uploadNamedAsset'>
   readonly accept: readonly string[]
   readonly kind: string | undefined
   readonly policy: ReturnType<typeof assetUploadPolicy>

@@ -248,6 +248,8 @@ class FakeCollabServer {
 }
 
 describe('Board workspace collaboration', () => {
+  beforeEach(() => { vi.stubGlobal('window', Object.assign(new EventTarget(), { location: { href: 'http://collab/' } })) })
+
   it('imports every media kind as one shared undoable edit without removing a foreign note', async () => {
     const server = new FakeCollabServer()
     const a = makeApp(server)
@@ -264,7 +266,7 @@ describe('Board workspace collaboration', () => {
     }))
     const ids = await a.boards.importMedia(shared.id, files.map((file, index) => ({ file,
       ...(index === 0 ? { width: 300, height: 600 } : index === 1 ? { width: 1920, height: 1080, duration: 4 } : { duration: 3 }),
-    })), { x: 37, y: 91 })
+    })), { x: 37, y: 91 }, { mount: 'imports' })
     await shared.shared!.session.settle()
     await until(() => joined.session.doc.order.length === 3)
     expect(ids.map((id) => shared.session.doc.items[id]!.kind)).toEqual(['picture', 'video', 'sound'])
@@ -338,7 +340,7 @@ describe('Board workspace collaboration', () => {
         mediaType: file.type, virtualPath: `mounts/imports/${file.name}` }
     })
     const abort = new AbortController()
-    const importing = app.boards.importMedia(entry.id, ['first.png', 'second.png'].map((name) => ({ file: new File(['image'], name, { type: 'image/png' }) })), { x: 17, y: 29 }, {}, abort.signal)
+    const importing = app.boards.importMedia(entry.id, ['first.png', 'second.png'].map((name) => ({ file: new File(['image'], name, { type: 'image/png' }) })), { x: 17, y: 29 }, { mount: 'imports' }, abort.signal)
     const rejected = expect(importing).rejects.toThrow()
     await waiting
     let replacement = entry
@@ -355,6 +357,39 @@ describe('Board workspace collaboration', () => {
     await rejected
     expect(entry.session.doc.order).toEqual([])
     expect(replacement.session.doc.order).toEqual([])
+  })
+
+  it('uses native Board imports before browser caps and follows the owning engine byte policy', async () => {
+    const app = makeApp(new FakeCollabServer())
+    const entry = app.boards.open(emptyBoard(), 'References', 'http://collab')
+    const backend = app.backends.get().find((candidate) => candidate.baseUrl === entry.baseUrl)!
+    const registry = backend.registry.get()!
+    backend.registry.set({ ...registry, uploadLimits: { 'media/video': 7 } })
+    const native = { digest: `blake3:${'a'.repeat(64)}`, name: 'accepted-native.mp4', size: 1024 ** 3 + 1,
+      mediaType: 'video/mp4', virtualPath: 'mounts/plates/scene/accepted-native.mp4' }
+    let useNative = true
+    vi.stubGlobal('window', Object.assign(new EventTarget(), { location: { href: 'http://collab/' }, dinksterDesktop: {
+      fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: false }),
+      importFile: async () => useNative ? { status: 'imported', asset: native }
+        : { status: 'refused', reason: 'not-native-file' },
+    } }))
+    const file = new File(['12345678'], 'chosen.mp4', { type: 'video/mp4' })
+    Object.defineProperty(file, 'size', { value: native.size })
+    const placed = await app.boards.importMedia(entry.id, [{ file, width: 1920, height: 1080 }],
+      { x: 17, y: 29 }, { mount: 'plates', folder: 'scene' })
+    expect(entry.session.doc.items[placed[0]!]).toMatchObject({ kind: 'video',
+      asset: { digest: native.digest, name: native.name }, rect: { x: 17, y: 29, width: 280, height: 157.5 } })
+    const before = entry.session.doc
+    useNative = false
+    const bytes = new File(['12345678'], 'streamed.mp4', { type: 'video/mp4' })
+    await expect(app.boards.importMedia(entry.id, [{ file: bytes }], { x: 17, y: 29 }, { mount: 'plates' }))
+      .rejects.toThrow('This engine takes videos up to 7 B')
+    expect(entry.session.doc).toBe(before)
+    backend.registry.set({ ...registry, uploadLimits: null })
+    vi.spyOn(backend.connection, 'uploadMediaAsset').mockResolvedValue({ ...native, size: bytes.size, name: 'accepted-stream.mp4' })
+    const streamed = await app.boards.importMedia(entry.id, [{ file: bytes }], { x: 41, y: 53 }, { mount: 'plates' })
+    expect(entry.session.doc.items[streamed[0]!]).toMatchObject({ kind: 'video', asset: { name: 'accepted-stream.mp4' },
+      rect: { x: 41, y: 53 } })
   })
 
   it('shares and joins a Board, isolates project discovery, and leaves with the latest document', async () => {
@@ -406,7 +441,7 @@ describe('Board workspace collaboration', () => {
     server.transport.rename = rename
     const otherProject = new BoardWorkspace({
       transport: server.transport, project: 'another-project', actorId: 'other',
-      backend: () => 'http://collab', mediaConnection: () => undefined, onConflict: () => undefined,
+      backend: () => 'http://collab', mediaConnection: () => undefined, uploadLimits: () => undefined, onConflict: () => undefined,
     })
     try {
       expect(await otherProject.discover()).toEqual([])
