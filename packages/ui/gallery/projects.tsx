@@ -793,6 +793,7 @@ export function ProjectsGallery() {
         <span>
           <ProductSegmented
             label="Start with"
+            overflow="select"
             value={startWith()}
             onChange={setStartWith}
             options={[
