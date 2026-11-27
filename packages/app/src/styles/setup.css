@@ -7,6 +7,8 @@
 .setup-facts dd > :first-child { grid-column: 1; }
 .setup-facts dd > button, .setup-facts dd > .dinkster-menu-anchor { justify-self: end; }
 .setup-facts .dinkster-menu-trigger[data-fill='quiet'] { min-height: 0; padding: 0; border-width: 0; }
+/* The round-capped chevron ends at 19 in its 24-unit viewBox. */
+.setup-facts .dinkster-menu-trigger[data-fill='quiet'] > .dinkster-icon:last-child { transform: translateX(calc(100% * 5 / 24)); }
 .setup-facts dd > span { overflow-wrap: anywhere; }
 .setup-facts dd > div { min-width: 0; overflow-wrap: anywhere; }
 .setup-facts p { margin: var(--dinkster-space-4) 0 0; }
