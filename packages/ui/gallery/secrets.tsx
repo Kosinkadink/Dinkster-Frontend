@@ -86,15 +86,19 @@ export function SecretsGallery() {
       <ProductCheckbox label="Reject the next removal" checked={rejectRemoval()} onChange={(event) => setRejectRemoval(event.currentTarget.checked)} />
       <ProductButton onClick={() => setOpen(true)}>Set caption-service</ProductButton>
       <Show when={open()}>
-        <ProductSecretDialog name="caption-service" contextKey="gallery-account-on-this-host" canManageDeployment={admin()}
-          removalFallback={fallback()} {...(personal() ? { onRemove: async () => {
+        <ProductSecretDialog name="caption-service" names={['caption-service', 'caption-service-work', 'image-host']} contextKey="gallery-account-on-this-host" canManageDeployment={admin()}
+          onRead={async (name) => ({ set: name !== 'caption-service' || personal() || fallback(),
+            source: name !== 'caption-service' || personal() ? 'account' : fallback() ? 'deployment' : null,
+            fallback: name === 'caption-service' && personal() && fallback() })}
+          onUse={async () => {}}
+          onRemove={async () => {
             await new Promise<void>((resolve) => window.setTimeout(resolve, 600))
             if (rejectRemoval()) {
               setRejectRemoval(false)
               throw new Error('Synthetic private refusal')
             }
             setPersonal(false)
-          } } : {})}
+          }}
           onSave={async () => {
             await new Promise<void>((resolve) => window.setTimeout(resolve, 600))
             if (reject()) {

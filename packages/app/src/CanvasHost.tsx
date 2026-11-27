@@ -1754,7 +1754,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [editor, setEditor] = createSolidSignal<WidgetEditorState | undefined>(undefined)
   const [secretEditor, setSecretEditor] = createSolidSignal<{
     readonly tab: Tab; readonly backend: Backend; readonly principal: number; readonly name: string; readonly canManageDeployment: boolean
-    readonly source: 'account' | 'deployment' | null; readonly fallback: boolean
+    readonly names: readonly string[]; readonly chooseName: (name: string) => Promise<void>
   }>()
   const [secretRevision, setSecretRevision] = createSolidSignal(0)
   const [secretFacts, setSecretFacts] = createSolidSignal<Record<string, Json>>({})
@@ -5183,8 +5183,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (node.fieldRows ?? node.layout.rows).flatMap((row): Diagnostic[] => {
           if (row.kind !== 'widget' || row.secret !== true || row.optional === true) return []
           const name = row.derivedValue ?? node.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
-          if (typeof name !== 'string' || secretFacts()[name] === true) return []
-          return [diag('error', 'validation', 'secret.required.missing', message('secretWidget.required', { name }), {
+          if (typeof name === 'string' && secretFacts()[name] === true) return []
+          return [diag('error', 'validation', 'secret.required.missing', typeof name === 'string' && name !== ''
+            ? message('secretWidget.required', { name }) : message('secretWidget.unnamedMissing'), {
             refs: [{ graphId: scene.graphId, nodeId: node.id, portId: row.inputId, valueKey: row.valueKey, direction: 'input' }],
             anchor: { occurrence: { instancePath: (viewInstancePath(tab) ?? []).map(asNodeId), node: asNodeId(node.id) } },
             data: { input: row.valueKey },
@@ -5793,17 +5794,23 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (hit.row.secret === true) {
         const backend = props.app.backendForTab(tab)
         const name = hit.row.derivedValue ?? tab.store.doc.graphs[valueGraphId]?.nodes[valueNodeId]?.values[valueKey] ?? effectiveWidgetDefault(spec)
-        if (typeof name !== 'string' || name === '') {
-          showGestureRefusal([diag('error', 'command', 'secret.name.required', 'Choose a credential name')])
-          return
-        }
         const request = ++secretOpenRequest
         const principal = backend.connection.principalGeneration.get()
         const isCurrent = () => request === secretOpenRequest && secretContextIsCurrent(tab, backend, principal)
-        void backend.connection.fetchSecretPresence(name).then((presence) => {
+        const initialName = typeof name === 'string' ? name : ''
+        void backend.connection.fetchSecretNames().then((available) => {
           if (!isCurrent()) return
-          setSecretEditor({ tab, backend, principal, name, canManageDeployment: presence.canManageDeployment,
-            source: presence.source, fallback: presence.fallback })
+          setSecretEditor({ tab, backend, principal, name: initialName, canManageDeployment: available.canManageDeployment,
+            names: available.names, chooseName: async (chosen) => {
+              if (!isCurrent()) throw new Error('Secret context changed')
+              if (chosen === initialName) return
+              const outcome = await props.app.dispatchTo(tab,
+                withMaterializeFrames(valueGraphId, valueNodeId, hit.row.materialize, {
+                  command: 'node.setValue',
+                  params: { graphId: valueGraphId, nodeId: valueNodeId, inputId: valueKey, value: chosen },
+                }))
+              if (!outcome.ok) throw new Error('Cannot choose this secret')
+            } })
         }).catch(() => {
           if (isCurrent()) showGestureRefusal([diag('error', 'command', 'secret.access.failed', 'Cannot access secret. Try again')])
         })
@@ -8422,15 +8429,25 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
 
       <Show when={secretEditor()} keyed>
-        {(target) => <ProductSecretDialog name={target.name} contextKey={`${target.tab.id}:${target.backend.id}`}
-          canManageDeployment={target.canManageDeployment} removalFallback={target.fallback}
-          {...(target.source === 'account' ? { onRemove: async () => {
+        {(target) => <ProductSecretDialog name={target.name} names={target.names} contextKey={`${target.tab.id}:${target.backend.id}:${target.principal}`}
+          canManageDeployment={target.canManageDeployment}
+          onRead={async (name) => {
             if (!secretContextIsCurrent(target.tab, target.backend, target.principal)) throw new Error('Secret context changed')
-            await target.backend.connection.removeSecret(target.name)
-          } } : {})}
-          onSave={async (value, scope) => {
+            return target.backend.connection.fetchSecretPresence(name)
+          }}
+          onRemove={async (name) => {
             if (!secretContextIsCurrent(target.tab, target.backend, target.principal)) throw new Error('Secret context changed')
-            await target.backend.connection.saveSecret(target.name, value, scope)
+            await target.backend.connection.removeSecret(name)
+          }}
+          onUse={async (name) => {
+            if (!secretContextIsCurrent(target.tab, target.backend, target.principal)) throw new Error('Secret context changed')
+            if (!(await target.backend.connection.fetchSecretPresence(name)).set) throw new Error('Secret is not set')
+            await target.chooseName(name)
+          }}
+          onSave={async (value, scope, name) => {
+            if (!secretContextIsCurrent(target.tab, target.backend, target.principal)) throw new Error('Secret context changed')
+            await target.backend.connection.saveSecret(name, value, scope)
+            await target.chooseName(name)
           }}
           onCancel={() => setSecretEditor(undefined)}
           onSaved={() => {

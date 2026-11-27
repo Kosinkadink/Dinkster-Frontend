@@ -256,6 +256,7 @@
   "modelDownloads.downloadOne": "Download 1 model",
   "modelDownloads.download": "Download {count} models",
   "modelDownloads.run": "Run",
+  "secretWidget.unnamedMissing": "Secret is not set.",
   "secretWidget.set": "Set",
   "secretWidget.notSet": "Not set",
   "secretWidget.required": "Secret \"{name}\" is not set.",

@@ -151,7 +151,7 @@ export const secretKind: WidgetKind<string> = {
   valueSchema: stringSchema,
   defaultValue: (spec) => typeof spec.default === 'string' ? spec.default : '',
   validate: (value) => value === '' || (value.length <= 128 && /^[A-Za-z_]/.test(value) && !/[^A-Za-z0-9_.-]/.test(value)) ? []
-    : [diag('error', 'schema', 'widget.SECRET.invalid', 'Choose a credential name')],
+    : [diag('error', 'schema', 'widget.SECRET.invalid', 'Choose a secret name')],
   defaultView: () => 'core.secret',
 }
 
@@ -1066,9 +1066,10 @@ export const secretView: WidgetView<string> = {
     const set = isJsonObject(presence) && Object.hasOwn(presence, value) && presence[value] === true
     const status = t(set ? 'secretWidget.set' : 'secretWidget.notSet')
     if (state.required === true && !set) ctx.rect(0, 0, 1, 1, { role: 'widgetProblem', severity: 'error' })
-    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '', `${value} ${status}`.trim(), state, 'widget.edit', false, {
+    const name = typeof value === 'string' ? value : ''
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '', `${name} ${status}`.trim(), state, 'widget.edit', false, {
       labelFirst: true,
-      parts: [{ text: value }, { text: ` ${status}`, look: state.required === true && !set ? 'error' : 'muted' }],
+      parts: [{ text: name }, { text: `${name ? ' ' : ''}${status}`, look: state.required === true && !set ? 'error' : 'muted' }],
     })
   },
   readout: () => [],

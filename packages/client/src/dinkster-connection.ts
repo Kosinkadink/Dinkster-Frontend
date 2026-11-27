@@ -2459,6 +2459,20 @@ export class DinksterConnection {
     return await res.json() as RuntimeSettings
   }
 
+  async fetchSecretNames(): Promise<{ names: readonly string[]; canManageDeployment: boolean }> {
+    try {
+      const response = await this.fetchFn(`${this.baseUrl}/api/secrets`, { cache: 'no-store', redirect: 'error' })
+      if (!response.ok) throw new Error()
+      const raw: unknown = await response.json()
+      if (!record(raw) || !requiredAndOptionalKeys(raw, ['names', 'canManageDeployment'], []) ||
+        typeof raw['canManageDeployment'] !== 'boolean' || !Array.isArray(raw['names']) ||
+        !raw['names'].every((name: unknown) => typeof name === 'string' && name.length <= 128 && /^[A-Za-z_]/.test(name) && !/[^A-Za-z0-9_.-]/.test(name))) throw new Error()
+      return { names: raw['names'] as string[], canManageDeployment: raw['canManageDeployment'] }
+    } catch {
+      throw new Error('Cannot access secret. Try again')
+    }
+  }
+
   /** Presence is never cached: it belongs to the current host and signed-in account. */
   async fetchSecretPresence(name: string, signal?: AbortSignal): Promise<SecretPresence> {
     return this.requestSecret(name, '', { method: 'GET', ...(signal === undefined ? {} : { signal }) })

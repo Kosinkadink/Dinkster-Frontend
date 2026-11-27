@@ -680,6 +680,10 @@ describe('named secrets', () => {
     const mutations: { method: string; body: unknown }[] = []
     const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'secrets', token: 'account-session',
       webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        if (url === '/engine/api/secrets') {
+          expect(init?.cache).toBe('no-store')
+          return jsonResponse(200, { names: ['service_key', 'work-key'], canManageDeployment: false })
+        }
         expect(url).toBe(`/engine/api/secrets/service_key${init?.method === 'DELETE' ? '?scope=account' : ''}`)
         expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer account-session')
         expect(init?.cache).toBe('no-store')
@@ -693,6 +697,7 @@ describe('named secrets', () => {
         }
         return jsonResponse(200, presence)
       } })
+    expect(await connection.fetchSecretNames()).toEqual({ names: ['service_key', 'work-key'], canManageDeployment: false })
     expect(await connection.fetchSecretPresence('service_key')).toEqual(absent)
     expect(await connection.saveSecret('service_key', 'synthetic credential')).toEqual(own)
     expect(mutations).toEqual([{ method: 'PUT', body: { value: 'synthetic credential', scope: 'account' } }])

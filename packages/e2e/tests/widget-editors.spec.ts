@@ -23,8 +23,15 @@ catalogTest('secret rows save and remove through the selected connection without
     available: true, canStartSignIn: true, signInUnavailableReason: null, signedIn: true,
     profile: null, signIn: { state: 'idle' }, principalRevision: principal,
   } }))
+  await page.route('/api/secrets', (route) => route.fulfill({ json: {
+    names: ['caption-service', 'caption-service-work', 'image-host'], canManageDeployment: false,
+  } }))
   await page.route('/api/secrets/caption-service*', (route) => {
     const request = route.request()
+    if (new URL(request.url()).pathname.endsWith('/caption-service-work')) {
+      expect(request.method()).toBe('GET')
+      return route.fulfill({ json: { name: 'caption-service-work', set: true, source: 'account', fallback: false, canManageDeployment: false } })
+    }
     if (request.method() === 'PUT') {
       expect(request.postDataJSON()).toEqual({ value: 'synthetic-editor-credential', scope: 'account' })
       writes.push('save')
@@ -34,7 +41,7 @@ catalogTest('secret rows save and remove through the selected connection without
       writes.push('remove')
       source = 'deployment'
     }
-    return route.fulfill({ json: { name: 'caption-service', set: source !== null, source,
+    return route.fulfill({ json: { name: new URL(request.url()).pathname.split('/').at(-1), set: source !== null, source,
       fallback: source === 'account', canManageDeployment: false } })
   })
   await page.goto('/')
@@ -67,12 +74,13 @@ catalogTest('secret rows save and remove through the selected connection without
   await expect(box.getByRole('button', { name: 'Set secret', exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('secret-required-before-save.png') })
   await box.getByRole('button', { name: 'Set secret', exact: true }).click()
-  let dialog = page.getByRole('dialog', { name: 'Set caption-service', exact: true })
+  let dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   await missing.getByRole('button', { name: 'Set secret', exact: true }).click()
-  dialog = page.getByRole('dialog', { name: 'Set caption-service', exact: true })
-  await expect(dialog.getByRole('combobox')).toHaveCount(0)
+  dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
+  await expect(dialog.getByRole('combobox', { name: 'Name', exact: true })).toHaveValue('caption-service')
+  await expect(dialog.getByRole('combobox', { name: 'Scope', exact: true })).toHaveCount(0)
   await expect(dialog.getByRole('button', { name: 'Remove secret', exact: true })).toHaveCount(0)
   await dialog.getByLabel('Secret value', { exact: true }).fill('synthetic-editor-credential')
   await dialog.getByRole('button', { name: 'Save secret', exact: true }).click()
@@ -83,7 +91,7 @@ catalogTest('secret rows save and remove through the selected connection without
   await page.screenshot({ path: testInfo.outputPath('secret-set-editor.png') })
   const point = await nodeRowPoint(page, 'caption', 'credential')
   await page.mouse.click(point.x, point.y)
-  dialog = page.getByRole('dialog', { name: 'Set caption-service', exact: true })
+  dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
   await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
   await dialog.getByRole('button', { name: 'Remove secret', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Remove your value for "caption-service"?', exact: true })
@@ -95,7 +103,7 @@ catalogTest('secret rows save and remove through the selected connection without
   expect(writes).toEqual(['save', 'remove'])
   expect((await activeDoc(page)).graphs).toEqual(graph)
   await page.mouse.click(point.x, point.y)
-  dialog = page.getByRole('dialog', { name: 'Set caption-service', exact: true })
+  dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
   await expect(dialog.getByRole('button', { name: 'Remove secret', exact: true })).toHaveCount(0)
   await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
   await dialog.getByLabel('Secret value', { exact: true }).fill('unsaved-account-a-credential')
@@ -109,6 +117,51 @@ catalogTest('secret rows save and remove through the selected connection without
   await page.mouse.click(point.x, point.y)
   await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
   await expect(dialog.getByRole('button', { name: 'Remove secret', exact: true })).toHaveCount(0)
+  await dialog.getByRole('combobox', { name: 'Name', exact: true }).click()
+  await page.getByRole('option', { name: 'caption-service-work', exact: true }).click()
+  await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveAttribute('placeholder', 'Leave empty to keep the saved value')
+  await dialog.getByRole('button', { name: 'Use secret', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(writes).toEqual(['save', 'remove'])
+  expect((await activeDoc(page)).graphs.g0!.nodes.caption!.values.credential).toBe('caption-service-work')
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect((await activeDoc(page)).graphs).toEqual(graph)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'UnnamedSecret', displayName: 'Unnamed secret', source: 'v3', category: 'test', isOutputNode: false,
+      body: [{ kind: 'input', id: 'credential', displayName: 'Caption service', type: { kind: 'concrete', name: 'STRING' },
+        secret: true, socketless: true, optional: false,
+        widget: { widgetType: 'SECRET', options: {} } }],
+    }])
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'unnamed-secret', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Caption', nextOrdinal: 2,
+        nodes: { caption: { id: 'caption', type: 'UnnamedSecret', values: {} } }, links: {}, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { caption: { position: { x: 100, y: 100 }, size: { width: 450, height: 0 } } } } } },
+    }, 'Unnamed secret')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const unnamedGraph = (await activeDoc(page)).graphs
+  const unnamedPoint = await nodeRowPoint(page, 'caption', 'credential')
+  await page.mouse.click(unnamedPoint.x, unnamedPoint.y)
+  dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
+  const name = dialog.getByRole('combobox', { name: 'Name', exact: true })
+  await expect(name).toHaveValue('')
+  await expect(name).toBeFocused()
+  await expect(name).toHaveAttribute('placeholder', 'Choose or type a name')
+  await expect(dialog.getByRole('button', { name: 'Save secret', exact: true })).toBeDisabled()
+  await name.fill('not a name')
+  await expect(name).toHaveAttribute('aria-invalid', 'true')
+  await expect(dialog.getByRole('button', { name: 'Save secret', exact: true })).toBeDisabled()
+  await name.fill('caption-service-new')
+  await name.press('Escape')
+  await dialog.getByLabel('Secret value', { exact: true }).fill('synthetic-editor-credential')
+  await dialog.getByRole('button', { name: 'Save secret', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(writes).toEqual(['save', 'remove', 'save'])
+  expect((await activeDoc(page)).graphs.g0!.nodes.caption!.values.credential).toBe('caption-service-new')
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect((await activeDoc(page)).graphs).toEqual(unnamedGraph)
 })
 
 catalogTest('a Slider with an overflowing range explains its Number fallback', async ({ page }, testInfo) => {

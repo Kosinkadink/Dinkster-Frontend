@@ -491,6 +491,7 @@ interface DinksterTestBridge {
         scopedClient: Pick<import('@dinkster/client').RefreshableScopedClient, 'remoteChoices'>
         connection: {
           status: { get(): string }
+          accountStatus(): Promise<unknown>
           ingest(event: Readonly<Record<string, unknown>> & { type: string }): void
           onLiveCompletion(listener: (execution: DinksterBridgeExecutionRef) => void): () => void
         }
