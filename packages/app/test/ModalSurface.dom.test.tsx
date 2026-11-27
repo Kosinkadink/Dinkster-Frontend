@@ -724,6 +724,38 @@ describe('ASSET widget modal integration', () => {
     mounted.unmount()
   })
 
+  it('scopes model grouping to the chosen folder without changing the staged file', async () => {
+    const mounted = catalogAssetEditor('model/checkpoint', undefined, null, false)
+    const right = { digest: mounted.digestA, name: 'shared.safetensors', size: 100,
+      mediaType: 'application/x-safetensors', kind: 'model/checkpoint', virtualPath: 'z/shared.safetensors' }
+    mounted.connection.listMountEntries.mockImplementation(async (mount) => ({ entries: [
+      mount === 'right' ? right : { ...right, virtualPath: 'a/shared.safetensors' },
+    ] }))
+    const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(mounted.app, mounted.ed)} ed={mounted.ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    try {
+      await modelChoices(mounted.root, 1)
+      const folder = () => mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-model-folder"]')!
+      expect(folder()?.textContent).toContain('All model folders')
+      folder().click()
+      document.querySelector<HTMLElement>('[data-option-id="mount:right"]')!.click()
+      const choices = await modelChoices(mounted.root, 1)
+      choices[0]!.click()
+      await vi.waitFor(() => expect(choices[0]!.getAttribute('aria-pressed')).toBe('true'))
+      expect(mounted.root.querySelector('[data-testid="logical-model-variant-details"]')?.textContent).toContain('z/shared.safetensors')
+      folder().click()
+      document.querySelector<HTMLElement>('[data-option-id="mount:left"]')!.click()
+      await modelChoices(mounted.root, 1)
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+      mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+      expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
+        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset',
+          value: { digest: mounted.digestA, name: right.name, size: right.size,
+            mediaType: right.mediaType, virtualPath: right.virtualPath } },
+      })
+    } finally { unmount() }
+  })
+
   it('does not commit a pending pick after cancellation', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
     let complete!: () => void

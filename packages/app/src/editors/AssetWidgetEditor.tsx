@@ -190,6 +190,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   const [logicalModelsError, setLogicalModelsError] = createSolidSignal<string | undefined>(undefined)
   const [logicalModelsLoading, setLogicalModelsLoading] = createSolidSignal(false)
   const [modelQuery, setModelQuery] = createSolidSignal('')
+  const [modelFolder, setModelFolder] = createSolidSignal('')
   const [inspectedModel, setInspectedModel] = createSolidSignal<{ modelId: string; versionId: string }>()
   const unresolvedAsset = ed.spec?.selection !== true && typeof ed.initial === 'string' ? ed.initial : undefined
   const [assetMatchCandidates, setAssetMatchCandidates] = createSolidSignal<readonly AssetGuessCandidate[]>([])
@@ -359,7 +360,8 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     setLogicalModelsError(undefined)
     try {
       const sourceErrors: string[] = []
-      const localAdapter = await localMountScanAdapter(sources, kind, assetAccept(), {
+      const scoped = modelFolder() === '' ? sources : sources.filter((source) => source.id === modelFolder())
+      const localAdapter = await localMountScanAdapter(scoped, kind, assetAccept(), {
         signal: abort.signal,
         onSourceError: (message) => sourceErrors.push(message),
       })
@@ -792,6 +794,18 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                   />}>
                     <ProductTextInput type="search" aria-label={message('assets.models.search')} placeholder={message('assets.models.search')} value={modelQuery()}
                       onInput={(event) => setModelQuery(event.currentTarget.value)} />
+                    <ProductSelect testId="asset-model-folder" ariaLabel={message('assets.models.folder')} selectedId={modelFolder()}
+                      options={[
+                        { id: '', value: '', label: message('assets.models.allFolders') },
+                        ...(assetSources() ?? []).filter((source) => source.id.startsWith('mount:'))
+                          .map((source) => ({ id: source.id, value: source.id, label: source.label })),
+                      ]}
+                      onSelect={(option) => {
+                        setModelFolder(option.value)
+                        setLogicalModels(undefined)
+                        setInspectedModel(undefined)
+                        void loadLogicalModels(assetSources() ?? [])
+                      }} />
                     <ProductModelList label={message('assets.models.title')} models={modelRows()} selected={selectedModelKeys()} inlineDetails={false}
                       onSelect={(modelId, versionId) => setInspectedModel({ modelId, versionId })}
                       onChoose={(id, versionId) => {

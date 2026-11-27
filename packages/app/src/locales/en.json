@@ -583,6 +583,8 @@
   "assets.logicalModel.variant": "Variant",
   "assets.models.title": "Models",
   "assets.models.search": "Search models",
+  "assets.models.folder": "Model folder",
+  "assets.models.allFolders": "All model folders",
   "assets.metadata.inspect": "Inspect model metadata",
   "assets.metadata.loading": "loading",
   "assets.metadata.unsupported": "Metadata inspection is unsupported.",
