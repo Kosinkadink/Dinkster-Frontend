@@ -93,6 +93,41 @@ async function pair(server: Server) {
 }
 
 describe('Board sessions', () => {
+  it('preserves another editor\'s card input when undoing a local input change', async () => {
+    const server = new Server()
+    const a = await connectSharedBoardSession(server.connect().connection, server.descriptor(), { retryDelay: async () => {} })
+    const b = await connectSharedBoardSession(server.connect().connection, server.descriptor(), { retryDelay: async () => {} })
+    try {
+      expect(a.dispatch({ command: 'board.item.add', params: { items: [{
+        id: 'card', kind: 'workflow', name: 'Rain', source: { kind: 'library', recordId: 'saved' },
+        values: {}, rect: { x: 0, y: 0, width: 340, height: 240 },
+      }] } }).ok).toBe(true)
+      await a.settle()
+      expect(a.dispatch({ command: 'board.card.input', params: {
+        id: 'card', input: { graphId: 'g0', nodeId: 'node', inputId: 'prompt' }, value: 'Rain at night',
+      } }).ok).toBe(true)
+      expect(b.dispatch({ command: 'board.card.input', params: {
+        id: 'card', input: { graphId: 'g0', nodeId: 'node', inputId: 'count' }, value: 4,
+      } }).ok).toBe(true)
+      await Promise.all([a.settle(), b.settle()])
+      expect(b.doc.items['card']).toMatchObject({ values: {
+        '["g0","node","prompt"]': 'Rain at night', '["g0","node","count"]': 4,
+      } })
+      expect(a.undo()).toBe(true)
+      await a.settle()
+      expect(a.doc).toEqual(b.doc)
+      expect(a.doc.items['card']).toMatchObject({ values: { '["g0","node","count"]': 4 } })
+      const item = a.doc.items['card']!
+      expect('values' in item && Object.hasOwn(item.values, '["g0","node","prompt"]')).toBe(false)
+      expect(a.redo()).toBe(true)
+      await a.settle()
+      expect(a.doc).toEqual(b.doc)
+      expect(b.doc.items['card']).toMatchObject({ values: {
+        '["g0","node","prompt"]': 'Rain at night', '["g0","node","count"]': 4,
+      } })
+    } finally { a.close(); b.close() }
+  })
+
   it('creates and edits notes without randomUUID, retaining identities through undo and shared replay', async () => {
     const crypto = globalThis.crypto
     vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })

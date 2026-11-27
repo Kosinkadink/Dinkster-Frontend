@@ -1,7 +1,7 @@
 /**
- * The Board document: a free surface where pictures, video, sound, notes and
- * named sections are laid out. It is a document kind of its own, saved
- * beside workflows, and holds media only as asset-digest references.
+ * The Board document: a free surface for media, notes, named sections and
+ * runnable cards. Saved beside workflows, it holds media by asset digest
+ * and workflow or blueprint cards by library or pack references.
  *
  * Coordinates are unsnapped world units. Items are keyed by id; `order`
  * is paint order, last on top. Sections are painted under every other item
@@ -25,7 +25,7 @@ export const BOARD_MAX_EXTENT = 1_000_000
 export const BOARD_MIN_SIDE = 16
 
 export type BoardMediaKind = 'picture' | 'video' | 'sound'
-export type BoardItemKind = BoardMediaKind | 'note' | 'section'
+export type BoardItemKind = BoardMediaKind | 'note' | 'section' | 'workflow' | 'blueprint'
 
 export interface BoardRect {
   readonly x: number
@@ -70,7 +70,22 @@ export interface BoardSectionItem {
   readonly name: string
 }
 
-export type BoardItem = (BoardMediaItem | BoardNoteItem | BoardSectionItem) & {
+export type BoardCardSource =
+  | { readonly kind: 'library'; readonly recordId: string }
+  | { readonly kind: 'pack'; readonly packId: string; readonly blueprintId: string; readonly digest: string }
+
+export interface BoardCardItem {
+  readonly id: string
+  readonly kind: 'workflow' | 'blueprint'
+  readonly rect: BoardRect
+  readonly name: string
+  /** Resolved on the Board's owning project and backend, never the active tab's. */
+  readonly source: BoardCardSource
+  /** Card-owned overrides keyed by exposedKey, not values written into the source. */
+  readonly values: JsonObject
+}
+
+export type BoardItem = (BoardMediaItem | BoardNoteItem | BoardSectionItem | BoardCardItem) & {
   readonly sectionId?: string
 }
 
@@ -165,6 +180,19 @@ function readRect(value: Json | undefined, where: string): BoardRect | Diagnosti
 
 const text = (value: Json | undefined, max: number): value is string => typeof value === 'string' && value.length <= max
 
+function readCardSource(value: Json | undefined, kind: 'workflow' | 'blueprint', where: string): BoardCardSource | Diagnostic {
+  if (!isObject(value)) return fail('source.invalid', `${where}: source must be an object`)
+  const nonempty = (value: Json | undefined): value is string => text(value, BOARD_MAX_NAME) && value.length > 0
+  if (value['kind'] === 'library' && Object.keys(value).every((key) => ['kind', 'recordId'].includes(key)) && nonempty(value['recordId'])) {
+    return { kind: 'library', recordId: value['recordId'] }
+  }
+  if (kind === 'blueprint' && value['kind'] === 'pack' && Object.keys(value).every((key) => ['kind', 'packId', 'blueprintId', 'digest'].includes(key)) &&
+    nonempty(value['packId']) && nonempty(value['blueprintId']) && typeof value['digest'] === 'string' && /^sha256:[0-9a-f]{64}(?![\s\S])/.test(value['digest'])) {
+    return { kind: 'pack', packId: value['packId'], blueprintId: value['blueprintId'], digest: value['digest'] }
+  }
+  return fail('source.invalid', `${where}: source must reference a library record or a blueprint pack digest`)
+}
+
 function readAsset(value: Json | undefined, where: string): BoardAsset | Diagnostic {
   if (!isObject(value)) return fail('asset.invalid', `${where}: asset must be an object`)
   if (Object.keys(value).some((key) => !['digest', 'mediaType', 'name', 'width', 'height', 'duration', 'origin'].includes(key))) return fail('asset.invalid', `${where}: asset contains unsupported fields`)
@@ -198,10 +226,19 @@ export function readBoardItem(id: string, value: Json | undefined): BoardItem | 
   if (sectionId !== undefined && (typeof sectionId !== 'string' || !ITEM_ID.test(sectionId))) return fail('item.section', `${where}: sectionId must be an item id`)
   const membership = sectionId === undefined ? {} : { sectionId: sectionId as string }
   const kind = value['kind']
-  const content = kind === 'note' ? 'text' : kind === 'section' ? 'name' : 'asset'
-  if (Object.keys(value).some((key) => !['id', 'kind', 'rect', 'sectionId', content].includes(key))) return fail('item.invalid', `${where}: item contains unsupported fields`)
+  const content = kind === 'workflow' || kind === 'blueprint' ? ['name', 'source', 'values'] : [kind === 'note' ? 'text' : kind === 'section' ? 'name' : 'asset']
+  if (Object.keys(value).some((key) => !['id', 'kind', 'rect', 'sectionId', ...content].includes(key))) return fail('item.invalid', `${where}: item contains unsupported fields`)
   const rect = readRect(value['rect'], where)
   if ('severity' in rect) return rect
+  if (kind === 'workflow' || kind === 'blueprint') {
+    const name = value['name']
+    if (!text(name, BOARD_MAX_NAME)) return fail('item.invalid', `${where}: card name must be a string of at most ${BOARD_MAX_NAME} characters`)
+    const source = readCardSource(value['source'], kind, where)
+    if ('severity' in source) return source
+    const values = value['values']
+    if (!isObject(values)) return fail('item.invalid', `${where}: card values must be an object`)
+    return { id, kind, rect, name, source, values, ...membership }
+  }
   if (typeof kind === 'string' && isBoardMediaKind(kind)) {
     const asset = readAsset(value['asset'], where)
     if ('severity' in asset) return asset

@@ -10,6 +10,8 @@ import { createSignal, type ReadonlySignal } from '../reactive/signal.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
 import type { Json } from '../format/document.js'
 import { applyOwnedOps, invertOps, type PatchOp } from '../commands/patch.js'
+import { jsonSameValue } from '../commands/store.js'
+import { exposedKey, type ExposedParameter } from '../format/exposed.js'
 import { ownJson } from '../format/json.js'
 import {
   BOARD_MAX_ITEMS,
@@ -33,6 +35,12 @@ export type BoardCommandInvocation =
   | { readonly command: 'board.item.remove'; readonly params: { readonly ids: readonly string[] } }
   | { readonly command: 'board.note.edit'; readonly params: { readonly id: string; readonly text: string } }
   | { readonly command: 'board.section.rename'; readonly params: { readonly id: string; readonly name: string } }
+  | { readonly command: 'board.card.input'; readonly params: {
+      readonly id: string
+      readonly input: Pick<ExposedParameter, 'graphId' | 'nodeId' | 'inputId'>
+      /** Omit to use the source's value again; null is an explicit value. */
+      readonly value?: Json
+    } }
 
 export type BoardDispatchOutcome =
   | { readonly ok: true; readonly document: BoardDocument; readonly revision: number; readonly created: readonly string[] }
@@ -178,6 +186,23 @@ export function planBoardCommand(
       if (item.kind !== 'section') return refuse('item.kind', `'${item.id}' is not a section`)
       if (item.name === invocation.params.name) return refuse('edit.none', 'the section already has that name')
       return { ok: true, created: [], forward: [{ op: 'replace', path: ['items', item.id, 'name'], value: invocation.params.name, oldValue: item.name }] }
+    }
+    case 'board.card.input': {
+      const { id, input, value } = invocation.params
+      const item = board.items[id]
+      if (item === undefined) return missing(id)
+      if (item.kind !== 'workflow' && item.kind !== 'blueprint') return refuse('item.kind', `'${id}' is not a workflow or blueprint card`)
+      if (![input.graphId, input.nodeId, input.inputId].every((part) => typeof part === 'string' && part.length > 0)) return refuse('input.invalid', 'card inputs need graph, node and input ids')
+      const key = exposedKey(input)
+      const previous = item.values[key]
+      if (jsonSameValue(previous, value)) return refuse('edit.none', 'the card already has that input value')
+      const path = ['items', id, 'values', key]
+      const op: PatchOp = value === undefined
+        ? { op: 'remove', path, oldValue: previous! }
+        : previous === undefined
+          ? { op: 'add', path, value: owned(value) }
+          : { op: 'replace', path, value: owned(value), oldValue: previous }
+      return { ok: true, created: [], forward: [op] }
     }
     default:
       return refuse('command.unknown', `unknown board command '${String((invocation as { readonly command?: unknown }).command)}'`)
