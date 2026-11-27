@@ -554,7 +554,7 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   max-width: 220px;
   padding: var(--dinkster-space-4) var(--dinkster-space-8);
   pointer-events: none;
-  color: var(--dinkster-text-secondary);
+  color: var(--dinkster-text-primary);
   background: var(--dinkster-surface-raised);
   border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
@@ -562,7 +562,6 @@ body.panel-drag-not-allowed * { cursor: not-allowed !important; }
   font-size: var(--dinkster-type-metadata-size);
   line-height: var(--dinkster-type-metadata-line);
 }
-.tab-drag-ghost[data-active='true'] { color: var(--dinkster-text-primary); }
 .tab-drag-ghost[data-refused='true'] {
   color: var(--dinkster-danger-foreground);
   background: color-mix(in srgb, var(--dinkster-danger-background) 72%, var(--dinkster-surface-raised));

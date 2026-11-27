@@ -33,7 +33,6 @@ export function PanelDragOverlay(props: {
   readonly drag: PanelDragModel
   readonly ghostTitle: string
   readonly ghostIcon?: Component | undefined
-  readonly ghostActive?: boolean | undefined
 }) {
   return (
     <div class="panel-drag-layer" data-testid="panel-drag-layer" aria-hidden="true">
@@ -91,7 +90,6 @@ export function PanelDragOverlay(props: {
           x={props.drag.point.x}
           y={props.drag.point.y}
           refused={props.drag.preview?.allowed === false}
-          active={props.ghostActive}
         />
       </Show>
     </div>

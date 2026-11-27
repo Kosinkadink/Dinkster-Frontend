@@ -3427,13 +3427,11 @@ export function App(props: {
             drag={drag()}
             ghostTitle={descriptor()?.title ?? drag().panelId}
             ghostIcon={descriptor()?.icon}
-            ghostActive={DOCK_ZONE_IDS.some((zone) => zoneSections(zone).some((section) => section.activeId === drag().panelId))}
           />
         )
       }}</Show>
       <Show when={tabDrag()}>{(drag) => (
-        <TabDragGhost title={drag().title} icon={drag().icon} x={drag().x} y={drag().y} refused={drag().refused}
-          active={findGroup(displayLayout(), drag().sourceGroupId)?.activeTabId === drag().tabId} />
+        <TabDragGhost title={drag().title} icon={drag().icon} x={drag().x} y={drag().y} refused={drag().refused} />
       )}</Show>
 
       <Show when={!panelDrag()?.started && tabDrag() === undefined ? tooltip() : undefined}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
