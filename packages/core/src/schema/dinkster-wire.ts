@@ -2622,6 +2622,7 @@ export function packsFromDinksterWire(payload: DinksterNodesPayload): ReadonlyMa
       source?: unknown
       publisher?: unknown
       typeStorage?: unknown
+      typeStorageChoices?: unknown
       assets?: unknown
       blueprints?: unknown
       locales?: unknown
@@ -2642,6 +2643,9 @@ export function packsFromDinksterWire(payload: DinksterNodesPayload): ReadonlyMa
       )
       if (decoded.length > 0) typeStorage = Object.fromEntries(decoded)
     }
+    const typeStorageChoices = Array.isArray(e.typeStorageChoices)
+      ? e.typeStorageChoices.filter((type): type is string => typeof type === 'string' && typeStorage?.[type] !== undefined)
+      : undefined
     let locales: Readonly<Record<string, string>> | undefined
     if (typeof e.locales === 'object' && e.locales !== null && !Array.isArray(e.locales)) {
       const decoded = Object.entries(e.locales).filter(
@@ -2761,6 +2765,7 @@ export function packsFromDinksterWire(payload: DinksterNodesPayload): ReadonlyMa
       ...(source !== undefined ? { source } : {}),
       ...(publisher !== undefined ? { publisher } : {}),
       ...(typeStorage !== undefined ? { typeStorage } : {}),
+      ...(typeStorageChoices !== undefined ? { typeStorageChoices } : {}),
       ...(assets.length > 0 ? { assets } : {}),
       ...(blueprints.length > 0 ? { blueprints } : {}),
       ...(locales !== undefined ? { locales } : {}),

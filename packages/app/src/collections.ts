@@ -140,7 +140,12 @@ export function packsSource(app: AppState): CollectionSource {
         const sourceKind = info.source?.split(':', 1)[0]
         const assetCount = info.assets?.length ?? 0
         const typeStorage = Object.entries(info.typeStorage ?? {}).sort(([a], [b]) => a.localeCompare(b))
-          .map(([type, provider]) => ({ label: `${type} values`, text: `Stored ${provider}'s way` }))
+          .filter(([type]) => info.typeStorageChoices?.includes(type))
+          .map(([type, provider]) => ({
+            label: `${type.slice(type.lastIndexOf('.') + 1)} values`,
+            text: `Stored ${provider}'s way`,
+            title: type,
+          }))
         entries.push({
           id: packId,
           title: info.displayName,
@@ -151,7 +156,6 @@ export function packsSource(app: AppState): CollectionSource {
             ...(sourceKind !== undefined ? [sourceKind] : []),
             `${count} node${count === 1 ? '' : 's'}`,
             ...(assetCount > 0 ? [`${assetCount} asset${assetCount === 1 ? '' : 's'}`] : []),
-            ...typeStorage.map(({ label, text }) => `${label}: ${text}`),
           ],
           ...(info.icon !== undefined && backend !== undefined
             ? { thumbRender: async (signal?: AbortSignal) => {

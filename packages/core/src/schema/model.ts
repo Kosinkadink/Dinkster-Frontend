@@ -1033,6 +1033,8 @@ export interface PackInfo {
   readonly publisher?: string
   /** Borrowed type ids mapped to the packs selected to store their values. */
   readonly typeStorage?: Readonly<Record<string, string>>
+  /** Types with competing installed storage providers and no installed owner. */
+  readonly typeStorageChoices?: readonly string[]
   /** Pack asset declarations, descriptors only; absent means none declared. */
   readonly assets?: readonly PackAssetDescriptor[]
   /**

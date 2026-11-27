@@ -510,8 +510,8 @@ export function CollectionPanel(props: {
       <For each={p.entry.details ?? []}>
         {(d) => (
           <>
-            <dt>{d.label}</dt>
-            <dd>{d.text}</dd>
+            <dt title={d.title}>{d.label}</dt>
+            <dd title={d.title}>{d.text}</dd>
           </>
         )}
       </For>
