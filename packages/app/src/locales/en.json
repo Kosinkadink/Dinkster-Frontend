@@ -198,6 +198,7 @@
   "projectNeeds.exactVersionsRequired": "Installation review needs one recorded version per pack and no unidentified workflow needs.",
   "execution.scopes.checking": "Checking executable selection...",
   "common.close": "Close",
+  "modelPresence.missingSummary": "{count, plural, one {# model missing} other {# models missing}}",
   "modelDownloads.title": "Download models",
   "modelDownloads.list": "Models this workflow needs",
   "modelDownloads.workflow": "This workflow",
