@@ -32,8 +32,8 @@ test('a late numeric lookup makes one shared correction and tells both viewers',
       const tab = app.activeTab()!
       return { error, tab: tab.id, session: app.collabFor(tab.id)?.descriptor.sessionId }
     })
-    sharedTab = shared.tab
     expect(shared.error).toBeUndefined()
+    sharedTab = shared.tab
     expect(shared.session).toBeTruthy()
     expect(await peer.evaluate(async (session) => {
       const app = window.__dinksterTest!.app as unknown as {
