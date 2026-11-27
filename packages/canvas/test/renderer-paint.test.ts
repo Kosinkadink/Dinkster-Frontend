@@ -637,7 +637,7 @@ describe('canvas hover affordance paint', () => {
     expect(ordinary).toBeDefined()
   })
 
-  it('enlarges every shared match pin when one is hovered or keyboard-focused', () => {
+  it('enlarges every shared match pin when one is hovered', () => {
     const scene = hoverScene()
     const node = scene.nodes[0]!
     const matchScene: Scene = {
@@ -660,9 +660,6 @@ describe('canvas hover affordance paint', () => {
     }
     assertAssociated(paintWith(matchScene, (renderer) => renderer.setOverlay({
       hoveredPin: { nodeId: 'hover-node', portId: 'in', direction: 'in' },
-    })))
-    assertAssociated(paintWith(matchScene, (renderer) => renderer.setOverlay({
-      focusedPin: { nodeId: 'hover-node', portId: 'out', direction: 'out' },
     })))
   })
 

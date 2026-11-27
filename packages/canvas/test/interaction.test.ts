@@ -737,21 +737,21 @@ describe('canvas hover targets', () => {
 
   it('retains keyboard-focused pin identity across pointer overlay updates', () => {
     const harness = interactionHarness(sceneWithPins())
-    harness.controller.setFocusedPin({ nodeId: 'n1', portId: 'input', direction: 'in' })
-    expect(harness.overlays.at(-1)).toMatchObject({ focusedPin: { nodeId: 'n1', portId: 'input', direction: 'in' } })
+    harness.controller.setFocusedTarget({ nodeId: 'n1', pin: { portId: 'input', direction: 'in' } })
+    expect(harness.overlays.at(-1)).toMatchObject({ focusedTarget: { nodeId: 'n1', pin: { portId: 'input', direction: 'in' } } })
     harness.fire('pointermove', 110, 30)
     expect(harness.overlays.at(-1)).toMatchObject({
-      focusedPin: { nodeId: 'n1', portId: 'input', direction: 'in' },
+      focusedTarget: { nodeId: 'n1', pin: { portId: 'input', direction: 'in' } },
       hoveredPin: { nodeId: 'n1', portId: 'output', direction: 'out' },
     })
     const paints = harness.overlays.length
-    harness.controller.setFocusedPin({ nodeId: 'n1', portId: 'input', direction: 'in', widgetTap: true })
+    harness.controller.setFocusedTarget({ nodeId: 'n1', pin: { portId: 'input', direction: 'in', widgetTap: true } })
     expect(harness.overlays).toHaveLength(paints + 1)
     expect(harness.overlays.at(-1)).toMatchObject({
-      focusedPin: { nodeId: 'n1', portId: 'input', direction: 'in', widgetTap: true },
+      focusedTarget: { nodeId: 'n1', pin: { portId: 'input', direction: 'in', widgetTap: true } },
     })
-    harness.controller.setFocusedPin(undefined)
-    expect(harness.overlays.at(-1)).not.toHaveProperty('focusedPin')
+    harness.controller.setFocusedTarget(undefined)
+    expect(harness.overlays.at(-1)).not.toHaveProperty('focusedTarget')
   })
 
   it('sets widget-row hover and clears detailed hover on leave and scene replacement', () => {

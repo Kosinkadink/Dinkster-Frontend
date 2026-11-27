@@ -45,6 +45,7 @@ export const canvasPaintTokens = {
     fallbackValueMaxCharacters: 42,
   },
   viewport: { initialOffset: 40, fitMargin: 60, minFitScale: 0.1, maxFitScale: 2 },
+  keyboardFocus: { stroke: 1, outset: 2 },
   graphCache: { tilePixels: 512, bleedPixels: 2 },
   badge: {
     radius: 3,
@@ -895,6 +896,7 @@ export interface DesignTokens {
     readonly nodeIdleOutline: string
     readonly nodeBorder: string
     readonly nodeSelectedBorder: string
+    readonly keyboardFocus: string
     /** Neutral group tint and border when the document supplies no color. */
     readonly groupDefault: string
     readonly title: string
@@ -1137,6 +1139,7 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
     nodeIdleOutline: tokens.border.subtle,
     nodeBorder: tokens.border.subtle,
     nodeSelectedBorder: tokens.border.selected,
+    keyboardFocus: tokens.border.keyboardFocus,
     groupDefault: tokens.border.strong,
     title: tokens.text.primary,
     label: tokens.text.secondary,
