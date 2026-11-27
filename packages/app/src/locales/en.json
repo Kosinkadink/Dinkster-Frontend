@@ -212,6 +212,8 @@
   "modelDownloads.totalFree": "{size} to download - {free} free. Nothing downloads until you press Download.",
   "modelDownloads.nothing": "Nothing can be downloaded yet.",
   "modelDownloads.close": "Close",
+  "modelDownloads.selectAll": "Select all",
+  "modelDownloads.selectNone": "Select none",
   "modelDownloads.downloadOne": "Download 1 model",
   "modelDownloads.download": "Download {count} models",
   "modelDownloads.run": "Run",

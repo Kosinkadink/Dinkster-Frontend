@@ -18,6 +18,7 @@ const scenes = [
   ['failed', 'One failed'],
   ['run', 'All ready with Run'],
   ['done', 'All ready without Run'],
+  ['many', 'Twelve models'],
 ] as const
 type Scene = (typeof scenes)[number][0]
 
@@ -84,7 +85,11 @@ function DownloadExample(props: {
   readonly onClose: () => void
 }) {
   const [selected, setSelected] = createSignal(
-    new Set(files.map((file) => file.id as string)),
+    new Set(
+      props.scene === 'many'
+        ? Array.from({ length: 12 }, (_, index) => `model-${index}`)
+        : files.map((file) => file.id as string),
+    ),
   )
   const [sourceOpen, setSourceOpen] = createSignal<string>()
   const [action, setAction] = createSignal('')
@@ -172,6 +177,15 @@ function DownloadExample(props: {
             },
         ready(2),
       ]
+    if (props.scene === 'many')
+      return Array.from({ length: 12 }, (_, index) => ({
+        ...available(index % files.length),
+        id: `model-${index}`,
+        name: `model-${index + 1}.safetensors`,
+        selected: selected().has(`model-${index}`),
+        onSelect: (checked: boolean) => select(`model-${index}`, checked),
+        initiallyExpanded: index === 0,
+      }))
     if (props.scene === 'ready')
       return files.map((_, index) => available(index))
     if (props.scene === 'needs')
@@ -279,9 +293,10 @@ function DownloadExample(props: {
   const allReady = () => props.scene === 'run' || props.scene === 'done'
   const count = () => selected().size
   const primary = () =>
-    props.scene === 'ready' && count() > 0
+    props.scene === 'ready' || props.scene === 'many'
       ? {
           label: `Download ${count()} ${count() === 1 ? 'model' : 'models'}`,
+          disabled: count() === 0,
           onClick: () => setAction(`Download requested for ${count()} models`),
         }
       : props.scene === 'run'
@@ -315,6 +330,19 @@ function DownloadExample(props: {
         }
         closeLabel="Close"
         onClose={props.onClose}
+        {...(props.scene === 'ready' || props.scene === 'many'
+          ? {
+              selection: {
+                label: count() === rows().length ? 'Select none' : 'Select all',
+                onClick: () =>
+                  setSelected(
+                    count() === rows().length
+                      ? new Set<string>()
+                      : new Set(rows().map((row) => row.id)),
+                  ),
+              },
+            }
+          : {})}
         {...(primary() ? { primary: primary()! } : {})}
       />
     </ProductDialog>

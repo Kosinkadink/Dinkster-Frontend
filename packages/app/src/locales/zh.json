@@ -211,6 +211,8 @@
   "modelDownloads.totalFree": "需下载 {size} - 可用空间 {free}。按下下载后才会开始下载。",
   "modelDownloads.nothing": "尚无可下载的模型。",
   "modelDownloads.close": "关闭",
+  "modelDownloads.selectAll": "全选",
+  "modelDownloads.selectNone": "取消全选",
   "modelDownloads.downloadOne": "下载 1 个模型",
   "modelDownloads.download": "下载 {count} 个模型",
   "modelDownloads.run": "运行",

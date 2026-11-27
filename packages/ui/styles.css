@@ -1994,10 +1994,13 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-search-stage { display: flex; flex-direction: column; gap: var(--dinkster-space-8); width: 620px; }
 .dinkster-search-stage > .dinkster-window-toolbar-search { justify-content: center; }
 .dinkster-search-stage > .dinkster-search { width: 100%; }
-.dinkster-model-downloads { display: grid; gap: var(--dinkster-space-16); min-width: 0; }
-.dinkster-model-downloads > p, .dinkster-model-download-footer > p { margin: 0; }
-.dinkster-model-download-list { display: grid; margin: 0; padding: 0; list-style: none; }
-.dinkster-model-download-row { display: grid; gap: var(--dinkster-space-12); padding-block: var(--dinkster-space-16); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); min-width: 0; }
+.dinkster-dialog:has(.dinkster-model-downloads) { box-sizing: border-box; max-height: calc(100dvh - var(--dinkster-space-32)); overflow: hidden; }
+.dinkster-dialog:has(.dinkster-model-downloads) > .dinkster-stack { min-height: 0; max-height: calc(100dvh - var(--dinkster-space-32) - var(--dinkster-space-24) * 2 - var(--dinkster-border-width) * 2); grid-template-rows: auto minmax(0, 1fr); }
+.dinkster-model-downloads { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: var(--dinkster-space-16); min-width: 0; min-height: 0; }
+.dinkster-model-download-summary { display: flex; align-items: start; justify-content: space-between; gap: var(--dinkster-space-12); }
+.dinkster-model-download-summary > p, .dinkster-model-download-footer > p { margin: 0; }
+.dinkster-model-download-list { display: grid; align-content: start; gap: var(--dinkster-space-8); min-height: 0; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.dinkster-model-download-row { display: grid; gap: var(--dinkster-space-12); padding: var(--dinkster-space-12); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-quiet); min-width: 0; }
 .dinkster-model-download-line { display: flex; align-items: start; gap: var(--dinkster-space-12); min-width: 0; }
 .dinkster-model-download-line > .dinkster-choice { flex: none; margin-top: var(--dinkster-space-4); gap: 0; }
 .dinkster-model-download-copy { display: grid; gap: var(--dinkster-space-4); flex: 1; min-width: 0; }
@@ -2009,7 +2012,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-model-download-reason { color: var(--dinkster-warning-foreground); }
 .dinkster-model-download-line > .dinkster-text-button { flex: none; }
 .dinkster-model-download-ready { display: inline-flex; align-items: center; gap: var(--dinkster-space-4); flex: none; color: var(--dinkster-success-foreground); }
-.dinkster-model-download-row > .dinkster-facts { padding: var(--dinkster-space-12); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-quiet); min-width: 0; }
+.dinkster-model-download-row > .dinkster-facts { padding-top: var(--dinkster-space-12); border-top: var(--dinkster-border-width) solid var(--dinkster-border-divider); min-width: 0; }
 .dinkster-model-download-row .dinkster-fact { min-width: 0; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); }
 .dinkster-model-download-row .dinkster-fact dt { color: var(--dinkster-text-secondary); }
 .dinkster-model-download-row .dinkster-fact dd { color: var(--dinkster-text-primary); text-align: left; overflow-wrap: anywhere; }
@@ -2017,7 +2020,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-model-download-progress-caption, .dinkster-model-download-failure { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-12); }
 .dinkster-model-download-progress-caption { color: var(--dinkster-text-secondary); }
 .dinkster-model-download-failure { color: var(--dinkster-danger-foreground); }
-.dinkster-model-download-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--dinkster-space-16); padding-top: var(--dinkster-space-16); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+.dinkster-model-download-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--dinkster-space-16); }
 .dinkster-model-download-footer > p { flex: 1 1 220px; }
 .dinkster-model-download-footer > .dinkster-actions { justify-content: end; margin-left: auto; }
 .dinkster-model-download-source { display: grid; gap: var(--dinkster-space-12); min-width: 0; }

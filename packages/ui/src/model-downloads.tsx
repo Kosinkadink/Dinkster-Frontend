@@ -68,6 +68,7 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
   const [expanded, setExpanded] = createSignal(
     available()?.initiallyExpanded === true,
   )
+  let row!: HTMLLIElement
   let line!: HTMLDivElement
   let name!: HTMLElement
   let disposed = false
@@ -103,6 +104,7 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
   })
   return (
     <li
+      ref={row}
       class="dinkster-model-download-row"
       data-state={props.row.state}
       data-model={props.row.id}
@@ -148,7 +150,14 @@ function ModelRow(props: { readonly row: ProductModelDownloadRow }) {
               icon={expanded() ? ChevronDown : ChevronRight}
               label={entry().detailsLabel}
               aria-expanded={expanded()}
-              onClick={() => setExpanded(!expanded())}
+              onClick={() => {
+                const opening = !expanded()
+                setExpanded(opening)
+                if (opening)
+                  queueMicrotask(() =>
+                    row.lastElementChild?.scrollIntoView({ block: 'nearest' }),
+                  )
+              }}
             />
           )}
         </Show>
@@ -225,10 +234,21 @@ export function ProductModelDownloads(props: {
   readonly closeLabel: string
   readonly onClose: () => void
   readonly primary?: RowAction
+  readonly selection?: RowAction
 }) {
   return (
     <section class="dinkster-model-downloads" data-testid="model-downloads">
-      <p class="dinkster-description">{props.summary}</p>
+      <div class="dinkster-model-download-summary">
+        <p class="dinkster-description">{props.summary}</p>
+        <Show when={props.selection}>
+          {(selection) => (
+            <ProductTextButton
+              label={selection().label}
+              onClick={selection().onClick}
+            />
+          )}
+        </Show>
+      </div>
       <ul class="dinkster-model-download-list" aria-label={props.listLabel}>
         <Index each={props.rows}>{(row) => <ModelRow row={row()} />}</Index>
       </ul>

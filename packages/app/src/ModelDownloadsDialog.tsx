@@ -1,4 +1,4 @@
-import { createEffect, createResource, createRoot, createSignal, For, onCleanup, Show, untrack, type JSX } from 'solid-js'
+import { createEffect, createMemo, createResource, createRoot, createSignal, For, onCleanup, Show, untrack, type JSX } from 'solid-js'
 import { ProductButton, ProductDialog, ProductField, ProductModelDownloads, ProductRadio, ProductTextInput, type ProductModelDownloadRow } from '@dinkster/ui'
 import type { AssetConsentRequest, ModelConsentState } from './dialog-requests.js'
 import { formatByteSize } from './collections.js'
@@ -73,7 +73,7 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
     }))
     return panels.get(key)
   }
-  const rows = (): readonly ProductModelDownloadRow[] => models().map((row, index): ProductModelDownloadRow => {
+  const rows = createMemo(() => models().map((row, index): ProductModelDownloadRow => {
     const key = keyOf(row)
     const plan = row.plan
     const job = row.job
@@ -139,8 +139,10 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
             onClick: () => { if (safe) window.open(source!.href, '_blank', 'noopener,noreferrer') } } }
       }
     }
-  })
+  }))
   const selected = () => models().filter((row) => !unchecked().has(keyOf(row)))
+  const selectable = () => rows().filter((row) => row.state === 'available')
+  const allSelected = () => selectable().every((row) => row.selected)
   const totals = () => modelDownloadTotals(selected())
   const ready = () => models().length > 0 && models().every((row) => !row.pending && (row.plan?.status === 'local' || row.job?.status === 'completed'))
   const active = () => models().some((row) => row.queued || (row.job && !['completed', 'failed', 'cancelled'].includes(row.job.status)))
@@ -156,8 +158,17 @@ export function ModelDownloadsDialog(props: { readonly request: AssetConsentRequ
         remaining() === 1 ? 'modelDownloads.summaryOne' : 'modelDownloads.summary',
     { name: props.request.workflowTitle ?? message('modelDownloads.workflow'), count: remaining() })}
       rows={rows()} footer={footer()} closeLabel={message('modelDownloads.close')} onClose={props.onClose}
-      {...(totals().count ? { primary: { label: message(totals().count === 1 ? 'modelDownloads.downloadOne' : 'modelDownloads.download', { count: totals().count }),
-        disabled: totals().insufficient, onClick: () => { void props.request.downloadModels?.(models().flatMap((row, index) => !unchecked().has(keyOf(row)) ? [index] : [])) },
+      {...(selectable().length > 1 ? { selection: {
+        label: message(allSelected() ? 'modelDownloads.selectNone' : 'modelDownloads.selectAll'),
+        onClick: () => {
+          const next = new Set(unchecked())
+          const clear = allSelected()
+          for (const row of selectable()) { if (clear) next.add(row.id); else next.delete(row.id) }
+          setUnchecked(next)
+        },
+      } } : {})}
+      {...(selectable().length ? { primary: { label: message(totals().count === 1 ? 'modelDownloads.downloadOne' : 'modelDownloads.download', { count: totals().count }),
+        disabled: totals().count === 0 || totals().insufficient, onClick: () => { void props.request.downloadModels?.(models().flatMap((row, index) => !unchecked().has(keyOf(row)) ? [index] : [])) },
       } } : ready() && props.request.retry ? { primary: { label: message('modelDownloads.run'), onClick: () => { void props.request.retry?.([]) } } } : {})} />
   </ProductDialog>
 }

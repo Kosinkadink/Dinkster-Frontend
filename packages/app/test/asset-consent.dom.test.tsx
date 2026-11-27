@@ -92,9 +92,15 @@ it('renders plan answers, selected filesystem capacity, and independent download
       expect(root.textContent).toContain(reason)
     expect(button('Download 2 models').disabled).toBe(true)
     expect(root.textContent).toContain('1000 B free')
+    button('Select none').click()
+    expect(button('Download 0 models').disabled).toBe(true)
+    expect(rows().filter((row) => row.querySelector<HTMLInputElement>('input')?.checked)).toHaveLength(0)
+    button('Select all').click()
+    expect(rows().filter((row) => row.querySelector<HTMLInputElement>('input')?.checked)).toHaveLength(2)
     const second = rows()[2]!.querySelector<HTMLInputElement>('input[type="checkbox"]')!
     second.click()
     expect(button('Download 1 model').disabled).toBe(false)
+    expect(button('Select all')).toBeDefined()
     expect(root.textContent).toContain('600 B to download')
     second.click()
     space = { status: 'unavailable' }
