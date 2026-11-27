@@ -271,6 +271,77 @@ describe('buildParamRows', () => {
     }
   })
 
+  it.each([1, 2] as const)('boundary/standalone-option/app-view keeps renamed text ownership and inactive link state at depth %s', (depth) => {
+    const document = boundarySample(depth)
+    const inputId = depth === 1 ? 'caption' : 'heading'
+    const detail = document.graphs.detail!
+    Object.assign(detail, { boundary: { body: [
+      ...detail.boundary!.body.filter((row) => !('id' in row && row.id === 'mode')),
+      { kind: 'input', id: 'caption', promoted: true, binds: { kind: 'port', node: 'sample', port: 'mode.text' } },
+    ] } })
+    Object.assign(detail.nodes.sample!, { dynamic: { ...detail.nodes.sample!.dynamic, mode: { selected: 'text' } } })
+    if (depth === 2) {
+      const portrait = document.graphs.portrait!
+      Object.assign(portrait, { boundary: { body: [
+        ...portrait.boundary!.body.filter((row) => !('id' in row && row.id === 'mode')),
+        { kind: 'input', id: 'heading', promoted: true, binds: { kind: 'port', node: 'detail', port: 'caption' } },
+      ] } })
+    }
+    Object.assign(document.graphs.root!.nodes, { outside: { id: 'outside', type: 'StringSource', values: {} } })
+    for (const nodeId of ['first', 'second']) Object.assign(document.graphs.root!.nodes[nodeId]!, {
+      values: { ...document.graphs.root!.nodes[nodeId]!.values, [inputId]: `${nodeId} caption` },
+    })
+    const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolveBoundarySample) }))
+    const dispatch = (command: string, params: Record<string, Json>) => {
+      const result = store.dispatch({ command, params })
+      expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+    }
+    for (const nodeId of ['first', 'second']) dispatch('params.expose', { graphId: 'root', nodeId, inputId })
+    const original = store.doc
+    const rows = (current = store.doc) => buildParamRows(current, resolveBoundarySample)
+    expect(rows().map((row) => [live(row).value, live(row).valueKey, live(row).linked, live(row).spec]))
+      .toEqual(['first', 'second'].map((id) => [`${id} caption`, inputId, false,
+        { widgetType: 'STRING', options: {}, default: 'dormant inner text' }]))
+    const chosen = live(rows()[0]!)
+    dispatch('node.setValue', { graphId: chosen.entry.graphId, nodeId: chosen.entry.nodeId,
+      inputId: chosen.valueKey, value: 'edited caption' })
+    expect(rows().map((row) => live(row).value)).toEqual(['edited caption', 'second caption'])
+    const edited = store.doc
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(original)
+    expect(store.redo()).toBe(true)
+    dispatch('link.connect', { graphId: 'root', from: port('outside', 'text'), to: port('first', inputId) })
+    const linked = store.doc
+    expect(rows().map((row) => [live(row).value, live(row).linked])).toEqual([['edited caption', true], ['second caption', false]])
+    dispatch('dynamic.selectOption', { graphId: 'detail', nodeId: 'sample', construct: 'mode', option: 'image' })
+    const inactive = store.doc
+    for (const current of [inactive, loadDocument(JSON.parse(JSON.stringify(inactive))).document!]) {
+      const [first, second] = rows(current)
+      expect(live(first!).item).toMatchObject({ kept: expect.stringContaining('not a row of the chosen option'),
+        spec: { unavailable: { code: 'boundary.branchInactive', inactive: true }, type: { kind: 'concrete', name: 'STRING' } } })
+      expect(live(first!).item.apiName).toBeUndefined()
+      expect(live(first!).linked).toBe(true)
+      expect(live(first!).value).toBe('edited caption')
+      expect(second).toMatchObject({ kind: 'stale', entry: { graphId: 'root', nodeId: 'second', inputId } })
+      expect(current.graphs.root).toEqual(linked.graphs.root)
+    }
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(linked)
+    expect(rows().map((row) => [live(row).value, live(row).linked])).toEqual([['edited caption', true], ['second caption', false]])
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(inactive)
+    dispatch('dynamic.selectOption', { graphId: 'detail', nodeId: 'sample', construct: 'mode', option: 'text' })
+    const link = Object.values(store.doc.graphs.root!.links).find((item) => 'port' in item.to && item.to.port === inputId)!
+    dispatch('link.disconnect', { graphId: 'root', linkId: link.id })
+    expect(rows().map((row) => [live(row).value, live(row).linked])).toEqual([['edited caption', false], ['second caption', false]])
+    expect(store.doc.graphs.root!.nodes).toEqual(edited.graphs.root!.nodes)
+    expect(store.doc.graphs.detail).toEqual(original.graphs.detail)
+    expect(store.doc.graphs.portrait).toEqual(original.graphs.portrait)
+    expect(rows(loadDocument(JSON.parse(JSON.stringify(store.doc))).document!).map((row) => live(row).value))
+      .toEqual(['edited caption', 'second caption'])
+  })
+
   it('boundary/construct-fields/app-view keeps member keys and occurrence edits through reorder and reload', () => {
     for (const depth of [1, 2] as const) {
       const source = boundarySample(depth)
