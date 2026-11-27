@@ -1,5 +1,5 @@
 import {
-  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, boardMediaKindOf, connectSharedBoardSession, createLocalBoardSession, createSignal, jsonSameValue, loadBoard, planBoardCommand,
+  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, boardMediaKindOf, connectSharedBoardSession, createLocalBoardSession, createSignal, jsonSameValue, loadBoard, planBoardCommand, t,
   type BoardAsset, type BoardDocument, type BoardItemInput, type BoardSession, type CollabSessionDescriptor, type Json, type SharedBoardSession,
 } from '@dinkster/core'
 import type { AssetUploadDestination, DinksterConnection, LibraryRecord } from '@dinkster/client'
@@ -39,6 +39,7 @@ export class BoardWorkspace {
   private readonly saved = new Map<string, { connection: BoardConnection; record: LibraryRecord; snapshot: BoardDocument }>()
   private readonly saving = new Map<BoardEntry, Promise<void>>()
   private readonly opening = new Map<string, object>()
+  private readonly titles = new Map<string, string>()
   private epoch = 0
   private disposed = false
 
@@ -142,9 +143,14 @@ export class BoardWorkspace {
     if (this.disposed) throw new Error('Board workspace is closed')
     const existing = this.entries.get().find((entry) => entry.id === document.lineage)
     if (existing) return existing
+    this.titles.set(JSON.stringify([baseUrl, document.lineage]), title)
     const entry = { id: document.lineage, title, baseUrl, session: createLocalBoardSession(document) }
     this.entries.update((entries) => [...entries, entry])
     return entry
+  }
+
+  displayTitle(id: string, baseUrl: string): string {
+    return this.titles.get(JSON.stringify([baseUrl, id])) ?? t('board.title')
   }
 
   /** Refuse mismatched source context and missing bytes before placing recorded Assets. */
@@ -296,7 +302,7 @@ export class BoardWorkspace {
       if (!descriptor) throw new Error('That Board session no longer exists')
       if (this.entries.get().some((entry) => entry.id === descriptor.documentId))
         throw new Error('This Board is already open; close it before joining another session')
-      return await this.adopt(descriptor, baseUrl, descriptor.documentId, () =>
+      return await this.adopt(descriptor, baseUrl, this.displayTitle(descriptor.documentId, baseUrl), () =>
         stillWanted() && (this.cancellations.get(descriptor.documentId) ?? 0) <= epoch &&
         this.options.backend() === baseUrl && !this.entries.get().some((entry) => entry.id === descriptor.documentId))
     } finally { this.pending.delete(key) }
@@ -368,6 +374,7 @@ export class BoardWorkspace {
     this.disposed = true
     this.opening.clear()
     this.saved.clear()
+    this.titles.clear()
     for (const abort of this.importing.keys()) abort.abort()
     for (const cancel of this.adopting.keys()) cancel()
     for (const entry of this.entries.get()) entry.shared?.session.close()

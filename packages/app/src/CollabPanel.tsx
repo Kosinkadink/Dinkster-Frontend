@@ -567,7 +567,9 @@ export function CollabPanel(props: { app: AppState; requestClose: () => void }) 
                 return (
                   <li data-testid="collab-session" data-session-id={session.sessionId}>
                     <ProductListRow
-                      primary={session.documentId}
+                      primary={session.documentKind === 'board'
+                        ? props.app.boards.displayTitle(session.documentId, backend()?.baseUrl ?? '')
+                        : session.documentId}
                       secondary={<>{session.documentKind === 'board' ? 'Board - ' : ''}<code>{session.sessionId}</code> - Revision {session.revision}</>}
                       actions={<ProductButton
                         type="button"

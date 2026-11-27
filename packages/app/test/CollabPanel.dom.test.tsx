@@ -271,7 +271,7 @@ describe('CollabPanel', () => {
     const mounted = mountProductionRace()
     const { app, root } = mounted
     app.settings.set('features.board.enabled', true)
-    const local = app.boards.open(emptyBoard(), 'References', 'http://collab.test')
+    const local = app.boards.open(emptyBoard(), 'References', app.collabBackend()!.baseUrl)
     local.session.dispatch({ command: 'board.item.add', params: { items: [{
       id: 'note', kind: 'note', text: 'Keep this note', rect: { x: 25, y: 40, width: 180, height: 90 },
     }] } })
@@ -291,9 +291,11 @@ describe('CollabPanel', () => {
     root.querySelector<HTMLButtonElement>('[data-testid="collab-refresh"]')!.click()
     await nextTask()
     expect(root.querySelector('[data-testid="collab-session"]')?.textContent).toContain('Board - ')
+    expect(root.querySelector('[data-testid="collab-session"] .product-list-row-primary')?.textContent).toBe('References')
     root.querySelector<HTMLButtonElement>('[data-testid="collab-join"]')!.click()
     await nextTask()
     expect(app.activeTabId.get()).toBe(`page:board:${local.id}`)
+    expect(root.querySelector('.collab-session-identity h3')?.textContent).toBe('References')
     expect(app.boards.entries.get()[0]!.session.doc.items.note).toMatchObject({ text: 'Keep this note' })
     expect(root.querySelector('[data-testid="collab-participants"]')).toBeNull()
     root.querySelector<HTMLButtonElement>('[data-testid="collab-end"]')!.click()

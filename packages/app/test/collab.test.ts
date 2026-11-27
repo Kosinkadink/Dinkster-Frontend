@@ -362,6 +362,7 @@ describe('Board workspace collaboration', () => {
     expect((await b.listCollabSessions()).map((session) => session.sessionId)).toEqual([sessionId])
     expect(await b.joinCollabSession(sessionId, 'board')).toBeUndefined()
     const joined = b.boards.entries.get()[0]!
+    expect(joined.title).toBe('Board')
     expect(b.activeTabId.get()).toBe(`page:board:${document.lineage}`)
     expect(b.collabBackend()?.baseUrl).toBe('http://collab')
     expect(b.activeTab()).toBeUndefined()
@@ -382,6 +383,8 @@ describe('Board workspace collaboration', () => {
       expect(left.session.doc).toEqual(shared.session.doc)
       expect(left.session.canUndo).toBe(false)
       expect(joined.shared!.session.status.get()).toBe('closed')
+      a.boards.close(document.lineage)
+      expect((await a.boards.join(sessionId)).title).toBe('References')
       await a.boards.end(document.lineage)
       expect(a.boards.entries.get()[0]!.shared).toBeUndefined()
       expect(server.sessions.size).toBe(0)
