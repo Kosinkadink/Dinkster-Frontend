@@ -545,19 +545,18 @@ export function ProductBoard(props: ProductBoardProps) {
     })
   }
   const fit = () => {
-    const items = Object.values(document().items)
-    if (!items.length) {
+    const places = [
+      ...Object.values(document().items).map((item) => item.rect),
+      ...(props.pendingRuns ?? []).flatMap((run) => run.places),
+    ]
+    if (!places.length) {
       setCamera({ x: 16, y: 80, scale: 1 })
       return
     }
-    const left = Math.min(...items.map((item) => item.rect.x))
-    const top = Math.min(...items.map((item) => item.rect.y))
-    const right = Math.max(
-      ...items.map((item) => item.rect.x + item.rect.width),
-    )
-    const bottom = Math.max(
-      ...items.map((item) => item.rect.y + item.rect.height),
-    )
+    const left = Math.min(...places.map((place) => place.x))
+    const top = Math.min(...places.map((place) => place.y))
+    const right = Math.max(...places.map((place) => place.x + place.width))
+    const bottom = Math.max(...places.map((place) => place.y + place.height))
     const scale = clampScale(
       Math.min(
         (surface.clientWidth - 100) / (right - left),

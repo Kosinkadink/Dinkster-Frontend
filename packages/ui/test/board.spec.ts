@@ -43,6 +43,15 @@ test('reserved results share progress and recorded history follows edits without
     .getByRole('progressbar', { name: 'Run progress' })
     .all())
     await expect(progress).toHaveAttribute('aria-valuenow', '0.41')
+  await page.getByTestId('canvas-fit-view').click()
+  const surface = (await page.locator('.dinkster-board').boundingBox())!
+  for (const place of await pending.all()) {
+    const rect = (await place.boundingBox())!
+    expect(rect.x).toBeGreaterThanOrEqual(surface.x)
+    expect(rect.y).toBeGreaterThanOrEqual(surface.y)
+    expect(rect.x + rect.width).toBeLessThanOrEqual(surface.x + surface.width)
+    expect(rect.y + rect.height).toBeLessThanOrEqual(surface.y + surface.height)
+  }
   await page
     .getByRole('button', { name: 'Failed without files', exact: true })
     .click()
