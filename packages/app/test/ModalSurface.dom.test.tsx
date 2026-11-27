@@ -3,7 +3,7 @@
 import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DinksterConnection } from '@dinkster/client'
+import { DinksterConnection, RequestFailure } from '@dinkster/client'
 import { asConnectionId, createSignal as createCoreSignal, setLocale, type NodeSchema } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
@@ -304,7 +304,7 @@ describe('ASSET widget modal integration', () => {
       spec: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] } },
     }
     for (const offline of [false, true]) {
-      if (offline) connection.listMounts.mockRejectedValue(new Error('Mount discovery offline'))
+      if (offline) connection.listMounts.mockRejectedValue(new RequestFailure('GET', '/api/mounts', undefined, 'Mount discovery offline'))
       const root = document.createElement('div')
       document.body.append(root)
       const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -626,7 +626,7 @@ describe('ASSET widget modal integration', () => {
 
   it('settles a failed grouped scan and lets Refresh retry successfully', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
-    mounted.connection.listMountEntries.mockRejectedValueOnce(new Error('catalog unavailable'))
+    mounted.connection.listMountEntries.mockRejectedValueOnce(new RequestFailure('GET', '/api/mounts/left/entries', 503, 'catalog unavailable'))
     await vi.waitFor(() => expect(mounted.root.textContent).toContain('catalog unavailable'))
 
     const refresh = mounted.root.querySelector<HTMLButtonElement>('[data-testid="logical-model-refresh"]')!
@@ -818,7 +818,7 @@ describe('ASSET widget modal integration', () => {
 
   it('keeps the unresolved string untouched on cancel and reports retry transport failures inline', async () => {
     const mounted = unresolvedAssetEditor()
-    mounted.connection.guessAssets.mockRejectedValue(new Error('backend unavailable'))
+    mounted.connection.guessAssets.mockRejectedValue(new RequestFailure('POST', '/api/assets/guess', 503, 'backend unavailable'))
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-retry-match"]')!.click()
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(mounted.root.querySelector('[data-testid="asset-match-error"]')!.textContent).toContain('backend unavailable')

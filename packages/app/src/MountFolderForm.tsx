@@ -6,6 +6,7 @@ import { ProductButton, ProductCheckbox, ProductTextInput } from './ProductContr
 import { ProductSelect } from './ProductSelect.js'
 import { ProductField } from './ProductForm.js'
 import { activeProjectId } from './projects.js'
+import { failureMessage } from './request-failure.js'
 
 export interface MountFolderConnection {
   addMount(id: string, path: string, mode: 'read' | 'readwrite', options?: MountGrantOptions): Promise<MountDescriptor>
@@ -70,7 +71,7 @@ export function MountFolderForm(props: {
       const path = await desktopFileBridge()!.chooseDirectory(new URL(url || '/', window.location.href).href)
       if (request === generation && path) enterPath(path)
     } catch (error) {
-      if (request === generation) setStatus({ raw: error instanceof Error ? error.message : String(error) })
+      if (request === generation) setStatus({ raw: failureMessage(error, message('request.folderSelectFailed')) })
     } finally {
       if (request === generation) setBusy(false)
     }
@@ -90,7 +91,7 @@ export function MountFolderForm(props: {
       setStatus({ key: 'desktopManagement.folders.granted' })
       props.onGranted?.()
     } catch (error) {
-      if (request === generation) setStatus({ raw: error instanceof Error ? error.message : String(error) })
+      if (request === generation) setStatus({ raw: failureMessage(error, message('request.folderGrantFailed')) })
     } finally {
       if (request === generation) setBusy(false)
     }

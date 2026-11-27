@@ -225,7 +225,7 @@ describe('the one app shell', () => {
     view.shell.openProject('bookshop')
     await vi.waitFor(() => expect(view.page()).not.toBeNull())
     expect(view.text('failed')).toBe('The editor did not open')
-    expect(view.root.querySelector('[data-testid="line"]')?.getAttribute('title')).toBe('mount failed')
+    expect(view.root.querySelector('[data-testid="line"]')?.getAttribute('title')).toBe('')
     expect(held().childElementCount).toBe(0)
     await vi.waitFor(() => expect(view.root.querySelector('[data-testid="app-shell-cover"]')?.classList.contains('app-shell-covered')).toBe(false))
     expect(location.search).toBe('')

@@ -1,4 +1,26 @@
 import { expect, test } from '@playwright/test'
+import { chooseOption } from '../../e2e/choices.js'
+
+test('a narrow page returns from a template to the search and blank workflow', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 1000 })
+  await page.goto('/#templates')
+  const search = page.getByRole('searchbox', { name: 'Search templates' })
+  const tiles = page.getByRole('listbox', { name: 'Templates' })
+  await search.fill('inpaint')
+  await tiles.getByRole('option', { name: /Inpaint a region/ }).click()
+  await expect(page.getByRole('heading', { name: 'Inpaint a region', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(search).toHaveValue('inpaint')
+  await expect(tiles.getByRole('option', { name: /Inpaint a region/ })).toBeFocused()
+  await tiles.getByRole('option', { name: /Inpaint a region/ }).click()
+  await page.getByRole('button', { name: 'Templates', exact: true }).click()
+  await expect(search).toHaveValue('inpaint')
+  await expect(tiles.getByRole('option', { name: /Inpaint a region/ })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(search).toHaveValue('')
+  await page.getByRole('button', { name: 'Blank workflow' }).click()
+  await expect(page.getByRole('status').last()).toHaveText('Blank workflow opened')
+})
 
 test('one click selects a template, a double click or Enter opens it, and the arrow keys move across and down', async ({
   page,
@@ -102,6 +124,7 @@ test('a tile shows what is left to download, then how far it is, and a template 
   await expect(page.getByRole('button', { name: /Download 2 models/ })).toHaveCount(0)
   const progress = page.locator('.dinkster-template-download')
   await expect(progress).toContainText('Downloading 2 models, 12%')
+  await expect(needs.locator('.dinkster-template-model-state')).toHaveText(['Here', 'Downloading', 'Downloading'])
   const track = await progress.locator('.dinkster-template-download-track').boundingBox()
   const filled = await progress.locator('.dinkster-template-progress').boundingBox()
   expect(Math.abs(filled!.width / track!.width - 0.12)).toBeLessThan(0.01)
@@ -109,6 +132,7 @@ test('a tile shows what is left to download, then how far it is, and a template 
   await expect(progress).toHaveCount(0)
   await expect(missing.locator('.dinkster-template-mark')).toHaveText('6.4 GB')
   await expect(page.getByRole('button', { name: /Download 2 models/ })).toBeVisible()
+  await expect(needs.locator('.dinkster-template-model-state')).toHaveText(['Here', 'Missing', 'Missing'])
 
   // The switch shows the workflow in place of the result.
   const view = page.locator('.dinkster-template-detail > .dinkster-template-picture')
@@ -119,4 +143,34 @@ test('a tile shows what is left to download, then how far it is, and a template 
   await page.keyboard.press('ArrowLeft')
   await expect(page.getByRole('tab', { name: 'Result' })).toHaveAttribute('aria-selected', 'true')
   await expect(view.locator('img')).toHaveCount(1)
+})
+
+test('without a model folder the page offers Storage, and without templates it still offers a blank workflow', async ({ page }) => {
+  await page.goto('/#templates')
+  const state = page.getByRole('combobox', { name: 'State' })
+  await chooseOption(state, 'No model folder')
+  const needs = page.getByRole('region', { name: 'Needs' })
+  await expect(needs).toContainText('0 of 3 on this computer')
+  await expect(needs.getByRole('listitem')).toHaveText([
+    /sd_xl_base_1\.0\.safetensors.*Missing/,
+    /sd_xl_inpaint_0\.1\.safetensors.*Missing/,
+    /sdxl_vae\.safetensors.*Missing/,
+  ])
+  await expect(page.getByRole('button', { name: /Download \d+ models?/ })).toHaveCount(0)
+  await expect(page.getByText('No model folder yet', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Open Storage' }).click()
+  await expect(page.getByRole('status').last()).toHaveText('Storage opened')
+
+  await chooseOption(state, 'No templates')
+  await expect(page.getByRole('listbox', { name: 'Makes' }).getByRole('option')).toHaveText(['All0'])
+  await expect(page.getByRole('listbox', { name: 'Model family' })).toHaveCount(0)
+  await expect(page.getByText('No templates yet. Packs you add can bring their own.')).toBeVisible()
+  await expect(page.locator('.dinkster-template-detail')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Use template' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Blank workflow' }).click()
+  await expect(page.getByRole('status').last()).toHaveText('Blank workflow opened')
+
+  await chooseOption(state, 'Ready')
+  await expect(page.getByRole('button', { name: /Download 2 models/ })).toBeVisible()
+  await expect(needs).toContainText('1 of 3 on this computer')
 })

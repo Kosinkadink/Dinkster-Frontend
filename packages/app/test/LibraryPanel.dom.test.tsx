@@ -5,6 +5,7 @@ import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerCatalog, setLocale, type CollectionEntry, type CollectionSource } from '@dinkster/core'
 import { LibraryPanel } from '../src/LibraryPanel.js'
+import { RequestFailure } from '@dinkster/client'
 import '../src/locale.js'
 
 const source = (id: string, label: string, entries: readonly CollectionEntry[]): CollectionSource => ({
@@ -248,7 +249,7 @@ describe('LibraryPanel', () => {
     await vi.waitFor(() => expect(root.textContent).toContain('No packs available'))
     dispose()
 
-    const failed: CollectionSource = { id: 'templates', label: 'Templates', page: async () => { throw new Error('catalog offline') } }
+    const failed: CollectionSource = { id: 'templates', label: 'Templates', page: async () => { throw new RequestFailure('GET', '/api/templates', 503, 'catalog offline') } }
     const disposeFailed = render(() => <LibraryPanel backend={() => backend} sources={[failed]} />, root)
     await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('catalog offline'))
     disposeFailed()

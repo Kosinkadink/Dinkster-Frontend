@@ -11,6 +11,7 @@ import { ProductSlider } from './ProductSlider.js'
 import { ProductNotice } from './ProductForm.js'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { activeProjectId } from './projects.js'
+import { failureMessage } from './request-failure.js'
 import './image-compare.css'
 
 export interface ExecutionOutputProvenance {
@@ -76,7 +77,7 @@ export function ViewerImage(props: {
       setUrl(ownedUrl)
     }
     void load().catch((error: unknown) => {
-      if (!controller.signal.aborted) props.onError(error instanceof Error ? error.message : 'Image unavailable')
+      if (!controller.signal.aborted) props.onError(failureMessage(error, 'Image unavailable.'))
     })
     onCleanup(() => {
       controller.abort()

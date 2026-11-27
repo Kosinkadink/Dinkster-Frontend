@@ -1898,7 +1898,15 @@ export class CanvasRenderer {
       const baseLayout = node.previewCapable === true || (preview !== undefined && !panel)
         ? withCompactPreviewRegion(node.layout, this.tokens)
         : node.layout
-      if (panel) return { ...node, layout: withPreviewRegion(baseLayout, this.tokens) }
+      if (panel) {
+        const audio = preview.kind === 'audio' ? canvasPaintTokens.node.audioPreview : undefined
+        let layout = withPreviewRegion(baseLayout, audio === undefined ? this.tokens : { ...this.tokens, previewMinHeight: audio.minHeight })
+        if (audio !== undefined) {
+          const minWidth = Math.max(layout.minWidth, audio.minWidth)
+          layout = { ...projectNodeLayoutWidth(layout, Math.max(layout.width, minWidth)), minWidth }
+        }
+        return { ...node, layout }
+      }
       if (preview !== undefined && folded && previewHasPanel(preview)) {
         return { ...node, layout: withFoldedPreviewRegion(baseLayout, this.tokens) }
       }

@@ -59,7 +59,7 @@ export function audioPreview(values: PeekValues, query: ValueQuery, descriptor: 
           ...(kind === 'waveform' ? { waveform: { width: waveform!.width, height: waveform!.height } } : { window: { start, duration } }),
         })
         if (!result.available) {
-          diagnostics.push(`Audio ${kind}: ${result.reason} (${result.status}) - ${result.error}`)
+          diagnostics.push(`Audio ${kind} unavailable. ${result.error}`)
           return undefined
         }
         const expected = kind === 'waveform' ? 'image/png' : 'audio/wav'
