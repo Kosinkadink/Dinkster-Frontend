@@ -107,8 +107,8 @@ test('two viewers see missing save targets fixed and restored together in one un
         first: { id: 'first', type: 'dev.image.save_pgm', values: { target: { mount: 'absent-archive', prefix: 'portraits/first' } } },
         second: { id: 'second', type: 'dev.image.save_pgm', values: { target: { mount: 'absent-clips', prefix: 'clips/second' } } },
       }, links: {
-        first: { id: 'first', from: { node: 'gradient', port: 'image' }, to: { node: 'first', port: 'image' } },
-        second: { id: 'second', from: { node: 'gradient', port: 'image' }, to: { node: 'second', port: 'image' } },
+        firstImage: { id: 'firstImage', from: { node: 'gradient', port: 'image' }, to: { node: 'first', port: 'image' } },
+        secondImage: { id: 'secondImage', from: { node: 'gradient', port: 'image' }, to: { node: 'second', port: 'image' } },
       }, nets: {}, reroutes: {}, nextOrdinal: 4 } },
       view: { graphs: { g0: { nodes: {
         gradient: { position: { x: 40, y: 100 } }, first: { position: { x: 420, y: 100 } }, second: { position: { x: 420, y: 400 } },
