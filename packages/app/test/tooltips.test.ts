@@ -282,6 +282,17 @@ describe('canvas tooltip provider', () => {
     ])
   })
 
+  it('explains why a numeric value was kept, without adding a note to ordinary values', () => {
+    const target = { kind: 'widget', keptNumberNote: 'Kept until you change it.', hit: {
+      node: { node: { type: 'Numbers', values: { amount: 14 } } },
+      row: { inputId: 'amount', valueKey: 'amount', label: 'amount', spec: { widgetType: 'INT', options: { min: 0, max: 20, step: 4 } } },
+    } }
+    expect(resolveCanvasTooltip(target, { detailed: false })?.lines).toEqual([
+      'Value: 14', 'Not a multiple of 4. Kept until you change it.',
+    ])
+    expect(resolveCanvasTooltip({ ...target, keptNumberNote: undefined }, { detailed: false })?.lines).toEqual(['Value: 14'])
+  })
+
   it('titles a row inside its member box with its full name, as for a kept row', () => {
     const row = { inputId: 'loras.lora0.name', valueKey: 'loras.lora0.name', label: 'name', name: 'lora 1 name', spec: { widgetType: 'STRING', options: {} } }
     const node = { node: { type: 'Stack', values: {} } }

@@ -988,6 +988,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-canvas-field[data-neutral='true'] .dinkster-canvas-field-outline path { stroke: var(--dinkster-border-subtle); stroke-width: var(--dinkster-border-width); }
 .dinkster-canvas-side-result, .dinkster-canvas-side-problem, .dinkster-canvas-side-help { margin: 0; }
 .dinkster-canvas-side-problem { color: var(--dinkster-warning-foreground); }
+.dinkster-canvas-side-kept { margin: 0; color: var(--dinkster-text-secondary); text-wrap: balance; }
 .dinkster-canvas-side-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--dinkster-space-12); margin: 0; }
 .dinkster-canvas-side-fact { display: contents; }
 .dinkster-canvas-side-fact dt { color: var(--dinkster-text-secondary); }

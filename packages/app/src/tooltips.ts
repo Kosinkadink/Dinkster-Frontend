@@ -1,5 +1,6 @@
 import { defaultTokens, presentedType, typeIdDisplayLabel } from '@dinkster/canvas'
-import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, t as translate } from '@dinkster/core'
+import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, isIntegerWidgetValue, t as translate } from '@dinkster/core'
+import { storedNumberNote } from './widget-commit.js'
 import type { InputSpec, Json, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr, WidgetSpec } from '@dinkster/core'
 
 export interface TooltipContent {
@@ -405,7 +406,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ? widgetValueLines(storedReadout, context, room - incoming.reduce((sum, line) => sum + measure(line), 0), storedPrefix) : []
     return {
       title: row.name ?? row.label,
-      lines: [...incoming, ...stored, ...(t.keptNumberNote === undefined ? [] : [t.keptNumberNote]), ...(!t.connected && saveTarget ? [
+      lines: [...incoming, ...stored, ...(t.keptNumberNote === undefined ? [] : [isIntegerWidgetValue(value) ? storedNumberNote(row.spec, value) ?? t.keptNumberNote : t.keptNumberNote]), ...(!t.connected && saveTarget ? [
         ...(input?.tooltip ? [input.tooltip] : []),
         translate('saveTargetWidget.naming', { suffix: typeof options['suffix'] === 'string' ? options['suffix'] : '' }),
       ] : [])],
