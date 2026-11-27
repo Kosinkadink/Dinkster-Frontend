@@ -37,7 +37,7 @@ test('choosing a fixes Review entry selects its named example on the canvas', as
   await expect(card.locator('canvas')).toHaveAttribute('data-ready', /-dark$/)
   await expect(
     card.getByRole('button', {
-      name: 'Open the Review upgrades setting', exact: true,
+      name: 'Open Automatic fixes settings', exact: true,
     }),
   ).toBeVisible()
   const removedChoices = page.getByTestId('fixes-notice-removed-choices')
@@ -45,7 +45,7 @@ test('choosing a fixes Review entry selects its named example on the canvas', as
     'data-ready', /-dark$/,
   )
   await expect(removedChoices.getByRole('button', {
-    name: 'Open the Review upgrades setting', exact: true,
+    name: 'Open Automatic fixes settings', exact: true,
   })).toHaveCount(0)
   await removedChoices.screenshot({
     path: testInfo.outputPath('review-without-settings-dark.png'),
@@ -82,7 +82,7 @@ test('Editor problem details open by keyboard, return focus and resolve through 
     .locator('..')
   const details = warning.getByRole('button', { name: 'Details', exact: true })
   await expect(warning.locator('.dinkster-canvas-editor-note')).toContainText(
-    'usb1 not found.',
+    '"usb1" not found.',
   )
   await expect(
     warning.getByRole('button', { name: 'Use project default' }),
@@ -90,7 +90,7 @@ test('Editor problem details open by keyboard, return focus and resolve through 
   await details.focus()
   await details.press('Enter')
   const note = page.getByRole('dialog', {
-    name: 'usb1 is not on this machine.',
+    name: '"usb1" is not on this machine.',
     exact: true,
   })
   await expect(
@@ -119,7 +119,7 @@ test('Editor problem details open by keyboard, return focus and resolve through 
   )
   await error.getByRole('button', { name: 'Details', exact: true }).click()
   const errorNote = page.getByRole('dialog', {
-    name: 'usb1 is missing and this project has no default output mount.',
+    name: '"usb1" is missing and this project has no output mount.',
     exact: true,
   })
   await expect(errorNote).toBeVisible()
@@ -359,7 +359,7 @@ test('Save target shared fold-out distinguishes rest, typing and a reopened wire
       )
       const missing = stage('missing')
       await expect(missing.locator('.dinkster-canvas-editor-note')).toHaveText(
-        'usb1 not found.Details',
+        '"usb1" not found.Details',
       )
       await missing
         .getByRole('button', { name: 'Details', exact: true })
@@ -1299,8 +1299,8 @@ for (const theme of ['dark', 'light'] as const) {
             page.locator('figure.dinkster-canvas-example canvas').first(),
           ).toHaveAttribute('data-ready', `${id}-${theme}`)
         }
-        // Only the widget kind, open list filters and Representation examples
-        // are choices; comparisons are all visible without selecting one.
+        // Canvas comparisons are visible without selecting one. Standalone
+        // settings and Representation examples have their own choices.
         const filters = page.locator(
           'input.dinkster-canvas-field-input[role="combobox"]:not(.dinkster-canvas-side-representation-list *)',
         )
@@ -1318,7 +1318,7 @@ for (const theme of ['dark', 'light'] as const) {
             .getByRole('combobox')
             .and(
               page.locator(
-                ':not(.dinkster-canvas-side-representation *, .dinkster-canvas-side-representation-list *)',
+                ':not(.dinkster-canvas-side-representation *, .dinkster-canvas-side-representation-list *, .dinkster-automatic-fixes-example *)',
               ),
             ),
         ).toHaveCount(
