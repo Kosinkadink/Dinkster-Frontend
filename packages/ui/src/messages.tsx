@@ -29,7 +29,7 @@ export function ProductRecoveryNotice(props: {
   return <div class="dinkster-stack">
     <ProductNotice>{props.message}</ProductNotice>
     <Show when={props.action}>{(action) => <div class="dinkster-actions">
-      <ProductButton pending={action().pending} onClick={() => action().onSelect()}>{action().label}</ProductButton>
+      <ProductButton pending={action().pending === true} onClick={() => action().onSelect()}>{action().label}</ProductButton>
     </div>}</Show>
     <Show when={props.error}>{(error) => <p class="dinkster-field-error" role="alert">
       <ProductIcon icon={CircleAlert} />{error()}
