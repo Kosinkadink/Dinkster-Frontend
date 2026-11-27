@@ -4611,9 +4611,6 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         // A runtime cause belongs to the run's own Error tab, not this box.
         const problems = (nodeProblems[nodeId] ?? []).filter((line) =>
           !((runErrorsByNode().has(nodeId) || lastRunNodes.has(nodeId)) && line.diagnostic.origin === 'runtime'))
-        const numberFixes = props.app.numberProblemFixes.scan(tab).filter(({ offered }) =>
-          offered.part.graphId === currentGraphId(tab) && offered.part.nodeId === nodeId &&
-          JSON.stringify(offered.part.instancePath ?? []) === JSON.stringify(viewInstancePath(tab)))
         return problemBoxLines(problems, problemBoxRows(node), (row) => {
           const port = row.startsWith(outputRowKey('')) ? row.slice(outputRowKey('').length) : row
           return node.layout.pins.find((pin) => pin.portId === port)?.label ?? port
@@ -4625,7 +4622,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         }).map((line): ProblemBoxLine => {
           if (line.problem.diagnostic.code !== 'automatic.numberOutsideLimits' ||
             props.app.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'ask') return line
-          const numberFix = numberFixes.find((fix) => fix.key === line.problem.diagnostic.data?.['numberFixKey'])
+          const numberFix = props.app.numberProblemFixes.forProblem(tab, line.problem.diagnostic)
           return numberFix === undefined ? line : { ...line, key: numberFix.key, numberFix }
         })
       },

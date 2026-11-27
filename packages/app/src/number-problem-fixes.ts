@@ -41,6 +41,11 @@ export class NumberProblemFixes {
     })
   }
 
+  forProblem(tab: Tab, diagnostic: Diagnostic): NumberProblemFix | undefined {
+    const key = diagnostic.data?.['numberFixKey']
+    return typeof key === 'string' ? this.offers.get(tab.store)?.get(key) : undefined
+  }
+
   diagnostics(tab: Tab): readonly Diagnostic[] {
     const registry = this.app.registryForTab(tab)
     return this.scan(tab).map((fix) => {

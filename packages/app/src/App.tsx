@@ -1770,7 +1770,7 @@ export function App(props: {
       settingsTick()
       const tab = activeTab()
       if (tab === undefined || app.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'ask') return undefined
-      const fix = app.numberProblemFixes.scan(tab).find((candidate) => candidate.key === diagnostic.data?.['numberFixKey'])
+      const fix = app.numberProblemFixes.forProblem(tab, diagnostic)
       if (fix === undefined) return undefined
       return {
         label: numberProblemFixLabel(fix, message),
