@@ -1535,7 +1535,10 @@ describe('Boundary sample acceptance compilation', () => {
       expect(prompt(detached.doc)[path]!.inputs.image).toEqual([`first.${replacement.id}`, 0])
       expect(prompt(detached.doc)[path]!.inputs.mask).toEqual(['maskB', 0])
       expect(prompt(detached.doc)[second]!.inputs).not.toHaveProperty('image')
+    })
 
+    it(`boundary/plain-pin/${context} fan-out source isolation`, () => {
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
       const fanoutDoc = boundarySample(level)
       Object.assign(fanoutDoc.graphs.detail!.nodes, { other: { ...structuredClone(fanoutDoc.graphs.detail!.nodes.sample!), id: 'other' } })
       Object.assign(fanoutDoc.graphs.root!.nodes, { imageSecond: { id: 'imageSecond', type: 'ImageSource', values: {} } })
@@ -1572,7 +1575,9 @@ describe('Boundary sample acceptance compilation', () => {
       expect(prompt(fanoutReload)[otherPath]!.inputs.image).toEqual(['imageA', 0])
       expect(prompt(fanoutReload)[second]!.inputs).not.toHaveProperty('image')
       expect(prompt(fanoutReload)[otherSecond]!.inputs.image).toEqual(['imageSecond', 0])
+    })
 
+    it(`boundary/plain-pin/${context} literal and runtime delivery`, () => {
       // A FLOAT pin also accepts a known literal; IMAGE/MASK require runtime data.
       for (const literal of [true, false]) {
         const numericDoc = boundarySample(level)
