@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, compile, coreCommandRegistry, DocumentStore, documentResolver, elaborateInterface, elabInputsOf, loadDocument, type GraphDef, type InputSpec, type Json, type NodeSchema, type OutputSpec, type TypeExpr, type WidgetRegistry, type WorkflowDocument } from '@dinkster/core'
+import { asGraphDefId, asLineageId, asLinkId, asNetId, asNodeId, asPortId, compile, coreCommandRegistry, DocumentStore, documentResolver, elaborateInterface, elabInputsOf, loadDocument, type GraphDef, type InputSpec, type Json, type LookupAnswerState, type NodeSchema, type OutputSpec, type TypeExpr, type WidgetRegistry, type WorkflowDocument } from '@dinkster/core'
 import type { ExecutionState } from '@dinkster/client'
 import { appViewQueueScope, appViewQueueTargetOptions, buildParamRows, buildPreviewRows, previewRuntimeMapping, type ParamRow } from '../src/app-view-rows.js'
 import { boundarySample, resolveBoundarySample } from '../../core/test/fixtures/boundary-sample.js'
@@ -386,14 +386,23 @@ describe('buildParamRows', () => {
     expect(rows.map((r) => live(r).linked)).toEqual([false, false])
   })
 
-  it('recalculates an unstored automatic field for each renamed occurrence through edits, fallback and reload', () => {
+  it.each(['formula', 'lookup'] as const)('recalculates an unstored automatic %s field for each renamed occurrence through edits, fallback and reload', (calculation) => {
     const INT: TypeExpr = { kind: 'concrete', name: 'INT' }
     const automatic: NodeSchema = { ...schemaOf('Sink', [input('seed', { type: INT }), input('steps', {
-      type: INT, automatic: { formula: 'seed * 2' }, labelFormula: { formula: '"Steps " + str(seed * 2)' },
+      type: INT, automatic: calculation === 'formula' ? { formula: 'seed * 2' } : { lookup: 'steps_for', args: ['seed'] },
+      labelFormula: { formula: '"Steps " + str(seed * 2)' },
       tooltip: 'Calculated from this occurrence',
       readOnly: { formula: 'seed < 15' }, disabled: { formula: 'seed < 10' },
       disabledReason: { formula: '"Seed " + str(seed)' }, onAbsent: 'accept', lazy: true,
     })]), isOutputNode: true }
+    let holding = false
+    let firstHeld: LookupAnswerState | undefined
+    const lookupAnswers = (lookup: string, args: readonly Json[]) => {
+      expect(lookup).toBe('steps_for')
+      expect(typeof args[0]).toBe('number')
+      if (holding && args[0] === 31) return firstHeld
+      return { state: 'ready' as const, answer: Number(args[0]) * 2 }
+    }
     const resolveAutomatic = (type: string) => type === 'Sink' ? automatic : resolveBoundarySample(type)
     const binding = (id: string, node: string, port: string) => ({
       kind: 'input', id, promoted: true, binds: { kind: 'port', node, port },
@@ -428,25 +437,28 @@ describe('buildParamRows', () => {
             ...link, to: 'port' in link.to ? { ...link.to, port: asPortId(link.to.port === seed ? 'seed' : 'steps') } : link.to,
           }])),
         } }, ext: { 'dinkster.exposed': ['first', 'second'].map((nodeId) => ({ graphId: 'root', nodeId, inputId: 'steps' })) } } as WorkflowDocument
-        const reference = buildParamRows(plain, resolveAutomatic).map(live)
-        const rows = buildParamRows(current, resolveAutomatic).map(live)
+        const reference = buildParamRows(plain, resolveAutomatic, lookupAnswers).map(live)
+        const rows = buildParamRows(current, resolveAutomatic, lookupAnswers).map(live)
         rows.forEach((row, index) => {
           const expected = reference[index]!
           const { outer: _outer, lookupScope: _lookupScope, ...spec } = row.item.spec
           expect(spec).toEqual({ ...expected.item.spec, id: steps, optional: depth > 0,
             ...(expected.item.spec.displayName === 'steps' ? { displayName: steps } : {}),
           })
+          const expectedAutomatic = (state: typeof expected.item.automatic) => state?.call === undefined || depth === 0 ? state : {
+            ...state, call: { ...state.call, nodeType: 'Sink' },
+          }
           expect([row.item.readOnly, row.item.disabled, row.item.disabledReason,
             row.item.automatic, row.item.automaticIfEmptied, row.derived, row.linked, row.value, row.label]).toEqual([
             expected.item.readOnly, expected.item.disabled, expected.item.disabledReason,
-            expected.item.automatic, expected.item.automaticIfEmptied, expected.derived, expected.linked, expected.value,
+            expectedAutomatic(expected.item.automatic), expectedAutomatic(expected.item.automaticIfEmptied), expected.derived, expected.linked, expected.value,
             expected.label === 'steps' ? steps : expected.label,
           ])
         })
       }
       const check = (current: WorkflowDocument, firstSeed: number) => {
         checkMetadata(current, firstSeed)
-        const rows = buildParamRows(current, resolveAutomatic).map(live)
+        const rows = buildParamRows(current, resolveAutomatic, lookupAnswers).map(live)
         expect(rows.map((row) => [row.entry.graphId, row.entry.nodeId, row.valueKey, row.value, row.label, row.linked])).toEqual([
           ['root', 'first', steps, firstSeed * 2, `Steps ${firstSeed * 2}`, false],
           ['root', 'second', steps, 26, 'Steps 26', false],
@@ -457,7 +469,7 @@ describe('buildParamRows', () => {
           expect(row.node.values).not.toHaveProperty(steps)
         }
         const result = compile({ document: current, revision: 1, resolve: resolveAutomatic, scope: { kind: 'full' },
-          connection: 'formula-occurrence' as never, schemaHash: 'formula-occurrence' })
+          connection: 'formula-occurrence' as never, schemaHash: 'formula-occurrence', lookupAnswers })
         expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
         if (!result.ok) throw new Error('automatic occurrence did not compile')
         const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
@@ -470,8 +482,10 @@ describe('buildParamRows', () => {
         for (const [receiver, expected] of [[`first${suffix}`, firstSeed * 2], [`second${suffix}`, 26]] as const) {
           const native = elabInputsOf(elaborateInterface(automatic, {
             values: result.artifact.prompt[receiver]!.inputs as Record<string, Json>,
-          })).find((row) => row.spec.id === 'steps')!
-          expect(native.automatic).toEqual({ state: 'worked-out', value: expected })
+          }, undefined, { lookupAnswers })).find((row) => row.spec.id === 'steps')!
+          expect(native.automatic).toEqual({ state: 'worked-out', value: expected,
+            ...(calculation === 'formula' ? {} : { call: { lookup: 'steps_for', args: [expected / 2] } }),
+          })
         }
         expect(current.graphs.detail).toEqual(document.graphs.detail)
         expect(current.graphs.portrait).toEqual(document.graphs.portrait)
@@ -495,12 +509,14 @@ describe('buildParamRows', () => {
       expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: steps, value: 19 } }).ok).toBe(true)
       for (const current of [store.doc, loadDocument(JSON.parse(JSON.stringify(store.doc))).document!]) {
         checkMetadata(current, 31)
-        const rows = buildParamRows(current, resolveAutomatic).map(live)
+        const rows = buildParamRows(current, resolveAutomatic, lookupAnswers).map(live)
         expect(rows.map((row) => row.value)).toEqual([19, 26])
         expect(rows[0]!.item.automatic).toBeUndefined()
-        expect(rows[0]!.item.automaticIfEmptied).toEqual({ state: 'worked-out', value: 62 })
+        expect(rows[0]!.item.automaticIfEmptied).toEqual({ state: 'worked-out', value: 62,
+          ...(calculation === 'formula' ? {} : { call: { lookup: 'steps_for', args: [31], ...(depth === 0 ? {} : { nodeType: 'Sink' }) } }),
+        })
         const result = compile({ document: current, revision: 1, resolve: resolveAutomatic, scope: { kind: 'full' },
-          connection: 'formula-occurrence' as never, schemaHash: 'formula-occurrence' })
+          connection: 'formula-occurrence' as never, schemaHash: 'formula-occurrence', lookupAnswers })
         expect(result.ok).toBe(true)
         if (!result.ok) throw new Error('stored formula override did not compile')
         const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
@@ -508,6 +524,39 @@ describe('buildParamRows', () => {
         expect(result.artifact.prompt[`second${suffix}`]!.inputs).toEqual({ seed: 13 })
       }
       const fixed = store.doc
+      if (calculation === 'lookup') {
+        for (const [held, expected] of [
+          [undefined, { state: 'loading', value: 5 }],
+          [{ state: 'loading', answer: 73 }, { state: 'worked-out', value: 73 }],
+          [{ state: 'stale', answer: 71, reason: 'timeout' }, { state: 'worked-out', value: 71, kept: 'stale' }],
+          [{ state: 'unavailable', reason: 'timeout' }, { state: 'default', value: 5, reason: 'lookup-timeout' }],
+          [{ state: 'unavailable', reason: 'offline' }, { state: 'not-known', value: 5, reason: 'offline' }],
+          [{ state: 'paused' }, { state: 'not-known', value: 5, reason: 'paused' }],
+        ] as const) {
+          holding = true
+          firstHeld = held
+          for (const stored of [false, true]) {
+            const current = loadDocument(JSON.parse(JSON.stringify(stored ? fixed : edited))).document!
+            const snapshot = JSON.stringify(current)
+            checkMetadata(current, 31)
+            const rows = buildParamRows(current, resolveAutomatic, lookupAnswers).map(live)
+            expect(rows.map((row) => row.value)).toEqual([stored ? 19 : expected.value, 26])
+            const first = stored ? rows[0]!.item.automaticIfEmptied : rows[0]!.item.automatic
+            expect(first).toEqual({ ...expected,
+              call: { lookup: 'steps_for', args: [31], ...(depth === 0 ? {} : { nodeType: 'Sink' }) },
+            })
+            const result = compile({ document: current, revision: 1, resolve: resolveAutomatic, scope: { kind: 'full' },
+              connection: 'lookup-occurrence' as never, schemaHash: 'lookup-occurrence', lookupAnswers })
+            expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+            if (!result.ok) throw new Error('held automatic lookup did not compile')
+            const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
+            expect(result.artifact.prompt[`first${suffix}`]!.inputs).toEqual({ seed: 31, ...(stored ? { steps: 19 } : {}) })
+            expect(result.artifact.prompt[`second${suffix}`]!.inputs).toEqual({ seed: 13 })
+            expect(JSON.stringify(current)).toBe(snapshot)
+          }
+        }
+        holding = false
+      }
       expect(store.dispatch({ command: 'node.setValues', params: {
         graphId: 'root', nodeId: 'first', values: {}, unset: [steps],
       } }).ok).toBe(true)
@@ -533,14 +582,14 @@ describe('buildParamRows', () => {
         const connected = wired.doc
         for (const current of [connected, loadDocument(JSON.parse(JSON.stringify(connected))).document!]) {
           checkMetadata(current, 31)
-          const rows = buildParamRows(current, resolveAutomatic).map(live)
+          const rows = buildParamRows(current, resolveAutomatic, lookupAnswers).map(live)
           expect(rows.map((row) => row.value)).toEqual([5, 26])
           expect(rows[0]!.item.automatic).toMatchObject({ state: 'default', value: 5 })
           expect(current.graphs.root!.nodes.first!.values).toEqual({ [seed]: 31 })
           const exposed = { ...current, ext: { 'dinkster.exposed': [{ graphId: 'root', nodeId: 'first', inputId: seed }] } }
-          expect(live(buildParamRows(exposed, resolveAutomatic)[0]!).linked).toBe(true)
+          expect(live(buildParamRows(exposed, resolveAutomatic, lookupAnswers)[0]!).linked).toBe(true)
           const result = compile({ document: current, revision: 1, resolve: resolveAutomatic, scope: { kind: 'full' },
-            connection: 'formula-occurrence' as never, schemaHash: 'formula-occurrence' })
+            connection: 'formula-occurrence' as never, schemaHash: 'formula-occurrence', lookupAnswers })
           expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
           if (!result.ok) throw new Error('linked formula dependency did not compile')
           const suffix = depth === 0 ? '' : depth === 1 ? '.sample' : '.detail.sample'
@@ -556,7 +605,7 @@ describe('buildParamRows', () => {
         const disconnected = wired.doc
         expect(wired.undo()).toBe(true)
         expect(wired.doc).toEqual(connected)
-        expect(buildParamRows(wired.doc, resolveAutomatic).map((row) => live(row).value)).toEqual([5, 26])
+        expect(buildParamRows(wired.doc, resolveAutomatic, lookupAnswers).map((row) => live(row).value)).toEqual([5, 26])
         expect(wired.redo()).toBe(true)
         expect(wired.doc).toEqual(disconnected)
         check(loadDocument(JSON.parse(JSON.stringify(disconnected))).document!, 31)
