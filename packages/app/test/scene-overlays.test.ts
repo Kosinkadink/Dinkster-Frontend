@@ -7,7 +7,7 @@ import { applyNodeDecorations, deriveSceneOverlays, lastRunAutomaticDiagnostics,
 import { deriveProblemProjection, executionProblemDiagnostics } from '../src/problem-display.js'
 import type { PreviewLoader, PreviewSource } from '../src/node-previews.js'
 
-// The derivation reads scene.nodes (id/isSubgraph/node.type), execution
+// The derivation reads scene.nodes (id/isSubgraph/node.type/layout.rows), execution
 // nodes/outputs/previews/artifact, and schema type/pack/deprecation;
 // fixtures carry exactly those (cast through unknown - full scenes would
 // drag in layout/link state irrelevant to overlay content).
@@ -18,6 +18,7 @@ const scene = (nodes: { id: string; type?: string; isSubgraph?: boolean; regionK
       isSubgraph: n.isSubgraph ?? false,
       regionKind: n.regionKind,
       node: { type: n.type ?? 'core.plain', values: {}, mode: n.mode },
+      layout: { rows: [] },
     })),
   }) as unknown as Scene
 

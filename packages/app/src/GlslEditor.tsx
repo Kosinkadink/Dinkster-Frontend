@@ -17,6 +17,7 @@ import {
 } from './glsl-shader-runner.js'
 import { useSignal } from './solid-adapter.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
+import { ProductSelect } from '@dinkster/ui'
 
 interface RuntimeGlslState {
   readonly state: GlslShaderState
@@ -237,16 +238,12 @@ export function GlslEditor(props: {
           </label>
           <main class="glsl-preview-panel">
             <div class="glsl-preview-toolbar">
-              <label>Preview output<select
+              <label>Preview output<ProductSelect
                 aria-label="Preview output"
                 value={String(output())}
-                onChange={(event) => setOutput(Number(event.currentTarget.value) as 0 | 1 | 2 | 3)}
-              >
-                <option value="0">fragColor0</option>
-                <option value="1">fragColor1</option>
-                <option value="2">fragColor2</option>
-                <option value="3">fragColor3</option>
-              </select></label>
+                onChange={(value) => setOutput(Number(value) as 0 | 1 | 2 | 3)}
+                options={[0, 1, 2, 3].map((index) => ({ value: String(index), label: `fragColor${index}` }))}
+              /></label>
               <Show when={state()}>{(value) => <span>{value().width} x {value().height}</span>}</Show>
             </div>
             <div class="glsl-preview-viewport" data-testid="glsl-preview">

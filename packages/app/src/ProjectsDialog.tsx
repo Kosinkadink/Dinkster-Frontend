@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import type { DinksterConnection, LibraryProject } from '@dinkster/client'
+import { uuidv4 } from '@dinkster/core'
 import { ProductButton as SharedProductButton, ProductErrorBanner, ProductToast } from '@dinkster/ui'
 import { ProjectAccountLink } from './ProjectAccountLink.js'
 import { ProductActionFooter } from './ProductForm.js'
@@ -103,7 +104,7 @@ export function ProjectsDialog(props: {
     const name = draft().trim()
     if (name.length === 0) return
     void mutate(async (connection, signal) => {
-      await connection.registerProject(`p-${crypto.randomUUID()}`, name, {}, signal)
+      await connection.registerProject(`p-${uuidv4()}`, name, {}, signal)
       if (signal.aborted || props.connection !== connection) return
       setDraft('')
       setNotification({ message: 'Project created' })

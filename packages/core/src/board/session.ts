@@ -1,10 +1,10 @@
 import { diag } from '../diagnostics.js'
 import type { Json } from '../format/document.js'
 import { ownJson } from '../format/json.js'
-import { isValidActorId } from '../ids.js'
+import { isValidActorId, uuidv4 } from '../ids.js'
 import { createSignal, type ReadonlySignal } from '../reactive/signal.js'
 import {
-  COLLAB_PROTOCOL_VERSION, isValidCollabRevision, validateCollabDescriptor, validateCollabServerOp,
+  COLLAB_PROTOCOL_VERSION, isValidCollabRevision, isValidCollabTitle, validateCollabDescriptor, validateCollabServerOp,
   type CollabConnection, type CollabConnectionEvent, type CollabServerOp, type CollabSessionDescriptor,
 } from '../commands/collab-protocol.js'
 import { applyOps, applyOwnedOps, getAtPath, invertOps, type PatchOp } from '../commands/patch.js'
@@ -19,7 +19,7 @@ function ownedInvocation(invocation: BoardCommandInvocation): BoardCommandInvoca
   const owned = result.value as unknown as BoardCommandInvocation
   if (owned.command !== 'board.item.add') return owned
   return { ...owned, params: { items: owned.params.items.map((item) => ({
-    ...item, id: item.id ?? `${item.kind}-${crypto.randomUUID()}`,
+    ...item, id: item.id ?? `${item.kind}-${uuidv4()}`,
   })) } }
 }
 
@@ -104,6 +104,8 @@ function replayHistory(document: BoardDocument, operations: readonly PatchOp[]):
 export class SharedBoardSession implements BoardSession {
   readonly actorId: string
   private readonly documentSignal
+  private readonly titleSignal = createSignal<string | undefined>(undefined)
+  private readonly canEditSignal = createSignal(false)
   private readonly statusSignal = createSignal<'live' | 'catching-up' | 'closed' | 'error'>('live')
   readonly status = this.statusSignal as ReadonlySignal<'live' | 'catching-up' | 'closed' | 'error'>
   private confirmed: BoardDocument
@@ -114,7 +116,7 @@ export class SharedBoardSession implements BoardSession {
   private readonly undoStack: HistoryEntry[] = []
   private readonly redoStack: HistoryEntry[] = []
   private readonly maxUndo: number
-  private readonly nonce = crypto.randomUUID()
+  private readonly nonce = uuidv4()
   private counter = 0
   private target: number
   private resync = false
@@ -133,7 +135,7 @@ export class SharedBoardSession implements BoardSession {
     const invalid = validateCollabDescriptor(descriptor, connection.sessionId, 'board')
     if (invalid !== null) throw new Error(invalid)
     if (!isValidCollabRevision(revision)) throw new Error('invalid Board snapshot revision')
-    this.actorId = options.actorId ?? crypto.randomUUID()
+    this.actorId = options.actorId ?? uuidv4()
     if (!isValidActorId(this.actorId)) throw new Error('invalid Board actor id')
     this.maxUndo = options.maxUndo ?? 200
     if (!Number.isSafeInteger(this.maxUndo) || this.maxUndo < 0) throw new Error('invalid maxUndo')
@@ -142,6 +144,8 @@ export class SharedBoardSession implements BoardSession {
     this.confirmedRevision = revision
     this.target = Math.max(revision, descriptor.revision)
     this.documentSignal = createSignal(this.confirmed)
+    this.titleSignal.set(descriptor.title)
+    this.canEditSignal.set(descriptor.canEdit ?? false)
     this.unsubscribe = connection.onEvent((event) => this.handleEvent(event))
     for (const event of initialEvents) this.handleEvent(event)
     if (this.statusSignal.get() === 'closed' || this.statusSignal.get() === 'error') {
@@ -153,6 +157,8 @@ export class SharedBoardSession implements BoardSession {
 
   get doc(): BoardDocument { return this.documentSignal.get() }
   get document(): ReadonlySignal<BoardDocument> { return this.documentSignal }
+  get title(): ReadonlySignal<string | undefined> { return this.titleSignal }
+  get canEdit(): ReadonlySignal<boolean> { return this.canEditSignal }
   get revision(): number { return this.confirmedRevision + this.pending.length }
   get canUndo(): boolean { return this.undoStack.length > 0 }
   get canRedo(): boolean { return this.redoStack.length > 0 }
@@ -205,6 +211,7 @@ export class SharedBoardSession implements BoardSession {
   }
 
   close(): void {
+    this.canEditSignal.set(false)
     this.statusSignal.set('closed')
     this.unsubscribe?.()
     this.unsubscribe = undefined
@@ -228,10 +235,21 @@ export class SharedBoardSession implements BoardSession {
         return
       }
       this.connected = true
+      this.titleSignal.set(event.descriptor.title)
+      this.canEditSignal.set(event.descriptor.canEdit ?? false)
       this.target = Math.max(this.target, event.descriptor.revision)
     } else if (event.kind === 'disconnected') {
       this.connected = false
+      this.canEditSignal.set(false)
       this.statusSignal.set('catching-up')
+    } else if (event.kind === 'session-title') {
+      if (!isValidCollabTitle(event.title)) this.fail('invalid session title')
+      else this.titleSignal.set(event.title)
+      return
+    } else if (event.kind === 'session-permissions') {
+      if (typeof event.canEdit !== 'boolean') this.fail('invalid session permission')
+      else this.canEditSignal.set(event.canEdit)
+      return
     } else if (event.kind === 'session-closed') {
       this.close()
     } else if (event.kind === 'denial') {
@@ -399,6 +417,7 @@ export class SharedBoardSession implements BoardSession {
 
   private fail(error: unknown): void {
     if (this.statusSignal.get() === 'closed') return
+    this.canEditSignal.set(false)
     this.statusSignal.set('error')
     this.unsubscribe?.()
     this.unsubscribe = undefined

@@ -8,7 +8,7 @@
 import { createEffect, createMemo, createSignal, createUniqueId, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 import { AudioLines, BookOpen, Database, Ellipsis, Eye, EyeOff, File, Image as ImageIcon, LayoutGrid, Search, Server, Workflow } from 'lucide-solid'
-import { activeLocale, asConnectionId, loadDocument, type SchemaResolver, type WorkflowDocument } from '@dinkster/core'
+import { activeLocale, asConnectionId, formatByteSize, loadDocument, type SchemaResolver, type WorkflowDocument } from '@dinkster/core'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
 import {
   buildDinksterRegistry,
@@ -61,7 +61,7 @@ import { useSignal } from '../solid-adapter.js'
 import { DEFAULT_PROJECT_ID } from '../projects.js'
 import '@dinkster/ui/styles.css'
 import './projects-page.css'
-import { byProjectTime, formatBytes, formatWhen, projectTime } from './project-facts.js'
+import { byProjectTime, formatWhen, projectTime } from './project-facts.js'
 import { WorkflowPicture } from './workflow-picture.js'
 import { EngineLogDialog } from '../EngineRunControl.js'
 
@@ -728,7 +728,7 @@ export function ProjectsView(props: {
                 {
                   label: message('projects.facts.size'),
                   value: <ProductPageAnswer page={projectDetail}>
-                    {formatBytes(usage()!.bytes, locale().tag)}
+                    {formatByteSize(usage()!.bytes)}
                     <span class="dinkster-project-fact-detail">{' - '}{message('projects.facts.outputs', { count: usage()!.outputs })}</span>
                   </ProductPageAnswer>,
                 },
@@ -1017,11 +1017,10 @@ export function ProjectsView(props: {
         <label for="new-project-runs-on">{message('projects.facts.runsOn')}</label>
         <ProductSelect id="new-project-runs-on" value={chosenInstallation()?.root ?? ''}
           disabled={creating() || installations() === null || creationInstallations().length === 0}
-          onChange={(event) => setNewInstallation(event.currentTarget.value)}>
-          <Show when={creationInstallations().length > 0} fallback={<option value="">{message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.facts.noInstallation')}</option>}>
-            <For each={creationInstallations()}>{(row) => <option value={row.root}>{row.name} - {message('projects.facts.thisComputer')}</option>}</For>
-          </Show>
-        </ProductSelect>
+          onChange={setNewInstallation}
+          options={creationInstallations().length > 0
+            ? creationInstallations().map((row) => ({ value: row.root, label: `${row.name} - ${message('projects.facts.thisComputer')}` }))
+            : [{ value: '', label: message(installations() === null ? 'projects.facts.unknownInstallation' : 'projects.facts.noInstallation') }]} />
         <span>{message('projects.new.startWith')}</span>
         <div class="dinkster-stack">
           <ProductSegmented label={message('projects.new.startWith')} value={startChoice()} onChange={setStartChoice}
@@ -1042,9 +1041,8 @@ export function ProjectsView(props: {
             </div>}</ProductField>
           </Show>
           <Show when={startChoice() === 'project'}>
-            <ProductField label={message('projects.new.copyProject')}>{(attributes) => <ProductSelect {...attributes} value={startingProject() ?? ''} disabled={creationLocked() || projects() === null || !creationProjects().length} onChange={(event) => setCopySource(event.currentTarget.value)}>
-              <For each={creationProjects()}>{(row) => <option value={row.id}>{row.name}</option>}</For>
-            </ProductSelect>}</ProductField>
+            <ProductField label={message('projects.new.copyProject')}>{(attributes) => <ProductSelect {...attributes} value={startingProject() ?? ''} disabled={creationLocked() || projects() === null || !creationProjects().length} onChange={setCopySource}
+              options={creationProjects().map((row) => ({ value: row.id, label: row.name }))} />}</ProductField>
           </Show>
         </div>
         <div class="dinkster-actions">
