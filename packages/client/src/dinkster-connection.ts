@@ -1348,6 +1348,8 @@ export interface ProjectCreation {
     | { readonly kind: 'project'; readonly project: string }
 }
 
+export class ProjectRevisionConflictError extends Error {}
+
 export interface LibraryProject {
   readonly accountProject?: AccountProjectLink | null
   readonly id: string
@@ -4384,7 +4386,7 @@ export class DinksterConnection {
     if (!res.ok) {
       const failure: unknown = await res.json().catch(() => undefined)
       const reason = typeof failure === 'object' && failure !== null && 'error' in failure ? failure.error : undefined
-      if (res.status === 409) throw new Error(`Project changed elsewhere. Refresh before saving.${typeof reason === 'string' ? ` ${reason}` : ''}`)
+      if (res.status === 409) throw new ProjectRevisionConflictError(`Project changed elsewhere. Refresh before saving.${typeof reason === 'string' ? ` ${reason}` : ''}`)
       throw new Error(typeof reason === 'string' ? reason : `PATCH /api/projects failed: ${res.status}`)
     }
     const payload = await res.json() as { project?: unknown } | null
