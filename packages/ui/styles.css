@@ -171,8 +171,12 @@
 .dinkster-code code { font: inherit; }
 .dinkster-disclosure > summary { color: var(--dinkster-text-secondary); cursor: pointer; }
 .dinkster-disclosure > .dinkster-stack { margin-top: var(--dinkster-space-16); }
-.dinkster-panel[data-fill='quiet'] { display: grid; gap: var(--dinkster-space-16); min-width: 0; padding: var(--dinkster-space-16); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-quiet); }
+.dinkster-panel[data-fill='quiet'] { display: grid; gap: var(--dinkster-space-12); min-width: 0; padding: var(--dinkster-space-16); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-quiet); }
+.dinkster-panel[data-fill='quiet'] .dinkster-fact { grid-template-columns: 96px minmax(0, 1fr); align-items: baseline; gap: var(--dinkster-space-12); }
+.dinkster-panel[data-fill='quiet'] .dinkster-fact dt { color: var(--dinkster-text-secondary); }
+.dinkster-panel[data-fill='quiet'] .dinkster-fact dd { min-width: 0; color: var(--dinkster-text-primary); text-align: left; }
 .dinkster-panel[data-fill='quiet'] > .dinkster-disclosure { padding-top: var(--dinkster-space-12); border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+.dinkster-panel[data-fill='quiet'] > .dinkster-disclosure > .dinkster-stack { margin-top: var(--dinkster-space-12); }
 .dinkster-panel[data-fill='quiet'] > .dinkster-disclosure > summary { display: flex; align-items: center; gap: var(--dinkster-space-8); list-style: none; }
 .dinkster-panel[data-fill='quiet'] > .dinkster-disclosure > summary::-webkit-details-marker { display: none; }
 .dinkster-panel[data-fill='quiet'] > .dinkster-disclosure > summary > .dinkster-icon { display: block; }
@@ -741,12 +745,12 @@ button.dinkster-row-main { cursor: pointer; }
 [data-density='site'] .dinkster-panel > .dinkster-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, var(--dinkster-site-field-max-width)); gap: var(--dinkster-space-16); align-items: center; padding: var(--dinkster-site-row-control-padding); }
 [data-density='site'] .dinkster-panel > .dinkster-field + .dinkster-field { border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 [data-density='site'] .dinkster-panel > .dinkster-field > :is(.dinkster-description, .dinkster-field-error) { grid-column: 2; }
-[data-density='site'] .dinkster-panel .dinkster-facts { gap: 0; }
-[data-density='site'] .dinkster-panel .dinkster-fact { padding: var(--dinkster-site-row-padding-block) var(--dinkster-site-row-padding-inline); }
-[data-density='site'] .dinkster-panel .dinkster-fact + .dinkster-fact { border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
+[data-density='site'] .dinkster-panel:where(:not([data-fill='quiet'])) .dinkster-facts { gap: 0; }
+[data-density='site'] .dinkster-panel:where(:not([data-fill='quiet'])) .dinkster-fact { padding: var(--dinkster-site-row-padding-block) var(--dinkster-site-row-padding-inline); }
+[data-density='site'] .dinkster-panel:where(:not([data-fill='quiet'])) .dinkster-fact + .dinkster-fact { border-top: var(--dinkster-border-width) solid var(--dinkster-border-subtle); }
 [data-density='site'] .dinkster-fact dt { color: var(--dinkster-text-primary); }
 [data-density='site'] .dinkster-fact dd { text-align: right; color: var(--dinkster-text-secondary); }
-[data-density='site'] .dinkster-panel .dinkster-fact:has(.dinkster-status-pill) { padding-block: var(--dinkster-site-row-control-padding); }
+[data-density='site'] .dinkster-panel:where(:not([data-fill='quiet'])) .dinkster-fact:has(.dinkster-status-pill) { padding-block: var(--dinkster-site-row-control-padding); }
 [data-density='site'] .dinkster-actions { justify-content: flex-end; }
 [data-density='site'] .dinkster-content > .dinkster-panel + .dinkster-actions { margin-top: calc(var(--dinkster-site-panel-action-gap) - var(--dinkster-site-section-gap)); }
 [data-density='site'] .dinkster-menu { border-color: var(--dinkster-border-subtle); border-radius: var(--dinkster-site-panel-radius); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-low); }
