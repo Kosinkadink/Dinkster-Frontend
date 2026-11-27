@@ -1353,6 +1353,7 @@
   "problemFix.numberOutsideLimits": "Stored value {value} is outside the allowed values.",
   "problemFix.useNumber": "Use {value}",
   "problemFix.storing": "Storing...",
+  "problemFix.keptUntilChanged": "Kept until you change it.",
   "problemFix.checkAgain": "Check again",
   "problemFix.fixAll": "Fix all",
   "fixesNotice.change.replaced": "Replaced an older node.",

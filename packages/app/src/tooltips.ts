@@ -405,7 +405,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ? widgetValueLines(storedReadout, context, room - incoming.reduce((sum, line) => sum + measure(line), 0), storedPrefix) : []
     return {
       title: row.name ?? row.label,
-      lines: [...incoming, ...stored, ...(!t.connected && saveTarget ? [
+      lines: [...incoming, ...stored, ...(t.keptNumberNote === undefined ? [] : [t.keptNumberNote]), ...(!t.connected && saveTarget ? [
         ...(input?.tooltip ? [input.tooltip] : []),
         translate('saveTargetWidget.naming', { suffix: typeof options['suffix'] === 'string' ? options['suffix'] : '' }),
       ] : [])],

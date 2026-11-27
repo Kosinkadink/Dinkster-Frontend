@@ -1362,6 +1362,7 @@
   "problemFix.numberOutsideLimits": "已存储的值 {value} 不在允许的值范围内。",
   "problemFix.useNumber": "使用 {value}",
   "problemFix.storing": "正在存储...",
+  "problemFix.keptUntilChanged": "保留此值，直到你更改它。",
   "problemFix.checkAgain": "重新检查",
   "problemFix.fixAll": "修复全部",
   "fixesNotice.change.replaced": "已替换旧节点。",

@@ -1393,6 +1393,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const tabTargets = useSignal(props.app.tabTargets)
   const settingsTick = useSignal(props.app.settings.changed)
   const problemFixesChanged = useSignal(props.app.problemFixes.changed)
+  const adjustmentNotices = useSignal(props.app.adjustmentNotices)
   const detailMinScale = (): number => (settingsTick(), props.app.settings.get<number>('canvas.detailMinPercent') / 100)
   const extensionRevision = useSignal(props.app.extensionRevision)
   const selectionScopesChanged = useSignal(props.app.selectionScopesChanged)
@@ -3623,6 +3624,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               ...target,
               ...(target.kind === 'widget' && companion ? { companion } : {}),
               connected: companion !== undefined || linked,
+              ...(target.kind === 'widget' && numberIsKept(target.hit.node.id, target.hit.row.valueKey)
+                ? { keptNumberNote: message('problemFix.keptUntilChanged') } : {}),
             }
           }
           const tooltipTab = activeTab()
@@ -4685,6 +4688,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly recordedAutomatic: ExecutionState['automaticValues']
       readonly lookups: LookupClient | undefined
       readonly lookupGeneration: number
+      readonly keptNumberRows: ReadonlySet<string>
       readonly buttonNoticeHeights: ReturnType<typeof buttonNoticeHeights>
       readonly editorControls: Readonly<Record<string, Readonly<Record<string, number>>>> | undefined
     } | undefined
@@ -4725,6 +4729,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const unsubscribe = props.app.backendForTab(tab).lookupGeneration.subscribe(() => setLookupTick((tick) => tick + 1))
       onCleanup(unsubscribe)
     })
+
+    const keptNumberRows = createMemo(() => {
+      docTick(); lookupTick(); registry(); adjustmentNotices()
+      const tab = activeTab()
+      const graphId = tab && currentGraphId(tab)
+      const path = JSON.stringify(tab === undefined ? [] : viewInstancePath(tab) ?? [])
+      return new Set(tab === undefined ? [] : props.app.scanTabProblemFixes(tab, tab.store.doc, { keptOnly: true })
+        .flatMap((fix) => fix.kind === 'number' && fix.part.graphId === graphId &&
+          JSON.stringify(fix.part.instancePath ?? []) === path ? [JSON.stringify([fix.part.nodeId, fix.valueKey])] : []))
+    }, undefined, { equals: (a, b) => a.size === b.size && [...a].every((key) => b.has(key)) })
+    const numberIsKept = (nodeId: string, valueKey: string): boolean => keptNumberRows().has(JSON.stringify([nodeId, valueKey]))
 
     // Scene: rebuilt when the tab, graph stack, document, or schemas change.
     createEffect(() => {
@@ -4768,6 +4783,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const lookupAnswers = lookups === undefined ? undefined : lookupAnswersOf(lookups)
       const currentExtensionRevision = props.app.extensionRevision.get()
       const previousBuild = sceneBuildContext
+      const keptRows = keptNumberRows()
       const noticeHeights = buttonNoticeHeights()
       const graphNodes = new Map(Object.entries(doc.graphs[graphId]?.nodes ?? {}))
       const canReuseScene = previousBuild !== undefined &&
@@ -4781,6 +4797,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.recordedAutomatic === recordedAutomatic &&
         previousBuild.lookups === lookups &&
         previousBuild.lookupGeneration === lookupGeneration &&
+        previousBuild.keptNumberRows === keptRows &&
         previousBuild.buttonNoticeHeights === noticeHeights &&
         previousBuild.editorControls === editorControls
       const valuesUpdated = canReuseScene && path.length === 0
@@ -4806,7 +4823,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           resolve,
           schemasPending: reg === undefined,
           // A hidden row shows while its stored value has a problem, as Problems lists it.
-          storedValueProblem: (row, value) =>
+          storedValueProblem: (row, value) => !numberIsKept(row.nodeId, row.valueKey) &&
             storedValueProblems(valueRegistry, graphId, row, value).some((d) => d.severity !== 'info'),
           renderVirtualNode: (node) => props.app.virtualNodeKinds.get(node.type)?.render(node),
           tokens: defaultTokens,
@@ -4850,6 +4867,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         recordedAutomatic,
         lookups,
         lookupGeneration,
+        keptNumberRows: keptRows,
         buttonNoticeHeights: noticeHeights,
         editorControls,
       }
@@ -5095,7 +5113,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       for (const node of scene.nodes) {
         for (const row of node.fieldRows ?? node.layout.rows) {
           if (row.kind !== 'widget' || row.selector !== undefined) continue
-          if (companionInputs.get(node.id)?.has(row.valueKey)) continue
+          if (companionInputs.get(node.id)?.has(row.valueKey) || numberIsKept(node.id, row.valueKey)) continue
           const problem = numberProblems.find((candidate) => candidate.refs?.[0]?.nodeId === node.id && candidate.refs[0].valueKey === row.valueKey)
           if (problem !== undefined) {
             out.push(problem)

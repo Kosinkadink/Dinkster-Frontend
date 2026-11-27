@@ -223,6 +223,32 @@ test('numeric Ask me fixes keep other problems, recheck stale offers and undo on
   await box.getByRole('button', { name: 'Use 20', exact: true }).click()
   await expect.poll(values).toEqual({ amount: 16, other: 20 })
   await expect(box).toHaveCount(0)
+
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.settings.set('automaticFixes.numberOutsideLimits', 'apply')
+    const doc = app.activeTab()!.store.doc
+    await app.openDocument({ ...doc, lineage: 'undo-kept-number', graphs: { ...doc.graphs, g0: {
+      ...doc.graphs.g0!, nodes: { gen: { ...doc.graphs.g0!.nodes.gen!, values: { amount: 14, other: 20 } } },
+    } } }, 'Kept number')
+  })
+  await expect.poll(values).toEqual({ amount: 12, other: 20 })
+  await page.getByTestId('fixes-notice').getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect.poll(values).toEqual({ amount: 14, other: 20 })
+  await expect.poll(() => page.evaluate(() =>
+    (window.__dinksterTest!.renderer!.getBadges()['gen'] ?? []).filter((badge) => badge.id.startsWith('core.problem.')))).toEqual([])
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getRowMarks()['gen'] ?? {})).toEqual({})
+  const kept = await rowPoint(page, 'gen', 'amount')
+  await page.mouse.move(kept.x, kept.y)
+  await expect(page.getByTestId('app-tooltip')).toContainText('Kept until you change it.')
+  await page.mouse.click(kept.x, kept.y)
+  const editor = page.getByTestId('widget-editor')
+  await expect(editor).toContainText('Kept until you change it.')
+  const input = editor.locator('input').first()
+  await expect(input).toBeEditable()
+  await input.fill('8')
+  await input.press('Enter')
+  await expect.poll(values).toEqual({ amount: 8, other: 20 })
 })
 
 test('a missing model opens only its own review and never queues a workflow', async ({ page }) => {

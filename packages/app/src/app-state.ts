@@ -4956,8 +4956,8 @@ export class AppState {
           if (this.backendForTab(tab).id !== id) continue
           this.refreshWorkflowAssets(tab)
           if (tab.execution) continue
-          const before = this.scanTabProblemFixes(tab, tab.store.doc, previousAnswers)
-          const fixes = this.scanTabProblemFixes(tab, tab.store.doc, currentAnswers).filter((fix) => fix.kind === 'number' &&
+          const before = this.scanTabProblemFixes(tab, tab.store.doc, { lookupAnswers: previousAnswers })
+          const fixes = this.scanTabProblemFixes(tab, tab.store.doc, { lookupAnswers: currentAnswers }).filter((fix) => fix.kind === 'number' &&
             !before.some((old) => problemFixKey(old) === problemFixKey(fix) && old.stamp === fix.stamp))
           // Only a new external cause follows Apply; existing personal Ask me problems stay offered.
           void this.applyProblemFixes(tab, fixes, true)
@@ -5097,7 +5097,7 @@ export class AppState {
             this.reportEnvironmentDrift(tab)
             this.reportUnresolvedTypes(tab)
             if (beforeRegistry !== undefined) {
-              const before = this.scanTabProblemFixes(tab, tab.store.doc, undefined, beforeRegistry.resolve)
+              const before = this.scanTabProblemFixes(tab, tab.store.doc, { resolve: beforeRegistry.resolve })
               const fixes = this.scanTabProblemFixes(tab).filter((fix) => fix.kind === 'number' &&
                 !before.some((old) => problemFixKey(old) === problemFixKey(fix) && old.stamp === fix.stamp))
               void this.applyProblemFixes(tab, fixes, true)
@@ -5753,8 +5753,13 @@ export class AppState {
   }
 
   /** Every occurrence is checked: siblings can store different promoted values. */
-  scanTabProblemFixes(tab: Tab, document = tab.store.doc, lookupAnswers?: ElaborateOptions['lookupAnswers'], resolve?: SchemaResolver): readonly StoredProblemFix[] {
-    if (tab.execution || this.registryForTab(tab) === undefined) return []
+  scanTabProblemFixes(tab: Tab, document = tab.store.doc, options: {
+    readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
+    readonly resolve?: SchemaResolver
+    readonly keptOnly?: boolean
+  } = {}): readonly StoredProblemFix[] {
+    if (tab.execution || this.registryForTab(tab) === undefined || options.keptOnly && !this.keptNumberFixes.get(tab.store)?.size) return []
+    const { lookupAnswers, resolve } = options
     const fixes = new Map<string, StoredProblemFix>()
     const visit = (graphId: string, instancePath: readonly string[], ancestors: ReadonlySet<string>): void => {
       if (ancestors.has(graphId)) return
@@ -5773,12 +5778,12 @@ export class AppState {
     for (const graphId of Object.keys(document.graphs)) if (graphId !== document.root) visit(graphId, [], new Set())
     const kept = this.keptNumberFixes.get(tab.store)
     return [...fixes.values()].filter((fix) => {
-      if (fix.kind === 'rule') return true
+      if (fix.kind === 'rule') return !options.keptOnly
       const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey, fix.stamp])
       const cause = kept?.get(key)
-      if (fix.before === cause?.before && fix.stamp === cause.stamp) return false
-      if (document === tab.store.doc) kept?.delete(key)
-      return true
+      const isKept = fix.before === cause?.before && fix.stamp === cause.stamp
+      if (!isKept && document === tab.store.doc) kept?.delete(key)
+      return options.keptOnly ? isKept : !isKept
     })
   }
 
