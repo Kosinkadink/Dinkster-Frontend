@@ -218,7 +218,7 @@ export function ProblemBoxGallery(props: { theme: 'dark' | 'light' }) {
             />
           )}
         </For>
-        <figure class="dinkster-canvas-example" data-testid="automatic-fixes-settings">
+        <figure class="dinkster-canvas-example dinkster-automatic-fixes-example" data-testid="automatic-fixes-settings">
           <h3 class="dinkster-heading">Automatic fixes</h3>
           <SettingsDialog settings={settings} commands={commands} keybindings={keybindings}
             request={{ category: 'automaticFixes', id: 'automaticFixes.numberOutsideLimits' }} />
