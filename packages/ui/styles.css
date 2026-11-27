@@ -223,7 +223,7 @@
 .dinkster-button[data-cancel] .dinkster-icon { width: 14px; height: 14px; }
 .dinkster-button[data-cancel] .dinkster-spinner { width: 12px; height: 12px; }
 .dinkster-button[data-cancel]:not(:disabled, [aria-disabled='true']):hover { color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); }
-:is(.dinkster-root, .dinkster-dialog) :is(button, input, select, textarea):disabled, :is(.dinkster-root, .dinkster-dialog) [aria-disabled='true'] { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
+.dinkster-button:is(:disabled, [aria-disabled='true']), :is(.dinkster-root, .dinkster-dialog) :is(button, input, select, textarea):disabled, :is(.dinkster-root, .dinkster-dialog) [aria-disabled='true'] { opacity: var(--dinkster-interaction-disabled-opacity); cursor: default; }
 .dinkster-field { display: grid; gap: var(--dinkster-space-4); min-width: 0; }
 .dinkster-input { width: 100%; min-width: 0; min-height: var(--dinkster-input-primary-height); padding: var(--dinkster-space-8) var(--dinkster-space-12); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-inset); color: var(--dinkster-text-primary); }
 .dinkster-input[data-density='panel'] { height: var(--dinkster-input-canvas-height); min-height: 0; padding: 0 var(--dinkster-space-8); }
