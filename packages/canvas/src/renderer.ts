@@ -3797,17 +3797,17 @@ export class CanvasRenderer {
     this.drawMinimizeArrow(ctx, node)
     if (!contentDetail) {
       ctx.font = `${l.titleRenamed ? 'italic ' : ''}${canvasPaintTokens.type.semiboldWeight} ${t.titleFontSize}px ${t.fontFamily}`
+      ctx.fillStyle = t.colors.title
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'left'
+      paintCenteredText(ctx, fitText(ctx, title, l.width - TITLE_START - t.padX), node.x + TITLE_START, node.y + l.headerHeight / 2, t.titleFontSize)
       if (measureWidth(ctx, title) <= l.width - TITLE_START - t.padX) {
-        ctx.fillStyle = t.colors.title
-        ctx.textBaseline = 'middle'
-        ctx.textAlign = 'left'
-        paintCenteredText(ctx, title, node.x + TITLE_START, node.y + l.headerHeight / 2, t.titleFontSize)
         this.drawTitleSuffix(ctx, suffix, node.x + TITLE_START + measureWidth(ctx, title), node.x + l.width - t.padX, node.y + l.headerHeight / 2, false)
       }
     }
 
     // Detailed text and chips are omitted in the overview tier; structural
-    // state, fitting titles, and typed connectivity remain visible.
+    // state, fitted titles, and typed connectivity remain visible.
     if (contentDetail) {
       // Title fitting respects the space left by header marks.
       ctx.fillStyle = t.colors.title
