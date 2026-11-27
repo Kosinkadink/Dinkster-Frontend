@@ -80,8 +80,9 @@ async function seedRun(page: Page): Promise<Seed> {
       kind: 'error', execution, timestamp: base + 4, runtimeNodeId: nodeIds[2]!,
       detail: {
         exceptionType: 'RuntimeError',
-        exceptionMessage: 'CUDA out of memory while decoding latents',
+        exceptionMessage: "execution: input 'image': CUDA out of memory while decoding latents",
         traceback: ['Traceback (most recent call last):', 'RuntimeError: CUDA out of memory'],
+        currentInputs: { image: ['latent-image'] },
       },
     })
     return { execution, firstNode: nodeIds[0]!, lastNode: nodeIds[2]! }
@@ -234,21 +235,21 @@ test('tail follow pauses on scroll-up and resumes from the jump button', async (
   expect(await atTail()).toBe(true)
 })
 
-/** Page coordinates inside the FIRST below-lane badge on a scene node. */
-async function bottomBadgePoint(page: Page, nodeId: string): Promise<{ x: number; y: number }> {
-  return page.evaluate((nodeId) => {
+/** Page coordinates inside a named badge, or the first below-lane badge. */
+async function bottomBadgePoint(page: Page, nodeId: string, badgeId?: string): Promise<{ x: number; y: number }> {
+  return page.evaluate(({ nodeId, badgeId }) => {
     const r = window.__dinksterTest!.renderer!
     const vp = r.getViewport()
     const node = r.getScene().nodes.find((n) => n.id === nodeId)
     if (!node) throw new Error(`no scene node '${nodeId}'`)
-    const tab = r.getNodeBadgeLayout(node).find((entry) => entry.badge.placement === 'below')
+    const tab = r.getNodeBadgeLayout(node).find((entry) => badgeId === undefined ? entry.badge.placement === 'below' : entry.badge.id === badgeId)
     if (!tab) throw new Error(`no bottom tab on '${nodeId}'`)
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     return {
       x: rect.left + (tab.x + 8) * vp.scale + vp.x,
       y: rect.top + (tab.y + tab.height / 2) * vp.scale + vp.y,
     }
-  }, nodeId)
+  }, { nodeId, badgeId })
 }
 
 test('bottom badges expose the run error report and log records per node', async ({ page }, testInfo) => {
@@ -265,6 +266,10 @@ test('bottom badges expose the run error report and log records per node', async
   await expect(box).toBeVisible()
   await expect(box.getByTestId('problem-box-line')).toContainText('CUDA out of memory while decoding latents')
   await expect(box).not.toContainText('RuntimeError')
+  await expect(box).not.toContainText("input 'image':")
+  await expect(box).not.toContainText('latent-image')
+  await expect.poll(() => page.evaluate((nodeId) =>
+    window.__dinksterTest!.renderer!.getRowMarks()[nodeId]?.['image'], seed.lastNode)).toBe('error')
   await expect(box.locator('.traceback')).toHaveCount(0)
   await expect(box.locator('.badge-popover-title')).toHaveCount(0)
   await box.screenshot({ path: testInfo.outputPath('run-error-box-dark.png') })
@@ -276,7 +281,8 @@ test('bottom badges expose the run error report and log records per node', async
   await expect(page.getByTestId('execution-log-node-select')).toHaveAttribute('data-selected-id', seed.lastNode)
   const rows = page.getByTestId('execution-log-row')
   await expect(rows).toHaveCount(2)
-  await expect(rows.locator('.traceback')).toContainText('RuntimeError: CUDA out of memory')
+  await expect(rows.locator('.traceback').first()).toContainText('RuntimeError: CUDA out of memory')
+  await expect(rows.locator('.traceback').last()).toContainText('latent-image')
   await page.getByTestId('execution-log-panel').screenshot({ path: testInfo.outputPath('run-error-log-dark.png') })
 
   // The info-logging node carries the compact info dot; its popover lists
@@ -290,14 +296,7 @@ test('bottom badges expose the run error report and log records per node', async
   // Different tabs on the same node switch the box in a single click.
   await page.mouse.click(errorPoint.x, errorPoint.y)
   await expect(box).toHaveAttribute('data-kind', 'error')
-  const sameNodeInfoPoint = await page.evaluate((nodeId) => {
-    const r = window.__dinksterTest!.renderer!
-    const vp = r.getViewport()
-    const node = r.getScene().nodes.find((entry) => entry.id === nodeId)!
-    const tab = r.getNodeBadgeLayout(node).find((entry) => entry.badge.id === 'core.log.info')!
-    const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
-    return { x: rect.left + (tab.x + 8) * vp.scale + vp.x, y: rect.top + (tab.y + tab.height / 2) * vp.scale + vp.y }
-  }, seed.lastNode)
+  const sameNodeInfoPoint = await bottomBadgePoint(page, seed.lastNode, 'core.log.info')
   await page.mouse.click(sameNodeInfoPoint.x, sameNodeInfoPoint.y)
   await expect(box).toBeVisible()
   await expect(box).toHaveAttribute('data-kind', 'info')
@@ -324,4 +323,21 @@ test('bottom badges expose the run error report and log records per node', async
     return state?.errors.length ?? 0
   }, seed)
   expect(errorCount).toBe(1)
+  await expect.poll(() => page.evaluate((nodeId) =>
+    window.__dinksterTest!.renderer!.getRowMarks()[nodeId]?.['image'], seed.lastNode)).toBeUndefined()
+
+  await page.evaluate(({ execution, firstNode }) => {
+    window.__dinksterTest!.app.store.apply({ kind: 'log', execution, timestamp: Date.now(), level: 'warning',
+      message: 'The image has no color profile.', runtimeNodeId: firstNode, seq: 4 } as never)
+  }, seed)
+  await settlePaint(page)
+  const warningPoint = await bottomBadgePoint(page, seed.firstNode, 'core.log.warning')
+  await page.mouse.click(warningPoint.x, warningPoint.y)
+  await expect(box).toHaveAttribute('data-kind', 'warning')
+  await expect(box).toContainText('The image has no color profile.')
+  await box.getByRole('button', { name: 'Dismiss', exact: true }).click()
+  await expect(box).not.toBeVisible()
+  await expect.poll(() => page.evaluate((nodeId) =>
+    (window.__dinksterTest!.renderer!.getBadges()[nodeId] ?? []).map((badge) => badge.id), seed.firstNode))
+    .not.toContain('core.log.warning')
 })
