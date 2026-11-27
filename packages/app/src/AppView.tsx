@@ -1734,7 +1734,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
     const comboControl = (): boolean => liveRow().spec?.widgetType === 'COMBO'
     const videoControl = (): boolean => liveRow().spec?.widgetType === 'VIDEO_EDIT'
     const booleanControl = (): boolean => liveRow().spec?.widgetType === 'BOOLEAN'
+    const listControl = (): boolean => liveRow().spec?.widgetType === 'LIST'
     const productControl = (): boolean => editableKinds.has(liveRow().spec?.widgetType ?? '') && !videoControl()
+    const readOnlyValue = (): string => Array.isArray(liveRow().value) && listControl()
+      ? (liveRow().value as Json[]).map((item) => String(item)).join(', ')
+      : display(liveRow().value)
     const accessibleLabelId = `app-view-control-${createUniqueId()}`
     const label = (): string => {
       const current = row()
@@ -1782,13 +1786,13 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             onDraftActive={inlineDraftActive}
           />}
         >
-          <Match when={spec().widgetType === 'LIST'}>
+          <Match when={listControl()}>
             <AppViewStringInput
-              value={JSON.stringify(liveRow().value ?? [])}
+              value={Array.isArray(liveRow().value) ? (liveRow().value as Json[]).map((item) => String(item)).join('\n') : ''}
               multiline={true}
               ariaLabelledBy={accessibleLabelId}
               onCommit={async (raw, stillWanted) => {
-                const parsed = parsePrimitiveListCommit(raw, spec())
+                const parsed = parsePrimitiveListCommit(raw, spec(), 'lines')
                 if (parsed.ok) return commit(liveRow(), parsed.value, stillWanted)
                 setError(liveRow().entry, parsed.error)
                 return false
@@ -1834,9 +1838,6 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
           <Match when={comboControl()}>
             <ComboControl row={liveRow()} />
           </Match>
-          <Match when={videoControl()}>
-            <ProductButton type="button" aria-label={message('appView.control.editVideo', { label: liveRow().label })} onClick={() => openVideoEditor(liveRow())}>{message('appView.control.editTrimCrop')}</ProductButton>
-          </Match>
         </Switch>
       )
     }
@@ -1881,6 +1882,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
               }}
               onDragEnd={() => setDragged(undefined)}
             ><Icon icon={GripVertical} /></span>
+          </Show>
+          <Show when={row().kind === 'live' && booleanControl()}>
+            <Show when={editable(liveRow())} fallback={<ProductCheckbox class="app-view-control" ariaLabel={label()} checked={liveRow().value === true} disabled onChange={() => {}} />}>
+              <InlineControl />
+            </Show>
           </Show>
           <Show
             when={arrange() && renaming() === rowKey(row().entry)}
@@ -1951,7 +1957,11 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
         >
           <>
             <Show when={!productControl()}>
-              <AppWidgetPreview row={liveRow()} registry={widgetRegistry()} />
+              <Show when={videoControl() && editable(liveRow())} fallback={<AppWidgetPreview row={liveRow()} registry={widgetRegistry()} />}>
+                <ProductButton class="app-view-widget-action" type="button" aria-label={message('appView.control.editVideo', { label: liveRow().label })} onClick={() => openVideoEditor(liveRow())}>
+                  <AppWidgetPreview row={liveRow()} registry={widgetRegistry()} />
+                </ProductButton>
+              </Show>
             </Show>
             <Show when={comboControl() && errors().get(rowKey(row().entry))}>
               {(text) => <ProductNotice tone="error" testId="app-view-error">{text()}</ProductNotice>}
@@ -1959,16 +1969,13 @@ export function AppView(props: { app: AppState; host?: EditorHostContext }) {
             <Show
               when={editable(liveRow())}
               fallback={
-                <p class="app-view-readonly" data-testid="app-view-readonly" tabindex="0" aria-label={`${productControl() && !booleanControl() ? display(liveRow().value) : label()}. ${readOnlyHint(liveRow())}`} data-tooltip-label={readOnlyHint(liveRow())}>
-                  <Show when={booleanControl()}>
-                    <ProductCheckbox class="app-view-control" ariaLabel={label()} checked={liveRow().value === true} disabled onChange={() => {}} />
-                  </Show>
-                  <Show when={productControl() && !booleanControl()}>{display(liveRow().value)}</Show>
+                <p class="app-view-readonly" data-testid="app-view-readonly" tabindex="0" aria-label={`${productControl() && !booleanControl() ? readOnlyValue() : label()}. ${readOnlyHint(liveRow())}`} data-tooltip-label={readOnlyHint(liveRow())}>
+                  <Show when={productControl() && !booleanControl()}>{readOnlyValue()}</Show>
                   <span class="app-view-hint">{readOnlyHint(liveRow())}</span>
                 </p>
               }
             >
-              <InlineControl />
+              <Show when={!booleanControl() && !videoControl()}><InlineControl /></Show>
             </Show>
             <Show when={!comboControl() && errors().get(rowKey(row().entry))}>
               {(message) => <ProductNotice tone="error" testId="app-view-error">{message()}</ProductNotice>}
