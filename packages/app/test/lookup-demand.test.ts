@@ -58,14 +58,14 @@ describe('recorded run answers', () => {
       } })
       const demand = new LookupDemand(client)
       const answers = lookupAnswersOf(client)
-      const draw = () => {
-        const derived = documentResolver(store.doc, resolve)
+      const draw = (document = store.doc) => {
+        const derived = documentResolver(document, resolve)
         demand.show(['first', 'second'].map((id) => {
-          const node = store.doc.graphs.root!.nodes[id]!
+          const node = document.graphs.root!.nodes[id]!
           return { nodeType: node.type, node: id,
             items: elaborateInterface(derived(node.type)!, node, EMPTY_CONNECTIVITY, { lookupAnswers: answers }).items }
         }))
-        return buildParamRows(store.doc, resolve, answers).map((row) => {
+        return buildParamRows(document, resolve, answers).map((row) => {
           if (row.kind !== 'live') throw new Error('remote option row is unavailable')
           expect(row.entry.graphId).toBe('root')
           expect(row.entry.inputId).toBe(selection)
@@ -141,6 +141,52 @@ describe('recorded run answers', () => {
         expect(reopened.graphs.root!.nodes.first!.values).toEqual({ [category]: 'broken', [selection]: 'kept-first' })
         expect(reopened.graphs.root!.nodes.second!.values).toEqual({ [category]: 'sdxl', [selection]: 'kept-second' })
         checkPrompt(reopened)
+        client.invalidate(['pack.loras'])
+        draw(reopened)
+        await settle()
+        const reopenedFirst = pending.filter((request) => request.args[0] === 'broken').at(-1)!
+        const reopenedSecond = pending.filter((request) => request.args[0] === 'sdxl').at(-1)!
+        expect(reopenedFirst).not.toBe(broken)
+        expect(reopenedSecond).not.toBe(sibling)
+        reopenedFirst.answer(200, { answer: ['broken-fresh'] })
+        reopenedSecond.answer(200, { answer: ['sdxl-reopened'] })
+        await settle()
+        expect(draw(reopened)).toEqual([
+          { node: 'first', value: 'kept-first', state: 'ready', options: ['broken-fresh'] },
+          { node: 'second', value: 'kept-second', state: 'ready', options: ['sdxl-reopened'] },
+        ])
+        checkPrompt(reopened)
+
+        expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'second', inputId: category, value: 'broken' } }).ok).toBe(true)
+        const beforeShared = pending.length
+        expect(draw().map((row) => row.options)).toEqual([['broken-fresh'], ['broken-fresh']])
+        await settle()
+        expect(pending).toHaveLength(beforeShared)
+        client.invalidate(['pack.loras'])
+        draw()
+        await settle()
+        expect(pending).toHaveLength(beforeShared + 1)
+        const shared = pending.at(-1)!
+        expect(shared.args).toEqual(['broken'])
+        expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: category, value: 'sd' } }).ok).toBe(true)
+        draw()
+        await settle()
+        expect(shared.aborted).toBe(false)
+        shared.answer(200, { answer: ['still-second'] })
+        await settle()
+        const separate = pending.at(-1)!
+        expect(separate).not.toBe(shared)
+        expect(separate.args).toEqual(['sd'])
+        separate.answer(200, { answer: ['only-first'] })
+        await settle()
+        expect(draw()).toEqual([
+          { node: 'first', value: 'kept-first', state: 'ready', options: ['only-first'] },
+          { node: 'second', value: 'kept-second', state: 'ready', options: ['still-second'] },
+        ])
+        checkPrompt()
+        expect(store.undo()).toBe(true)
+        expect(store.undo()).toBe(true)
+        expect(store.doc).toEqual(edited)
         expect(store.doc.graphs.detail).toEqual(doc.graphs.detail)
         expect(store.doc.graphs.portrait).toEqual(doc.graphs.portrait)
       } finally {
