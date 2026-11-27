@@ -171,7 +171,6 @@ export function packsSource(app: AppState): CollectionSource {
             { label: 'pack id', text: packId },
             ...(backend !== undefined ? [{ label: 'backend', text: backend.label }] : []),
             { label: 'nodes', text: String(count) },
-            ...typeStorage,
             ...(assetCount > 0 ? [{ label: 'assets', text: String(assetCount) }] : []),
             ...(info.assets ?? []).map((asset) => ({
               label: `asset: ${asset.name}`,
@@ -181,6 +180,7 @@ export function packsSource(app: AppState): CollectionSource {
             ...(info.source !== undefined ? [{ label: 'source', text: info.source }] : []),
             ...(info.publisher !== undefined ? [{ label: 'publisher', text: info.publisher }] : []),
             ...(info.artifactDigest !== undefined ? [{ label: 'digest', text: info.artifactDigest }] : []),
+            ...typeStorage,
           ],
         })
       }

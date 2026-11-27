@@ -145,6 +145,7 @@ describe('packsSource', () => {
         { label: 'SEGS values', text: "Stored other-provider's way", title: 'other.SEGS' },
         { label: 'SEGS values', text: `Stored ${provider}'s way`, title: 'owner.SEGS' },
       ] : [])
+      expect(core.details?.at(-1)?.title).toBe(visible ? 'owner.SEGS' : undefined)
     }
   })
 
