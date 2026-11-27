@@ -169,7 +169,7 @@ the minimum are optional.
 
 Disconnecting, rewiring away, deleting a link or deleting its source removes
 members the user no longer uses, in the same undo step (`dynamic.compact`).
-Paste does the same. **Remove unused dynamic inputs** in the node context menu
+Paste does the same. **Clear unused slots** in the node context menu
 compacts on demand. A member is in use when it holds a value, a link, a
 boundary binding, an optional choice's key, a required choice's key other
 than its start key, or a nested member in use. A group that grows by hand
