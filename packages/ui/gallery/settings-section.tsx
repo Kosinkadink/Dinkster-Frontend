@@ -1,7 +1,7 @@
 import { createSignal } from 'solid-js'
-import { ProductSettingsSection } from '../src/settings.js'
 import {
   ProductFacts,
+  ProductSettingsSection,
   ProductSwitch,
   ProductTextInput,
 } from '../src/index.js'
