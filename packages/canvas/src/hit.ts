@@ -430,8 +430,6 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
       }
       const remove = memberRemoveAt(node, wx, wy)
       if (remove !== undefined) return { kind: 'memberRemove', node, remove }
-      const grip = gripAt(node, wx, wy)
-      if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const line of l.lines ?? []) {
         if (line.folded || line.railInset === undefined) continue
         const first = l.rows[line.first]!
@@ -439,6 +437,8 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
         if (wx >= node.x + line.railInset && wx <= node.x + line.railInset + canvasPaintTokens.node.line.railWidth &&
           wy >= node.y + first.y && wy <= node.y + last.y + last.height) return { kind: 'line', node, line }
       }
+      const grip = gripAt(node, wx, wy)
+      if (grip !== undefined) return { kind: 'grip', node, grip }
       for (const row of l.rows) {
         if (row.kind === 'note' && row.lookup?.retry !== undefined) {
           // Try again is the note's last row.

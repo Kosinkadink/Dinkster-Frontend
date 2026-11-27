@@ -2337,8 +2337,15 @@ export function layoutNode(
   for (const row of unfolded) {
     const index = rowIndex.get(row)!
     const placedRow = rows[index]!
-    if ((placedRow.kind === 'widget' || placedRow.kind === 'note' || placedRow.kind === 'button') && placedRow.width === undefined)
-      rows[index] = { ...placedRow, width: width - placedRow.inset * 2 + canvasPaintTokens.node.line.railReserve }
+    if (placedRow.kind === 'widget' || placedRow.kind === 'note' || placedRow.kind === 'button') {
+      rows[index] = {
+        ...placedRow,
+        ...(placedRow.width === undefined ? { width: width - placedRow.inset * 2 + canvasPaintTokens.node.line.railReserve } : {}),
+        ...(placedRow.kind === 'widget' && placedRow.reorder !== undefined ? {
+          reorder: { ...placedRow.reorder, gripX: placedRow.reorder.gripX - canvasPaintTokens.node.line.railReserve },
+        } : {}),
+      }
+    }
   }
   // An unfolded editor and its row are one box: the space takes the row's
   // place and width, so a member's grip and cross stay beside both.
