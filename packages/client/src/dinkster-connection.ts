@@ -981,6 +981,7 @@ export interface MountDescriptor {
   /** Server-reported catalog size when the mount index provides it. */
   readonly entryCount?: number
   readonly scanProgress?: MountScanProgress
+  readonly error?: string
 }
 
 export interface MountGrantOptions {
@@ -3727,7 +3728,7 @@ export class DinksterConnection {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ settings, revision }),
     })
     if (res.status === 409) throw new Error('Model folders changed in another project. Refresh before saving.')
-    if (!res.ok) throw await requestFailure(res)
+    if (!res.ok) throw await requestFailure(res, 'error')
     return decodeModelSettingsState(await res.json())
   }
 
@@ -3814,6 +3815,7 @@ export class DinksterConnection {
         (progress['bytesDone'] as number) <= (progress['bytesTotal'] as number))
       return typeof row['id'] === 'string' && (row['mode'] === 'read' || row['mode'] === 'readwrite') &&
         typeof row['state'] === 'string' && (row['path'] === undefined || typeof row['path'] === 'string') &&
+        (row['error'] === undefined || typeof row['error'] === 'string') &&
         (row['kind'] === undefined || typeof row['kind'] === 'string') &&
         (row['source'] === undefined || typeof row['source'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
@@ -3857,13 +3859,14 @@ export class DinksterConnection {
       const row = value as Record<string, unknown> | null
       if (row === null || typeof row !== 'object' || typeof row['id'] !== 'string' || typeof row['path'] !== 'string') throw new Error('GET /api/mounts/locations: malformed location')
       if ((row['mode'] !== undefined && row['mode'] !== 'read' && row['mode'] !== 'readwrite') ||
-        ['state', 'source', 'kind'].some((key) => row[key] !== undefined && typeof row[key] !== 'string') ||
+        ['state', 'source', 'kind', 'error'].some((key) => row[key] !== undefined && typeof row[key] !== 'string') ||
         (row['entryCount'] !== undefined && (typeof row['entryCount'] !== 'number' || !Number.isSafeInteger(row['entryCount']) || row['entryCount'] < 0))) {
         throw new Error('GET /api/mounts/locations: malformed location facts')
       }
       return { id: row['id'], path: row['path'],
         ...(row['mode'] === 'read' || row['mode'] === 'readwrite' ? { mode: row['mode'] } : {}),
         ...(typeof row['state'] === 'string' ? { state: row['state'] } : {}),
+        ...(typeof row['error'] === 'string' ? { error: row['error'] } : {}),
         ...(typeof row['source'] === 'string' ? { source: row['source'] } : {}),
         ...(typeof row['kind'] === 'string' ? { kind: row['kind'] } : {}),
         ...(typeof row['entryCount'] === 'number' ? { entryCount: row['entryCount'] } : {}),
@@ -3942,7 +3945,7 @@ export class DinksterConnection {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id, path, mode, ...(this.project !== undefined ? { project: this.project } : {}), ...options }),
     })
-    if (!res.ok) throw await requestFailure(res)
+    if (!res.ok) throw await requestFailure(res, 'error')
     const value = await res.json() as Record<string, unknown>
     if (typeof value['id'] !== 'string' || (value['mode'] !== 'read' && value['mode'] !== 'readwrite') ||
       typeof value['state'] !== 'string') throw new Error('POST /api/mounts: malformed response')

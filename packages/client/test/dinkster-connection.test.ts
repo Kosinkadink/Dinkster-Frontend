@@ -695,6 +695,9 @@ describe('shared model management', () => {
     expect(calls.at(-1)).toEqual({ url: '/engine/api/models/locations/studio%20%2F%20second/projects/work%20%2F%20client', body: { enabled: true } })
     status = 409
     await expect(connection.updateModelSettings(state.settings, state.revision)).rejects.toThrow('Refresh before saving')
+    status = 400
+    payload = { error: 'not a directory: /archive/models' }
+    await expect(connection.updateModelSettings(state.settings, state.revision)).rejects.toMatchObject({ status: 400, serverMessage: 'not a directory: /archive/models' })
     status = 403
     await expect(connection.fetchModelSettings()).rejects.toThrow('403')
   })
@@ -752,6 +755,14 @@ describe('shared model management', () => {
 })
 
 describe('mount listing decode', () => {
+  it.each([
+    [{ error: 'not a directory: /archive/plates' }, 'not a directory: /archive/plates'],
+    [{ error: { message: 'not a supported refusal' } }, undefined],
+  ])('retains a mount grant refusal with a status fallback', async (body, expected) => {
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => jsonResponse(400, body) })
+    await expect(connection.addMount('plates', '/archive/plates', 'readwrite')).rejects.toMatchObject({ status: 400, serverMessage: expected })
+  })
+
   const connectionWith = (mounts: unknown, outputMount?: unknown, mountChangesAllowed: unknown = true): DinksterConnection =>
     new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, mountChangesAllowed, ...(outputMount === undefined ? {} : { outputMount }) }) })
 
@@ -924,7 +935,7 @@ describe('mount listing decode', () => {
   })
 
   it('keeps operator configured and active locations distinct across pending changes', async () => {
-    const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'ready' }
+    const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'failed', error: 'Permission denied: /live/plates' }
     const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates', mode: 'read', state: 'restart-required', source: 'config', kind: 'image', entryCount: 17 }], activeMounts: [active], importMount: 'plates' }
     const { conn } = submitHarness(() => jsonResponse(200, payload))
     expect(await conn.fetchMountLocations()).toEqual(payload)
