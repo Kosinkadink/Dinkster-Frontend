@@ -247,6 +247,41 @@ describe('native open-time replacement', () => {
     expect(values()).toEqual({ amount: 16, cap: 7 })
   })
 
+  it('shares offered numeric corrections across views, refuses a stale batch, and undoes the rechecked batch together', async () => {
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...payload, nodes: { Current: {
+      displayName: 'Numbers', category: 'test', body: [
+        { kind: 'input', id: 'cap', type: { kind: 'concrete', types: ['INT'] }, default: 20, widget: { type: 'NUMBER', min: 0 } },
+        { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: { formula: 'cap' }, step: 4 } },
+      ],
+    } } }))
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    const source = document()
+    await app.openDocument({ ...source, graphs: { g0: { ...source.graphs.g0, links: {}, nodes: {
+      first: { id: 'first', type: 'Current', values: { amount: 14, cap: 20 } },
+      second: { id: 'second', type: 'Current', values: { amount: 29, cap: 20 } },
+    } } } }, 'Shared corrections')
+    const tab = app.activeTab()!
+    const values = () => Object.values(tab.store.doc.graphs.g0!.nodes).map((node) => node.values)
+    const offered = app.numberProblemFixes.scan(tab)
+    expect(offered.map((fix) => fix.offered.after)).toEqual([12, 20])
+    expect(tab.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: 'cap', value: 9 } }).ok).toBe(true)
+    // Reading the second surface must not silently replace the first surface's offer.
+    await app.numberProblemFixes.apply(tab, app.numberProblemFixes.scan(tab))
+    expect(values()).toEqual([{ amount: 14, cap: 9 }, { amount: 29, cap: 20 }])
+    expect(app.numberProblemFixes.diagnostics(tab).map((problem) => problem.message)).toEqual([
+      'Numbers: amount: Could not apply this fix. The workflow changed.',
+      'Numbers: amount: Could not apply this fix. The workflow changed.',
+    ])
+    for (const fix of offered) app.numberProblemFixes.recheck(tab, fix.key)
+    await app.numberProblemFixes.apply(tab, app.numberProblemFixes.scan(tab))
+    expect(values()).toEqual([{ amount: 8, cap: 9 }, { amount: 20, cap: 20 }])
+    expect(app.numberProblemFixes.diagnostics(tab)).toEqual([])
+    expect(tab.store.undo()).toBe(true)
+    expect(values()).toEqual([{ amount: 14, cap: 9 }, { amount: 29, cap: 20 }])
+  })
+
   it('stores numeric fixes atomically, keeps later field edits on notice Undo, and does not repeat undone causes', async () => {
     const backend = app.backends.get()[0]!
     const numericPayload = { ...payload, nodes: { Current: { displayName: 'Numbers', category: 'test', body: [
