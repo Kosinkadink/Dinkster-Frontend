@@ -75,14 +75,9 @@ interface AssetPickerVocabulary {
   readonly singular: string
   readonly plural: string
   readonly titlePlural: string
-  readonly uploadSingular: string
-  readonly uploadPlural: string
 }
 
 const withArticle = (noun: string): string => (/^[aeiou]/i.test(noun) ? `an ${noun}` : `a ${noun}`)
-const GENERIC_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'asset', plural: 'assets', titlePlural: 'Assets', uploadSingular: 'file', uploadPlural: 'files' }
-const LATENT_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'latent', plural: 'latents', titlePlural: 'Latents', uploadSingular: 'latent', uploadPlural: 'latents' }
-const MODEL_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'model', plural: 'models', titlePlural: 'Models', uploadSingular: 'model file', uploadPlural: 'model files' }
 
 const assetPickerNoun = (kind: string | undefined): string =>
   kind?.startsWith('model/') === true ? 'model'
@@ -214,10 +209,11 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     return typeof kind === 'string' && kind !== '' ? kind : undefined
   }
   const assetBrowseKind = (): string | undefined => assetKind() ?? mediaKindForAccept(assetAccept())
-  const assetVocabulary = (): AssetPickerVocabulary =>
-    assetBrowseKind()?.startsWith('model/') === true
-      ? MODEL_ASSET_VOCABULARY
-      : assetBrowseKind() === 'data/latent' ? LATENT_ASSET_VOCABULARY : GENERIC_ASSET_VOCABULARY
+  const assetVocabulary = (): AssetPickerVocabulary => {
+    const singular = assetPickerNoun(assetBrowseKind())
+    const plural = singular === 'audio' ? singular : `${singular}s`
+    return { singular, plural, titlePlural: plural[0]!.toUpperCase() + plural.slice(1) }
+  }
   // Multi-select (typed-assets pin (5)): the declared outer type gates it -
   // list<asset<T>> / list<ASSET> pick N descriptors committed as ONE
   // array value, and a scalar concrete T with a registered batch-merge
@@ -861,7 +857,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
             <section class="asset-selection-summary" data-testid="asset-selection-summary" aria-label="Selection">
               <header class="asset-section-heading">
                 <div>
-                  <h3>{assetMulti
+                  <h3>{assetMulti && assetSelection().length > 0
                     ? `${assetSelection().length} selected`
                     : assetSelection()[0]?.name ?? 'Nothing selected'}</h3>
                 </div>
@@ -869,11 +865,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                   {(size) => <span>{formatByteSize(size())}</span>}
                 </Show>
               </header>
-              <Show when={!assetMulti && assetSelection().length === 0 && inspectedModelDetail() === undefined}>
-                <ProductEmptyState testId="asset-selection-empty" title={usesLogicalModelSource()
-                    ? `Click ${withArticle(assetVocabulary().singular)} in the list to select it.`
-                    : `Click ${withArticle(assetVocabulary().singular)} in the list to select it, or upload ${withArticle(assetVocabulary().uploadSingular)}.`} />
-              </Show>
               <Show when={assetPreview()}>
                 {(preview) => (
                   <Show when={preview().kind !== 'model3d'} fallback={
@@ -924,11 +915,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               </Show>
               <Show when={assetMulti}>
                 <div class="asset-multi-selection" data-testid="asset-multi-selection">
-                  <Show when={assetSelection().length === 0}>
-                    <ProductEmptyState title={usesLogicalModelSource()
-                        ? `No ${assetVocabulary().plural} selected. Click items in the list.`
-                        : `No ${assetVocabulary().plural} selected. Click items in the list or upload ${assetVocabulary().uploadPlural}.`} />
-                  </Show>
                   <For each={assetSelection()}>
                     {(ref, index) => (
                       <span class="asset-chip" data-testid="asset-chip">

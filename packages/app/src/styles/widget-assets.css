@@ -418,6 +418,14 @@
 .asset-editor .collection-toolbar input { width: auto; flex: 1 1 160px; min-width: 100px; }
 .asset-editor .collection-panel[data-search-priority='primary'] .collection-toolbar { flex-wrap: nowrap; align-items: center; }
 .asset-editor .collection-panel[data-search-priority='primary'] .collection-search-field { flex-basis: 0; }
+.asset-browser-navigation { display: contents; }
+.asset-editor .asset-browser-navigation { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--dinkster-space-8); }
+.asset-editor .asset-source-select.product-select { flex: 1; min-width: 0; }
+.asset-editor .asset-view-controls { display: contents; }
+.asset-editor .asset-view-switch { grid-column: 2; grid-row: 1; }
+.asset-editor .asset-view-controls > .dinkster-segmented,
+.asset-editor .asset-scope { grid-column: 1 / -1; }
+.asset-editor .collection-badge { padding: 0; border-radius: 0; background: none; }
 .asset-browser-section > [data-testid='logical-model-refresh'] { align-self: flex-end; }
 .asset-editor .collection-content { flex: none; flex-wrap: nowrap; overflow: visible; }
 .asset-editor .collection-items,

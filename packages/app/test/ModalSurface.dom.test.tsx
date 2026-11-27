@@ -338,6 +338,8 @@ describe('ASSET widget modal integration', () => {
     }
     try {
       await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(60))
+      expect(root.querySelector('[data-testid="collection-search"]')?.getAttribute('aria-label')).toBe('Search images')
+      expect(root.querySelector('[data-testid="asset-apply"]')?.textContent).toContain('Use image')
       const first = requests.find((request) => request.pathname === '/api/mounts/entries')!
       expect(first.searchParams.getAll('mount')).toEqual(count === 1 ? ['pictures'] : ['pictures', 'archive'])
       expect(first.searchParams.get('sort')).toBe('newest')
@@ -1310,6 +1312,7 @@ describe('ASSET widget modal integration', () => {
     expect(root.querySelector('.widget-modal-help')).toBeNull()
     expect(root.querySelector('.asset-section-eyebrow')).toBeNull()
     await vi.waitFor(() => expect(root.textContent).toContain('No latents found.'))
+    expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toBe('Nothing selected')
     expect(root.querySelector('.asset-import-line')?.textContent).toContain('1 GB per file')
     expect(root.querySelector('.asset-browser-section')?.getAttribute('aria-label')).toBe('Latents')
     expect(root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')?.getAttribute('aria-label')).toBe('Search latents')

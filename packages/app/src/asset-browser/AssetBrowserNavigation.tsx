@@ -18,7 +18,7 @@ export function AssetBrowserNavigation(props: {
 }) {
   const message = useAppMessage()
   const segments = () => props.folder.split('/').filter(Boolean)
-  return <>
+  return <div class="asset-browser-navigation">
     <nav class="asset-path" aria-label={message('collection.folder.ariaLabel')}>
       <ProductSelect class="asset-source-select" testId="asset-source-select" ariaLabel={message('assets.mounts.label')}
         selectedId={props.selectedId} options={props.sources.map((source) => ({
@@ -46,5 +46,5 @@ export function AssetBrowserNavigation(props: {
     <p class="asset-scope" data-testid="asset-scope">{message(props.recursive ? 'assets.scope.subfolders' : 'assets.scope.this', {
       path: `${props.selectedId === 'all-mounts' ? message('assets.mounts.all') : props.selectedId.slice('mount:'.length)}${props.folder ? `/${props.folder}` : ''}`,
     })}</p>
-  </>
+  </div>
 }
