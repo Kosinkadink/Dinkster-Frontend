@@ -1,5 +1,5 @@
 import { For, Show, createUniqueId, onCleanup, onMount, type JSX } from 'solid-js'
-import { Check, CircleAlert, Info, X } from 'lucide-solid'
+import { Check, CircleAlert, Info, TriangleAlert, X } from 'lucide-solid'
 import {
   ProductButton,
   ProductIcon,
@@ -15,7 +15,7 @@ export function ProductNotice(props: {
 }) {
   return (
     <div class="dinkster-message" data-kind={props.tone ?? 'info'} role={props.tone === 'error' ? 'alert' : 'note'}>
-      <ProductIcon icon={props.tone === 'error' ? CircleAlert : Info} />
+      <ProductIcon icon={props.tone === 'error' ? CircleAlert : props.tone === 'warning' ? TriangleAlert : Info} />
       <span class="dinkster-message-copy">{props.children}</span>
     </div>
   )
