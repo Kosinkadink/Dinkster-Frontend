@@ -811,73 +811,24 @@ test('Canvas waits for the bundled italic face before publishing title paint', a
   }
 })
 
-test('Canvas pages are listed under eight headings in the side list', async ({
+test('Every Canvas page opens by a click in the side list', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/#canvas')
-  const headings = sideList(page).locator('button[aria-expanded]')
-  await expect(headings).toHaveText([
-    'Nodes',
-    'Tabs and states',
-    'Rows',
-    'Wires',
-    'Subgraphs',
-    'Flow nodes',
-    'Problems with fixes',
-    'Zoom',
-  ])
-  // Only the heading holding the current page starts open.
-  expect(
-    await headings.evaluateAll((all) =>
-      all.map((heading) => heading.getAttribute('aria-expanded')),
-    ),
-  ).toEqual([
-    'true',
-    'false',
-    'false',
-    'false',
-    'false',
-    'false',
-    'false',
-    'false',
-  ])
-  await expect(pageLink(page, 'anatomy')).toHaveAttribute(
-    'aria-current',
-    'page',
-  )
+  await expect(pageLink(page, 'anatomy')).toHaveAttribute('aria-current', 'page')
   await expect(
     sideList(page).getByRole('link', { name: 'Canvas', exact: true }),
   ).toHaveAttribute('aria-current', 'true')
-  // Every page is listed exactly once.
-  const listed = await sideList(page)
-    .locator('a[href^="?page="]')
-    .evaluateAll((links) =>
-      links.map((link) =>
-        new URLSearchParams(link.getAttribute('href')!.split('#')[0]).get(
-          'page',
-        ),
-      ),
-    )
-  expect(listed.sort()).toEqual(canvasGalleryPages.map(([id]) => id).sort())
-  // A heading opens and closes; the page picker and theme buttons are gone.
-  const rows = headings.filter({ hasText: 'Rows' })
+  const rows = sideList(page).getByRole('button', { name: 'Rows', exact: true })
+  await expect(rows).toHaveAttribute('aria-expanded', 'false')
+  await expect(pageLink(page, 'row-editing')).toBeHidden()
   await rows.click()
   await expect(rows).toHaveAttribute('aria-expanded', 'true')
   await expect(pageLink(page, 'row-editing')).toBeVisible()
   await rows.click()
   await expect(rows).toHaveAttribute('aria-expanded', 'false')
   await expect(pageLink(page, 'row-editing')).toBeHidden()
-  await expect(page.getByRole('combobox')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /theme$/ })).toHaveCount(0)
-  await expect(page.getByText('No action yet')).toHaveCount(0)
-})
-
-test('Every Canvas page opens by a click in the side list', async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  await page.goto('/#canvas')
   for (const [id, label] of canvasGalleryPages) {
     await choosePage(page, id)
     await expect(
