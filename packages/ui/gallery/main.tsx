@@ -57,6 +57,7 @@ import {
   ProductEmptyState,
   ProductErrorBanner,
   ProductField,
+  ProductSwitch,
   ProductForm,
   ProductIcon,
   ProductRunIcon,
@@ -184,6 +185,9 @@ function Gallery() {
   const [sizeLimit, setSizeLimit] = createSignal(10000000000)
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
+  const [formMount, setFormMount] = createSignal('input')
+  const [formFolder, setFormFolder] = createSignal('reference/')
+  const [formReadOnly, setFormReadOnly] = createSignal(false)
   const [serverOpen, setServerOpen] = createSignal(false)
   const [progressOpen, setProgressOpen] = createSignal(false)
   const [versionSelected, setVersionSelected] = createSignal(false)
@@ -318,6 +322,23 @@ function Gallery() {
                       { label: 'Dinkster', value: '0.0.19' },
                     ]} />
                   </ProductDisclosure>
+                </ProductPanel>
+              </Section>
+              <Section title="Editable filled block" components="ProductPanel, ProductField, ProductSelect, ProductTextInput, ProductSwitch">
+                <ProductPanel fill="quiet">
+                  <ProductField label="Mount" layout="inline">
+                    {(attributes) => <ProductSelect {...attributes} value={formMount()} onChange={setFormMount}
+                      options={['input', 'reference'].map((value) => ({ value, label: value }))} />}
+                  </ProductField>
+                  <ProductField label="Folder" layout="inline"
+                    {...(formFolder().startsWith('/') || formFolder().split('/').includes('..')
+                      ? { error: 'Enter a folder inside this Mount.' } : {})}>
+                    {(attributes) => <ProductTextInput {...attributes} value={formFolder()}
+                      onInput={(event) => setFormFolder(event.currentTarget.value)} />}
+                  </ProductField>
+                  <ProductField label="Read only" layout="inline">
+                    {(attributes) => <ProductSwitch {...attributes} label="Read only" checked={formReadOnly()} onChange={setFormReadOnly} />}
+                  </ProductField>
                 </ProductPanel>
               </Section>
               <Section title="Progress" components="ProductProgress">

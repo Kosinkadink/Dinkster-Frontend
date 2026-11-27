@@ -497,6 +497,9 @@ export function ProductCheckbox(
 export function ProductSwitch(props: {
   checked: boolean
   label: string
+  id?: string | undefined
+  'aria-describedby'?: string | undefined
+  'aria-invalid'?: 'true' | undefined
   disabled?: boolean
   onChange: (next: boolean) => void
 }) {
@@ -505,6 +508,9 @@ export function ProductSwitch(props: {
       type="button"
       role="switch"
       class="dinkster-switch"
+      id={props.id}
+      aria-describedby={props['aria-describedby']}
+      aria-invalid={props['aria-invalid']}
       aria-checked={props.checked}
       aria-label={props.label}
       disabled={props.disabled}
@@ -537,6 +543,7 @@ export function ProductRadio(
 
 export function ProductField(props: {
   label: string
+  layout?: 'inline'
   description?: string
   error?: string
   children: (attributes: {
@@ -547,7 +554,7 @@ export function ProductField(props: {
 }) {
   const id = createUniqueId()
   return (
-    <div class="dinkster-field">
+    <div class="dinkster-field" data-layout={props.layout}>
       <label for={id}>{props.label}</label>
       {props.children({
         id,
