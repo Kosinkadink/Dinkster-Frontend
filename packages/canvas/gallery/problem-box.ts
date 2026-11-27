@@ -305,7 +305,8 @@ export function problemBoxGallery(
   return [
     ...fixCards.map((card): ProblemBoxGalleryCard => ({
       id: card.id, caption: card.caption,
-      scene: scene([{ id: 'pick', schema: getItem, x: LEFT, values: { item: card.value } }]),
+      scene: scene([{ id: 'pick', schema: getItem, x: LEFT, values: { item: card.value },
+        ...('narrow' in card ? { width: 200 } : {}) }]),
       badges: { pick: [warnings(1)] }, rowMarks: { pick: { item: 'warning' } },
       boxes: [{ nodeId: 'pick', nodeTitle: 'Get item', lines: [{
         ...line('warning', 'item', card.message),

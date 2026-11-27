@@ -99,15 +99,16 @@ afterEach(() => {
 })
 
 describe('ProblemsPanel browser interactions', () => {
-  it('keeps a numeric row open and focused through stale and recheck messages', async () => {
+  it('keeps numeric details focused through stale messages and moves focus only when a fix removes it', async () => {
     const offered = diag('warning', 'environment', 'automatic.numberOutsideLimits', 'Numbers: amount: Stored value 14 is outside the allowed values.', {
       data: { numberFixKey: 'number-fix' },
     })
     const [list, setList] = createSolidSignal<readonly Diagnostic[]>([offered])
+    let remove = false
     const { root, unmount } = mountPanel(undefined, list, () => [], {
-      all: () => undefined,
+      all: () => ({ label: 'Fix all', run: () => { setList([]) } }),
       forProblem: () => ({ label: 'Use 12', run: () => {
-        setList([{ ...offered, message: 'Numbers: amount: Could not apply this fix. The workflow changed.' }])
+        setList(remove ? [] : [{ ...offered, message: 'Numbers: amount: Could not apply this fix. The workflow changed.' }])
       } }),
     })
     const details = root.querySelector<HTMLDetailsElement>('details.problem')!
@@ -125,6 +126,26 @@ describe('ProblemsPanel browser interactions', () => {
     setList([{ ...offered, message: 'Numbers: amount: Stored value 14 is outside the allowed values.' }])
     expect(details.open).toBe(true)
     expect(document.activeElement).toBe(summary)
+    remove = true
+    button.click()
+    await Promise.resolve()
+    const panel = root.querySelector('[data-testid="problems-panel"]')!
+    expect(root.querySelector('details.problem')).toBeNull()
+    expect(document.activeElement).toBe(panel)
+
+    setList([offered])
+    root.querySelector<HTMLElement>('summary')!.focus()
+    Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((candidate) => candidate.textContent === 'Fix all')!.click()
+    await Promise.resolve()
+    expect(document.activeElement).toBe(panel)
+
+    setList([offered])
+    const editor = document.createElement('input')
+    document.body.append(editor)
+    editor.focus()
+    root.querySelector<HTMLButtonElement>('.problem-detail button')!.click()
+    await Promise.resolve()
+    expect(document.activeElement).toBe(editor)
     unmount()
   })
 

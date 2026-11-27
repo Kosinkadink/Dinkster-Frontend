@@ -201,10 +201,12 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
   const runFix = async (action: ProblemFixAction, button: HTMLButtonElement): Promise<void> => {
     const summary = button.closest('details')?.querySelector('summary')
     const target = summary ?? panel
-    const ownsFocus = document.activeElement === button || document.activeElement === document.body
+    const focused = document.activeElement
+    const ownsFocus = focused === button || focused === document.body
     if (ownsFocus) target.focus({ preventScroll: true })
     await action.run()
-    if (ownsFocus && !target.isConnected && document.activeElement === document.body) panel.focus({ preventScroll: true })
+    if (document.activeElement === document.body &&
+      ((ownsFocus && !target.isConnected) || (focused !== null && !focused.isConnected))) panel.focus({ preventScroll: true })
   }
   const expandedProblems = new Set<string>()
   const packDiagnostics = createMemo(() => [
