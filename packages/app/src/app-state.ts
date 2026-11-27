@@ -97,6 +97,7 @@ import {
   applyStoredNumberFixes,
   type StoredNumberFix,
   type PressOutcome,
+  type PressOptions,
   subgraphDefIdOf,
   resetMenuContributions,
   schemaForEditorRole,
@@ -5501,9 +5502,8 @@ export class AppState {
   private readonly keptNumberFixes = new WeakMap<DocumentSession, Map<string, Pick<StoredNumberFix, 'before' | 'stamp' | 'owner'>>>()
 
   /** Every occurrence is checked: siblings can store different promoted values. */
-  scanTabNumberFixes(tab: Tab): readonly StoredNumberFix[] {
+  scanTabNumberFixes(tab: Tab, document = tab.store.doc): readonly StoredNumberFix[] {
     if (tab.execution || this.registryForTab(tab) === undefined) return []
-    const document = tab.store.doc
     const fixes = new Map<string, StoredNumberFix>()
     const visit = (graphId: string, instancePath: readonly string[], ancestors: ReadonlySet<string>): void => {
       if (ancestors.has(graphId)) return
@@ -5524,27 +5524,37 @@ export class AppState {
       const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey, fix.stamp])
       const cause = kept?.get(key)
       if (fix.before === cause?.before && fix.stamp === cause.stamp) return false
-      kept?.delete(key)
+      if (document === tab.store.doc) kept?.delete(key)
       return true
     })
   }
 
   /** Offered numeric corrections are rechecked and stored as one operation. */
-  applyNumberFixes(tab: Tab, fixes: readonly StoredNumberFix[], automatic = false): Promise<PressOutcome> {
+  applyNumberFixes(tab: Tab, fixes: readonly StoredNumberFix[], automatic = false, options: PressOptions = {}): Promise<PressOutcome> {
     const store = tab.store
     const first = fixes[0]
     if (tab.execution || first === undefined || !this.tabs.get().includes(tab))
       return Promise.resolve({ kind: 'cancelled', skipped: [], notes: [] })
     const place = { tab, ...first.part, button: '' }
     return applyStoredNumberFixes(store, fixes, createActionHost(this, undefined, place), {
-      stillCurrent: () => this.tabs.get().includes(tab) && tab.store === store,
+      ...options,
+      stillCurrent: () => this.tabs.get().includes(tab) && tab.store === store && options.stillCurrent?.() !== false,
       staleMessage: t('problemFix.workflowChanged'),
       onStored: (record, document) => {
+        options.onStored?.(record, document)
         if (!automatic || tab.store !== store) return
         const byOwner = new Map<string, StoredNumberFix[]>()
         for (const fix of fixes) {
           const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey])
           byOwner.set(key, [...byOwner.get(key) ?? [], fix])
+        }
+        // Notice Undo takes back corrections, not the user's leading edit.
+        if (options.lead?.length) {
+          const forward: PatchOp[] = [...byOwner.values()].map(([fix]) => ({
+            op: 'replace', path: ['graphs', fix!.owner.graphId, 'nodes', fix!.owner.nodeId, 'values', fix!.owner.valueKey],
+            oldValue: fix!.before, value: document.graphs[fix!.owner.graphId]!.nodes[fix!.owner.nodeId]!.values[fix!.owner.valueKey]!,
+          }))
+          record = { forward, inverse: invertOps(forward) }
         }
         const paths = firstOccurrencePaths(document)
         this.reportAdjustments(tab, record, [...byOwner.values()].map((causes): Adjustment => {
@@ -6562,6 +6572,40 @@ export class AppState {
     const outcome = tab.store.dispatch(invocation)
     if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
     return outcome
+  }
+
+  /** A person's edit and its newly caused numeric corrections share one undo step. */
+  dispatchEditTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
+    if (tab.execution || this.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'apply') return this.dispatchTo(tab, invocation)
+    const store = tab.store
+    const prepared = store.prepareDispatch?.(invocation)
+    if (prepared === undefined) return this.dispatchTo(tab, invocation)
+    if (!prepared.ok) {
+      this.reportProblems(tab.id, prepared.diagnostics)
+      return prepared
+    }
+    if (prepared.forward.length === 0) return prepared.commit()
+    const existing = this.scanTabNumberFixes(tab)
+    const fixes = this.scanTabNumberFixes(tab, prepared.document).filter((fix) => !existing.some((before) =>
+      before.stamp === fix.stamp && before.before === fix.before && before.after === fix.after &&
+      before.part.graphId === fix.part.graphId && before.part.nodeId === fix.part.nodeId &&
+      JSON.stringify(before.part.instancePath) === JSON.stringify(fix.part.instancePath) && before.valueKey === fix.valueKey))
+    if (fixes.length === 0) {
+      const outcome = prepared.commit()
+      if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
+      return outcome
+    }
+    let stored: Extract<CommandOutcome, { ok: true }> | undefined
+    return this.applyNumberFixes(tab, fixes, true, {
+      lead: [invocation],
+      unchanged: (document) => tab.store === store && document === prepared.currentDocument,
+      onStored: (record, document) => { stored = { ok: true, doc: document, ...record, diagnostics: [] } },
+    }).then((outcome): CommandOutcome => {
+      if (stored !== undefined) return stored
+      const diagnostics = [diag('error', 'command', 'problemFix.editRefused', outcome.message ?? t('problemFix.workflowChanged'))]
+      this.reportProblems(tab.id, diagnostics)
+      return { ok: false, diagnostics }
+    })
   }
 
   /** Plan, commit, then drill into one fresh empty definition. */

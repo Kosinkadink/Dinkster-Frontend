@@ -187,6 +187,51 @@ describe('native open-time replacement', () => {
     expect(app.adjustmentNotices.get().has(app.activeTab()!.id)).toBe(false)
   })
 
+  it('joins numeric corrections to a personal edit without correcting unrelated existing causes', async () => {
+    const backend = app.backends.get()[0]!
+    backend.registry.set(buildDinksterRegistry(backend.id, { ...payload, nodes: { Current: { body: [
+      { kind: 'input', id: 'cap', type: { kind: 'concrete', types: ['INT'] }, default: 20,
+        widget: { type: 'NUMBER', min: 0 } },
+      { kind: 'input', id: 'amount', type: { kind: 'concrete', types: ['INT'] }, default: 0,
+        widget: { type: 'NUMBER', min: 0, max: { formula: 'cap' }, step: 4 } },
+    ] } } }))
+    const source = document()
+    await app.openDocument({ ...source, graphs: { g0: { ...source.graphs.g0, links: {}, nodes: {
+      first: { id: 'first', type: 'Current', values: { amount: 16, cap: 20 } },
+    } } } }, 'Personal edit')
+    const tab = app.activeTab()!
+    const values = () => tab.store.doc.graphs.g0!.nodes.first!.values
+    const edit = (cap: number) => ({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'first', inputId: 'cap', value: cap } })
+    expect((await app.dispatchEditTo(tab, edit(13))).ok).toBe(true)
+    expect(values()).toEqual({ amount: 12, cap: 13 })
+    expect(tab.store.undo()).toBe(true)
+    expect(values()).toEqual({ amount: 16, cap: 20 })
+    expect(tab.store.canUndo).toBe(false)
+    expect(tab.store.redo()).toBe(true)
+    expect(values()).toEqual({ amount: 12, cap: 13 })
+    expect(app.undoAdjustments(tab.id)).toBe(true)
+    expect(values()).toEqual({ amount: 16, cap: 13 })
+    expect(app.scanTabNumberFixes(tab)).toEqual([])
+    app.clearAdjustmentNotice(tab.id)
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
+    expect((await app.dispatchEditTo(tab, edit(9))).ok).toBe(true)
+    expect(values()).toEqual({ amount: 16, cap: 9 })
+    expect(app.adjustmentNotices.get().has(tab.id)).toBe(false)
+    app.settings.set('automaticFixes.numberOutsideLimits', 'apply')
+    const added = tab.store.predictedNodeId('g0')!
+    expect((await app.dispatchEditTo(tab, { command: 'node.add', params: {
+      graphId: 'g0', type: 'Current', position: { x: 20, y: 40 }, values: { amount: 14, cap: 20 },
+    } })).ok).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes[added]!.values).toEqual({ amount: 12, cap: 20 })
+    expect(values()).toEqual({ amount: 16, cap: 9 })
+    expect(tab.store.undo()).toBe(true)
+    expect(tab.store.doc.graphs.g0!.nodes[added]).toBeUndefined()
+    const pending = app.dispatchEditTo(tab, edit(5))
+    expect(tab.store.dispatch(edit(7)).ok).toBe(true)
+    expect((await pending).ok).toBe(false)
+    expect(values()).toEqual({ amount: 16, cap: 7 })
+  })
+
   it('stores numeric fixes atomically, keeps later field edits on notice Undo, and does not repeat undone causes', async () => {
     const backend = app.backends.get()[0]!
     const numericPayload = { ...payload, nodes: { Current: { displayName: 'Numbers', category: 'test', body: [

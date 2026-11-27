@@ -343,7 +343,7 @@ it.each([false, true])('edits structured save destinations with writable grants 
       { id: 'reference', mode: 'read', state: 'ready' },
       { id: 'offline', mode: 'readwrite', state: 'missing' },
     ] }) } }),
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+    dispatchEditTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const open = () => render(() => <WidgetEditor app={app} ed={{
@@ -407,7 +407,7 @@ it.each([
   const registry = createWidgetRegistry()
   const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }), executionForTab: () => undefined,
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+    dispatchEditTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const input = inputsOf(schema).find((row) => row.id === id)!
   const root = document.createElement('div'); document.body.append(root)
@@ -508,7 +508,7 @@ it('edits a crop region atomically, rejects invalid drafts and supports undo', a
   const registry = createWidgetRegistry()
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+    dispatchEditTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{
@@ -555,7 +555,7 @@ it('edits only the schema-backed mount string, preserving prefix and undoable de
       { id: 'reference', mode: 'read', state: 'ready' },
       { id: 'offline', mode: 'readwrite', state: 'missing' },
     ] }) } }),
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+    dispatchEditTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div')
   document.body.append(root)

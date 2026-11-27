@@ -2978,7 +2978,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const dispatchGesture = async (tab: Tab, invocation: CommandInvocation): Promise<CommandOutcome> => {
       const target = captureLifecycleTarget(tab, currentGraphId(tab))
       try {
-        const outcome = await props.app.dispatchTo(tab, invocation)
+        const outcome = await props.app.dispatchEditTo(tab, invocation)
         if (!outcome.ok && target.isCurrent()) showGestureRefusal(outcome.diagnostics)
         return outcome
       } finally {
@@ -5735,7 +5735,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // editor takes the ordinary expanded path instead. A ghost widget's
       // first toggle materializes its member in the SAME batch (one undo step).
       if (spec.widgetType === 'BOOLEAN' && hit.row.selector === undefined && widgetView?.editorUi === undefined) {
-        props.app.dispatchTo(
+        props.app.dispatchEditTo(
           tab,
           withMaterializeFrames(valueGraphId, valueNodeId, hit.row.materialize, {
             command: 'node.setValue',
@@ -7424,7 +7424,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             const index = buildRerouteIndex(graph)
             const port = portRefKey({ node: asNodeId(target.nodeId), port: asPortId(target.inputId) })
             if (live.wired || index.inputDriverOf.has(port) || index.netSourceOf.has(port)) return false
-            const outcome = await props.app.dispatchTo(tab,
+            const outcome = await props.app.dispatchEditTo(tab,
               withMaterializeFrames(target.graphId, target.nodeId, live.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
             return outcome.ok
           }
@@ -7530,7 +7530,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               values[inputId] = (value as JsonObject)[key]!
             }
             if (Object.keys(values).length === 0) return true
-            const outcome = await props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, live.field.materialize,
+            const outcome = await props.app.dispatchEditTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, live.field.materialize,
               { command: 'node.setValues', params: { graphId: at.target.graphId, nodeId: at.target.nodeId, values } }))
             return outcome.ok
           }
@@ -7616,7 +7616,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               if (live === undefined || live.field.readOnly || live.field.disabled) return
               const inputId = row(part)
               if (inputId === undefined) return
-              void props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, at.current.field.materialize,
+              void props.app.dispatchEditTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, at.current.field.materialize,
                 { command: 'node.setValue', params: { graphId: at.target.graphId, nodeId: at.target.nodeId, inputId, value } }))
             },
           }

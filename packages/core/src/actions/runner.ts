@@ -574,9 +574,18 @@ export function applyStoredNumberFixes(
     ...options,
     strict: true,
     noWait: true,
-    unchanged: (doc) => options.unchanged?.(doc) !== false && fixes.every((fix) =>
-      storedNumberFixes(doc, fix.part, host).some((now) => now.valueKey === fix.valueKey && now.before === fix.before &&
-        now.after === fix.after && now.stamp === fix.stamp)),
+    unchanged: (doc) => {
+      if (options.unchanged?.(doc) === false) return false
+      let candidate = doc
+      if (options.lead?.length) {
+        const staged = scratchOf(doc, host)
+        const outcome = staged.dispatch({ ...batch(options.lead), ...(session.allocationActor === undefined ? {} : { actor: session.allocationActor }) })
+        if (!outcome.ok) return false
+        candidate = outcome.doc
+      }
+      return fixes.every((fix) => storedNumberFixes(candidate, fix.part, host).some((now) =>
+        now.valueKey === fix.valueKey && now.before === fix.before && now.after === fix.after && now.stamp === fix.stamp))
+    },
   })
 }
 

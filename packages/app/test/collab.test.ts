@@ -387,6 +387,41 @@ describe('stableActorId', () => {
 })
 
 describe('the notice of the editor\'s own fixes in a shared workflow', () => {
+  it('refuses numeric notice Undo after a peer changes a correction joined to a personal edit', async () => {
+    const server = new FakeCollabServer()
+    const appA = makeApp(server)
+    const appB = makeApp(server)
+    for (const app of [appA, appB]) for (const backend of app.backends.get()) {
+      backend.registry.set(buildDinksterRegistry(backend.id, { ...nodesPayload, nodes: { Numbers: { body: [
+        { kind: 'input', id: 'cap', type: INT, default: 20, widget: { type: 'NUMBER', min: 0 } },
+        { kind: 'input', id: 'amount', type: INT, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: { formula: 'cap' }, step: 4 } },
+      ] } } }))
+    }
+    expect(await appA.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-notice-collab', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+        n1: { id: 'n1', type: 'Numbers', values: { amount: 16, cap: 20 } },
+      } } }, view: { graphs: { g0: { nodes: {} } } },
+    }, 'Shared numbers')).toEqual([])
+    const tabA = activeTab(appA)
+    const edit = (inputId: string, value: number) => ({ command: 'node.setValue',
+      params: { graphId: 'g0', nodeId: 'n1', inputId, value } })
+    expect((await appA.dispatchEditTo(tabA, edit('cap', 13))).ok).toBe(true)
+    expect(await appA.shareActiveTab()).toBeUndefined()
+    expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
+    await sharedSession(appA, tabA.id).settle()
+    const tabB = activeTab(appB)
+    await until(() => tabB.store.doc.graphs.g0!.nodes.n1!.values.amount === 12, 'numeric correction')
+    expect(appA.adjustmentNoticeState(tabA.id)).toBe('ready')
+    expect(tabB.store.dispatch(edit('amount', 8)).ok).toBe(true)
+    await sharedSession(appB, tabB.id).settle()
+    await until(() => activeTab(appA).store.doc.graphs.g0!.nodes.n1!.values.amount === 8, 'peer numeric edit')
+    expect(appA.adjustmentNoticeState(tabA.id)).toBe('refused')
+    expect(appA.undoAdjustments(tabA.id)).toBe(false)
+    expect(activeTab(appA).store.doc.graphs.g0!.nodes.n1!.values).toEqual({ amount: 8, cap: 13 })
+  })
+
   it('refuses Undo for the whole notice once another person changed an adjusted value, and keeps their value', async () => {
     const server = new FakeCollabServer()
     const appA = makeApp(server)
