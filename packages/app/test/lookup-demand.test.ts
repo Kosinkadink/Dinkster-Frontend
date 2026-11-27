@@ -11,13 +11,18 @@ import { boundarySample } from '../../core/test/fixtures/boundary-sample.js'
 
 describe('recorded run answers', () => {
   it('keeps remote option answers and stored selections occurrence-local through boundary edits and failed refreshes', async () => {
-    const { schema } = parseDinksterSchema('Picker', { body: [
+    const { schema: parsed } = parseDinksterSchema('Picker', { body: [
       { kind: 'input', id: 'category', type: { kind: 'concrete', types: ['COMBO'] },
         pin: false, sent: false, widget: { type: 'COMBO', options: ['sd', 'sdxl', 'broken'] } },
       { kind: 'input', id: 'lora', type: { kind: 'concrete', types: ['COMBO'] },
         widget: { type: 'COMBO', options: { lookup: 'pack.loras', args: ['category'] } } },
     ] } as never)
-    const resolve = (type: string) => type === 'Picker' ? { ...schema!, isOutputNode: true } : undefined
+    const schema: NodeSchema = { ...parsed!, isOutputNode: true, body: parsed!.body.map((row) => row.kind === 'input'
+      ? { ...row, displayName: row.id === 'category' ? 'Model family' : 'Selected adapter',
+        tooltip: row.id === 'category' ? 'Family used to request adapters' : 'Keep this adapter while refreshing',
+        visible: true, readOnly: false, disabled: false }
+      : row) }
+    const resolve = (type: string) => type === 'Picker' ? schema : undefined
     const binding = (id: string, node: string, port: string) => ({
       kind: 'input', id, binds: { kind: 'port', node, port }, promoted: true,
     })
@@ -62,8 +67,29 @@ describe('recorded run answers', () => {
         const derived = documentResolver(document, resolve)
         demand.show(['first', 'second'].map((id) => {
           const node = document.graphs.root!.nodes[id]!
+          const elaborated = elaborateInterface(derived(node.type)!, node, EMPTY_CONNECTIVITY, { lookupAnswers: answers })
+          const rows = elabInputsOf(elaborated)
+          const reference = elabInputsOf(elaborateInterface(schema, { values: {
+            category: node.values[category]!, lora: node.values[selection]!,
+          } }, EMPTY_CONNECTIVITY, { lookupAnswers: answers }))
+          expect(rows.map((row) => row.spec.id)).toEqual([category, selection])
+          rows.forEach((row, index) => {
+            const { outer: _scope, lookupScope: _lookupScope, ...spec } = row.spec
+            const expected = reference[index]!.spec
+            expect(spec).toEqual({ ...expected, id: row.spec.id,
+              ...(level === 0 ? {} : { optional: true,
+                ...(index === 0 ? { widget: { ...expected.widget!, default: level === 1 ? 'sd' : 'sdxl' } } : {}) }),
+            })
+            expect([row.readOnly, row.disabled, row.disabledReason]).toEqual([
+              reference[index]!.readOnly, reference[index]!.disabled, reference[index]!.disabledReason,
+            ])
+            const looked = reference[index]!.looked
+            expect(row.looked).toEqual(level === 0 || looked?.options === undefined || !('call' in looked.options) ? looked : {
+              ...looked, options: { ...looked.options, call: { ...looked.options.call, nodeType: 'Picker' } },
+            })
+          })
           return { nodeType: node.type, node: id,
-            items: elaborateInterface(derived(node.type)!, node, EMPTY_CONNECTIVITY, { lookupAnswers: answers }).items }
+            items: elaborated.items }
         }))
         return buildParamRows(document, resolve, answers).map((row) => {
           if (row.kind !== 'live') throw new Error('remote option row is unavailable')
@@ -73,14 +99,14 @@ describe('recorded run answers', () => {
             options: row.spec!.options['options'] }
         })
       }
-      const checkPrompt = (document = store.doc) => {
+      const checkPrompt = (document = store.doc, firstValue = 'kept-first') => {
         const result = compile({ document, revision: store.revision, resolve,
           scope: { kind: 'full' }, connection: asConnectionId('lookup-ownership'), schemaHash: 'lookup-ownership', lookupAnswers: answers })
         expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
         if (!result.ok) throw new Error('remote option document did not compile')
         const suffix = level === 0 ? '' : level === 1 ? '.sample' : '.detail.sample'
         expect(result.artifact.prompt).toEqual({
-          [`first${suffix}`]: { class_type: 'Picker', inputs: { lora: 'kept-first' }, outputIds: [] },
+          [`first${suffix}`]: { class_type: 'Picker', inputs: { lora: firstValue }, outputIds: [] },
           [`second${suffix}`]: { class_type: 'Picker', inputs: { lora: 'kept-second' }, outputIds: [] },
         })
       }
@@ -214,6 +240,42 @@ describe('recorded run answers', () => {
         expect(store.undo()).toBe(true)
         expect(store.undo()).toBe(true)
         expect(store.doc).toEqual(edited)
+        expect(draw()).toEqual([
+          { node: 'first', value: 'kept-first', state: 'ready', options: ['cold-second'] },
+          { node: 'second', value: 'kept-second', state: 'loading', options: undefined },
+        ])
+        await settle()
+        const undoSecond = pending.at(-1)!
+        expect(undoSecond.args).toEqual(['sdxl'])
+        undoSecond.answer(200, { answer: ['undo-second'] })
+        await settle()
+        expect(draw()).toEqual([
+          { node: 'first', value: 'kept-first', state: 'ready', options: ['cold-second'] },
+          { node: 'second', value: 'kept-second', state: 'ready', options: ['undo-second'] },
+        ])
+        checkPrompt()
+        const beforeSelection = store.doc
+        expect(store.dispatch({ command: 'node.setValue', params: {
+          graphId: 'root', nodeId: 'first', inputId: selection, value: 'edited-first',
+        } }).ok).toBe(true)
+        expect(draw()).toEqual([
+          { node: 'first', value: 'edited-first', state: 'ready', options: ['cold-second'] },
+          { node: 'second', value: 'kept-second', state: 'ready', options: ['undo-second'] },
+        ])
+        checkPrompt(store.doc, 'edited-first')
+        const afterSelection = store.doc
+        expect(store.undo()).toBe(true)
+        expect(store.doc).toEqual(beforeSelection)
+        checkPrompt()
+        expect(store.redo()).toBe(true)
+        expect(store.doc).toEqual(afterSelection)
+        const reopenedSelection = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+        expect(reopenedSelection).toEqual(afterSelection)
+        expect(draw(reopenedSelection)).toEqual([
+          { node: 'first', value: 'edited-first', state: 'ready', options: ['cold-second'] },
+          { node: 'second', value: 'kept-second', state: 'ready', options: ['undo-second'] },
+        ])
+        checkPrompt(reopenedSelection, 'edited-first')
         expect(store.doc.graphs.detail).toEqual(doc.graphs.detail)
         expect(store.doc.graphs.portrait).toEqual(doc.graphs.portrait)
       } finally {
