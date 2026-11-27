@@ -3564,7 +3564,7 @@ export class AppState {
     this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
     for (const contribution of coreMenuContributions()) this.menuRegistry.register(
       contribution.id === 'core.widget.expose' || contribution.id === 'core.node.preview.expose'
-        ? { ...contribution, resolve: (context) => this.appViewEnabled ? contribution.resolve(context) : [] }
+        ? { ...contribution, resolve: (context) => this.exposureEnabled ? contribution.resolve(context) : [] }
         : contribution,
     )
     // Reset-to-default items are schema-aware: they resolve through the
@@ -3832,6 +3832,8 @@ export class AppState {
         for (const tab of this.tabs.get()) {
           if (tab.editorKind === APP_EDITOR_KIND) this.setTabEditorKind(tab.id, GRAPH_EDITOR_KIND)
         }
+      }
+      if (!this.exposureEnabled) {
         for (const [tabId, lens] of this.lenses.get()) {
           if (lens === 'exposure') this.setLens(tabId, 'standard')
         }
@@ -6299,11 +6301,11 @@ export class AppState {
   /** Active canvas lens of a tab ('standard' when never switched). */
   lensFor(tabId: string): CanvasLens {
     const lens = this.lenses.get().get(tabId) ?? 'standard'
-    return lens === 'exposure' && !this.appViewEnabled ? 'standard' : lens
+    return lens === 'exposure' && !this.exposureEnabled ? 'standard' : lens
   }
 
   setLens(tabId: string, lens: CanvasLens): void {
-    if (!this.lensRegistry.get(lens) || (lens === 'exposure' && !this.appViewEnabled)) return
+    if (!this.lensRegistry.get(lens) || (lens === 'exposure' && !this.exposureEnabled)) return
     this.lenses.update((m) => {
       const next = new Map(m)
       if (lens === 'standard') next.delete(tabId)
@@ -6314,7 +6316,7 @@ export class AppState {
 
   /** Toggle a tab between the default view and the given lens. */
   toggleLens(tabId: string, lens: Exclude<CanvasLens, 'standard'>): void {
-    if (lens === 'exposure' && !this.appViewEnabled) return
+    if (lens === 'exposure' && !this.exposureEnabled) return
     this.lenses.update((m) => {
       const next = new Map(m)
       if (next.get(tabId) === lens) next.delete(tabId)
@@ -6513,6 +6515,10 @@ export class AppState {
 
   get appViewEnabled(): boolean {
     return this.settings.get<boolean>('features.appView.enabled')
+  }
+
+  get exposureEnabled(): boolean {
+    return this.appViewEnabled || this.settings.get<boolean>('features.board.enabled')
   }
 
   private availableEditorKind(editorKind: string): string {

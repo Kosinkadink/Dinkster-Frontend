@@ -527,6 +527,10 @@ export function App(props: {
     settingsTick()
     return app.appViewEnabled
   })
+  const exposureEnabled = createMemo((): boolean => {
+    settingsTick()
+    return app.exposureEnabled
+  })
   const backends = useSignal(app.backends)
   const backendsTick = useSignal(app.backendsTick)
   const hostUiTick = useSignal(app.hostUiContributions.changed)
@@ -3039,7 +3043,7 @@ export function App(props: {
               activeView={paneEditorKind()}
               appViewEnabled={appViewEnabled()}
               activeLens={paneCanvasLens()}
-              lenses={app.lensRegistry.list().filter((lens) => lens.id !== 'exposure' || appViewEnabled())}
+              lenses={app.lensRegistry.list().filter((lens) => lens.id !== 'exposure' || exposureEnabled())}
               viewMenuOpen={viewMenu()}
               lensMenuOpen={lensMenu()}
               onToggleViewMenu={() => { setLensMenu(false); setViewMenu((open) => !open) }}

@@ -2470,8 +2470,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [menu, setMenu] = createSolidSignal<OwnedMenuAnchor | undefined>(undefined)
   let refreshMenuScopes: (() => void) | undefined
   createEffect(on(selectionScopesChanged, () => refreshMenuScopes?.(), { defer: true }))
-  const appViewEnabled = createMemo(() => (settingsTick(), props.app.appViewEnabled))
-  createEffect(() => { appViewEnabled(); setMenu(undefined) })
+  const exposureEnabled = createMemo(() => (settingsTick(), props.app.exposureEnabled))
+  createEffect(() => { exposureEnabled(); setMenu(undefined) })
   /** Set in onMount; invoking needs the controller + renderer closures. */
   let menuInvoke: (item: MenuActionItem) => void = () => {}
 
