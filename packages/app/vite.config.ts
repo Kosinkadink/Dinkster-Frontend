@@ -27,7 +27,8 @@ const manifest = JSON.stringify({
 
 // Native requests never fall through to the SPA when the engine is absent.
 const NATIVE = process.env['DINKSTER_NATIVE_BACKEND'] ?? 'http://127.0.0.1:3639'
-const nativeHttp = { target: NATIVE, changeOrigin: true }
+// Preserve the browser origin for the engine's same-origin account controls.
+const nativeHttp = { target: NATIVE, changeOrigin: false }
 
 export default defineConfig({
   plugins: [
