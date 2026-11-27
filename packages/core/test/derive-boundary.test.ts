@@ -2118,7 +2118,7 @@ describe('Boundary sample acceptance compilation', () => {
       expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('retained text')
     })
 
-    it(`boundary/standalone-option-rows/${context}`, () => {
+    for (const scenario of ['fallback', 'links'] as const) it(`boundary/standalone-option-rows/${context}/${scenario}`, () => {
       const document = boundarySample(level)
       for (const id of ['detail', 'portrait']) {
         const graph = document.graphs[id]
@@ -2172,21 +2172,24 @@ describe('Boundary sample acceptance compilation', () => {
         widget: { widgetType: 'STRING', options: {}, default: fallback },
       })
       expect(fields.some((row) => row.spec.id === picture)).toBe(false)
-      edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: [caption] })
-      expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe(fallback)
-      expect(prompt(store.doc)[second]).toEqual(baseline[second])
-      if (level === 2) {
-        edit(store, 'node.setValues', { graphId: 'portrait', nodeId: 'detail', values: {}, unset: ['caption'] })
-        expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('dormant inner text')
+      if (scenario === 'fallback') {
+        edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: [caption] })
+        expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe(fallback)
         expect(prompt(store.doc)[second]).toEqual(baseline[second])
+        if (level === 2) {
+          edit(store, 'node.setValues', { graphId: 'portrait', nodeId: 'detail', values: {}, unset: ['caption'] })
+          expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('dormant inner text')
+          expect(prompt(store.doc)[second]).toEqual(baseline[second])
+        }
+        edit(store, 'node.setValues', { graphId: 'detail', nodeId: 'sample', values: {}, unset: ['mode.text'] })
+        expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('inner text')
+        expect(prompt(store.doc)[second]).toEqual(baseline[second])
+        expect(store.undo()).toBe(true)
+        if (level === 2) expect(store.undo()).toBe(true)
+        expect(store.undo()).toBe(true)
+        expect(store.doc).toEqual(original)
+        return
       }
-      edit(store, 'node.setValues', { graphId: 'detail', nodeId: 'sample', values: {}, unset: ['mode.text'] })
-      expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('inner text')
-      expect(prompt(store.doc)[second]).toEqual(baseline[second])
-      expect(store.undo()).toBe(true)
-      if (level === 2) expect(store.undo()).toBe(true)
-      expect(store.undo()).toBe(true)
-      expect(store.doc).toEqual(original)
       edit(store, 'link.connect', { graphId: 'root', from: { node: 'caption', port: 'value' }, to: { node: 'first', port: caption } })
       expect(prompt(store.doc)[path]).toEqual({ ...baseline[path], inputs: { ...baseline[path]!.inputs, 'mode.text': 'literal caption' } })
       edit(store, 'link.connect', { graphId: 'root', from: { node: 'captionRuntime', port: 'text' }, to: { node: 'first', port: caption } })
@@ -2196,6 +2199,7 @@ describe('Boundary sample acceptance compilation', () => {
       expect(prompt(linked)[path]).toEqual({ ...baseline[path], inputs: { ...baseline[path]!.inputs, 'mode.text': ['captionRuntime', 0] } })
       edit(store, 'dynamic.selectOption', { graphId: 'detail', nodeId: 'sample', construct: 'mode', option: 'image' })
       for (const current of [store.doc, loadDocument(JSON.parse(JSON.stringify(store.doc))).document!]) {
+        const compiled = prompt(current)
         const inactiveSchema = documentResolver(current, resolveBoundarySample)(current.graphs.root!.nodes.first!.type)!
         const rows = elabInputsOf(elaborateInterface(inactiveSchema, current.graphs.root!.nodes.first!, {
           isInputConnected: (id) => id === caption, isOutputConnected: () => false,
@@ -2208,19 +2212,40 @@ describe('Boundary sample acceptance compilation', () => {
         expect(current.graphs.root!.links[retained.id]).toEqual(retained)
         expect(current.graphs.root!.nodes.first!.values[caption]).toBe('first caption')
         expect(current.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
-        expect(prompt(current)[path]!.slotVariants?.mode).toBe('image')
-        expect(prompt(current)[path]!.inputs).not.toHaveProperty('mode.text')
-        expect(prompt(current)[second]!.inputs).not.toHaveProperty('mode.text')
-        expect(prompt(current).sink!.inputs.number).toEqual([path, 6])
+        expect(compiled[path]!.slotVariants?.mode).toBe('image')
+        expect(compiled[path]!.inputs).not.toHaveProperty('mode.text')
+        expect(compiled[second]!.inputs).not.toHaveProperty('mode.text')
+        expect(compiled.sink!.inputs.number).toEqual([path, 6])
       }
       edit(store, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: picture } })
       expect(prompt(store.doc)[path]!.inputs['mode.picture']).toEqual(['imageA', 0])
       expect(prompt(store.doc)[second]!.inputs).not.toHaveProperty('mode.picture')
       const imageLinked = store.doc
+      const imageLink = Object.values(imageLinked.graphs.root!.links).find((link) =>
+        'port' in link.to && link.to.node === 'first' && link.to.port === picture)!
       edit(store, 'dynamic.selectOption', { graphId: 'detail', nodeId: 'sample', construct: 'mode', option: 'text' })
       expect(store.doc.graphs.root).toEqual(imageLinked.graphs.root)
       expect(prompt(store.doc)[path]).toEqual({ ...baseline[path], inputs: { ...baseline[path]!.inputs, 'mode.text': ['captionRuntime', 0] } })
       expect(prompt(store.doc)[second]).toEqual(baseline[second])
+      const inactiveImage = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+      const inactiveSchema = documentResolver(inactiveImage, resolveBoundarySample)(inactiveImage.graphs.root!.nodes.first!.type)!
+      const keptImage = elabInputsOf(elaborateInterface(inactiveSchema, inactiveImage.graphs.root!.nodes.first!, {
+        isInputConnected: (id) => id === caption || id === picture, isOutputConnected: () => false,
+      })).find((row) => row.spec.id === picture)!
+      expect(keptImage).toMatchObject({
+        kept: expect.stringContaining('not a row of the chosen option'),
+        spec: { type: { kind: 'concrete', name: 'IMAGE' }, unavailable: { code: 'boundary.branchInactive', inactive: true } },
+      })
+      expect(keptImage.apiName).toBeUndefined()
+      expect(inactiveImage.graphs.root!.links[imageLink.id]).toEqual(imageLink)
+      const restored = storeFor(inactiveImage)
+      edit(restored, 'dynamic.selectOption', { graphId: 'detail', nodeId: 'sample', construct: 'mode', option: 'image' })
+      const revived = prompt(restored.doc)
+      expect(revived).toEqual(prompt(imageLinked))
+      expect(revived[path]!.inputs['mode.picture']).toEqual(['imageA', 0])
+      expect(revived[path]!.inputs).not.toHaveProperty('mode.text')
+      expect(revived[second]!.inputs).not.toHaveProperty('mode.picture')
+      expect(revived.sink!.inputs.number).toEqual([path, 6])
       edit(store, 'link.disconnect', { graphId: 'root', linkId: retained.id })
       expect(prompt(store.doc)[path]).toEqual(baseline[path])
       expect(prompt(store.doc)[second]).toEqual(baseline[second])
