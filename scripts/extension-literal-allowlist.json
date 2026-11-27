@@ -11,7 +11,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1001,
+      "line": 1002,
       "column": 11,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -19,7 +19,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1035,
+      "line": 1036,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -27,7 +27,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1133,
+      "line": 1134,
       "column": 9,
       "symbol": "widgetType:COMBO",
       "issue": 122
@@ -35,7 +35,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 1145,
+      "line": 1146,
       "column": 10,
       "symbol": "widgetType:INT",
       "issue": 122
@@ -43,7 +43,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6239,
+      "line": 6240,
       "column": 13,
       "symbol": "widgetType:BOOLEAN",
       "issue": 122
@@ -51,7 +51,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 6464,
+      "line": 6465,
       "column": 34,
       "symbol": "widgetType:STRING",
       "issue": 122
@@ -59,7 +59,7 @@
     {
       "kind": "widgetTypeComparison",
       "path": "packages/app/src/app-state.ts",
-      "line": 7816,
+      "line": 7817,
       "column": 13,
       "symbol": "widgetType:ASSET",
       "issue": 122
@@ -653,7 +653,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 771,
+      "line": 772,
       "column": 45,
       "symbol": "dinkster.utilities.primitive_float",
       "issue": 813
@@ -661,17 +661,9 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 781,
+      "line": 782,
       "column": 38,
       "symbol": "dinkster.utilities.comfy_math_expression",
-      "issue": 813
-    },
-    {
-      "kind": "nodeIdLiteral",
-      "path": "packages/app/src/app-state.ts",
-      "line": 783,
-      "column": 38,
-      "symbol": "dinkster.utilities.primitive_int",
       "issue": 813
     },
     {
@@ -685,7 +677,15 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 801,
+      "line": 785,
+      "column": 38,
+      "symbol": "dinkster.utilities.primitive_int",
+      "issue": 813
+    },
+    {
+      "kind": "nodeIdLiteral",
+      "path": "packages/app/src/app-state.ts",
+      "line": 802,
       "column": 38,
       "symbol": "dinkster.utilities.primitive_float",
       "issue": 813
@@ -693,7 +693,7 @@
     {
       "kind": "nodeIdLiteral",
       "path": "packages/app/src/app-state.ts",
-      "line": 802,
+      "line": 803,
       "column": 38,
       "symbol": "dinkster.utilities.primitive_boolean",
       "issue": 813

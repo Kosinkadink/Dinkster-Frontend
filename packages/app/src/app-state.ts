@@ -45,6 +45,7 @@ import {
   documentNodeResolver,
   detectFormat,
   diag,
+  DocumentStore,
   createLocalSession,
   connectSharedSession,
   type HistorySnapshot,
@@ -9848,17 +9849,15 @@ export class AppState {
    * not driven by a wire or by the subgraph around it. Each comes with the
    * place its value is kept, which for a promoted input is outside the node.
    */
-  private queueCaptureTargets(tab: Tab, artifact: CompileArtifact, widgetType: string): {
+  private queueCaptureTargets(document: WorkflowDocument, resolve: SchemaResolver, artifact: CompileArtifact, widgetType: string): {
     readonly node: CompileArtifact['prompt'][string]
     readonly input: ReturnType<typeof inputsOf>[number]
     readonly location: { readonly graphId: string }
     readonly nodeId: string
     readonly owner: { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }
   }[] {
-    const registry = this.backendForTab(tab).registry.get()!
-    const document = tab.store.doc
     return Object.entries(artifact.prompt).flatMap(([runtimeId, node]) => {
-      const schema = registry.resolve(node.class_type)
+      const schema = resolve(node.class_type)
       const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === widgetType)
       if (input === undefined || Array.isArray(node.inputs[input.id])) return []
       const occurrence = parseOccurrenceKey(artifact.provenance.toSource[runtimeId]!)
@@ -9870,13 +9869,13 @@ export class AppState {
         Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === target.node && sink.port === target.port))
       if (occurrence.instancePath.length === 0 && definitionDriven) return []
       if (occurrence.instancePath.length > 0) {
-        const topology = effectiveOccurrenceTopology(document, registry.resolve, {
+        const topology = effectiveOccurrenceTopology(document, resolve, {
           instancePath: occurrence.instancePath.slice(0, -1),
           node: occurrence.instancePath.at(-1)!,
         })
         if (effectiveTopologyDrivesPort(topology, graph.id, occurrence.instancePath, target)) return []
       }
-      const view = occurrenceDynamicView(document, registry.resolve, occurrence.instancePath)
+      const view = occurrenceDynamicView(document, resolve, occurrence.instancePath)
       const owner = view.valueOwners.get(occurrence.node)?.get(input.id) ?? {
         graphId: location.graphId, nodeId: occurrence.node, valueKey: input.id,
       }
@@ -9890,13 +9889,18 @@ export class AppState {
    * normal of each 3D view that changed since its pictures were taken. They
    * are stored on their nodes in one step before the run is sent.
    */
-  private captureQueueViews(tab: Tab, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> | undefined {
-    const backend = this.backendForTab(tab)
-    const registry = backend.registry.get()!
-    const document = tab.store.doc
+  private captureQueueViews(owner: {
+    readonly document: WorkflowDocument
+    readonly backend: Backend
+    readonly resolve: SchemaResolver
+    readonly current: () => boolean
+    readonly commit: (invocations: readonly CommandInvocation[]) => Promise<WorkflowDocument>
+    readonly tab?: Tab
+  }, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> | undefined {
+    const { backend, document, resolve } = owner
     const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
     const capturedOwners = new Map<string, { width: number; height: number }>()
-    for (const { node, input, owner } of this.queueCaptureTargets(tab, artifact, webcamKind.type)) {
+    for (const { node, input, owner } of this.queueCaptureTargets(document, resolve, artifact, webcamKind.type)) {
       // Capture on queue is the row the webcam widget reads under that part; without one, it never captures.
       const captureRow = input.widget?.reads?.['capture_on_queue']
       if (captureRow === undefined || node.inputs[captureRow] !== true) continue
@@ -9919,7 +9923,7 @@ export class AppState {
       captures.push({ owner, ...dimensions })
     }
     // A 3D view on its own input gives pictures; one that writes a separate state row stores its view only.
-    const models = backend.protocol !== 'dinkster' ? [] : this.queueCaptureTargets(tab, artifact, 'LOAD_3D')
+    const models = backend.protocol !== 'dinkster' ? [] : this.queueCaptureTargets(document, resolve, artifact, 'LOAD_3D')
       .filter(({ input }) => input.widget?.writes === undefined || Object.keys(input.widget.writes).length === 0)
       .filter((target, index, all) => all.findIndex((other) => JSON.stringify(other.owner) === JSON.stringify(target.owner)) === index)
     if (captures.length === 0 && models.length === 0) return undefined
@@ -9927,7 +9931,7 @@ export class AppState {
       const invocations: CommandInvocation[] = []
       const current = (): void => {
         signal.throwIfAborted()
-        if (tab.store.doc !== document || backend.registry.get() !== registry || this.backendForTab(tab) !== backend) {
+        if (!owner.current()) {
           throw new Error('Workflow or backend changed while capturing; queue again.')
         }
       }
@@ -9945,7 +9949,7 @@ export class AppState {
         const [{ openLoad3dSource, Load3dSourceError }, { mountModel3dViewer }] = await Promise.all([
           import('./load3d-source.js'), import('./model3d-viewer.js'),
         ])
-        for (const { node, input, location, nodeId, owner } of models) {
+        for (const { node, input, location, nodeId, owner: valueOwner } of models) {
           const stored = node.inputs[input.id]
           const value: Record<string, Json> = typeof stored === 'object' && stored !== null && !Array.isArray(stored)
             ? { ...(stored as Record<string, Json>) } : {}
@@ -9955,11 +9959,12 @@ export class AppState {
           const dropPictures = (): void => {
             if (!pictureKeys.some((name) => name in value)) return
             const rest = Object.fromEntries(Object.entries(value).filter(([name]) => !pictureKeys.includes(name)))
-            invocations.push({ command: 'node.setValue', params: { graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: rest } })
+            invocations.push({ command: 'node.setValue', params: { graphId: valueOwner.graphId, nodeId: valueOwner.nodeId, inputId: valueOwner.valueKey, value: rest } })
           }
           let source
           try {
-            source = await openLoad3dSource(this, tab, { graphId: location.graphId, nodeId, parts: { writes: {}, reads: input.widget?.reads ?? {} } }, signal)
+            source = await openLoad3dSource(this, owner.tab ?? { ...owner, inputs: node.inputs },
+              { graphId: location.graphId, nodeId, parts: { writes: {}, reads: input.widget?.reads ?? {} } }, signal)
           } catch (error) {
             // No model, or one a wire brings in this same run: no pictures can be taken now.
             if (error instanceof Load3dSourceError && error.problem !== 'unavailable') {
@@ -10010,7 +10015,7 @@ export class AppState {
               }
               next['pictures_view'] = view(next)
               current()
-              invocations.push({ command: 'node.setValue', params: { graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: next } })
+              invocations.push({ command: 'node.setValue', params: { graphId: valueOwner.graphId, nodeId: valueOwner.nodeId, inputId: valueOwner.valueKey, value: next } })
             } finally {
               viewer.dispose()
             }
@@ -10022,9 +10027,7 @@ export class AppState {
       }
       current()
       if (invocations.length === 0) return document
-      const outcome = await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
-      if (!outcome.ok) throw new Error('Could not save the pictures taken for the run.')
-      return outcome.doc
+      return owner.commit(invocations)
     })()
   }
 
@@ -10124,16 +10127,39 @@ export class AppState {
         ...(registry.server === undefined ? {} : { server: registry.server }), frontendVersion: FRONTEND_VERSION,
       })
       if (stamp) document = { ...document, environment: stamp }
-      const result = compile({ document, revision: entry.session.revision, resolve, scope: { kind: 'full' },
+      const input: CompileInput = { document, revision: entry.session.revision, resolve, scope: { kind: 'full' },
         connection: backend.id, schemaHash: registry.hash,
         ...(registry.graphFeatures === undefined ? {} : { graphFeatures: registry.graphFeatures }),
         lookupAnswers: lookupAnswersOf(backend.lookups), pickCandidate: ({ count }) => Math.floor(Math.random() * count),
-      })
+      }
+      let result = compile(input)
       if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      this.retainedRegistries.set(result.artifact, registry)
+      const lease = this.retainSubmissionWorld(undefined, result.artifact)
+      releaseWorld = lease.release
+      const capture = this.captureQueueViews({ document, backend, resolve, current,
+        commit: async (invocations) => {
+          const store = new DocumentStore(document, coreCommandRegistry([], documentResolver(document, resolve)))
+          const outcome = store.dispatch({ command: 'batch', params: { invocations } as unknown as Json })
+          if (!outcome.ok) throw new Error('Could not save the pictures taken for the run.')
+          return outcome.doc
+        },
+      }, result.artifact, controller.signal)
+      if (capture !== undefined) {
+        const captured = await capture
+        if (!current()) return undefined
+        if (captured !== document) {
+          document = captured
+          const choices = new Map((result.artifact.choices ?? []).map((choice) => [JSON.stringify([choice.graph, choice.selector]), choice.candidate]))
+          result = compile({ ...input, document, candidateOverride: ({ graph, selector, candidates }) => {
+            const selected = choices.get(JSON.stringify([graph, selector]))
+            return selected !== undefined && candidates.includes(selected) ? selected : undefined
+          } })
+          if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+        }
+      }
       const artifact = result.artifact
       this.retainedRegistries.set(artifact, registry)
-      const lease = this.retainSubmissionWorld(undefined, artifact)
-      releaseWorld = lease.release
       let sourceDocument: string | undefined
       try { sourceDocument = await backend.connection.uploadAsset(JSON.stringify(document)) } catch { /* Advisory stamp. */ }
       if (!current()) return undefined
@@ -10248,7 +10274,15 @@ export class AppState {
       const captureRegistry = captureBackend.registry.get()
       let capturedDocument: WorkflowDocument
       try {
-        const capture = this.captureQueueViews(tab, result.artifact, lease.signal)
+        const capture = this.captureQueueViews({ document: tab.store.doc, backend: captureBackend,
+          resolve: captureRegistry!.resolve, tab,
+          current: () => tab.store.doc === compiledDocument && this.backendForTab(tab) === captureBackend && captureBackend.registry.get() === captureRegistry,
+          commit: async (invocations) => {
+            const outcome = await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
+            if (!outcome.ok) throw new Error('Could not save the pictures taken for the run.')
+            return outcome.doc
+          },
+        }, result.artifact, lease.signal)
         capturedDocument = capture === undefined ? compiledDocument : await capture
         if (tab.store.doc !== capturedDocument || this.backendForTab(tab) !== captureBackend || captureBackend.registry.get() !== captureRegistry) {
           throw new Error('Workflow or backend changed while capturing; queue again.')
