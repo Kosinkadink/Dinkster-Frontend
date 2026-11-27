@@ -2118,6 +2118,117 @@ describe('Boundary sample acceptance compilation', () => {
       expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('retained text')
     })
 
+    it(`boundary/standalone-option-rows/${context}`, () => {
+      const document = boundarySample(level)
+      for (const id of ['detail', 'portrait']) {
+        const graph = document.graphs[id]
+        if (graph !== undefined) Object.assign(graph, { boundary: { body: graph.boundary!.body
+          .filter((row) => !('id' in row && row.id === 'mode')) } })
+      }
+      Object.assign(document.graphs.root!.nodes, { caption: {
+        id: 'caption', type: 'dinkster.utilities.primitive_string', values: { value: 'literal caption' },
+      }, captionRuntime: { id: 'captionRuntime', type: 'StringSource', values: {} } })
+      const store = storeFor(document)
+      edit(store, 'dynamic.selectOption', { graphId: 'detail', nodeId: 'sample', construct: 'mode', option: 'text' })
+      edit(store, 'boundary.addItem', { graphId: 'detail', side: 'inputs', itemId: 'caption',
+        node: 'sample', port: 'mode.text', promoted: true })
+      edit(store, 'boundary.addItem', { graphId: 'detail', side: 'inputs', itemId: 'photo',
+        node: 'sample', port: 'mode.picture' })
+      if (level === 2) {
+        edit(store, 'node.setValue', { graphId: 'portrait', nodeId: 'detail', inputId: 'caption', value: 'middle caption' })
+        for (const [itemId, port] of [['heading', 'caption'], ['picture', 'photo']]) {
+          edit(store, 'boundary.addItem', { graphId: 'portrait', side: 'inputs', itemId: itemId!,
+            node: 'detail', port: port!, ...(itemId === 'heading' ? { promoted: true } : {}) })
+        }
+      }
+      const caption = level === 1 ? 'caption' : 'heading'
+      const picture = level === 1 ? 'photo' : 'picture'
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      const fallback = level === 1 ? 'dormant inner text' : 'middle caption'
+      expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe(fallback)
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: caption, value: 'first caption' })
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'second', inputId: caption, value: 'sibling caption' })
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'first', port: 'output91' }, to: { node: 'sink', port: 'number' } })
+      const original = store.doc
+      const baseline = prompt(original)
+      expect(baseline[path]!.inputs['mode.text']).toBe('first caption')
+      expect(baseline[second]!.inputs['mode.text']).toBe('sibling caption')
+      expect(baseline.sink!.inputs.number).toEqual([path, 6])
+      const plain = storeFor(boundarySample(0))
+      edit(plain, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {
+        'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4, 'mode.text': 'first caption',
+      } })
+      edit(plain, 'dynamic.selectOption', { graphId: 'root', nodeId: 'first', construct: 'mode', option: 'text' })
+      expect(baseline[path]).toEqual(prompt(plain.doc).first)
+      const schema = documentResolver(original, resolveBoundarySample)(original.graphs.root!.nodes.first!.type)!
+      const fields = elabInputsOf(elaborateInterface(schema, original.graphs.root!.nodes.first!))
+      const nativeText = boundarySampleSchema.body.find((row) => row.kind === 'choice' && row.id === 'mode')!
+      expect(nativeText.kind).toBe('choice')
+      if (nativeText.kind !== 'choice') throw new Error('Missing native choice')
+      const nativeField = nativeText.options.find((option) => option.key === 'text')!.rows[0]!
+      const { outer: _scope, ...field } = fields.find((row) => row.spec.id === caption)!.spec
+      expect(field).toEqual({
+        ...nativeField, id: caption, displayName: 'mode.text', optional: true,
+        widget: { widgetType: 'STRING', options: {}, default: fallback },
+      })
+      expect(fields.some((row) => row.spec.id === picture)).toBe(false)
+      edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: [caption] })
+      expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe(fallback)
+      expect(prompt(store.doc)[second]).toEqual(baseline[second])
+      if (level === 2) {
+        edit(store, 'node.setValues', { graphId: 'portrait', nodeId: 'detail', values: {}, unset: ['caption'] })
+        expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('dormant inner text')
+        expect(prompt(store.doc)[second]).toEqual(baseline[second])
+      }
+      edit(store, 'node.setValues', { graphId: 'detail', nodeId: 'sample', values: {}, unset: ['mode.text'] })
+      expect(prompt(store.doc)[path]!.inputs['mode.text']).toBe('inner text')
+      expect(prompt(store.doc)[second]).toEqual(baseline[second])
+      expect(store.undo()).toBe(true)
+      if (level === 2) expect(store.undo()).toBe(true)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(original)
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'caption', port: 'value' }, to: { node: 'first', port: caption } })
+      expect(prompt(store.doc)[path]).toEqual({ ...baseline[path], inputs: { ...baseline[path]!.inputs, 'mode.text': 'literal caption' } })
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'captionRuntime', port: 'text' }, to: { node: 'first', port: caption } })
+      const linked = store.doc
+      const retained = Object.values(linked.graphs.root!.links).find((link) =>
+        'port' in link.to && link.to.node === 'first' && link.to.port === caption)!
+      expect(prompt(linked)[path]).toEqual({ ...baseline[path], inputs: { ...baseline[path]!.inputs, 'mode.text': ['captionRuntime', 0] } })
+      edit(store, 'dynamic.selectOption', { graphId: 'detail', nodeId: 'sample', construct: 'mode', option: 'image' })
+      for (const current of [store.doc, loadDocument(JSON.parse(JSON.stringify(store.doc))).document!]) {
+        const inactiveSchema = documentResolver(current, resolveBoundarySample)(current.graphs.root!.nodes.first!.type)!
+        const rows = elabInputsOf(elaborateInterface(inactiveSchema, current.graphs.root!.nodes.first!, {
+          isInputConnected: (id) => id === caption, isOutputConnected: () => false,
+        }))
+        expect(rows.find((row) => row.spec.id === caption)).toMatchObject({
+          kept: expect.stringContaining('not a row of the chosen option'),
+          spec: { type: { kind: 'concrete', name: 'STRING' }, unavailable: { code: 'boundary.branchInactive', inactive: true } },
+        })
+        expect(rows.find((row) => row.spec.id === caption)!.apiName).toBeUndefined()
+        expect(current.graphs.root!.links[retained.id]).toEqual(retained)
+        expect(current.graphs.root!.nodes.first!.values[caption]).toBe('first caption')
+        expect(current.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+        expect(prompt(current)[path]!.slotVariants?.mode).toBe('image')
+        expect(prompt(current)[path]!.inputs).not.toHaveProperty('mode.text')
+        expect(prompt(current)[second]!.inputs).not.toHaveProperty('mode.text')
+        expect(prompt(current).sink!.inputs.number).toEqual([path, 6])
+      }
+      edit(store, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: picture } })
+      expect(prompt(store.doc)[path]!.inputs['mode.picture']).toEqual(['imageA', 0])
+      expect(prompt(store.doc)[second]!.inputs).not.toHaveProperty('mode.picture')
+      const imageLinked = store.doc
+      edit(store, 'dynamic.selectOption', { graphId: 'detail', nodeId: 'sample', construct: 'mode', option: 'text' })
+      expect(store.doc.graphs.root).toEqual(imageLinked.graphs.root)
+      expect(prompt(store.doc)[path]).toEqual({ ...baseline[path], inputs: { ...baseline[path]!.inputs, 'mode.text': ['captionRuntime', 0] } })
+      expect(prompt(store.doc)[second]).toEqual(baseline[second])
+      edit(store, 'link.disconnect', { graphId: 'root', linkId: retained.id })
+      expect(prompt(store.doc)[path]).toEqual(baseline[path])
+      expect(prompt(store.doc)[second]).toEqual(baseline[second])
+      expect(store.doc.graphs.detail).toEqual(original.graphs.detail)
+      expect(store.doc.graphs.portrait).toEqual(original.graphs.portrait)
+      expect(store.doc.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+    })
+
     it(`boundary/described-outputs/${context}`, () => {
       const store = storeFor(boundarySample(level))
       const description = '{"entries":[{"id":"number","label":"Result B","kind":"number"}]}'

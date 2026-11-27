@@ -49,6 +49,7 @@ const schemas: Record<string, NodeSchema> = {
   MaskSource: schema('MaskSource', [out('mask', 'MASK')]),
   FloatSource: schema('FloatSource', [out('number')]),
   IntSource: schema('IntSource', [out('number', 'INT')]),
+  StringSource: schema('StringSource', [out('text', 'STRING')]),
   NumberSink: schema('NumberSink', [pin('number', 'FLOAT')]),
 }
 export const resolveBoundarySample = withPrimitives((name) => schemas[name])
