@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asConnectionId, checkDocument, compile, diag, DocumentStore, elaborateInterface, elabInputsOf, loadDocument, occurrenceDynamicView, parseDinksterSchema, planClipboardPaste, serializeSelection, documentResolver, documentNodeResolver, runPress, coreCommandRegistry, createLocalSession, type ActionHost, type CommandOutcome, type Diagnostic, type NodeSchema, type WorkflowDocument, boundaryOf, boundaryItems } from '@dinkster/core'
+import { asConnectionId, checkDocument, compile, diag, DocumentStore, elaborateInterface, elabInputsOf, loadDocument, occurrenceDynamicView, parseDinksterSchema, planClipboardPaste, serializeSelection, documentResolver, documentNodeResolver, runPress, coreCommandRegistry, createLocalSession, type ActionHost, type CommandOutcome, type Diagnostic, type Json, type NodeSchema, type WorkflowDocument, boundaryOf, boundaryItems } from '@dinkster/core'
 import { extractSubgraphInvocationThroughBridge, flattenSubgraphThroughBridge } from '../src/CanvasHost.js'
 import { activateProblem } from '../src/ProblemsPanel.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection } from '../src/subgraph-lifecycle.js'
@@ -747,6 +747,124 @@ describe('whole constructs shown on a subgraph node through two levels', () => {
           spec: { widget: { options: { options: [`${category}-option`] } } },
         })
       }
+    }
+  })
+
+  it.each([1, 2] as const)('keeps shared-line notes in their receiving scope through fan-out and separate lifecycle changes at depth %s', async (depth) => {
+    const noted = node('Noted', [{ kind: 'choice', id: 'pack', required: true, default: 'a', shared: [], options: [{ key: 'a', rows: [
+      { kind: 'row', rows: [floatField('seed', 3), floatField('other', 9),
+        { kind: 'note', id: 'answer', text: { formula: 'fixed(seed * 2, 0)' }, unknown: 'Linked seed' }] },
+      { kind: 'note', id: 'pending', text: { formula: 'str(1 // 0)' }, unknown: 'Waiting' },
+      { kind: 'note', id: 'empty', text: '' },
+    ] }] }])
+    const resolve = (type: string) => type === 'Noted' ? noted : undefined
+    const bind = (id: string, target: string, port: string) => ({ kind: 'input', id, binds: { kind: 'construct', node: target, port } })
+    const key = depth === 1 ? 'bundle' : 'outer'
+    const doc = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'notes-lifecycle', root: 'root', graphs: {
+      root: { id: 'root', name: 'Root', ...empty, nodes: Object.fromEntries([['first', 21, 4], ['second', 13, 7]].map(([id, seed, other]) => [id, {
+        id, type: depth === 1 ? '#detail' : '#portrait', values: { [`${key}.seed`]: seed, [`${key}.other`]: other },
+      }])) },
+      detail: { id: 'detail', name: 'Detail', ...empty, nodes: {
+        sample: { id: 'sample', type: 'Noted', values: { 'pack.seed': 5 }, dynamic: { pack: { selected: 'a' } } },
+        other: { id: 'other', type: 'Noted', values: { 'pack.seed': 11, 'pack.other': 17 }, dynamic: { pack: { selected: 'a' } } },
+      }, boundary: { body: [bind('bundle', 'sample', 'pack')] } },
+      ...(depth === 2 ? { portrait: { id: 'portrait', name: 'Portrait', ...empty, nodes: {
+        detail: { id: 'detail', type: '#detail', values: { 'bundle.seed': 7 } },
+      }, boundary: { body: [bind('outer', 'detail', 'bundle')] } } } : {}),
+    }, view: { graphs: {} } } as unknown as WorkflowDocument
+    const store = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve),
+    }))
+    const notes = (current: WorkflowDocument, type: string, values: Readonly<Record<string, Json>>) =>
+      elaborateInterface(documentResolver(current, resolve)(type)!, { values }).items
+        .filter((item) => item.kind === 'note').map((item) => [item.text, item.unknown ?? false])
+    const check = (current: WorkflowDocument, seeds: Readonly<Record<string, readonly [number, number]>>) => {
+      const compiled = compile({ document: current, revision: 1, resolve, scope: { kind: 'full' },
+        connection: asConnectionId('notes'), schemaHash: 'notes' })
+      expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('note workflow did not compile')
+      expect(Object.keys(compiled.artifact.prompt).sort()).toEqual(Object.keys(seeds).sort())
+      for (const [id, [seed, other]] of Object.entries(seeds)) {
+        const inputs = compiled.artifact.prompt[id]!.inputs
+        expect(inputs).toEqual({ 'pack.seed': seed, 'pack.other': other })
+        expect(notes(current, 'Noted', inputs)).toEqual([[String(seed * 2), false], ['Waiting', true], ['', false]])
+      }
+      return compiled.artifact.prompt
+    }
+    const suffix = depth === 1 ? '' : '.detail'
+    const initial = { [`first${suffix}.sample`]: [21, 4], [`first${suffix}.other`]: [11, 17],
+      [`second${suffix}.sample`]: [13, 7], [`second${suffix}.other`]: [11, 17] } as const
+    check(store.doc, initial)
+    expect(store.dispatch({ command: 'boundary.addBinding', params: { graphId: 'detail', itemId: 'bundle', node: 'other', port: 'pack' } }).ok).toBe(true)
+    const joined = store.doc
+    const fanout = { ...initial, [`first${suffix}.other`]: [21, 4], [`second${suffix}.other`]: [13, 7] } as const
+    check(joined, fanout)
+    expect(notes(joined, joined.graphs.root!.nodes.first!.type, joined.graphs.root!.nodes.first!.values))
+      .toEqual([['42', false], ['Waiting', true], ['', false]])
+    expect(store.dispatch({ command: 'boundary.addBinding', params: {
+      graphId: 'detail', itemId: 'bundle', node: 'other', port: 'pack.seed',
+    } }).ok).toBe(false)
+    expect(store.doc).toBe(joined)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(doc)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(joined)
+    expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'root', nodeId: 'first', inputId: `${key}.seed`, value: 31 } }).ok).toBe(true)
+    check(store.doc, { ...fanout, [`first${suffix}.sample`]: [31, 4], [`first${suffix}.other`]: [31, 4] })
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(joined)
+    expect(store.redo()).toBe(true)
+    const edited = store.doc
+    check(loadDocument(JSON.parse(JSON.stringify(edited))).document!, { ...fanout, [`first${suffix}.sample`]: [31, 4], [`first${suffix}.other`]: [31, 4] })
+    expect(edited.graphs.detail).toEqual(joined.graphs.detail)
+    expect(edited.graphs.portrait).toEqual(doc.graphs.portrait)
+    const detached = new DocumentStore(doc, coreCommandRegistry(), 200, undefined, () => ({
+      kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve),
+    }))
+    expect(detached.dispatch({ command: 'occurrence.localize', params: { graphId: 'root', nodeId: 'first' } }).ok).toBe(true)
+    const privateGraph = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+    expect(detached.dispatch({ command: 'node.setValue', params: { graphId: privateGraph,
+      nodeId: depth === 1 ? 'sample' : 'detail', inputId: depth === 1 ? 'pack.seed' : 'bundle.seed', value: 19 } }).ok).toBe(true)
+    const privateDoc = detached.doc
+    check(privateDoc, initial)
+    expect(detached.dispatch({ command: 'node.setValues', params: { graphId: 'root', nodeId: 'first', values: {}, unset: [`${key}.seed`] } }).ok).toBe(true)
+    check(detached.doc, { ...initial, [`first${suffix}.sample`]: [19, 4] })
+    expect(detached.undo()).toBe(true)
+    expect(detached.doc).toEqual(privateDoc)
+    expect(privateDoc.graphs.detail).toEqual(doc.graphs.detail)
+    expect(privateDoc.graphs.portrait).toEqual(doc.graphs.portrait)
+    expect(detached.undo()).toBe(true)
+    expect(detached.undo()).toBe(true)
+    expect(detached.doc).toEqual(doc)
+    expect(detached.redo()).toBe(true)
+    expect(detached.redo()).toBe(true)
+    expect(detached.doc).toEqual(privateDoc)
+    check(loadDocument(JSON.parse(JSON.stringify(privateDoc))).document!, initial)
+    for (const mode of ['active', 'muted', 'bypassed', 'loop'] as const) {
+      const before = { ...doc, graphs: { ...doc.graphs, root: { ...doc.graphs.root!, nodes: { ...doc.graphs.root!.nodes,
+        first: { ...doc.graphs.root!.nodes.first!, ...(mode === 'loop' ? { region: { kind: 'map', elementPorts: [`${key}.seed`] } } : { mode }) },
+      } } } } as WorkflowDocument
+      const result = await flatten(before, 'root', [], 'first', resolve)
+      if (mode === 'bypassed' || mode === 'loop') {
+        expect(result.ok).toBe(false)
+        expect(result.session.doc).toEqual(before)
+        expect(result.session.canUndo).toBe(false)
+        continue
+      }
+      expect(result.ok, JSON.stringify(result.reports)).toBe(true)
+      const flattened = result.session.doc
+      const replacements = Object.values(flattened.graphs.root!.nodes).filter((entry) => before.graphs.root!.nodes[entry.id] === undefined)
+      const primary = replacements.find((entry) => depth === 2 || entry.values['pack.seed'] === 21)!
+      const secondary = depth === 1 ? replacements.find((entry) => entry.id !== primary.id)!.id : `${primary.id}.other`
+      check(flattened, { [`second${suffix}.sample`]: [13, 7], [`second${suffix}.other`]: [11, 17],
+        ...(mode === 'active' ? { [depth === 1 ? primary.id : `${primary.id}.sample`]: [21, 4], [secondary]: [11, 17] } : {}) })
+      expect(flattened.graphs.detail).toEqual(doc.graphs.detail)
+      expect(flattened.graphs.portrait).toEqual(doc.graphs.portrait)
+      expect(result.session.undo()).toBe(true)
+      expect(result.session.doc.graphs).toEqual({ ...before.graphs, root: { ...before.graphs.root!, nextOrdinal: flattened.graphs.root!.nextOrdinal } })
+      expect(result.session.redo()).toBe(true)
+      expect(result.session.doc).toEqual(flattened)
+      expect(runOf(loadDocument(JSON.parse(JSON.stringify(flattened))).document!, resolve)).toEqual(runOf(flattened, resolve))
     }
   })
 
