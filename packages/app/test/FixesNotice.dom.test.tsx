@@ -169,6 +169,22 @@ describe('the notice of the editor\'s own fixes', () => {
     app.dispose()
   })
 
+  it('explains a refused Undo in its announced notice and keeps Review available', async () => {
+    const { app, tab, root, unmount } = await openOutdated(3)
+    expect(tab.store.dispatch({ command: 'node.setValues', params: { graphId: 'g0', nodeId: 'n2', values: { amount: 50 } } }).ok).toBe(true)
+    for (let index = 0; index < 201; index++) {
+      expect(tab.store.dispatch({ command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n1', title: `Title ${index}` } }).ok).toBe(true)
+    }
+    const before = tab.store.doc
+    expect(button(root, 'Undo')!.disabled).toBe(true)
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('One of the adjusted values was changed afterwards.')
+    button(root, 'Review')!.click()
+    expect(rows(root)).toHaveLength(3)
+    expect(tab.store.doc).toBe(before)
+    unmount()
+    app.dispose()
+  })
+
   it('closes only Review on Escape and leaves a count after the cross until the workflow is cleared', async () => {
     const { app, tab, root, unmount } = await openOutdated(3)
     button(root, 'Review')!.click()

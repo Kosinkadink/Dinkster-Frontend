@@ -1,9 +1,10 @@
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
-import { asNodeId, coreCommandRegistry, diag, DINKSTER_SCHEMA_WIRE_VERSION, DocumentStore, importLitegraph, inputsOf, parseDinksterSchema } from '@dinkster/core'
+import { asNodeId, coreCommandRegistry, diag, DINKSTER_SCHEMA_WIRE_VERSION, DocumentStore, emptyBoard, importLitegraph, inputsOf, parseDinksterSchema } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
 import { createWidgetRegistry } from '@dinkster/widgets'
-import { AppState, type Tab } from '../src/app-state.js'
+import { AppState, WORKFLOW_MEDIA_TYPE, type Tab } from '../src/app-state.js'
+import { activeProjectId } from '../src/projects.js'
 import { captureWebcamFrame } from '../src/webcam.js'
 import { WidgetEditor } from '../src/WidgetEditor.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
@@ -131,6 +132,42 @@ it('refuses queue on device failure or edits during capture without replacing a 
       expect(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image).toEqual(state.saved)
     } finally { state.app.dispose() }
   }
+})
+
+it('captures Board card frames into the run only and stops a pending device grant without posting', async () => {
+  const device = camera()
+  const state = await queueSetup()
+  try {
+    const original = state.tab.store.doc
+    const tabs = state.app.tabs.get()
+    const source = { ...original, graphs: { g0: { ...original.graphs.g0!, nodes: { n1: original.graphs.g0!.nodes.n1! } } } }
+    const bytes = JSON.stringify(source)
+    vi.spyOn(state.backend.connection, 'getLibraryRecord').mockResolvedValue({ id: 'camera', scope: 'local', name: 'Camera',
+      digest: state.saved.digest, mediaType: WORKFLOW_MEDIA_TYPE, labels: ['workflow'], created: 1, modified: 1, revision: 1 })
+    vi.spyOn(state.backend.connection, 'fetchAssetText').mockResolvedValue(bytes)
+    const board = state.app.boards.open(emptyBoard(), 'Cameras', state.backend.baseUrl)
+    const card = await state.app.boards.placeCard(board.id, { project: activeProjectId(), baseUrl: state.backend.baseUrl,
+      kind: 'workflow', source: { kind: 'library', recordId: 'camera' }, name: 'Camera' }, { x: 0, y: 0 })
+    await expect(state.app.queueBoardCard(board, card)).rejects.toThrow('stop after submission')
+    const artifact = state.submit.mock.calls[0]![0]
+    expect(artifact.prompt.n1!.inputs.image).toEqual(state.captured)
+    expect(artifact.snapshot.graphs.g0!.nodes.n1!.values.image).toEqual(state.captured)
+    expect(JSON.parse(String(state.sourceUpload.mock.calls[0]![0])).graphs.g0.nodes.n1.values.image).toEqual(state.captured)
+    expect(await state.upload.mock.calls[0]![0].text()).toBe('640x180')
+    expect(state.app.tabs.get()).toBe(tabs)
+    expect(state.tab.store.doc).toBe(original)
+    expect(board.session.doc.items[card]).toMatchObject({ values: {} })
+    expect(JSON.stringify(source)).toBe(bytes)
+    let grant!: (stream: MediaStream) => void
+    device.open.mockImplementationOnce(() => new Promise((resolve) => { grant = resolve }))
+    const stopped = state.app.queueBoardCard(board, card)
+    await vi.waitFor(() => expect(grant).toBeDefined())
+    await state.app.stopBoardCard(board, card)
+    grant(device.stream)
+    expect(await stopped).toBeUndefined()
+    expect(state.submit).toHaveBeenCalledOnce()
+    expect(device.stop).toHaveBeenCalledTimes(2)
+  } finally { state.app.dispose() }
 })
 
 it('does not replace connected literal camera inputs with unused captures', async () => {

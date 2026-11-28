@@ -4,17 +4,28 @@ import type { BoardMediaFile } from './board-workspace.js'
 /** Browser metadata is optional; an unsupported codec does not invent dimensions. */
 export function inspectBoardMedia(file: File, signal: AbortSignal): Promise<BoardMediaFile> {
   signal.throwIfAborted()
-  const kind = boardMediaKindOf(file.type)
-  if (!kind) return Promise.reject(new Error(`Unsupported Board media: ${file.name}`))
-  const element = kind === 'picture' ? new Image() : document.createElement(kind === 'video' ? 'video' : 'audio')
+  if (!boardMediaKindOf(file.type)) return Promise.reject(new Error(`Unsupported Board media: ${file.name}`))
   const url = URL.createObjectURL(file)
+  return inspectBoardMediaMetadata(url, file.type, signal)
+    .then((metadata) => ({ file, ...metadata })).finally(() => URL.revokeObjectURL(url))
+}
+
+/** Saved assets and local imports use the same optional browser codec facts. */
+export function inspectBoardMediaMetadata(url: string, mediaType: string,
+  signal: AbortSignal,
+): Promise<Omit<BoardMediaFile, 'file'>> {
+  signal.throwIfAborted()
+  const kind = boardMediaKindOf(mediaType)
+  if (!kind) return Promise.reject(new Error(`Unsupported Board media: ${mediaType}`))
+  if (typeof Image === 'undefined' || typeof document === 'undefined') return Promise.resolve({})
+  const element = kind === 'picture' ? new Image() : document.createElement(kind === 'video' ? 'video' : 'audio')
   return new Promise((resolve, reject) => {
     let settled = false
     const finish = (metadata: Omit<BoardMediaFile, 'file'> = {}) => {
       if (settled) return
       settled = true
       cleanup()
-      resolve({ file, ...metadata })
+      resolve(metadata)
     }
     const cancel = () => {
       if (settled) return
@@ -30,7 +41,6 @@ export function inspectBoardMedia(file: File, signal: AbortSignal): Promise<Boar
       element.onerror = null
       element.removeAttribute('src')
       if (element instanceof HTMLMediaElement) element.load()
-      URL.revokeObjectURL(url)
     }
     const timer = setTimeout(() => finish(), 10_000)
     signal.addEventListener('abort', cancel, { once: true })

@@ -86,7 +86,7 @@ export interface ExecutionLogEntry {
   readonly seq: number
 }
 
-/** Content-addressed file retained by a completed execution. */
+/** Content-addressed file retained by an execution, including partial saves. */
 export interface ExecutionArtifact {
   readonly nodeId: string
   readonly digest: string
@@ -847,7 +847,7 @@ export class ExecutionStore {
     this.put({ ...state, outputs: merged })
   }
 
-  /** Install the completed job's authoritative, already-decoded artifact list. */
+  /** Install the terminal job's authoritative, already-decoded artifact list. */
   hydrateArtifacts(ref: ExecutionRef, artifacts: readonly ExecutionArtifact[]): void {
     const state = this.map.get(executionKey(ref))
     if (!state) return

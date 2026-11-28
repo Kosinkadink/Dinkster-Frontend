@@ -93,6 +93,116 @@ async function pair(server: Server) {
 }
 
 describe('Board sessions', () => {
+  it('delivers a run once across concurrent replay and remembers removal and undo after reopening', async () => {
+    const server = new Server()
+    const { a, b, left, right, settle, conflicts } = await pair(server)
+    const delivered = (id: string, job = 'native-run-one') => ({
+      command: 'board.run.add' as const, params: { job, card: 'card', items: [{
+        id, kind: 'picture' as const, rect: { x: 410, y: 37, width: 280, height: 175 },
+        asset: { digest: `blake3:${'a'.repeat(64)}`, mediaType: 'image/png', name: 'Saved picture',
+          origin: { kind: 'produced', job, node: 'save' } },
+      }] },
+    })
+    try {
+      expect(a.dispatch({ command: 'board.item.add', params: { items: [{
+        id: 'card', kind: 'workflow', name: 'Rain', source: { kind: 'library', recordId: 'saved' },
+        values: {}, rect: { x: 17, y: 37, width: 340, height: 240 },
+      }] } }).ok).toBe(true)
+      await settle()
+      left.disconnect()
+      right.disconnect()
+      expect(a.dispatch(delivered('result-left')).ok).toBe(true)
+      expect(b.dispatch(delivered('result-right')).ok).toBe(true)
+      left.reconnect()
+      right.reconnect()
+      await settle()
+      expect(a.doc).toEqual(b.doc)
+      expect(a.doc.order).toEqual(['card', 'result-left'])
+      expect(a.doc.runs).toEqual({ 'native-run-one': { card: 'card', items: ['result-left'] } })
+      expect(conflicts).toEqual([])
+      expect(a.dispatch({ command: 'board.run.add', params: { job: 'native-empty', card: 'card', items: [] } }).ok).toBe(true)
+      await settle()
+      expect(a.undo()).toBe(true)
+      await settle()
+      expect(a.doc.order).toEqual(['card'])
+      const beforeReplay = a.revision
+      expect(a.dispatch(delivered('result-replayed')).ok).toBe(true)
+      await settle()
+      expect(a.revision).toBe(beforeReplay)
+      expect(a.redo()).toBe(true)
+      await settle()
+      expect(a.doc.order).toEqual(['card', 'result-left'])
+      expect(b.dispatch({ command: 'board.item.remove', params: { ids: ['result-left'] } }).ok).toBe(true)
+      await settle()
+      const reopened = createLocalBoardSession(JSON.parse(JSON.stringify(a.doc)))
+      expect(reopened.dispatch(delivered('result-reopened')).ok).toBe(true)
+      expect(reopened.doc.order).toEqual(['card'])
+      const next = delivered('next-result', 'native-run-two')
+      expect(reopened.dispatch(next).ok).toBe(true)
+      expect(reopened.undo()).toBe(true)
+      expect(reopened.dispatch(next).ok).toBe(true)
+      expect(reopened.doc.order).toEqual(['card'])
+      expect(reopened.redo()).toBe(true)
+      expect(reopened.doc.order).toEqual(['card', 'next-result'])
+      expect(reopened.doc.runs?.['native-run-one']).toEqual({ card: 'card', items: ['result-left'] })
+      expect(reopened.doc.runs?.['native-empty']).toEqual({ card: 'card', items: [] })
+    } finally { a.close(); b.close() }
+  })
+
+  it('preserves another editor\'s card input when undoing a local input change', async () => {
+    const server = new Server()
+    const a = await connectSharedBoardSession(server.connect().connection, server.descriptor(), { retryDelay: async () => {} })
+    const b = await connectSharedBoardSession(server.connect().connection, server.descriptor(), { retryDelay: async () => {} })
+    try {
+      expect(a.dispatch({ command: 'board.item.add', params: { items: [{
+        id: 'card', kind: 'workflow', name: 'Rain', source: { kind: 'library', recordId: 'saved' },
+        values: {}, rect: { x: 0, y: 0, width: 340, height: 240 },
+      }] } }).ok).toBe(true)
+      await a.settle()
+      expect(a.dispatch({ command: 'board.card.input', params: {
+        id: 'card', input: { graphId: 'g0', nodeId: 'node', inputId: 'prompt' }, value: 'Rain at night',
+      } }).ok).toBe(true)
+      expect(b.dispatch({ command: 'board.card.input', params: {
+        id: 'card', input: { graphId: 'g0', nodeId: 'node', inputId: 'count' }, value: 4,
+      } }).ok).toBe(true)
+      expect(a.dispatch({ command: 'board.card.controller', params: {
+        id: 'card', key: '["g0","node","prompt"]', mode: 'fixed',
+      } }).ok).toBe(true)
+      expect(b.dispatch({ command: 'board.card.controller', params: {
+        id: 'card', key: '["g0","node","count"]', mode: 'increment',
+      } }).ok).toBe(true)
+      await Promise.all([a.settle(), b.settle()])
+      expect(b.doc.items['card']).toMatchObject({ controllers: {
+        '["g0","node","prompt"]': 'fixed', '["g0","node","count"]': 'increment',
+      } })
+      expect(b.doc.items['card']).toMatchObject({ values: {
+        '["g0","node","prompt"]': 'Rain at night', '["g0","node","count"]': 4,
+      } })
+      expect(a.undo()).toBe(true)
+      await a.settle()
+      expect(a.doc.items['card']).toMatchObject({ controllers: { '["g0","node","count"]': 'increment' } })
+      const modes = a.doc.items['card']!
+      expect('controllers' in modes && Object.hasOwn(modes.controllers ?? {}, '["g0","node","prompt"]')).toBe(false)
+      expect(a.undo()).toBe(true)
+      await a.settle()
+      expect(a.doc).toEqual(b.doc)
+      expect(a.doc.items['card']).toMatchObject({ values: { '["g0","node","count"]': 4 } })
+      const item = a.doc.items['card']!
+      expect('values' in item && Object.hasOwn(item.values, '["g0","node","prompt"]')).toBe(false)
+      expect(a.redo()).toBe(true)
+      await a.settle()
+      expect(a.redo()).toBe(true)
+      await a.settle()
+      expect(a.doc).toEqual(b.doc)
+      expect(b.doc.items['card']).toMatchObject({ controllers: {
+        '["g0","node","prompt"]': 'fixed', '["g0","node","count"]': 'increment',
+      } })
+      expect(b.doc.items['card']).toMatchObject({ values: {
+        '["g0","node","prompt"]': 'Rain at night', '["g0","node","count"]': 4,
+      } })
+    } finally { a.close(); b.close() }
+  })
+
   it('creates and edits notes without randomUUID, retaining identities through undo and shared replay', async () => {
     const crypto = globalThis.crypto
     vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })

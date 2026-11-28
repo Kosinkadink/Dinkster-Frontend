@@ -1198,11 +1198,11 @@ describe('shared shell panel chrome', () => {
     const { host, dispose } = floatingPanel({ panel: {
       indicator: () => count() === 0
         ? undefined
-        : { count: count(), severity: 'info', label: 'Queue ready' },
+        : { count: count(), severity: 'warning', label: '1 problem' },
     } })
     const badge = () => host.querySelector('[data-testid="panel-indicator"]')
-    expect(badge()?.getAttribute('data-severity')).toBe('info')
-    expect(badge()?.querySelector('.visually-hidden')?.textContent).toBe('Queue ready')
+    expect(badge()?.getAttribute('data-severity')).toBe('warning')
+    expect(badge()?.querySelector('.visually-hidden')?.textContent).toBe('1 problem')
     setCount(0)
     expect(badge()).toBeNull()
     dispose()
