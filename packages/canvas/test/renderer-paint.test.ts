@@ -618,6 +618,17 @@ describe('canvas hover affordance paint', () => {
     expect(inBand(closed, 120).length).toBeGreaterThan(0)
     expect(inBand(open, 120)).toEqual([])
     expect(inBand(open, 144)).toEqual(inBand(closed, 144))
+    for (const active of [false, true]) {
+      const exposed = paintWith(twoRows, (renderer) => {
+        renderer.setLensCapabilities({ widgetRowAffordance: () => ({ active, label: 'Expose' }) })
+        renderer.setOpenRow({ nodeId: 'hover-node', valueKey: 'amount' })
+      })
+      const tick = inBand(exposed, 120).filter((call) => call.method === 'roundRect')
+      expect(tick).toHaveLength(1)
+      expect(tick[0]!.args.slice(2, 4)).toEqual([14, 14])
+      expect(tick[0]!.fillStyle).toBe(active ? defaultTokens.colors.widgetAffordanceActive : defaultTokens.colors.widgetBackground)
+      expect(inBand(exposed, 120).some((call) => call.method === 'fillText')).toBe(false)
+    }
   })
 
   it('grows only the hovered node pin, from 11 px to 13 px across', () => {

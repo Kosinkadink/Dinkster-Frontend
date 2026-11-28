@@ -4838,7 +4838,10 @@ export class CanvasRenderer {
     const t = this.tokens
     const l = node.layout
     const rowY = node.y + row.y
-    if (this.openRows[sceneNode.id] === row.valueKey) return
+    if (this.openRows[sceneNode.id] === row.valueKey) {
+      this.drawWidgetRowAffordance(ctx, sceneNode, node, row)
+      return
+    }
     const display = this.widgetPaintState(node, row, driven)
     const { companion, connected } = display
     const widgetWidth = this.widgetContentWidth(sceneNode, row)
@@ -5002,39 +5005,48 @@ export class CanvasRenderer {
       ctx.lineCap = previousLineCap
       ctx.globalAlpha = glyphAlpha
     }
-    const lensAffordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
-    if (lensAffordance !== undefined) {
-      const rowWidth = row.width ?? l.width - row.inset * 2
-      const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight)
-      const x = node.x + row.inset + rect.x
-      const y = rowY + rect.y
-      const affordanceAlpha = ctx.globalAlpha
-      const paint = canvasPaintTokens.lensAffordance
-      if (lensAffordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
-      ctx.fillStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
-      ctx.strokeStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
-      ctx.lineWidth = paint.stroke
-      ctx.beginPath()
-      ctx.roundRect(x, y, rect.width, rect.height, paint.radius)
-      ctx.fill()
-      ctx.stroke()
-      ctx.strokeStyle = lensAffordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
-      ctx.lineCap = 'round'
-      ctx.beginPath()
-      if (lensAffordance.active) {
-        ctx.moveTo(x + rect.width * paint.check.startX, y + rect.height * paint.check.startY)
-        ctx.lineTo(x + rect.width * paint.check.middleX, y + rect.height * paint.check.middleY)
-        ctx.lineTo(x + rect.width * paint.check.endX, y + rect.height * paint.check.endY)
-      } else {
-        ctx.moveTo(x + rect.width * paint.plus.start, y + rect.height / 2)
-        ctx.lineTo(x + rect.width * paint.plus.end, y + rect.height / 2)
-        ctx.moveTo(x + rect.width / 2, y + rect.height * paint.plus.start)
-        ctx.lineTo(x + rect.width / 2, y + rect.height * paint.plus.end)
-      }
-      ctx.stroke()
-      ctx.globalAlpha = affordanceAlpha
-    }
+    this.drawWidgetRowAffordance(ctx, sceneNode, node, row)
     ctx.globalAlpha = rowAlpha
+  }
+
+  private drawWidgetRowAffordance(
+    ctx: CanvasRenderingContext2D,
+    sceneNode: SceneNode,
+    node: SceneNode,
+    row: Extract<LayoutRow, { kind: 'widget' }>,
+  ): void {
+    const affordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
+    if (affordance === undefined) return
+    const t = this.tokens
+    const rowWidth = row.width ?? node.layout.width - row.inset * 2
+    const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight)
+    const x = node.x + row.inset + rect.x
+    const y = node.y + row.y + rect.y
+    const paint = canvasPaintTokens.lensAffordance
+    ctx.save()
+    if (affordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
+    ctx.fillStyle = affordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
+    ctx.strokeStyle = affordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
+    ctx.lineWidth = paint.stroke
+    ctx.beginPath()
+    ctx.roundRect(x, y, rect.width, rect.height, paint.radius)
+    ctx.fill()
+    ctx.stroke()
+    ctx.strokeStyle = affordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    if (affordance.active) {
+      ctx.moveTo(x + rect.width * paint.check.startX, y + rect.height * paint.check.startY)
+      ctx.lineTo(x + rect.width * paint.check.middleX, y + rect.height * paint.check.middleY)
+      ctx.lineTo(x + rect.width * paint.check.endX, y + rect.height * paint.check.endY)
+    } else {
+      ctx.moveTo(x + rect.width * paint.plus.start, y + rect.height / 2)
+      ctx.lineTo(x + rect.width * paint.plus.end, y + rect.height / 2)
+      ctx.moveTo(x + rect.width / 2, y + rect.height * paint.plus.start)
+      ctx.lineTo(x + rect.width / 2, y + rect.height * paint.plus.end)
+    }
+    ctx.stroke()
+    ctx.restore()
   }
 
   private drawRunningGlow(
