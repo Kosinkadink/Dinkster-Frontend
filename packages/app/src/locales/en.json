@@ -2167,6 +2167,8 @@
   "installations.loading": "Loading installations",
   "installations.facts": "About this installation",
   "installations.factsLoading": "Reading installation facts",
+  "installations.folder": "Folder",
+  "installations.folderFailed": "Could not open the folder.",
   "installations.version": "Version",
   "installations.host": "Engine host",
   "installations.size": "Size",

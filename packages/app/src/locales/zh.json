@@ -2163,6 +2163,8 @@
   "installations.loading": "正在加载安装",
   "installations.facts": "关于此安装",
   "installations.factsLoading": "正在读取安装信息",
+  "installations.folder": "文件夹",
+  "installations.folderFailed": "无法打开文件夹。",
   "installations.version": "版本",
   "installations.host": "引擎主机",
   "installations.size": "大小",

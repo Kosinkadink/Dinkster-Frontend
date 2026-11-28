@@ -107,10 +107,10 @@ function SelectedInstallationFacts(props: { readonly root: string; readonly revi
       const response = await fetchRequest('/supervisor/installations/folder', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root: props.root }),
       })
-      if (!response.ok) throw await requestFailure(response)
+      if (!response.ok) throw await requestFailure(response, true, { logDetail: true })
       setFolderError(undefined)
-    } catch (failure) {
-      setFolderError(failureMessage(failure))
+    } catch {
+      setFolderError(message('installations.folderFailed'))
     } finally {
       setOpeningFolder(false)
     }
@@ -147,7 +147,7 @@ function SelectedInstallationFacts(props: { readonly root: string; readonly revi
     <ProductPageLoad page={page} read={read} loadingLabel={message('installations.factsLoading')}>
     {(facts) => <ProductProjectFacts label={message('installations.facts')} columns={[
       [
-        { label: message('setup.folder'), value: <ProductPath value={props.root} />, action: <Show when={props.openFolder}>
+        { label: message('installations.folder'), value: <ProductPath value={props.root} />, action: <Show when={props.openFolder}>
           <ProductTextButton label={message('projects.facts.showInFolder')} disabled={openingFolder()} onClick={() => { void openFolder() }} />
         </Show> },
         { label: message('installations.host'), value: facts.host.kind === 'wsl' ? 'WSL2' : message('resources.thisComputer'), detail: facts.host.distribution },

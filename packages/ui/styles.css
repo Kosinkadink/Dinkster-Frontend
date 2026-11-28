@@ -2579,6 +2579,7 @@ button.dinkster-row-main { cursor: pointer; }
 .app-tooltip-measure { visibility: hidden; }
 .app-tooltip-measure { position: absolute; }
 .app-tooltip [role='tooltip'] { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.app-tooltip [data-path] { font-family: var(--dinkster-font-mono); }
 .app-tooltip-title { color: var(--dinkster-text-primary); font-weight: 600; margin-bottom: 3px; }
 .app-tooltip-note { color: var(--dinkster-text-secondary); }
 .app-tooltip-detail { color: var(--dinkster-text-secondary); margin-top: 3px; }

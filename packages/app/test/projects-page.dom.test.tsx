@@ -4,7 +4,7 @@ import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { asConnectionId, loadDocument, setLocale, type CollectionEntry, type WorkflowDocument } from '@dinkster/core'
-import { DinksterConnection, RequestFailure, type LibraryProject, type ProjectCreation } from '@dinkster/client'
+import { DinksterConnection, RequestFailure, subscribeRequestFailures, type LibraryProject, type ProjectCreation } from '@dinkster/client'
 import '../src/locale.js'
 import { InstallationsView } from '../src/projects-page/InstallationsPage.js'
 import {
@@ -179,6 +179,8 @@ it('shows recorded history newest first and keeps current generations, imports a
 it('opens only the selected installation folder when supported and keeps failures dismissible until success', async () => {
   let supported = false
   const opened: string[] = []
+  const logged: RequestFailure[] = []
+  const unsubscribe = subscribeRequestFailures((failure) => logged.push(failure))
   let finish: (response: Response) => void = () => {}
   vi.stubGlobal('fetch', vi.fn(async (input, init) => {
     if (String(input) === '/supervisor/installations/folder') {
@@ -202,10 +204,16 @@ it('opens only the selected installation folder when supported and keeps failure
   expect(opened).toEqual([stable.root])
   finish(Response.json({ error: 'folder-unavailable', message: 'File manager cannot open this folder' }, { status: 503 }))
   await settle()
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain('File manager cannot open this folder')
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain('Could not open the folder.')
+  expect(document.querySelector('[role="alert"]')?.textContent).not.toContain('File manager cannot open this folder')
+  expect(logged.some((failure) => failure.method === 'POST' && failure.path === '/supervisor/installations/folder'
+    && failure.status === 503 && failure.serverMessage === 'File manager cannot open this folder')).toBe(true)
+  const replayed: RequestFailure[] = []
+  subscribeRequestFailures((failure) => replayed.push(failure), true)()
+  expect(replayed.some((failure) => failure.serverMessage === 'File manager cannot open this folder')).toBe(true)
   expect(action()!.disabled).toBe(false)
   action()!.click()
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain('File manager cannot open this folder')
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain('Could not open the folder.')
   finish(Response.json({ folder: stable.root }))
   await settle()
   expect(document.querySelector('[role="alert"]')).toBeNull()
@@ -221,6 +229,7 @@ it('opens only the selected installation folder when supported and keeps failure
   globalThis.dispatchEvent(new Event('focus'))
   await settle()
   expect(action()).toBeUndefined()
+  unsubscribe()
   dispose()
 })
 

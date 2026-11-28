@@ -24,8 +24,8 @@ export function subscribeRequestFailures(listener: (failure: RequestFailure) => 
   return () => { listeners.delete(listener) }
 }
 
-function report(failure: RequestFailure): void {
-  history.push(new RequestFailure(failure.method, failure.path, failure.status))
+function report(failure: RequestFailure, retainDetail = false): void {
+  history.push(new RequestFailure(failure.method, failure.path, failure.status, retainDetail ? failure.serverMessage : undefined))
   if (history.length > 500) history.shift()
   for (const listener of listeners) listener(failure)
 }
@@ -66,7 +66,7 @@ export function requestFetch(fetchFn: FetchLike): FetchLike {
   return observed
 }
 
-export async function requestFailure(response: Response, readMessage: boolean | 'error' = true): Promise<RequestFailure> {
+export async function requestFailure(response: Response, readMessage: boolean | 'error' = true, options?: { readonly logDetail?: boolean }): Promise<RequestFailure> {
   const detail = failures.get(response)
   let serverMessage: string | undefined
   if (readMessage && !response.bodyUsed && response.headers.get('content-type')?.includes('application/json')) {
@@ -77,7 +77,10 @@ export async function requestFailure(response: Response, readMessage: boolean | 
       serverMessage = body.error.trim() || undefined
     }
   }
-  return new RequestFailure(detail?.method ?? 'GET', detail?.path ?? new URL(response.url || '/', 'http://dinkster.invalid').pathname, response.status, serverMessage)
+  const failure = new RequestFailure(detail?.method ?? 'GET', detail?.path ?? new URL(response.url || '/', 'http://dinkster.invalid').pathname, response.status, serverMessage)
+  // Only explicitly selected responses retain their parsed detail for the Log.
+  if (options?.logDetail && serverMessage !== undefined) report(failure, true)
+  return failure
 }
 
 export function requestFailureReason(error: unknown, reasons = {
