@@ -2172,7 +2172,7 @@
   "installations.history.event.setup": "安装了 {version}",
   "installations.history.event.update": "更新到 {version}",
   "installations.history.event.restore": "恢复到 {version}",
-  "installations.history.event.rollback": "回退到 {version}",
+  "installations.history.event.rollback": "恢复了之前的版本 {version}",
   "installations.history.event.import": "导入了 {version} 的记录",
   "installations.history.recorded": "记录的版本 {version}",
   "installations.state.stopped": "已停止",

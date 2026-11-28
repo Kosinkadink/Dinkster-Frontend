@@ -2176,7 +2176,7 @@
   "installations.history.event.setup": "Set up with {version}",
   "installations.history.event.update": "Updated to {version}",
   "installations.history.event.restore": "Restored to {version}",
-  "installations.history.event.rollback": "Rolled back to {version}",
+  "installations.history.event.rollback": "Restored previous version {version}",
   "installations.history.event.import": "Imported record of {version}",
   "installations.history.recorded": "Recorded version {version}",
   "installations.state.stopped": "Stopped",

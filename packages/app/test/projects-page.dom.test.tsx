@@ -159,9 +159,12 @@ it('shows recorded history newest first and keeps current generations, imports a
   expect(document.body.textContent).toContain('No recorded installation history')
   expect(document.body.textContent).not.toContain('Recorded history cannot be read')
   empty = false
+  nightlyHistory.history[1]!.reason = 'rollback'
   globalThis.dispatchEvent(new Event('focus'))
   await settle()
   expect(history().textContent).toContain('Restored to 0.3.0')
+  expect(history().textContent).toContain('Restored previous version 0.2.0')
+  expect(history().textContent).not.toContain('Rolled back')
   dispose()
 })
 
