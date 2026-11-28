@@ -1,7 +1,7 @@
 import { defaultTokens, presentedType } from '@dinkster/canvas'
 import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, isIntegerWidgetValue, typeExprFromTypeId, t as translate } from '@dinkster/core'
 import { storedNumberNote } from './widget-commit.js'
-import type { InputSpec, Json, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr, TypeDisplayNames, WidgetSpec } from '@dinkster/core'
+import type { Diagnostic, InputSpec, Json, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr, TypeDisplayNames, WidgetSpec } from '@dinkster/core'
 import type { TooltipContent, TooltipResolveOptions } from '@dinkster/ui'
 export { attachDomTooltips, DOM_TOOLTIP_SESSION_GRACE_MS, TooltipController, type DomTooltipTarget, type TooltipContent, type TooltipResolveOptions, type TooltipProvider, type TooltipAnchor, type VisibleTooltip } from '@dinkster/ui'
 
@@ -177,10 +177,13 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       ...(type?.tooltipDetail === undefined ? {} : { lineDetails: { 0: type.tooltipDetail } }) }
   }
   if (t.kind === 'link' && t.hit.link.mismatch === true && t.hit.link.diagnostics?.length > 0) {
+    const diagnostics = t.hit.link.diagnostics as readonly Diagnostic[]
+    const lineDetails = Object.fromEntries(diagnostics.flatMap((diagnostic, index) =>
+      diagnostic.accessibleDescription === undefined ? [] : [[index, diagnostic.accessibleDescription]]))
     return {
       title: 'Type mismatch',
-      lines: t.hit.link.diagnostics.map((diagnostic: { severity: string; message: string }) =>
-        diagnostic.message),
+      lines: diagnostics.map((diagnostic) => diagnostic.message),
+      ...(Object.keys(lineDetails).length === 0 ? {} : { lineDetails }),
     }
   }
   if (t.kind === 'pin') {
@@ -197,23 +200,28 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const matchDescription = matchVariable === undefined ? [] : [
       `Match type ${matchVariable}: every ${matchVariable} port on this node must resolve to the same type.`,
     ]
+    const lines = [
+      ...(t.hit.pin.inferred === true
+        ? [`Resolved to ${type.tooltip}${acceptedTypes === undefined ? '.' : `; original constraint: ${acceptedTypes.tooltip}.`}`]
+        : matchVariable === undefined
+          ? [type.tooltip]
+          : acceptedTypes === undefined
+            ? []
+            : [`Accepts ${acceptedTypes.tooltip}.`]),
+      ...matchDescription,
+      ...(t.hit.direction === 'in' && port?.kind === 'input' ? [absentPolicyLine(port)] : []),
+      ...(t.hit.direction === 'out' && t.hit.pin.maybeAbsent === true ? ['May produce no value.'] : []),
+    ]
+    const diagnostics = (t.diagnostics ?? []) as readonly Diagnostic[]
+    const lineDetails = {
+      ...(canonicalTypes.length === 0 ? {} : { 0: [...new Set(canonicalTypes)].join('; ') }),
+      ...Object.fromEntries(diagnostics.flatMap((diagnostic, index) => diagnostic.accessibleDescription === undefined
+        ? [] : [[lines.length + index, diagnostic.accessibleDescription]])),
+    }
     return {
       title: `${t.hit.direction === 'in' ? 'Input' : 'Output'}: ${t.hit.pin.label ?? t.hit.portId}`,
-      lines: [
-        ...(t.hit.pin.inferred === true
-          ? [`Resolved to ${type.tooltip}${acceptedTypes === undefined ? '.' : `; original constraint: ${acceptedTypes.tooltip}.`}`]
-          : matchVariable === undefined
-            ? [type.tooltip]
-            : acceptedTypes === undefined
-              ? []
-              : [`Accepts ${acceptedTypes.tooltip}.`]),
-        ...matchDescription,
-        ...(t.hit.direction === 'in' && port?.kind === 'input' ? [absentPolicyLine(port)] : []),
-        ...(t.hit.direction === 'out' && t.hit.pin.maybeAbsent === true ? ['May produce no value.'] : []),
-        ...((t.diagnostics ?? []) as readonly { severity: string; message: string }[])
-          .map((diagnostic) => diagnostic.message),
-      ],
-      ...(canonicalTypes.length === 0 ? {} : { lineDetails: { 0: [...new Set(canonicalTypes)].join('; ') } }),
+      lines: [...lines, ...diagnostics.map((diagnostic) => diagnostic.message)],
+      ...(Object.keys(lineDetails).length === 0 ? {} : { lineDetails }),
       ...(opts.detailed && port?.tooltip ? { detail: [port.tooltip] } : {}),
     }
   }

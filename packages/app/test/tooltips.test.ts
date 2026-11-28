@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { asGraphDefId, asLinkId, asNodeId, asPortId, solveGraphTypes, typeDisplayNamesForCatalog, type GraphDef, type NodeSchema } from '@dinkster/core'
 import { renamedNodeHeaderOriginalTitle, resolveCanvasTooltip, TooltipController } from '../src/tooltips.js'
 import '../src/locale.js'
 
@@ -285,6 +286,34 @@ describe('canvas tooltip provider', () => {
       title: 'Type mismatch',
       lines: ['IMAGE cannot feed LATENT', 'type variable has no solution'],
     })
+  })
+
+  it('keeps canonical mismatch IDs beside their messages in wire and pin help', () => {
+    const schemas: Record<string, NodeSchema> = {
+      Producer: { type: 'Producer', displayName: 'Producer', category: 'test', source: 'v3', isOutputNode: false,
+        body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'seg-pack.SEGS' } }] },
+      Consumer: { type: 'Consumer', displayName: 'Consumer', category: 'test', source: 'v3', isOutputNode: false,
+        body: [{ kind: 'input', id: 'in', optional: false, type: { kind: 'concrete', name: 'other-pack.SEGS' } }] },
+    }
+    const typeDisplayNames = typeDisplayNamesForCatalog(
+      new Map([['seg-pack.SEGS', 'seg-pack'], ['other-pack.SEGS', 'other-pack']]), new Set(['seg-pack', 'other-pack']))
+    const resolve = Object.assign((type: string) => schemas[type], { typeDisplayNames })
+    const graph: GraphDef = { id: asGraphDefId('g0'), name: 'Mismatch', nextOrdinal: 3, nodes: {
+      p: { id: asNodeId('p'), type: 'Producer', values: {} }, c: { id: asNodeId('c'), type: 'Consumer', values: {} },
+    }, links: { wire: { id: asLinkId('wire'), from: { node: asNodeId('p'), port: asPortId('out') }, to: { node: asNodeId('c'), port: asPortId('in') } } }, nets: {}, reroutes: {} }
+    const { diagnostics } = solveGraphTypes(graph, resolve)
+    expect(diagnostics).toHaveLength(1)
+    const warning = { severity: 'warning', message: 'Earlier warning' }
+    const wire = resolveCanvasTooltip({ kind: 'link', hit: { link: { mismatch: true, diagnostics: [warning, ...diagnostics] } } },
+      { detailed: false }, { typeDisplayNames })
+    expect(wire).toMatchObject({ lines: ['Earlier warning', 'Consumer: In needs SEGS (other-pack), but Producer sends SEGS (seg-pack).'],
+      lineDetails: { 1: 'other-pack.SEGS, seg-pack.SEGS' } })
+    expect(wire?.lineDetails?.[0]).toBeUndefined()
+    const pin = resolveCanvasTooltip({ kind: 'pin', hit: { node: { node: graph.nodes['c'] }, direction: 'in', portId: 'in',
+      pin: { label: 'in' }, type: { kind: 'concrete', name: 'other-pack.SEGS' } }, diagnostics: [warning, ...diagnostics] },
+      { detailed: false }, { typeDisplayNames, resolveSchema: resolve })
+    expect(pin?.lines?.slice(-2)).toEqual(wire?.lines)
+    expect(pin?.lineDetails).toEqual({ 0: 'other-pack.SEGS', 3: 'other-pack.SEGS, seg-pack.SEGS' })
   })
 
   it('adds numeric constraints and the input doc to detailed widget content', () => {
