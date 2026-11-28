@@ -122,12 +122,14 @@ import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
 import { SettingsSectionGallery } from './settings-section.js'
 import { FieldAlignmentGallery, SelectGallery } from './select.js'
+import { TooltipsGallery } from './tooltips.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
   { label: 'Forms', href: '#forms', icon: User },
   { label: 'Lists and tables', href: '#lists', icon: LayoutList },
   { label: 'Menus and messages', href: '#messages', icon: Bell },
+  { label: 'Tooltips', href: '#tooltips', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
   { label: 'Board', href: '#board', icon: LayoutList },
@@ -584,6 +586,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#dropdowns'}>
               <SelectGallery />
+            </Match>
+            <Match when={route() === '#tooltips'}>
+              <TooltipsGallery />
             </Match>
             <Match when={route() === '#field-alignment' || route() === '#site-field-alignment'}>
               <FieldAlignmentGallery />
