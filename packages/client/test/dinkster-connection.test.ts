@@ -25,6 +25,7 @@ import {
   type NormalizedEvent,
   type Prompt,
   type WorkflowDocument,
+  typeAtomDisplayLabel,
 } from '@dinkster/core'
 import { buildDinksterRegistry, DinksterConnection, ExecutionStore, IMAGE_DOCUMENT_MEDIA_TYPE, hydrateDinksterTerminalExecution, PackInstallError, promptToDinksterGraph, reconcileDinksterExecutions, targetsForArtifact, type FetchLike, type WebSocketLike } from '../src/index.js'
 import { uuidv4 } from '../src/dinkster-connection.js'
@@ -74,6 +75,37 @@ const C0 = asConnectionId('c0')
 const registry = buildDinksterRegistry(C0, nodesPayload)
 const liveRegistry = buildDinksterRegistry(C0, liveNodesPayload)
 const ref = (jobId: string): ExecutionRef => ({ connection: C0, prompt: asPromptId(jobId) })
+
+it('names types from catalog ownership and installed collisions without borrowing storage identity', () => {
+  const payload = {
+    ...nodesPayload,
+    typeOwners: {
+      'seg-pack.SEGS': 'seg-pack', 'other-pack.SEGS': 'other-pack',
+      'absent-pack.SEGS': 'absent-pack', 'seg-pack.Mixed.Case': 'seg-pack',
+      'wrong-prefix.Name': 'seg-pack', 'unowned.Value': null,
+      'comfy.IMAGE': 'comfy', constructor: null,
+    },
+    packs: {
+      'seg-pack': { displayName: 'Segments', typeStorage: { 'unowned.Value': 'seg-pack' } },
+      'other-pack': { displayName: 'Other' },
+    },
+  }
+  const first = buildDinksterRegistry(C0, payload)
+  const label = (id: string) => typeAtomDisplayLabel(id, first.typeDisplayNames)
+  expect(label('seg-pack.SEGS')).toBe('SEGS (seg-pack)')
+  expect(label('other-pack.SEGS')).toBe('SEGS (other-pack)')
+  expect(label('absent-pack.SEGS')).toBe('SEGS')
+  expect(label('seg-pack.Mixed.Case')).toBe('Mixed.Case')
+  expect(label('wrong-prefix.Name')).toBe('wrong-prefix.Name')
+  expect(label('unowned.Value')).toBe('unowned.Value')
+  expect(label('not-in-catalog.Name')).toBe('not-in-catalog.Name')
+  expect(label('comfy.IMAGE')).toBe('IMAGE')
+  expect(label('constructor')).toBe('constructor')
+  expect(first.hash).toBe(buildDinksterRegistry(C0, { ...payload, typeOwners: {} }).hash)
+  const second = buildDinksterRegistry(C0, { ...payload, packs: { 'seg-pack': payload.packs['seg-pack'] } })
+  expect(typeAtomDisplayLabel('seg-pack.SEGS', second.typeDisplayNames)).toBe('SEGS')
+  expect(label('seg-pack.SEGS')).toBe('SEGS (seg-pack)')
+})
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })

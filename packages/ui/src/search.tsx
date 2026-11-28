@@ -88,7 +88,7 @@ export function productSearchTypeName(type: string): string {
 }
 
 /** A type's list and file forms stay directly beneath it, including nested forms. */
-export function productSearchTypeOptions(types: Iterable<string>): string[] {
+export function productSearchTypeOptions(types: Iterable<string>, nameOf: (type: string) => string = productSearchTypeName): string[] {
   const children = new Map<string, Set<string>>()
   const add = (type: string) => {
     const parent = parseListTypeId(type) ?? parseAssetTypeId(type) ?? parseStreamTypeId(type)
@@ -101,7 +101,7 @@ export function productSearchTypeOptions(types: Iterable<string>): string[] {
   const rank = (type: string) => parseListTypeId(type) !== undefined ? 0 : parseAssetTypeId(type) !== undefined ? 1 : 2
   const ordered: string[] = []
   const append = (parent: string) => {
-    for (const type of [...(children.get(parent) ?? [])].sort((a, b) => rank(a) - rank(b) || productSearchTypeName(a).localeCompare(productSearchTypeName(b)))) {
+    for (const type of [...(children.get(parent) ?? [])].sort((a, b) => rank(a) - rank(b) || nameOf(a).localeCompare(nameOf(b)))) {
       ordered.push(type)
       append(type)
     }

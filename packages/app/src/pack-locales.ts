@@ -330,6 +330,7 @@ export function overlayPackLocales(
       return resolved === undefined ? undefined : schemas.get(resolved.type)
     }, {
       forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+      ...(registry.typeDisplayNames === undefined ? {} : { typeDisplayNames: registry.typeDisplayNames }),
     }),
   }
 }

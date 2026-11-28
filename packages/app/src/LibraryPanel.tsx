@@ -144,7 +144,7 @@ function LibraryDetailRail(props: {
             <Show when={(entry.details ?? []).length > 0}>
               <dl class="library-detail-facts">
                 <For each={entry.details}>
-                  {(detail) => <><dt>{detail.label}</dt><dd>{detail.text}</dd></>}
+                  {(detail) => <><dt aria-description={detail.title}>{detail.label}</dt><dd aria-description={detail.title}>{detail.text}</dd></>}
                 </For>
               </dl>
             </Show>

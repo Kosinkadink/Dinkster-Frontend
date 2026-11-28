@@ -28,6 +28,7 @@ export interface ProblemBoxViewLine {
   /** The row's name as the node shows it. */
   readonly rowName?: string
   readonly message: string
+  readonly accessibleDescription?: string
   readonly actions: readonly ProblemBoxViewAction[]
 }
 
@@ -82,6 +83,7 @@ export function ProblemBox(props: {
             class="problem-box-line"
             data-testid="problem-box-line"
             data-kind={line.kind}
+            aria-description={line.accessibleDescription}
             data-run={line.actions.some((action) => action.id === 'show-log') ? 'true' : undefined}
             data-stacked-actions={line.actions.length > 1 ? 'true' : undefined}
             data-row={line.row}

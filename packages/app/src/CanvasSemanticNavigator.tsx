@@ -1,9 +1,11 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from 'solid-js'
-import { formatWidgetValue, typeExprFromTypeId, typeProblemWords, type NodeProgress } from '@dinkster/core'
+import { formatWidgetValue, typeExprFromTypeId, typeProblemWords, type NodeProgress, type TypeDisplayNames, type TypeExpr } from '@dinkster/core'
 import { ProductShortcutText } from '@dinkster/ui'
 import {
   boundarySceneId,
   nodesInGroup,
+  typeExprCanonicalLabel,
+  type DataPanelMap,
   type NodeBadge,
   type NodeOutputText,
   type OutputTextMap,
@@ -41,11 +43,13 @@ export interface CanvasSemanticItem {
 }
 
 export interface CanvasSemanticSource {
+  readonly typeDisplayNames?: TypeDisplayNames | undefined
   readonly scene: Scene
   readonly states: Readonly<Record<string, NodeProgress>>
   readonly badges: Readonly<Record<string, readonly NodeBadge[]>>
   readonly rowProblems: RowProblemMap
   readonly outputTexts: OutputTextMap
+  readonly dataPanels?: DataPanelMap | undefined
 }
 
 const pinConnectionKey = (
@@ -167,6 +171,10 @@ const widgetValueText = (value: unknown, spec: Parameters<typeof formatWidgetVal
 
 export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly CanvasSemanticItem[] {
   const { scene } = source
+  const typeDescription = (type: TypeExpr): string => {
+    const label = typeProblemWords(type, 'name', source.typeDisplayNames)
+    return label !== typeProblemWords(type, 'name') ? `${label} (${typeExprCanonicalLabel(type)})` : label
+  }
   const items: CanvasSemanticItem[] = []
   const nodes = new Map(scene.nodes.map((node) => [node.id, node]))
   const reroutes = new Map(scene.reroutes.map((reroute) => [reroute.id, `reroute ${reroute.id}`]))
@@ -237,6 +245,8 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       ...(memberships === undefined ? [] : [`in ${memberships.join(', ')}`]),
       ...(status === '' ? [] : [status]),
       ...(outputStatus === undefined ? [] : [outputStatus]),
+      ...(source.dataPanels?.[node.id] ?? []).map((row) =>
+        `${row.label}: ${row.text}${row.accessibleDescription === undefined ? '' : ` (${row.accessibleDescription})`}`),
     ]
     items.push({
       key: `node:${node.id}`,
@@ -263,7 +273,7 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       const count = connections.get(pinConnectionKeyOf(node.id, pin)) ?? 0
       const problem = source.rowProblems[node.id]?.[pin.direction === 'in' ? pin.portId : outputRowKey(pin.portId)]
       const traits = [
-        typeProblemWords(pin.type, 'name').toLowerCase(),
+        typeDescription(pin.type),
         ...(pin.matchVariable !== undefined ? [`match ${pin.matchVariable}`] : []),
         ...(pin.inferred === true ? ['inferred'] : []),
         ...(pin.optional === true ? ['optional'] : []),
@@ -314,7 +324,7 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
     for (const pin of boundary.layout.pins) {
       const name = pinNames.get(pinConnectionKeyOf(id, pin, true)) ?? pin.address.port
       const count = connections.get(pinConnectionKeyOf(id, pin, true)) ?? 0
-      const detail = `${boundary.side} boundary, ${typeProblemWords(pin.type, 'name').toLowerCase()}, ${count === 0 ? 'not connected' : `${count} connection${count === 1 ? '' : 's'}`}`
+      const detail = `${boundary.side} boundary, ${typeDescription(pin.type)}, ${count === 0 ? 'not connected' : `${count} connection${count === 1 ? '' : 's'}`}`
       items.push({
         key: `boundary-port:${boundary.side}:${pin.portId}`,
         category: 'port',
@@ -347,7 +357,7 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
     const from = endpointName(link.from, 'out', nodes, reroutes, pinNames)
     const to = endpointName(link.to, 'in', nodes, reroutes, pinNames)
     const traits = [
-      ...(link.typeName === undefined ? [] : [typeProblemWords(typeExprFromTypeId(link.typeName), 'name').toLowerCase()]),
+      ...(link.typeName === undefined ? [] : [typeDescription(typeExprFromTypeId(link.typeName))]),
       ...(link.maybeAbsent === true ? ['may be absent'] : []),
       ...(link.mismatch === true ? ['type mismatch'] : []),
     ]
@@ -364,19 +374,19 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
   for (const reroute of scene.reroutes) items.push({
     key: `reroute:${reroute.id}`,
     category: 'reroute',
-    label: `Reroute: ${reroute.id}${reroute.typeName === undefined ? '' : `, ${typeProblemWords(typeExprFromTypeId(reroute.typeName), 'name').toLowerCase()}`}`,
+    label: `Reroute: ${reroute.id}${reroute.typeName === undefined ? '' : `, ${typeDescription(typeExprFromTypeId(reroute.typeName))}`}`,
     kindLabel: 'Reroute',
     name: reroute.id,
-    ...(reroute.typeName === undefined ? {} : { detail: typeProblemWords(typeExprFromTypeId(reroute.typeName), 'name').toLowerCase() }),
+    ...(reroute.typeName === undefined ? {} : { detail: typeDescription(typeExprFromTypeId(reroute.typeName)) }),
     target: { kind: 'reroute', id: reroute.id },
   })
   for (const stub of scene.netStubs) items.push({
     key: `net:${stub.id}`,
     category: 'net',
-    label: `Named net ${stub.role}: ${stub.name}${stub.typeName === undefined ? '' : `, ${typeProblemWords(typeExprFromTypeId(stub.typeName), 'name').toLowerCase()}`}`,
+    label: `Named net ${stub.role}: ${stub.name}${stub.typeName === undefined ? '' : `, ${typeDescription(typeExprFromTypeId(stub.typeName))}`}`,
     kindLabel: 'Named net',
     name: stub.name,
-    detail: `${stub.role}${stub.typeName === undefined ? '' : `, ${typeProblemWords(typeExprFromTypeId(stub.typeName), 'name').toLowerCase()}`}`,
+    detail: `${stub.role}${stub.typeName === undefined ? '' : `, ${typeDescription(typeExprFromTypeId(stub.typeName))}`}`,
     target: { kind: 'net', id: stub.id },
   })
   for (const group of scene.groups) {

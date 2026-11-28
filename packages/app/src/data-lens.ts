@@ -20,12 +20,13 @@
  */
 
 import { companionText, typeIdDisplayLabel, type DataPanelMap, type DataPanelRow, type SceneNode } from '@dinkster/canvas'
-import type { NodeActivity, NodeProgress } from '@dinkster/core'
+import type { NodeActivity, NodeProgress, TypeDisplayNames } from '@dinkster/core'
 
 /** Registered canvas lens ids. 'standard' is the default editing view. */
 export type CanvasLens = 'standard' | 'types' | 'data' | 'exposure'
 
 export interface DataLensContext {
+  readonly typeDisplayNames?: TypeDisplayNames | undefined
   readonly execNodes?: Readonly<Record<string, NodeProgress>> | undefined
   readonly activities?: readonly NodeActivity[] | undefined
   readonly runtimeIdsOf?: ((nodeId: string) => readonly string[]) | undefined
@@ -66,7 +67,7 @@ const entriesForNode = (
  */
 const projectRecordedOutputs = (
   entries: readonly (readonly [string, NodeProgress])[],
-  context: Pick<DataLensContext, 'frozen' | 'exactProducer'>,
+  context: Pick<DataLensContext, 'frozen' | 'exactProducer' | 'typeDisplayNames'>,
 ): RecordedOutputProjection => {
   const rows: DataPanelRow[] = []
   const inline: RecordedInlineOutput[] = []
@@ -95,12 +96,14 @@ const projectRecordedOutputs = (
       }
     } else {
       const first = summaries[0]!
-      const typeText = summaries.every((summary) => summary.typeId === first.typeId) ? typeIdDisplayLabel(first.typeId) : 'varies'
+      const typeText = summaries.every((summary) => summary.typeId === first.typeId) ? typeIdDisplayLabel(first.typeId, context.typeDisplayNames) : 'varies'
       const length =
         first.length !== undefined && summaries.every((summary) => summary.length === first.length)
           ? ` [${first.length}]`
           : ''
-      rows.push({ label: outputId, text: `${typeText}${length}`, tone: 'muted' })
+      rows.push({ label: outputId, text: `${typeText}${length}`, tone: 'muted',
+        accessibleDescription: [...new Set(summaries.map((summary) => summary.typeId))].join(', '),
+      })
     }
   }
   return { rows, inline, stringOutputCount }
@@ -143,6 +146,7 @@ export function dataPanelForNode(node: SceneNode, context: DataLensContext): rea
 }
 
 export function deriveDataPanels(args: {
+  readonly typeDisplayNames?: TypeDisplayNames | undefined
   /** Scene nodes of the CURRENT graph view. */
   readonly nodes: readonly { readonly id: string; readonly isSubgraph: boolean }[]
   /** Bound execution's per-node progress (runtime node id keyed). */

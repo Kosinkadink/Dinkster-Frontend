@@ -398,6 +398,7 @@ export interface BoundaryFocusMarks {
 export interface DataPanelRow {
   readonly label: string
   readonly text: string
+  readonly accessibleDescription?: string
   readonly tone?: 'value' | 'muted' | 'stale'
 }
 
@@ -1644,6 +1645,12 @@ export class CanvasRenderer {
 
   getDesignTokens(): DesignTokens {
     return this.tokens
+  }
+
+  setTypeDisplayNames(typeDisplayNames: DesignTokens['typeDisplayNames']): void {
+    this.tokens = { ...this.tokens, typeDisplayNames }
+    this.refreshTypeAdornments()
+    this.invalidate()
   }
 
   getDetailLevel(): CanvasDetailLevel {

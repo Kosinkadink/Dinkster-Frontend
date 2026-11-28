@@ -485,6 +485,7 @@ export function App(props: {
     const widgets = app.widgetRegistryForTab(tab)
     return resolveCanvasTooltip(target, opts, {
       resolveSchema,
+      typeDisplayNames: registry?.typeDisplayNames,
       resolvePack: (id) => registry?.packs?.get(id),
       // Reading a value never edits it; a value the view cannot read falls
       // back to its plain text.

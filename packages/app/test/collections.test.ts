@@ -131,6 +131,7 @@ describe('packsSource', () => {
       const backend = app.backends.get()[0]!
       backend.registry.set(buildDinksterRegistry(backend.id, {
         ...nodesPayload,
+        typeOwners: { 'owner.SEGS': 'owner', 'other.SEGS': null },
         packs: { ...nodesPayload.packs as object,
           core: {
             displayName: 'Dinkster Core',
@@ -142,7 +143,7 @@ describe('packsSource', () => {
       const core = (await source.page({ query: '', limit: 10 })).items.find((entry) => entry.id === 'core')!
       expect(core.badges).toEqual(['2 nodes'])
       expect(core.details?.filter((detail) => detail.label.endsWith(' values'))).toEqual(visible ? [
-        { label: 'SEGS values', text: "Stored other-provider's way", title: 'other.SEGS' },
+        { label: 'other.SEGS values', text: "Stored other-provider's way", title: 'other.SEGS' },
         { label: 'SEGS values', text: `Stored ${provider}'s way`, title: 'owner.SEGS' },
       ] : [])
       expect(core.details?.at(-1)?.title).toBe(visible ? 'owner.SEGS' : undefined)

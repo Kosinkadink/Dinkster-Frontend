@@ -11,6 +11,7 @@ import {
   formatByteSize,
   formatDate,
   localCollectionSource,
+  typeAtomDisplayLabel,
   t,
   type CollectionEntry,
   type CollectionSource,
@@ -151,7 +152,7 @@ export function packsSource(app: AppState): CollectionSource {
         const typeStorage = Object.entries(info.typeStorage ?? {}).sort(([a], [b]) => a.localeCompare(b))
           .filter(([type]) => info.typeStorageChoices?.includes(type))
           .map(([type, provider]) => ({
-            label: `${type.slice(type.lastIndexOf('.') + 1)} values`,
+            label: `${typeAtomDisplayLabel(type, reg.typeDisplayNames)} values`,
             text: `Stored ${provider}'s way`,
             title: type,
           }))

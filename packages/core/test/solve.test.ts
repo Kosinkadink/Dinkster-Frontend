@@ -215,6 +215,21 @@ describe('solver problems in the reader\'s words', () => {
     expect(problem?.message).toBe('Decode: Samples needs latent data, but the output picture of Load image sends an image.')
   })
 
+  it('uses catalog names without treating a pack IMAGE as the builtin image', () => {
+    const from = source({ kind: 'concrete', name: 'seg-pack.IMAGE' })
+    const to = sink({ kind: 'list', element: { kind: 'concrete', name: 'other-pack.SEGS' } })
+    const resolve = Object.assign((type: string) => type === from.type ? from : type === to.type ? to : undefined, {
+      typeDisplayNames: new Map([['seg-pack.IMAGE', 'IMAGE'], ['other-pack.SEGS', 'SEGS (other-pack)']]),
+    })
+    const result = solveGraphTypes(defOf({
+      nodes: { source: { type: from.type }, sink: { type: to.type } },
+      links: { wire: { from: ['source', 'source_internal'], to: ['sink', 'target_internal'] } },
+    }), resolve)
+    expect(result.diagnostics.map((problem) => problem.message))
+      .toEqual(['Decode: Samples needs a list of SEGS (other-pack) values, but Load images sends one IMAGE.'])
+    expect(result.diagnostics[0]?.accessibleDescription).toBe('list<other-pack.SEGS>, seg-pack.IMAGE')
+  })
+
   it('describes a required value that may be absent', () => {
     const target = named('Decode', [{ ...input('target_internal', image), displayName: 'samples', onAbsent: 'fail' }])
     const problem = pair(source(image, true), target).diagnostics.find((diagnostic) => diagnostic.code === 'solve.maybeAbsent')

@@ -5,6 +5,7 @@ import {
   type NodeData,
   type NodeSchema,
   type WidgetRegistry,
+  type TypeDisplayNames,
   inputsOf,
   typeExprFromTypeId,
 } from '@dinkster/core'
@@ -26,7 +27,7 @@ import {
 import type { PaletteEntry } from './NodePalette.js'
 
 /** Blueprint drawings use declared boundary hints, never fetch the stored body. */
-export function palettePreviewSchema(entry: PaletteEntry): NodeSchema | undefined {
+export function palettePreviewSchema(entry: PaletteEntry, names?: TypeDisplayNames): NodeSchema | undefined {
   if (entry.schema !== undefined) return entry.schema
   const descriptor = entry.blueprint?.descriptor
   if (descriptor === undefined) return undefined
@@ -35,10 +36,10 @@ export function palettePreviewSchema(entry: PaletteEntry): NodeSchema | undefine
     source: 'v3', isOutputNode: false,
     body: [
       ...(descriptor.boundaryInputs ?? []).map((type, index) => ({
-        kind: 'input' as const, id: `in-${index}`, displayName: typeIdDisplayLabel(type), type: typeExprFromTypeId(type), optional: false,
+        kind: 'input' as const, id: `in-${index}`, displayName: typeIdDisplayLabel(type, names), type: typeExprFromTypeId(type), optional: false,
       })),
       ...(descriptor.boundaryOutputs ?? []).map((type, index) => ({
-        kind: 'output' as const, id: `out-${index}`, displayName: typeIdDisplayLabel(type), type: typeExprFromTypeId(type),
+        kind: 'output' as const, id: `out-${index}`, displayName: typeIdDisplayLabel(type, names), type: typeExprFromTypeId(type),
       })),
     ],
   }
@@ -74,10 +75,10 @@ export function palettePreviewLayout(
 }
 
 /** The same renderer and widget views paint both installed and registry previews. */
-export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema, widgets: WidgetRegistry, isSubgraph = false, maximize = false): void {
+export function paintSchemaPreview(canvas: HTMLCanvasElement, schema: NodeSchema, widgets: WidgetRegistry, isSubgraph = false, maximize = false, typeDisplayNames?: TypeDisplayNames): void {
   canvas.removeAttribute('data-preview-ready')
   const theme = document.documentElement.dataset['theme'] === 'light' ? 'light' : 'dark'
-  const tokens = { ...defaultTokens, colors: canvasColorsForTheme(theme), ...canvasTypePaintForTheme(theme) }
+  const tokens = { ...defaultTokens, colors: canvasColorsForTheme(theme), ...canvasTypePaintForTheme(theme), typeDisplayNames }
   const context = document.createElement('canvas').getContext('2d')
   if (!context) throw new Error('Canvas2D is unavailable')
   const measure: TextMeasurer = (text, style) => {

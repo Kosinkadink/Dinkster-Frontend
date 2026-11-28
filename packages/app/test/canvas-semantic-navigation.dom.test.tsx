@@ -83,6 +83,17 @@ describe('buildCanvasSemanticItems', () => {
       'Link: Source.Image to Sink.Image, image',
       'Group: Image pipeline, 2 nodes',
     ])
+
+    const named = buildCanvasSemanticItems({
+      scene: { ...scene, links: [{ ...scene.links[0]!, typeName: 'list<seg-pack.Mixed.Case>' }] },
+      states: {}, badges: {}, rowProblems: {}, outputTexts: {},
+      dataPanels: { source: [{ label: 'items', text: 'list<SEGS (other-pack)> [4]', accessibleDescription: 'list<other-pack.SEGS>' }] },
+      typeDisplayNames: new Map([['seg-pack.Mixed.Case', 'Mixed.Case'], ['other-pack.SEGS', 'SEGS (other-pack)']]),
+    })
+    expect(named.find((item) => item.category === 'link')?.label)
+      .toContain('list of Mixed.Case values (list<seg-pack.Mixed.Case>)')
+    expect(named.find((item) => item.key === 'node:source')?.label)
+      .toContain('items: list<SEGS (other-pack)> [4] (list<other-pack.SEGS>)')
   })
 
   it('announces preview errors instead of presenting them as live results', () => {
