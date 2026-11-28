@@ -185,15 +185,15 @@
 .dinkster-resource-limit { fill: none; stroke: var(--dinkster-text-muted); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 .dinkster-resource-limit-label { display: inline-flex; align-items: center; gap: var(--dinkster-space-4); text-align: right; font-size: var(--dinkster-type-metadata-size); color: var(--dinkster-text-muted); }
 .dinkster-resource-limit-label::before { content: ''; width: var(--dinkster-space-12); border-top: var(--dinkster-border-width) dashed currentColor; }
-.dinkster-count-strip { display: grid; gap: var(--dinkster-space-8); min-width: 0; container: dinkster-count-strip / inline-size; font-variant-numeric: tabular-nums; }
+.dinkster-count-strip { display: grid; gap: var(--dinkster-space-8); min-width: 0; font-variant-numeric: tabular-nums; }
 .dinkster-count-bar { display: flex; gap: calc(var(--dinkster-space-4) / 2); height: var(--dinkster-space-4); }
 .dinkster-count-bar > svg { min-width: calc(var(--dinkster-space-4) / 2); flex-shrink: 1; }
 .dinkster-count-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--dinkster-space-8) var(--dinkster-space-16); margin: 0; }
 .dinkster-count-legend > div { display: flex; align-items: baseline; justify-content: space-between; gap: var(--dinkster-space-8); min-width: 0; }
-.dinkster-count-legend dt { display: flex; align-items: baseline; gap: var(--dinkster-space-8); min-width: 0; color: var(--dinkster-text-secondary); overflow-wrap: anywhere; }
+.dinkster-count-legend dt { display: flex; align-items: baseline; gap: var(--dinkster-space-8); flex: none; color: var(--dinkster-text-secondary); white-space: nowrap; }
 .dinkster-count-legend dd { margin: 0; flex: none; color: var(--dinkster-text-primary); }
 .dinkster-count-legend svg { width: var(--dinkster-space-8); height: var(--dinkster-space-8); flex: none; }
-@container dinkster-count-strip (max-width: 240px) { .dinkster-count-legend { grid-template-columns: minmax(0, 1fr); } }
+.dinkster-count-legend[data-columns='1'] { grid-template-columns: minmax(0, 1fr); }
 .dinkster-facts { display: grid; gap: var(--dinkster-space-12); margin: 0; }
 .dinkster-fact { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--dinkster-space-16); }
 .dinkster-fact dd { margin: 0; overflow-wrap: anywhere; }

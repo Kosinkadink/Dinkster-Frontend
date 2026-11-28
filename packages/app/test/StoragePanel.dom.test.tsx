@@ -267,7 +267,7 @@ it('groups model grants under one folder and switches project membership without
   expect(root.querySelector('[data-mount-id="renders"]')?.textContent).toContain('New saves go here')
 })
 
-it('aggregates model kinds by count with Other last and updates the pin colors with the theme', async () => {
+it('shows current model sizes without comparing unknown counts as bytes and keeps Other last', async () => {
   const app = new AppState()
   const backend = app.addBackend('http://studio.test:8188', 'Studio', false, 'dinkster', false)!
   if (backend.protocol !== 'dinkster') throw new Error('Native backend missing')
@@ -318,6 +318,41 @@ it('aggregates model kinds by count with Other last and updates the pin colors w
   changed()
   await vi.waitFor(() => expect(rows()).toEqual(['Checkpoints', 'VAEs', 'Other']))
   expect(values()).toEqual(['4', '4', '15'])
+
+  mounts.splice(7)
+  mounts[0] = { id: 'lora-a', mode: 'read', state: 'ready', kind: 'model/lora', entryCount: 1 }
+  const bytes = [1024, 2048, 8192, 4096, 512, 256, 0]
+  for (let index = 0; index < mounts.length; index++) {
+    mounts[index] = { ...mounts[index]!, folderSize: { status: 'available', bytes: bytes[index]!, folder: mounts[index]!.id } }
+  }
+  mounts.push({ ...mounts[0]!, id: 'lora-alias' })
+  const total = () => root.querySelector('[data-model-location="models"] .dinkster-row-trailing')?.textContent ?? ''
+  const widths = () => [...root.querySelectorAll('.dinkster-count-bar > svg')].map((segment) => Number.parseFloat(segment.getAttribute('width')!))
+  changed()
+  await vi.waitFor(() => expect(values()).toEqual(['8 KB', '4 KB', '3 KB', '768 B']))
+  expect(rows()).toEqual(['Checkpoints', 'VAEs', 'LoRAs', 'Other'])
+  expect(total()).toBe('15.8 KB')
+  expect(widths()[0]).toBeCloseTo(8192 / 16128 * 100)
+  expect(widths()[2]).toBeCloseTo(3072 / 16128 * 100)
+
+  mounts[1] = { ...mounts[1]!, folderSize: { status: 'unavailable' } }
+  changed()
+  await vi.waitFor(() => expect(values()).toEqual(['8 KB', '4 KB', '2 models', '768 B']))
+  expect(total()).toBe('')
+  expect(widths()).toHaveLength(3)
+  expect(widths()[0]).toBeCloseTo(8192 / 13056 * 100)
+
+  mounts[1] = { ...mounts[1]!, folderSize: { status: 'available', bytes: 16384, folder: 'lora-b' } }
+  changed()
+  await vi.waitFor(() => expect(values()).toEqual(['8 KB', '4 KB', '17 KB', '768 B']))
+  expect(rows()).toEqual(['Checkpoints', 'VAEs', 'LoRAs', 'Other'])
+  expect(total()).toBe('29.8 KB')
+
+  for (let index = 0; index < mounts.length; index++) mounts[index] = { ...mounts[index]!, folderSize: { status: 'unavailable' } }
+  changed()
+  await vi.waitFor(() => expect(values()).toEqual(['4', '4', '3', '15']))
+  expect(total()).toBe('26 models')
+  expect(widths()).toHaveLength(4)
 })
 
 it('changes mount saving access, requires a usable replacement and preserves a refused change', async () => {

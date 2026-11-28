@@ -980,6 +980,9 @@ export interface MountDescriptor {
   readonly kind?: string
   /** Server-reported catalog size when the mount index provides it. */
   readonly entryCount?: number
+  readonly folderSize?:
+    | { readonly status: 'available'; readonly bytes: number; readonly folder: string }
+    | { readonly status: 'unavailable' }
   readonly scanProgress?: MountScanProgress
   readonly error?: string
   readonly saveError?: string
@@ -3804,6 +3807,14 @@ export class DinksterConnection {
     const mounts = rows.filter((value): value is MountDescriptor => {
       if (typeof value !== 'object' || value === null) return false
       const row = value as Record<string, unknown>
+      const folderSize = row['folderSize']
+      const size = typeof folderSize === 'object' && folderSize !== null
+        ? folderSize as Record<string, unknown> : undefined
+      const validSize = folderSize === undefined || (size !== undefined && (
+        size['status'] === 'available'
+          ? typeof size['bytes'] === 'number' && Number.isSafeInteger(size['bytes']) && size['bytes'] >= 0 &&
+            typeof size['folder'] === 'string' && size['folder'] !== ''
+          : size['status'] === 'unavailable' && size['bytes'] === undefined && size['folder'] === undefined))
       const scanProgress = row['scanProgress']
       const progress = typeof scanProgress === 'object' && scanProgress !== null
         ? scanProgress as Record<string, unknown>
@@ -3821,7 +3832,7 @@ export class DinksterConnection {
         (row['saveError'] === undefined || typeof row['saveError'] === 'string') &&
         (row['kind'] === undefined || typeof row['kind'] === 'string') &&
         (row['source'] === undefined || typeof row['source'] === 'string') &&
-        (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
+        (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validSize && validProgress
     })
     if (payload.revision !== undefined && typeof payload.revision !== 'string') throw new Error('GET /api/mounts: malformed revision')
     if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
