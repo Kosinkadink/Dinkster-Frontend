@@ -741,7 +741,7 @@ describe('MatchType resolution', () => {
     expect(s.diagnostics).toEqual([])
   })
 
-  it('two instances of one SUBGRAPH definition resolve independently (derived boundary schema)', () => {
+  it.each([1, 2])('two instances of one subgraph resolve independently through %i boundaries', (depth) => {
     // Inner definition: one Switch whose template crosses the boundary. The
     // derived schema carries the namespaced variable 'sw:T'; prefixing the
     // instance node id at solve time compounds to per-occurrence freshness.
@@ -761,28 +761,82 @@ describe('MatchType resolution', () => {
       nextOrdinal: 1,
     } as unknown as GraphDef
     const derived = deriveBoundarySchema(innerDef, resolve).schema!
-    expect(derived.type).toBe('#gsub')
-    const resolveWith: SchemaResolver = (type) => (type === derived.type ? derived : schemas[type])
+    const outerDef = {
+      ...innerDef,
+      id: 'gouter',
+      nodes: { detail: { id: 'detail', type: derived.type, values: {} } },
+      boundary: { body: [
+        { kind: 'input', id: 'source', binds: { kind: 'port', node: 'detail', port: 'in' } },
+        { kind: 'output', id: 'result', binds: { kind: 'port', node: 'detail', port: 'out' } },
+      ] },
+    } as unknown as GraphDef
+    const outer = deriveBoundarySchema(outerDef, (type) => type === derived.type ? derived : resolve(type)).schema!
+    const shown = depth === 1 ? derived : outer
+    const inputId = depth === 1 ? 'in' : 'source'
+    const outputId = depth === 1 ? 'out' : 'result'
+    const resolveWith: SchemaResolver = (type) => type === shown.type ? shown : resolve(type)
 
     const def = defOf({
       nodes: {
         img: { type: 'ImageSrc' },
         lat: { type: 'LatentSrc' },
-        i1: { type: derived.type },
-        i2: { type: derived.type },
+        i1: { type: shown.type },
+        i2: { type: shown.type },
       },
       links: {
-        l0: { from: ['img', 'out'], to: ['i1', 'in'] },
-        l1: { from: ['lat', 'out'], to: ['i2', 'in'] },
+        l0: { from: ['img', 'out'], to: ['i1', inputId] },
+        l1: { from: ['lat', 'out'], to: ['i2', inputId] },
       },
     })
     const s = solveGraphTypes(def, resolveWith)
-    expect(s.resolutionOf(n('i1'), 'sw:T')).toEqual({ kind: 'resolved', name: 'IMAGE' })
-    expect(s.resolutionOf(n('i2'), 'sw:T')).toEqual({ kind: 'resolved', name: 'LATENT' })
     // Each instance's boundary output follows ITS variable, not the sibling's.
-    expect(s.portTypeOf(n('i1'), 'output', 'out')).toEqual({ kind: 'concrete', name: 'IMAGE' })
-    expect(s.portTypeOf(n('i2'), 'output', 'out')).toEqual({ kind: 'concrete', name: 'LATENT' })
+    expect(s.portTypeOf(n('i1'), 'input', inputId)).toEqual({ kind: 'concrete', name: 'IMAGE' })
+    expect(s.portTypeOf(n('i2'), 'input', inputId)).toEqual({ kind: 'concrete', name: 'LATENT' })
+    expect(s.portTypeOf(n('i1'), 'output', outputId)).toEqual({ kind: 'concrete', name: 'IMAGE' })
+    expect(s.portTypeOf(n('i2'), 'output', outputId)).toEqual({ kind: 'concrete', name: 'LATENT' })
     expect(s.diagnostics).toEqual([])
+  })
+
+  it.each([1, 2])('keeps independent member types through %i renamed boundaries and separate instances', (depth) => {
+    const members = schemaOf('Members', [group('items', 'item', { member: [input('value', T('T')), output('result', T('T'))] }, {
+      independentTypes: true, grows: 'button', minMembers: 0,
+    })])
+    const inner = {
+      ...defOf({ nodes: { inner: { type: members.type } } }), id: 'detail',
+      boundary: { body: [{ kind: 'input', id: 'rows', binds: { kind: 'construct', node: 'inner', port: 'items' } }] },
+    } as unknown as GraphDef
+    const first = deriveBoundarySchema(inner, () => members).schema!
+    const outer = {
+      ...defOf({ nodes: { detail: { type: first.type } } }), id: 'portrait',
+      boundary: { body: [{ kind: 'input', id: 'payload', binds: { kind: 'construct', node: 'detail', port: 'rows' } }] },
+    } as unknown as GraphDef
+    const second = deriveBoundarySchema(outer, () => first).schema!
+    const shown = depth === 1 ? first : second
+    const prefix = depth === 1 ? 'rows' : 'payload'
+    const def = defOf({
+      nodes: {
+        image: { type: 'ImageSrc' }, latent: { type: 'LatentSrc' },
+        first: { type: shown.type, dynamic: { [prefix]: { members: ['item0', 'item1'] } } },
+        second: { type: shown.type, dynamic: { [prefix]: { members: ['item0', 'item1'] } } },
+      },
+      links: {
+        l0: { from: ['image', 'out'], to: ['first', `${prefix}.item0.value`] },
+        l1: { from: ['latent', 'out'], to: ['first', `${prefix}.item1.value`] },
+        l2: { from: ['latent', 'out'], to: ['second', `${prefix}.item0.value`] },
+        l3: { from: ['image', 'out'], to: ['second', `${prefix}.item1.value`] },
+      },
+    })
+    const before = structuredClone(def)
+    const solved = solveGraphTypes(def, (type) => type === shown.type ? shown : resolve(type))
+    for (const [owner, member, name] of [
+      ['first', 'item0', 'IMAGE'], ['first', 'item1', 'LATENT'],
+      ['second', 'item0', 'LATENT'], ['second', 'item1', 'IMAGE'],
+    ]) {
+      expect(solved.portTypeOf(n(owner!), 'input', `${prefix}.${member}.value`)).toEqual({ kind: 'concrete', name })
+      expect(solved.portTypeOf(n(owner!), 'output', `${prefix}.${member}.result`)).toEqual({ kind: 'concrete', name })
+    }
+    expect(solved.diagnostics).toEqual([])
+    expect(def).toEqual(before)
   })
 
   it('group members all constrain the shared template: mixed feeds conflict', () => {
