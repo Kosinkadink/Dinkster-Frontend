@@ -61,6 +61,7 @@ const evidence = {
   refused,
   pageErrors: [],
   results: [],
+  attempts: [],
 }
 page.on('pageerror', (error) => evidence.pageErrors.push(error.message))
 await page.addInitScript(() => {
@@ -295,12 +296,32 @@ try {
     const sampler = setInterval(() => samples.push(rss()), 25)
     let response
     const uploads = []
+    const attempt = { surface, requests: [], responses: [], failures: [] }
+    evidence.attempts.push(attempt)
+    const isUpload = (request) =>
+      request.method() === 'POST' &&
+      new URL(request.url()).pathname === '/api/assets/media'
     const track = (request) => {
-      if (
-        request.method() === 'POST' &&
-        new URL(request.url()).pathname === '/api/assets/media'
-      )
+      if (isUpload(request)) {
         uploads.push(request)
+        const url = new URL(request.url())
+        attempt.requests.push({
+          origin: url.origin,
+          pathname: url.pathname,
+          query: Object.fromEntries(
+            ['scope', 'kind', 'name', 'mount', 'folder', 'project']
+              .filter((key) => url.searchParams.has(key))
+              .map((key) => [key, url.searchParams.get(key)]),
+          ),
+        })
+      }
+    }
+    const trackResponse = (received) => {
+      if (isUpload(received.request()))
+        attempt.responses.push({ status: received.status() })
+    }
+    const trackFailure = (request) => {
+      if (isUpload(request)) attempt.failures.push(request.failure())
     }
     const mediaResponse = refused
       ? undefined
@@ -313,6 +334,8 @@ try {
     // Retain rejection for the awaited result without an unhandled rejection if the UI fails first.
     mediaResponse?.catch(() => {})
     page.on('request', track)
+    page.on('response', trackResponse)
+    page.on('requestfailed', trackFailure)
     try {
       if (surface === 'field') {
         await page
@@ -473,6 +496,27 @@ try {
     } finally {
       clearInterval(sampler)
       page.off('request', track)
+      page.off('response', trackResponse)
+      page.off('requestfailed', trackFailure)
+      attempt.memory = {
+        baseline,
+        peak: Math.max(...samples),
+        final: rss(),
+        samples: samples.length,
+        processIds: pids,
+      }
+      try {
+        attempt.browser = await page.evaluate(() => ({
+          reads: window.__transferReads,
+          responses: window.__transferResponses,
+        }))
+        await page.screenshot({
+          path: join(artifacts, `${surface}-${expectedPolicy}-last.png`),
+          timeout: 5000,
+        })
+      } catch (error) {
+        attempt.observationFailure = String(error)
+      }
       if (surface === 'field') await page.keyboard.press('Escape')
     }
   }
