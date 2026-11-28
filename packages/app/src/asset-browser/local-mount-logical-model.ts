@@ -1,6 +1,7 @@
 import { committableAssetRef, isCompatible } from './helpers.js'
 import type { IngestedLogicalModelDescription, LogicalModelAdapter, SourceRef, VariantDescription } from './logical-model.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
+import { failureMessage } from '../request-failure.js'
 
 interface ObservedAsset {
   readonly item: AssetBrowserItem
@@ -50,7 +51,7 @@ export async function localMountScanAdapter(
       return await scanSource(source, kind, options.signal)
     } catch (error) {
       options.signal?.throwIfAborted()
-      const message = `${source.label}: ${error instanceof Error ? error.message : String(error)}`
+      const message = failureMessage(error, `${source.label}: Could not load models.`)
       if (options.onSourceError === undefined) throw error
       options.onSourceError(message)
       return []

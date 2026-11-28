@@ -31,6 +31,7 @@ import {
   groupBoxKey,
   lineKeyOf,
   materializeFramesOf,
+  normalizedComboOptions,
   resettableWidgetsOf,
   resolveWidgetRepresentation,
   selectorBranchDisplay,
@@ -151,7 +152,7 @@ export interface DynamicAnnotations {
   readonly inactive?: true
   /**
    * A row no longer part of the node, kept only for the wire on its output
-   * (ElaboratedInput.kept): drawn inactive, not editable, no new wire starts
+   * (ElaboratedInput.kept or ElaboratedOutput.kept): drawn inactive, not editable, no new wire starts
    * or ends on it. The text says why.
    */
   readonly kept?: string
@@ -252,6 +253,7 @@ export type LayoutRow =
       /** Limits direct user value edits, not wires or action writes. */
       readonly readOnly?: true
       readonly disabled?: true
+      readonly inert?: true
       readonly disabledReason?: string
       /** Wire-22 execution binding retained from the elaborated input. */
       readonly sourceFilename?: SourceFilenameSpec
@@ -272,6 +274,8 @@ export type LayoutRow =
        * option key). Renderers/editors read this instead of values.
        */
       readonly derivedValue?: Json
+      /** Distinct picker row editing one persisted record-field selector. */
+      readonly recordSelection?: { readonly inputId: string; readonly depth: number }
       /**
        * A field that declares `automatic` with nothing stored and no wire:
        * the value it has in use, drawn after the word "auto", dimmed.
@@ -294,7 +298,7 @@ export type LayoutRow =
       }
       /** A choice's dropdown: it reaches the outline of the box its option rows hang in, and has its own outline. */
       readonly lead?: true
-      /** Instance whose promoted boundary input owns this row's stored value. */
+      /** Node/input owning the value of this projected row or promoted boundary field. */
       readonly familyOwner?: {
         readonly graphId: string
         readonly nodeId: string
@@ -402,6 +406,8 @@ export type LayoutRow =
       readonly y: number
       readonly height: number
       /** The node.values key. */
+      readonly valueKey: string
+      /** Saved input name, or a neutral name when none was saved. */
       readonly label: string
       /** Safe single-line rendering of the stored JSON value. */
       readonly text: string
@@ -1023,6 +1029,28 @@ export function withTextOutputRegion(
   }
 }
 
+/** Project every explicit horizontal span to the live width, retaining fixed chrome and gaps. */
+export function projectNodeLayoutWidth(layout: NodeLayout, width: number): NodeLayout {
+  const delta = width - layout.width
+  if (delta === 0) return layout
+  const rows = layout.rows.map((row): LayoutRow => {
+    if (!('width' in row) || row.width === undefined || !('inset' in row)) return row
+    const peers = layout.rows.filter((other) => other.y === row.y && 'inset' in other && 'width' in other && other.width !== undefined)
+    const mixed = peers.some((other) => other.kind === 'widget')
+    const fixed = (other: LayoutRow): boolean => mixed && other.kind === 'button' && other.icon !== undefined
+    const flexible = peers.filter((other) => !fixed(other))
+    const share = delta / flexible.length
+    const preceding = flexible.filter((other) => 'inset' in other && other.inset < row.inset).length
+    return { ...row, inset: row.inset + preceding * share, width: row.width + (fixed(row) ? 0 : share) }
+  })
+  return {
+    ...layout, width, rows,
+    ...(layout.boxes === undefined ? {} : { boxes: layout.boxes.map((box) => ({ ...box, width: box.width + delta })) }),
+    ...(layout.preview === undefined ? {} : { preview: { ...layout.preview, width: layout.preview.width + delta } }),
+    ...(layout.textOutput === undefined ? {} : { textOutput: { ...layout.textOutput, width: layout.textOutput.width + delta } }),
+  }
+}
+
 /**
  * Reflow the row the node's bottom edge sizes for an in-flight resize
  * preview. The scene remains committed; the renderer uses this projected
@@ -1054,7 +1082,7 @@ export function projectNodeLayoutHeight(
       height,
       preview: {
         ...layout.preview,
-        height: previewPanelMinHeight(tokens) + extra,
+        height: layout.preview.height + height - layout.height,
       },
     }
   }
@@ -1329,13 +1357,13 @@ export function layoutNode(
     return { construct, member, ...(members.length <= spec.minMembers ? { disabledReason: 'The group already has its fewest members.' } : {}) }
   }
   const rowRemoval = (item: ElaboratedInput | ElaboratedOutput, chain: readonly string[]): { remove?: MemberRemoval } => {
-    if (item.kind === 'input' && item.kept !== undefined || item.origin.kind !== 'member' || item.origin.ghost === true || chain.at(-1) !== groupBoxKey(item.origin.construct)) return {}
+    if (item.kept !== undefined || item.origin.kind !== 'member' || item.origin.ghost === true || chain.at(-1) !== groupBoxKey(item.origin.construct)) return {}
     const remove = removalOf(item.origin.construct, item.origin.key)
     return remove === undefined ? {} : { remove }
   }
   /** Reserve the cross's place on offered members too, so their fields align. */
   const removable = (item: ElaboratedInput | ElaboratedOutput, chain: readonly string[]): boolean => {
-    if (!tokens.memberRemoveCross || item.kind === 'input' && item.kept !== undefined || item.origin.kind !== 'member' || chain.at(-1) !== groupBoxKey(item.origin.construct)) return false
+    if (!tokens.memberRemoveCross || item.kept !== undefined || item.origin.kind !== 'member' || chain.at(-1) !== groupBoxKey(item.origin.construct)) return false
     const spec = constructs.get(item.origin.construct)
     return spec?.kind === 'group' && typeof spec.grows === 'string'
   }
@@ -1394,8 +1422,8 @@ export function layoutNode(
       ...(item.origin.kind === 'member' || (item.ancestry?.length ?? 0) > 0 ? { familyMember: true } : {}),
       ...(frames !== undefined ? { materialize: frames } : {}),
       ...(dynamicSlot !== undefined ? { dynamicSlot } : {}),
-      ...(selectorDisplay?.[item.address.port] === 'inactive' || (item.kind === 'input' && item.kept !== undefined) ? { inactive: true } : {}),
-      ...(item.kind === 'input' && item.kept !== undefined ? { kept: item.kept } : {}),
+      ...(selectorDisplay?.[item.address.port] === 'inactive' || item.kept !== undefined ? { inactive: true } : {}),
+      ...(item.kept !== undefined ? { kept: item.kept } : {}),
       ...(item.kind === 'input' && item.spec.acceptsList ? { acceptsList: true } : {}),
     }
   }
@@ -1687,6 +1715,7 @@ export function layoutNode(
         ...(item.automaticIfEmptied !== undefined ? { automaticIfEmptied: item.automaticIfEmptied } : {}),
         ...(item.readOnly ? { readOnly: true as const } : {}),
         ...(item.disabled ? { disabled: true as const } : {}),
+        ...(item.inert ? { inert: true as const } : {}),
         ...(item.disabledReason !== undefined ? { disabledReason: item.disabledReason } : {}),
         // A menu's state lives under its flattened id, members included.
         ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),
@@ -1696,6 +1725,21 @@ export function layoutNode(
         ...annotate(item),
       },
     })
+    if (item.recordSelectionRows !== undefined) {
+      const first = pending.pop()!
+      for (const [depth, choice] of item.recordSelectionRows.entries()) {
+        const id = depth === 0 ? spec.id : `$record/${spec.id}/${depth}`
+        pending.push({ ...first, widget: {
+          ...first.widget!, inputId: id, valueKey: depth === 0 ? valueKey : id,
+          label: depth === 0 ? rowLabels(item).label : '',
+          name: translate('canvas.record.fieldOf', { record: choice.record }),
+          recordSelection: { inputId: spec.id, depth },
+          derivedValue: choice.value,
+          spec: { ...representation.spec, options: { ...representation.spec.options, options: choice.options } },
+          ...(depth === 0 ? {} : { socketless: true as const, unsent: true as const }),
+        } })
+      }
+    }
   }
   for (const [id, counts] of portsHeld) held.set(id, (held.get(id) ?? 0) + Math.max(counts.inputs, counts.outputs))
 
@@ -2237,6 +2281,11 @@ export function layoutNode(
       // Label + a value area floor; widget content depth lives in the
       // expanded editor, so rows never force extreme widths.
       content = measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + extra
+      if (row.kind === 'widget' && row.recordSelection !== undefined) {
+        const shown = normalizedComboOptions(row.spec).find((option) => option.value === row.derivedValue)?.label ?? ''
+        content = Math.max(content, measure(row.label, 'label') + measure(shown, 'value') +
+          canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.portLabelPadding * 2 + tokens.rowHeight + extra)
+      }
       if (row.kind === 'widget' && row.viewId === 'core.curve' && !row.unfolded && tokens.widgetRowLook === 'raised-editors') {
         // Reserve the picture beside the count as well as the header's icon
         // and name; the interpolation shares the name's column below it.

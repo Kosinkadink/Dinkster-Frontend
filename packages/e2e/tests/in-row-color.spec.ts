@@ -24,9 +24,6 @@ async function openPaint(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
   await waitForWorkspaceReady(page)
-  const close = page.locator('.template-gallery-close')
-  if ((await close.count()) > 0 && (await close.first().isVisible())) await close.first().click()
-  else await page.evaluate(() => (window.__dinksterTest!.app as unknown as { templateGalleryOpen: { set(v: boolean): void } }).templateGalleryOpen.set(false))
   await page.evaluate(async () => {
     const widget = (id: string, widgetType: string, defaultValue: unknown, options: Record<string, unknown> = {}) => ({
       kind: 'input', id, type: { kind: 'concrete', name: widgetType }, optional: false,

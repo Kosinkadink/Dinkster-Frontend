@@ -40,6 +40,7 @@ import {
   CanvasSidePart,
   ProductSection,
   canvasListLayout,
+  canvasListBox,
   canvasSideLayout,
   type CanvasListAction,
   type CanvasListLayout,
@@ -568,6 +569,9 @@ export function RowListExample(props: { example: ListExample; theme: 'dark' | 'l
   const [flat, setFlat] = createSignal(false)
   const [sideSize, setSideSize] = createSignal({ width: SIDE_ROOM - MARGIN, height: 0 })
   const [listSize, setListSize] = createSignal(0)
+  const [headingSize, setHeadingSize] = createSignal({ width: 0, height: 0 }, {
+    equals: (a, b) => a.width === b.width && a.height === b.height,
+  })
   const example = () => props.example
   const scale = () => example().scale ?? 1
   const nodeX = () => (example().place === 'left' ? SIDE_ROOM : example().scale === 0.5 ? MARGIN * 2 : MARGIN)
@@ -648,7 +652,7 @@ export function RowListExample(props: { example: ListExample; theme: 'dark' | 'l
     const grow = flat() ? 1 : 0
     const rowWidth = (row.width ?? node.layout.width - row.inset * 2) + grow * 2
     const zoom = Math.max(1, s)
-    const screen = {
+    let screen = {
       x: (node.x + row.inset) * s - grow,
       y: (node.y + row.y + insetY()) * s - grow,
       width: rowWidth * zoom,
@@ -660,12 +664,13 @@ export function RowListExample(props: { example: ListExample; theme: 'dark' | 'l
       width: canvas.clientWidth,
       height: example().canvas === undefined ? Infinity : canvas.clientHeight,
     }
+    if (example().list !== undefined) screen = canvasListBox(screen, bounds, headingSize(), zoom)
     const nodeBelow = ((node.y + node.layout.height) * s - screen.y) / zoom + MARGIN / 2
     const nodeAbove = (screen.y - node.y * s) / zoom + MARGIN / 2
     const layout: CanvasListLayout = example().list === undefined
       ? { ...canvasSideLayout(screen, bounds, sideSize(), s, nodeBelow, nodeAbove), listPlace: 'below', sideMaxWidth: bounds.width / zoom }
       : canvasListLayout(screen, bounds, listSize(), sideSize(), s, nodeBelow, nodeAbove)
-    return { row, rowWidth, screen, ...layout }
+    return { row, rowWidth: screen.width / zoom, screen, ...layout }
   }
   createEffect(() => {
     const current = placement()
@@ -707,6 +712,7 @@ export function RowListExample(props: { example: ListExample; theme: 'dark' | 'l
           {(current) => (
             <CanvasRowList
               ref={(element) => (field = element)}
+              onHeadingSize={setHeadingSize}
               {...(flat() ? { look: 'flat-title' as const } : {})}
               rowWidth={current().rowWidth}
               label={current().row.label}

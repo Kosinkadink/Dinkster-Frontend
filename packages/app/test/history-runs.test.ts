@@ -193,6 +193,34 @@ describe('groupNoOpHistoryRuns', () => {
 })
 
 describe('runsSource', () => {
+  it('keeps seconds in run details but not durable or live collection rows', async () => {
+    const { backend } = await nativeSetup()
+    const today = new Date(2026, 10, 27, 16, 47, 17)
+    const yesterday = new Date(2026, 10, 26, 23, 59, 43)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 27, 18))
+    try {
+      vi.spyOn(backend.connection, 'listHistory').mockResolvedValue({ records: [
+        run({ runId: 'today', jobId: 'job-today', finishedAt: today.getTime() / 1000 }),
+        run({ runId: 'yesterday', jobId: 'job-yesterday', finishedAt: yesterday.getTime() / 1000 }),
+      ] })
+      const time = today.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })
+      const date = yesterday.toLocaleDateString('en', { year: 'numeric', month: 'numeric', day: 'numeric' })
+      const rows = await runsSource(app).page({ query: '', limit: 24 })
+      expect(rows.items.map((entry) => entry.subtitle)).toEqual([
+        `today, ${time} - job-today`, `${date} - job-yesterday`,
+      ])
+      expect(rows.items[0]!.details!.find((detail) => detail.label === 'finished')!.text).toContain(':17')
+      const ref = { connection: backend.id, prompt: asPromptId('live-time') }
+      app.store.apply({ kind: 'started', execution: ref, timestamp: today.getTime() })
+      const live = await historySource(app).page({ query: '', limit: 24 })
+      expect(live.items[0]!.subtitle).toBe(`today, ${time} - live-time`)
+      expect(live.items[0]!.details!.find((detail) => detail.label === 'queued')!.text).toContain(':17')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('pages /api/history with the mapped filter and maps records to entries', async () => {
     const { backend } = (await nativeSetup())
     const list = vi.spyOn(backend.connection, 'listHistory').mockResolvedValue({

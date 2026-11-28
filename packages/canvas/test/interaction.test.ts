@@ -62,6 +62,7 @@ function interactionHarness(
     getDetailLevel: () => viewportScale < 0.5 ? 'overview' : viewportScale < 0.75 ? 'content' : 'controls',
     setViewport: vi.fn(),
     cancelViewportAnimation: () => undefined,
+    setViewportGesture: () => undefined,
     setScene: (next: Scene) => {
       currentScene = next
       for (const listener of sceneReplacedListeners) listener(next)
@@ -71,6 +72,8 @@ function interactionHarness(
     getNodeBadgeLayout: (node: SceneNode) => layoutNodeBadges(node, badges[node.id] ?? [], { tokens: defaultTokens }),
     getLensCapabilities: () => lensCapabilities,
     getDesignTokens: () => defaultTokens,
+    widgetContentWidth: (node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>) =>
+      CanvasRenderer.prototype.widgetContentWidth.call({ tokens: defaultTokens, lensCapabilities } as unknown as CanvasRenderer, node, row),
     widgetPaintState: (node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>, driven?: { readonly value?: Json }) => ({
       value: row.derivedValue ?? node.node.values[row.valueKey],
       ...(driven?.value === undefined ? {} : { companion: { value: driven.value } }),
@@ -198,8 +201,6 @@ describe('lens widget-row affordance', () => {
     const rect = widgetRowAffordanceRect(
       scene.nodes[0]!.layout.width - row.inset * 2,
       defaultTokens.rowHeight,
-      row,
-      defaultTokens.rowGeometry,
     )
     const harness = interactionHarness(
       scene,
@@ -216,6 +217,15 @@ describe('lens widget-row affordance', () => {
     expect(activateAffordance).toHaveBeenCalledOnce()
     expect(activateWidget).not.toHaveBeenCalled()
     expect(harness.dispatched).toEqual([])
+
+    // The number's plus is before the trailing tick, not underneath it.
+    const plusX = scene.nodes[0]!.x + row.inset + rect.x - 4 - defaultTokens.rowGeometry.stepperCenter
+    harness.fire('pointerdown', plusX, y)
+    harness.fire('pointerup', plusX, y)
+    expect(harness.dispatched).toEqual([{
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 0.3 },
+    }])
+    expect(activateAffordance).toHaveBeenCalledOnce()
   })
 
 })
@@ -902,7 +912,7 @@ describe('canvas hover targets', () => {
     expect(harness.overlays.at(-1)).not.toMatchObject({ hoveredNode: 'n1' })
   })
 
-  it('emits proven-mismatch noodle bodies and midpoint grab dots but not healthy noodles', () => {
+  it('emits mismatch and record wire hover without hovering ordinary healthy noodles', () => {
     const hover = vi.fn()
     const scene = interactionScene() as any
     scene.links = [
@@ -914,6 +924,11 @@ describe('canvas hover targets', () => {
       {
         id: 'good', from: { kind: 'port', node: 'n1', port: 'out' }, to: { kind: 'port', node: 'n2', port: 'in' },
         x1: 110, y1: 90, x2: 200, y2: 90,
+      },
+      {
+        id: 'record', from: { kind: 'port', node: 'n1', port: 'out' }, to: { kind: 'port', node: 'n2', port: 'in' },
+        x1: 110, y1: 110, x2: 200, y2: 110,
+        fromType: { kind: 'record', name: 'Settings', fields: [] },
       },
     ]
     const harness = interactionHarness(scene, { onHoverTarget: hover })
@@ -932,6 +947,13 @@ describe('canvas hover targets', () => {
 
     harness.fire('pointermove', 155, 90)
     expect(hover).toHaveBeenLastCalledWith(undefined)
+
+    for (const x of [125, 155]) {
+      harness.fire('pointermove', x, 110)
+      expect(hover).toHaveBeenLastCalledWith(expect.objectContaining({
+        kind: 'link', hit: expect.objectContaining({ link: expect.objectContaining({ id: 'record' }) }),
+      }))
+    }
   })
 
   it('refreshHover re-announces the stationary pointer hover against the replaced scene', () => {
@@ -2703,18 +2725,6 @@ describe('gesture ownership and cancellation', () => {
     expect(onLinkDropOnEmpty).toHaveBeenCalledWith(expect.any(Object), 700, 300)
   })
 
-  it('does not open an accept-all palette from an untyped dangling end', () => {
-    const scene = linkDropScene() as any
-    scene.nodes[0].layout.pins[0].type = { kind: 'wildcard' }
-    const onLinkDropOnEmpty = vi.fn()
-    const harness = interactionHarness(scene, { onLinkDropOnEmpty })
-    harness.fire('pointerdown', 110, 32)
-    harness.fire('pointermove', 700, 300)
-    harness.fire('pointerup', 700, 300)
-    expect(onLinkDropOnEmpty).not.toHaveBeenCalled()
-    expect(harness.dispatched).toEqual([])
-  })
-
   it('mouse pointercancel on a moved rewire over empty disconnects', () => {
     const harness = interactionHarness(connectedLinkScene())
     harness.fire('pointerdown', 200, 34)
@@ -3471,12 +3481,16 @@ describe('dragging a number row', () => {
 })
 
 describe('numeric widget steppers', () => {
-  it.each(['readOnly', 'disabled'] as const)('inspects a %s number without stepping or dragging its stored value', (flag) => {
+  it.each(['readOnly', 'disabled', 'inert'] as const)('preserves a %s number without stepping or dragging its stored value', (flag) => {
     const scene = interactionScene() as any
     scene.nodes[0].layout.rows[0][flag] = true
     scene.nodes[0].layout.rows[0].viewId = 'core.number'
-    const harness = interactionHarness(scene)
+    const activate = vi.fn()
+    const hover = vi.fn()
+    const harness = interactionHarness(scene, { onWidgetActivate: activate, onHoverTarget: hover })
     Object.assign(harness.renderer, { setRowDrag: () => undefined })
+    harness.fire('pointermove', 60, 35)
+    expect(hover.mock.calls.at(-1)?.[0]?.kind).toBe(flag === 'inert' ? undefined : 'widget')
     for (const x of [20, 60, 100]) {
       harness.fire('pointerdown', x, 35)
       harness.fire('pointerup', x, 35)
@@ -3485,6 +3499,8 @@ describe('numeric widget steppers', () => {
     harness.fire('pointermove', 90, 35)
     harness.fire('pointerup', 90, 35)
     expect(harness.dispatched).toEqual([])
+    if (flag === 'inert') expect(activate).not.toHaveBeenCalled()
+    else expect(activate).toHaveBeenCalled()
   })
 
   it('routes a forwarded suffix member value to its occurrence owner', () => {

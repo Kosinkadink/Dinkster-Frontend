@@ -49,7 +49,6 @@ import {
   containingGroup,
   initialGroupMembership,
   groupBoxKey,
-  hasKnownLinkDropAnchorType,
   dragNumericValue,
   isIntegerWidgetValue,
   isNumberWidget,
@@ -490,6 +489,8 @@ export interface InteractionHost {
    * ends (commit or cancel). Fires only on change; presence egress rides it.
    */
   onDragOffsets?(offsets: ReadonlyMap<string, { readonly dx: number; readonly dy: number }> | undefined): void
+  /** Live node geometry for DOM editors and media, cleared on resize commit or cancel. */
+  onNodeResize?(node: SceneNode | undefined): void
   /** Semantic fixed endpoint of an active link drag, or undefined on end. */
   onLinkDragPresence?(origin: LinkDragPresenceOrigin | undefined): void
   /**
@@ -901,6 +902,7 @@ export class InteractionController {
   private lastDragOffsets:
     | ReadonlyMap<string, { readonly dx: number; readonly dy: number }>
     | undefined
+  private lastResizePreview: OverlayState['resizePreview']
   private lastLinkDragPresence: LinkDragPresenceOrigin | undefined
   private readonly pointerTrace = new PointerTrace()
   private readonly detach: () => void
@@ -920,6 +922,7 @@ export class InteractionController {
       this.recoverRepressedGesture(e)
       const wasIdle = this.gesture.kind === 'idle'
       this.onPointerDown(e)
+      this.renderer.setViewportGesture(this.gesture.kind === 'pan' || this.touchNav !== undefined)
       if (wasIdle && this.gesture.kind !== 'idle')
         this.pointerTrace.recordGesture(this.gesture.kind, 'start', 'pointerdown')
       // A press that captured the pointer but started no gesture (badge
@@ -1269,6 +1272,9 @@ export class InteractionController {
       ...options,
       scale: this.renderer.getViewport().scale,
       detailLevel: this.renderer.getDetailLevel(),
+      ...(this.renderer.getLensCapabilities?.().widgetRowAffordance === undefined ? {} : {
+        widgetContentWidth: (node, row) => this.renderer.widgetContentWidth(node, row),
+      }),
     }
   }
 
@@ -1320,6 +1326,7 @@ export class InteractionController {
     if (kind === 'number-drag') this.renderer.setRowDrag(undefined)
     this.pointerTrace.recordGesture(kind, 'cancel', reason)
     this.gesture = { kind: 'idle' }
+    this.renderer.setViewportGesture(false)
     this.pushOverlay()
   }
 
@@ -1486,6 +1493,7 @@ export class InteractionController {
     const nav = this.touchNav
     if (nav === undefined) return
     this.touchNav = undefined
+    this.renderer.setViewportGesture(false)
     this.releasePointer(nav.a)
     this.releasePointer(nav.b)
     this.pointerTrace.recordGesture('touch-nav', event, reason)
@@ -1805,13 +1813,23 @@ export class InteractionController {
       this.gesture = { kind: 'widget-affordance', hit, moved: false }
       return
     }
+    if (hit.kind === 'widget' && hit.localX > hit.width) {
+      this.gesture = { kind: 'idle' }
+      return
+    }
     // A pin's hit circle reaches over the end of its node's field rows. There
     // a click belongs to the field's control and a drag to the pin.
     if (hit.kind === 'pin' || hit.kind === 'widgetTap') {
       const under = hitTest(scene, w.x, w.y, this.hitOptions({ widgetTaps: new Set(), pinRevealed: () => false }))
       if (under.kind === 'widget' && under.node.id === hit.node.id) {
-        this.gesture = { kind: 'widget', hit: under, moved: false, pin: { hit, shiftKey: e.shiftKey, altKey: e.altKey } }
-        return
+        if (this.widgetRowAffordanceContains(under)) {
+          this.gesture = { kind: 'widget-affordance', hit: under, moved: false }
+          return
+        }
+        if (under.localX <= under.width) {
+          this.gesture = { kind: 'widget', hit: under, moved: false, pin: { hit, shiftKey: e.shiftKey, altKey: e.altKey } }
+          return
+        }
       }
     }
     if (hit.kind === 'header' && !e.shiftKey && !e.ctrlKey && !e.metaKey && this.minimizeArrowContains(hit, w.x, w.y)) {
@@ -2998,7 +3016,7 @@ export class InteractionController {
     if (this.renderer.getDesignTokens().widgetEditing !== 'in-row' || pointerType === 'touch') return undefined
     const row = hit.row
     if (row.viewId !== 'core.number' && row.viewId !== 'core.slider') return undefined
-    if (row.derivedValue !== undefined || row.ghost || row.readOnly || row.disabled) return undefined
+    if (row.derivedValue !== undefined || row.ghost || row.readOnly || row.disabled || row.inert) return undefined
     if (Object.hasOwn(hit.bnode?.fields?.wired ?? {}, row.valueKey)) return undefined
     const scene = this.renderer.getScene()
     if (scene.links.some((link) => link.to.kind === 'port' && link.to.node === hit.node.id && link.to.port === row.inputId)) return undefined
@@ -3083,7 +3101,8 @@ export class InteractionController {
     const affordance = capabilities?.widgetRowAffordance?.(hit.node, hit.row)
     if (affordance === undefined || affordance.disabled === true) return false
     const tokens = this.renderer.getDesignTokens()
-    const rect = widgetRowAffordanceRect(hit.width, tokens.rowHeight, hit.row, tokens.rowGeometry)
+    const width = hit.row.width ?? hit.node.layout.width - hit.row.inset * 2
+    const rect = widgetRowAffordanceRect(width, tokens.rowHeight)
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.width &&
       hit.localY >= rect.y && hit.localY <= rect.y + rect.height
   }
@@ -3215,8 +3234,8 @@ export class InteractionController {
         ? { kind: 'subgraphMark', mark: subgraphMark, x: clientX, y: clientY }
       : note
         ? { kind: 'note', row: note, x: clientX, y: clientY }
-      : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'button' || hit.kind === 'memberRemove' || hit.kind === 'header' || hit.kind === 'reroute' ||
-        hit.kind === 'link' && hit.link.mismatch === true)
+      : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' && !hit.row.inert || hit.kind === 'button' || hit.kind === 'memberRemove' || hit.kind === 'header' || hit.kind === 'reroute' ||
+        hit.kind === 'link' && (hit.link.mismatch === true || hit.link.fromType?.kind === 'record'))
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
         : undefined)
   }
@@ -3535,6 +3554,7 @@ export class InteractionController {
     const g = this.gesture
     const gestureGraphId = this.gestureGraphId
     this.gesture = { kind: 'idle' }
+    this.renderer.setViewportGesture(false)
     this.activePointerId = undefined
     this.activeButtonMask = undefined
     this.activePointerType = undefined
@@ -3606,6 +3626,7 @@ export class InteractionController {
       case 'widget':
         this.pushOverlay()
         if (!g.moved) {
+          if (g.hit.row.inert) return
           // Boundary bindings on a DynamicCombo row forward the construct, not a
           // value: the row stays the occurrence-local editor (edits route to
           // the owning instance), so only real links make it inert.
@@ -4477,7 +4498,6 @@ export class InteractionController {
         g.moved &&
         hit.kind === 'empty' &&
         !g.preserveInputDriver &&
-        hasKnownLinkDropAnchorType(g.anchorType) &&
         (g.seeking === 'in' ? fixedFrom : fixedInto) !== undefined
       ) {
         this.host.onLinkDropOnEmpty?.(
@@ -4902,6 +4922,11 @@ export class InteractionController {
     if (extra.dragOffsets !== this.lastDragOffsets) {
       this.lastDragOffsets = extra.dragOffsets
       this.host.onDragOffsets?.(extra.dragOffsets)
+    }
+    if (extra.resizePreview !== this.lastResizePreview) {
+      this.lastResizePreview = extra.resizePreview
+      const node = this.renderer.getScene().nodes.find((node) => node.id === extra.resizePreview?.nodeId)
+      this.host.onNodeResize?.(node === undefined ? undefined : this.renderer.nodeForPaint(node))
     }
     const linkPresence = this.gesture.kind === 'link' ? this.gesture.presenceOrigin : undefined
     const sameLinkPresence =

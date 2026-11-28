@@ -168,6 +168,19 @@ async function bootAndOpenRuns(page: Page): Promise<void> {
 const entryFor = (page: Page, jobId: string) =>
   page.getByTestId('runs-panel').getByTestId('collection-entry').filter({ has: page.locator(`[data-job="${jobId}"]`) })
 
+test('finished rows keep their recorded status without local execution memory', async ({ page }) => {
+  await mockProjectPacks(page)
+  await installFixture(page, ['completed', 'failed'].map((state, index) => ({
+    ...unstampedRecord, state, runId: `recorded-${state}`, jobRef: `recorded-${state}`,
+    jobId: `job-${state}`, workflowName: `${state} workflow`, executed: 1,
+    finishedAt: 1_755_345_700 - index * 60,
+  })))
+  await bootAndOpenRuns(page)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)
+  await expect(entryFor(page, 'job-completed').locator('.run-row-note')).toHaveText(/^Completed, .+ago$/)
+  await expect(entryFor(page, 'job-failed').locator('.run-row-note')).toHaveText(/^Failed, .+ago$/)
+})
+
 test('unseen stored image/video rows show thumbnails without loading jobs, absent and unavailable media show none', async ({ page }) => {
   const asset = (char: string, mediaType: string) => ({ digest: `blake3:${char.repeat(64)}`, name: '', size: 1, mediaType, virtualPath: '' })
   const image = asset('b', 'image/png'), video = asset('c', 'video/webm'), missing = asset('d', 'image/png')

@@ -92,9 +92,10 @@ test('pages omit workflow-only actions, close by keyboard, and close when disabl
   await expect(
     page.getByRole('tab', { name: 'Templates', exact: true }),
   ).toBeFocused()
-  await page
-    .getByRole('checkbox', { name: 'Templates enabled', exact: true })
-    .uncheck()
+  await page.getByText('Templates enabled', { exact: true }).click()
+  await expect(
+    page.getByRole('checkbox', { name: 'Templates enabled', exact: true }),
+  ).not.toBeChecked()
   await expect(page.getByRole('tab')).toHaveText(['Diner shot'])
   await expect(
     page.getByRole('button', { name: 'Open Templates', exact: true }),

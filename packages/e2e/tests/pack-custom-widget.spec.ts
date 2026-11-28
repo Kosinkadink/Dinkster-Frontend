@@ -62,7 +62,7 @@ test('a pack-declared custom widget uses its extension kind and reports the raw 
     if (diagnostics.length > 0) throw new Error(JSON.stringify(diagnostics))
   })
   await openRailPanel(page, 'Problems')
-  await expect(page.getByTestId('problems-panel')).toContainText("widget kind 'isopack.size' is not available; using the raw-value editor")
+  await expect(page.getByTestId('problems-panel')).toContainText('Blob Out: size: This kind of field is not available; its saved value is shown as text.')
   await page.evaluate(() => {
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
   })

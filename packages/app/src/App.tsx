@@ -6,6 +6,7 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from 'solid-js'
 import { widgetValueText } from '@dinkster/canvas'
 import { BrandMark } from './BrandMark.js'
+import { failureMessage } from './request-failure.js'
 import { StatusBar } from './StatusBar.js'
 import { activeLocale, asNodeId, asPromptId, canonicalJson, diag, documentIdentityOf, documentResolver, executionKey, nodeStatesFromDinksterJob, parseDinksterRuntimePath, resolveImportedNodePacks, t, type CollectionEntry, type Diagnostic, type ExtensionHostUiContributionV1, type Json, type MenuItem, type MessageParams, type ReadonlySignal, type ResolvedMenuGroup, type SharedDocumentSession } from '@dinkster/core'
 import type { DinksterValuesClient, ExecutionState } from '@dinkster/client'
@@ -19,26 +20,29 @@ import BookOpen from 'lucide-solid/icons/book-open'
 import ScrollText from 'lucide-solid/icons/scroll-text'
 import Server from 'lucide-solid/icons/server'
 import Users from 'lucide-solid/icons/users'
+import Workflow from 'lucide-solid/icons/workflow'
+import LayoutTemplate from 'lucide-solid/icons/layout-template'
 import AudioLines from 'lucide-solid/icons/audio-lines'
 import Box from 'lucide-solid/icons/box'
 import FileIcon from 'lucide-solid/icons/file'
 import FileText from 'lucide-solid/icons/file-text'
 import Film from 'lucide-solid/icons/film'
 import type { LucideIcon } from 'lucide-solid'
-import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type CollabTabState, type Tab } from './app-state.js'
+import { ProductImageUnavailable } from '@dinkster/ui'
+import { backendConnectionStatus, backendMetadataError, currentGraphId, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
 import { CanvasHost, coreOccurrencePlanner } from './CanvasHost.js'
 import { CanvasViewControls } from './CanvasChrome.js'
 import { ContextMenu } from './ContextMenu.js'
-import { formatCollectionDate, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
+import { boardsSource, formatCollectionDate, historyRunOfEntry, historySource, packsSource, runIdOfEntry, runsSource, templatesSource, workflowsSource, type TemplateCollectionRef } from './collections.js'
 import { ExecutionActivityCard, ExecutionOpenButton, executionStatusLabel } from './ExecutionActivityCard.js'
 import { executionActivity } from './execution-activity.js'
 import { CollectionPanel } from './CollectionPanel.js'
 import { MediaDiagnostics, MediaValueInspector } from './MediaValueInspector.js'
 import { mediaMetadataOf } from './media-metadata.js'
-import { resolveNodeOccurrence, withoutPassedOnDefaults } from './problem-display.js'
+import { executionProblemDiagnostics, resolveNodeOccurrence, uniqueProblemDiagnostics, withoutPassedOnDefaults } from './problem-display.js'
 import { Icon } from './Icon.js'
 import { LibraryPanel } from './LibraryPanel.js'
 import { APP_EDITOR_KIND, GLSL_EDITOR_KIND, GRAPH_EDITOR_KIND, type EditorHostContext } from './editors.js'
@@ -47,7 +51,7 @@ import { AppView } from './AppView.js'
 import { GlslEditor } from './GlslEditor.js'
 import { ProductNotice } from './ProductForm.js'
 import { ProductButton } from './ProductControls.js'
-import { ProductConfirmation, ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductConfirmation, ProductConfirmationDialog, ProductErrorBanner, ProductIcon, ProductIconButton, ProductMenu, ProductProjectMenu, ProductSegmented, ProductTextButton, type ProductAttention, type ProductMenuItem, type ProductProject, ProductToast, ProductWindowAction, ProductWindowToolbar, ProductBrandMark, useFieldFocus } from '@dinkster/ui'
 import PanelTop from 'lucide-solid/icons/panel-top'
 import SlidersHorizontal from 'lucide-solid/icons/sliders-horizontal'
 import type { ShellNavigation } from './Shell.js'
@@ -56,7 +60,10 @@ import '@dinkster/ui/styles.css'
 import { ProductEmptyState } from './ProductSurfaces.js'
 import { ExtensionsPanel } from './ExtensionsPanel.js'
 import { beginRegionResize, REGION_SIZE_BOUNDS, type ShellRegion } from './shell-layout.js'
-import { TemplateGallery } from './TemplateGallery.js'
+import { TemplatesPage } from './TemplatesPage.js'
+import { EditorFirstRunSetup } from './EditorFirstRunSetup.js'
+import { NodeCatalogRecovery } from './NodeCatalogRecovery.js'
+import type { SetupStatus } from './SetupForm.js'
 import { useSignal } from './solid-adapter.js'
 import { comboFromEvent, isNativeTextScopeTarget, shortcutSuppressed, type CommandRegistry, type KeybindingRegistry } from './settings.js'
 import { SettingsDialog } from './SettingsDialog.js'
@@ -67,7 +74,8 @@ import { CollabPanel } from './CollabPanel.js'
 import { ImportAssetResolutionDialog } from './ImportAssetResolutionDialog.js'
 import { ModalSurface } from './ModalSurface.js'
 import { attachDomTooltips, resolveCanvasTooltip, TooltipController, type DomTooltipTarget } from './tooltips.js'
-import { activateProblem, ProblemsPanel } from './ProblemsPanel.js'
+import { activateProblem, ProblemsPanel, type ProblemFixActions } from './ProblemsPanel.js'
+import { problemFixIsImmediate, problemFixLabel, problemFixLabels } from './problem-fixes.js'
 import { useSelectionContext } from './selection-context.js'
 import { RegionIterationInspector } from './RegionIterationInspector.js'
 import { regionIterationInventory } from './region-iteration.js'
@@ -87,7 +95,7 @@ import { ResourcesPanel } from './ResourcesPanel.js'
 import { LearnPanel } from './help/LearnPanel.js'
 import { NodeHelpPanel } from './help/NodeHelpPanel.js'
 import { useAppMessage } from './locale.js'
-import { UniversalSearch, UniversalSearchTrigger } from './UniversalSearch.js'
+import { shortcutKeys, UniversalSearch, UniversalSearchTrigger } from './UniversalSearch.js'
 import { bindSearchCatalog, registerCoreSearchProviders } from './universal-search.js'
 import { NodeInstallPrompt } from './NodeInstallPrompt.js'
 import { ProjectNeedsPrompt } from './ProjectNeedsPrompt.js'
@@ -104,6 +112,7 @@ import {
   ShellResizeHandle,
   ShellTooltip,
   TransientStatus,
+  windowBarPlatform,
 } from './ShellChrome.js'
 import { PanelDragOverlay } from './PanelDragOverlay.js'
 import { TabDragGhost } from './TabDragGhost.js'
@@ -123,7 +132,7 @@ import {
   type PanelDragSectionGeometry,
   type PanelDragVisibleZoneGeometry,
 } from './panel-drag.js'
-import { WorkflowTabs, workflowTabDomId } from './WorkflowTabs.js'
+import { WorkflowTabs, workflowTabDomId, workflowTabIcon } from './WorkflowTabs.js'
 import { isPageTab, PageTabPanel } from './page-tabs.js'
 import type { AppTab } from './app-page-tabs.js'
 import { WorkflowQueueControl } from './WorkflowQueueControl.js'
@@ -201,7 +210,7 @@ const splitDropNextLayout = (layout: EditorLayout, target: SplitDropTarget, tabI
 }
 
 const APP_MENU_COMMAND_GROUPS = [
-  { group: '10-open', ids: ['workflow.open', 'workflow.importFile'] },
+  { group: '10-open', ids: ['workflow.open', 'workflow.importFile', 'board.new'] },
   { group: '20-write', ids: ['workflow.save', 'workflow.export'] },
   { group: '30-edit', ids: ['edit.undo', 'edit.redo', 'edit.selectAll', 'subgraph.manageDefinitions'] },
   { group: '40-view', ids: ['view.zoomIn', 'view.zoomOut', 'view.fitSelection', 'layout.customize'] },
@@ -368,7 +377,7 @@ export function dispatchAppCommandKey(
   }
   const commandId = app.keybindings.match(event)
   if (shortcutSuppressed(event)) return
-  if (commandId !== 'search.open' && !hasActiveTab) return
+  if (!hasActiveTab && commandId !== 'search.open' && commandId !== 'workflow.new' && commandId !== 'workflow.openTemplateGallery') return
   const command = commandId ? app.commands.get(commandId) : undefined
   if (!command) return
   if (command.enabled?.() !== false) {
@@ -505,6 +514,8 @@ export function App(props: {
   const dirtyTabs = useSignal(app.dirtyTabs)
   const tabResultClears = useSignal(app.clearedTabResults)
   const collabTabs = useSignal(app.collabTabs)
+  const boards = useSignal(app.boards.entries)
+  const boardForTab = (id: string) => boards().find((entry) => `page:board:${entry.id}` === id)
   const executions = useSignal(app.store.executions)
   const problems = useSignal(app.problems)
   const queueRefusal = useSignal(app.queueRefusal)
@@ -522,6 +533,10 @@ export function App(props: {
     settingsTick()
     return app.appViewEnabled
   })
+  const exposureEnabled = createMemo((): boolean => {
+    settingsTick()
+    return app.exposureEnabled
+  })
   const backends = useSignal(app.backends)
   const backendsTick = useSignal(app.backendsTick)
   const hostUiTick = useSignal(app.hostUiContributions.changed)
@@ -534,6 +549,7 @@ export function App(props: {
   const modalPanel = useSignal(app.modalPanel)
   const searchOpen = useSignal(app.searchOpen)
   const nodeInstallRequest = useSignal(app.nodeInstallRequest)
+  const catalogSetupRequested = useSignal(app.nodeCatalogSetupRequested)
   const projectNeedsReview = useSignal(app.projectNeedsReview)
   const projectPackNotification = useSignal(app.projectPackNotification)
   const placementStatus = useSignal(app.placementStatus)
@@ -566,17 +582,7 @@ export function App(props: {
   const activityBarVisible = useSignal(app.shell.activityBarVisible)
   // Desktop marks the bar with its platform. On macOS the logo sits at the top
   // of the left bar, and after the window buttons while that bar is hidden.
-  const [barPlatform, setBarPlatform] = createSolidSignal<string | undefined>()
-  onMount(() => {
-    // The bar may mount after this component, and Desktop may set the attribute later.
-    const read = (): void => {
-      setBarPlatform(document.querySelector<HTMLElement>('.dinkster-window-toolbar-host')?.dataset['platform'])
-    }
-    read()
-    const observer = new MutationObserver(read)
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-platform'] })
-    onCleanup(() => observer.disconnect())
-  })
+  const barPlatform = windowBarPlatform(() => shellEl)
   const logoInLeftBar = (): boolean => barPlatform() === 'darwin' && activityBarVisible()
   const statusBarVisible = useSignal(app.shell.statusBarVisible)
   const dockWidth = useSignal(app.shell.leftWidth)
@@ -589,10 +595,11 @@ export function App(props: {
     endRegionResize?.()
     if (region === 'left') app.shell.previewSize(region, renderedDockWidth())
     if (region === 'right') app.shell.previewSize(region, renderedRailWidth())
-    endRegionResize = beginRegionResize(app.shell, region, down, sign)
+    if (region === 'bottom') app.shell.previewSize(region, renderedBottomHeight())
+    endRegionResize = beginRegionResize(app.shell, region, down, sign, () => maximumRegionSize(region))
   }
   const resizeFromKeyboard = (region: ShellRegion) => (value: number): void => {
-    app.shell.previewSize(region, value)
+    app.shell.previewSize(region, Math.min(maximumRegionSize(region), value))
     app.shell.commitSize(region)
   }
   onCleanup(() => endRegionResize?.())
@@ -618,7 +625,7 @@ export function App(props: {
   })
   // Built-in browsable collections; sources are live (corpus re-read per
   // page), so one instance each for the app's lifetime is correct.
-  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app)]
+  const builtinLibrarySources = [packsSource(app), templatesSource(app), workflowsSource(app), boardsSource(app)]
   const storedRuns = runsSource(app)
   const browserHistory = historySource(app)
   const libraryTemplatesEnabled = createMemo(() => {
@@ -627,7 +634,12 @@ export function App(props: {
     backendsTick()
     return app.libraryBackend()?.templatesEnabled.get() === true
   })
-  const librarySources = createMemo(() => builtinLibrarySources.filter((source) => source.id !== 'templates' || libraryTemplatesEnabled()))
+  const librarySources = createMemo(() => {
+    settingsTick()
+    return builtinLibrarySources.filter((source) =>
+      (source.id !== 'templates' || libraryTemplatesEnabled()) &&
+      (source.id !== 'boards' || app.settings.get<boolean>('features.board.enabled')))
+  })
   // The backend the library browses (the active tab's target). A memo so
   // the panel re-pages exactly when the resolved backend IDENTITY changes
   // (tab switch onto another backend, retarget, backend removal) - not on
@@ -643,13 +655,33 @@ export function App(props: {
   // (dis)connect/reload packs, executions arrive or change status, or the
   // library backend itself changes (remote sources now serve a different
   // backend's records - a stale mixed list must not linger).
+  const boardsLibraryChanged = useSignal(app.boards.libraryChanged)
   const libraryTick = (): number => {
     backendsTick()
     executions()
     libraryOwner()
+    boardsLibraryChanged()
     return 0
   }
   const activateLibraryEntry = (sourceId: string, entry: CollectionEntry): void => {
+    if (sourceId === 'boards') {
+      if (!app.settings.get<boolean>('features.board.enabled') || entry.owner === undefined) return
+      const backend = app.backends.get().find((candidate) => candidate.id === entry.owner && candidate.protocol === 'dinkster')
+      if (!backend) {
+        app.reportProblems(GLOBAL_PROBLEMS_OWNER, [diag('error', 'validation', 'library.ownerGone', 'the backend this entry came from is no longer connected')])
+        return
+      }
+      const stillWanted = app.beginDocumentOpen()
+      void app.boards.openSaved(entry.id, backend.baseUrl, stillWanted).then((board) => {
+        if (!stillWanted() || !app.backends.get().includes(backend) || !app.boards.entries.get().includes(board)) return
+        if (app.pages.open(`board:${board.id}`)) setPanelOpen(app.panels, app.dock, 'library', 'left', false)
+      }).catch((reason: unknown) => {
+        if (stillWanted() && app.backends.get().includes(backend)) app.reportProblems(GLOBAL_PROBLEMS_OWNER, [
+          diag('error', 'validation', 'board.openFailed', failureMessage(reason, 'The board could not be opened.')),
+        ])
+      })
+      return
+    }
     if (sourceId === 'workflows') {
       if (entry.owner === undefined) return
       void app.openFromLibrary(entry.id, entry.owner).then((ok) => {
@@ -676,7 +708,7 @@ export function App(props: {
       if (entry.owner === undefined) return
       const ref = entry.ref as TemplateCollectionRef | undefined
       const opening = ref?.kind === 'remote'
-        ? app.openRemoteTemplate(ref.template, entry.title)
+        ? app.openRemoteTemplate(ref.template, entry.title, entry.owner)
         : ref?.kind === 'local'
           ? app.openTemplate(ref.pack, ref.id, entry.title, entry.owner)
           : Promise.resolve(false)
@@ -796,12 +828,6 @@ export function App(props: {
       unsubStack()
     })
   })
-  const boundaryIndicator = (): PanelIndicator | undefined => {
-    boundaryStateTick()
-    return editedSubgraphDefinition(activeTab())
-      ? { count: 1, severity: 'info', label: message('shell.status.boundaryEditable') }
-      : undefined
-  }
   const splitLayoutRaw = useSignal(app.editorSplits.layout)
   /**
    * The split layout actually rendered: the stored tree repaired against
@@ -871,6 +897,7 @@ export function App(props: {
   const [tabDrag, setTabDrag] = createSolidSignal<{
     readonly tabId: string
     readonly title: string
+    readonly icon: LucideIcon
     readonly sourceGroupId: string
     readonly x: number
     readonly y: number
@@ -1116,6 +1143,7 @@ export function App(props: {
       restoreTabFocusAfter(() => setTabDrag({
         tabId: tab.id,
         title: tab.title,
+        icon: workflowTabIcon(tab, !isPageTab(tab) && tab.execution !== undefined),
         sourceGroupId: groupId,
         x: event.clientX,
         y: event.clientY,
@@ -1260,9 +1288,13 @@ export function App(props: {
     backendsTick()
     return b.registry.get()?.schemas.size
   }
+  const [setupEditors, setSetupEditors] = createSolidSignal<ReadonlyMap<object, { backend: string; status: SetupStatus }>>(new Map())
+  const setupStatus = () => [...setupEditors().values()].find((editor) => editor.backend === activeBackend().baseUrl)?.status
   const engineGate = (tab: Tab) => {
     backendsTick()
-    const sup = app.backendForTab(tab).supervisor.get()
+    const backend = app.backendForTab(tab)
+    if ([...setupEditors().values()].some((editor) => editor.backend === backend.baseUrl)) return undefined
+    const sup = backend.supervisor.get()
     return sup && sup.state !== 'ready' ? sup : undefined
   }
 
@@ -1273,7 +1305,9 @@ export function App(props: {
     backendsTick()
     tabTargets()
     const tab = activeTab()
-    return tab ? app.backendForTab(tab) : backends()[0]!
+    const board = app.boards.entries.get().find((entry) => `page:board:${entry.id}` === activeTabId())
+    return board ? backends().find((backend) => backend.baseUrl === board.baseUrl) ?? backends()[0]!
+      : tab ? app.backendForTab(tab) : backends()[0]!
   }
 
   const servicesKind = (): 'qa' | 'custom' | undefined => {
@@ -1398,6 +1432,9 @@ export function App(props: {
         return { label: backend.label, protocol: backend.protocol, status: statusOf(backend) }
       }}
       refreshTick={libraryTick}
+      catalogRecovery={activeBackend().registry.get()?.schemas.size === 0
+        ? <Show when={activeBackend()} keyed>{(backend) => <NodeCatalogRecovery app={app} backend={backend} />}</Show>
+        : undefined}
       onActivate={activateLibraryEntry}
       onAction={libraryEntryAction}
     />
@@ -1430,8 +1467,9 @@ export function App(props: {
   })
   onCleanup(unregisterStorageCommand)
   const [assetsBackendId, setAssetsBackendId] = createSolidSignal<string>()
+  const [assetsMountFocus, setAssetsMountFocus] = createSolidSignal<{ readonly mountId: string }>()
   const activeAssetsBackendId = createMemo(() => activeBackend().id)
-  createEffect(() => { activeAssetsBackendId(); setAssetsBackendId(undefined) })
+  createEffect(() => { activeAssetsBackendId(); setAssetsBackendId(undefined); setAssetsMountFocus(undefined) })
   const AssetsPanelBody = () => <Show when={backends().find((backend) => backend.id === assetsBackendId()) ?? activeBackend()} keyed>
     {(backend) => {
       return backend.protocol === 'dinkster'
@@ -1440,6 +1478,7 @@ export function App(props: {
           backendId={String(backend.id)}
           baseUrl={backend.baseUrl}
           backendLabel={backend.label}
+          mountFocus={assetsMountFocus()}
           onOpenStorage={() => openStorage(backend)}
         /></BackendMetadataState>
       : <ProductEmptyState title={message('shell.backend.assetsRequireNative')} />
@@ -1567,7 +1606,7 @@ export function App(props: {
         const values = backend.connection.historyValues(run)
         setLoaded({ execution, values })
       } catch (error) {
-        if (alive) setLoadError(error instanceof Error ? error.message : String(error))
+        if (alive) setLoadError(failureMessage(error, message('runs.loadError')))
       } finally {
         if (alive) setLoading(false)
       }
@@ -1594,14 +1633,15 @@ export function App(props: {
     const now = useNow()
     const note = () => {
       const execution = known()
+      const run = record()
+      const status = run === undefined ? execution?.status : run.state === 'failed' ? 'error' : run.state
       // Durable records count seconds; the store counts milliseconds.
-      const finished = record()?.finishedAt
-      const ended = execution?.endedAt ?? (finished === undefined ? undefined : finished * 1000)
+      const ended = run === undefined ? execution?.endedAt : run.finishedAt * 1000
       if (ended === undefined) return p.entry.subtitle
       // Runs of one workflow are told apart by their age; the job id stays in the opened run.
       const grouped = p.entry.children?.length ?? 0
       const parts = [
-        ...(execution === undefined ? [] : [executionStatusLabel(execution.status)]),
+        ...(status === undefined ? [] : [executionStatusLabel(status)]),
         runAge(ended, now()),
         ...(grouped > 1 ? [message('runs.row.grouped', { count: grouped })] : []),
       ]
@@ -1637,7 +1677,7 @@ export function App(props: {
       onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
       <div class="run-row-line">
-        <span class="run-row-thumbnail" aria-hidden="true">
+        <span class="run-row-thumbnail">
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
         </span>
         <span class="run-row-text">
@@ -1650,7 +1690,7 @@ export function App(props: {
       </div>
       <Show when={p.selected()}>
         <Show when={loading()}><p role="status">{message('runs.loading')}</p></Show>
-        <Show when={loadError()}>{(error) => <p role="status" title={message('runs.loadError', { error: error() })}>{message('runs.loadError', { error: error() })}</p>}</Show>
+        <Show when={loadError()}>{(error) => <p role="status" title={error()}>{error()}</p>}</Show>
         <Show when={known()} fallback={<Show when={loaded()} fallback={<>
           {chosen()}
           <Show when={inspectOpen()}><div class="run-chosen-inspection" data-testid="run-inspection"><Facts /></div></Show>
@@ -1743,15 +1783,70 @@ export function App(props: {
       </Show>
     </div>
   )
+  const problemFixesChanged = useSignal(app.problemFixes.changed)
   // The indicator always counts the full list, regardless of the selection filter.
   const problemDiagnostics = (): readonly Diagnostic[] => {
+    boundaryStateTick()
+    backendsTick()
+    settingsTick()
+    problemFixesChanged()
+    const tab = activeTab()
     const execution = activeExecution()
     const others = [
       ...visibleProblems(problems(), new Set([activeTabId()])),
-      ...(activeTab()?.execution ? execution?.artifact?.diagnostics ?? [] : []),
-      ...(execution?.errors ?? []),
+      ...(tab?.execution ? execution?.artifact?.diagnostics ?? [] : []),
+      ...(execution === undefined ? [] : executionProblemDiagnostics(execution)),
     ]
-    return [...withoutPassedOnDefaults(solveDiagnostics(), others), ...others]
+    const diagnostics = uniqueProblemDiagnostics([...withoutPassedOnDefaults(solveDiagnostics(), others), ...others], tab?.store.doc)
+    if (tab === undefined || tab.execution) return diagnostics
+    const managed = app.problemFixes.diagnostics(tab)
+    return [
+      ...diagnostics.filter((diagnostic) => diagnostic.code !== 'automatic.numberOutsideLimits' &&
+        !(diagnostic.code === 'node.rule.failed' && managed.some((problem) => problem.code === diagnostic.code &&
+          problem.data?.['rule'] === diagnostic.data?.['rule'] &&
+          problem.refs?.[0]?.graphId === diagnostic.refs?.[0]?.graphId &&
+          problem.refs?.[0]?.nodeId === diagnostic.refs?.[0]?.nodeId &&
+          (diagnostic.anchor?.occurrence === undefined ||
+            JSON.stringify(problem.anchor?.occurrence) === JSON.stringify(diagnostic.anchor.occurrence))))),
+      ...managed,
+    ]
+  }
+  const problemFixActions: ProblemFixActions = {
+    forProblem: (diagnostic) => {
+      problemFixesChanged()
+      settingsTick()
+      const tab = activeTab()
+      if (tab === undefined) return undefined
+      const fix = app.problemFixes.forProblem(tab, diagnostic)
+      if (fix === undefined) return undefined
+      return {
+        label: problemFixLabel(fix, message),
+        labels: problemFixLabels(fix, message),
+        disabled: fix.state === 'storing',
+        run: () => {
+          if (fix.state === 'stale') app.problemFixes.recheck(tab, fix.key)
+          else if (fix.offered.kind === 'save-targets' && !fix.offered.defaultReady) openStorage(fix.offered.backend)
+          else return app.problemFixes.apply(tab, [fix])
+        },
+      }
+    },
+    all: () => {
+      const diagnostics = problemDiagnostics()
+      const tab = activeTab()
+      if (tab === undefined || diagnostics.length === 0) return undefined
+      const fixes = diagnostics.flatMap((diagnostic) => {
+        const fix = app.problemFixes.forProblem(tab, diagnostic)
+        return fix === undefined ? [] : [fix]
+      }).sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0)
+      if (fixes.length !== diagnostics.length || fixes.some((fix) => fix.state === 'stale' || !problemFixIsImmediate(fix))) return undefined
+      const storing = fixes.some((fix) => fix.state === 'storing')
+      return {
+        label: message(storing ? 'problemFix.storing' : 'problemFix.fixAll'),
+        labels: [message('problemFix.fixAll'), message('problemFix.storing')],
+        disabled: storing,
+        run: () => app.problemFixes.apply(tab, fixes, { noWait: true }),
+      }
+    },
   }
   const importedNodes = () => {
     boundaryStateTick()
@@ -1761,12 +1856,12 @@ export function App(props: {
     return resolveImportedNodePacks(tab.store.doc, app.registryForTab(tab)?.resolve ?? (() => undefined))
   }
   const problemsIndicator = (): PanelIndicator | undefined => {
-    const list = problemDiagnostics()
+    const list = problemDiagnostics().filter((diagnostic) => diagnostic.severity !== 'info')
     const missingPackCount = new Set(importedNodes().filter((node) => node.status === 'installable').map((node) => node.pack)).size
     if (list.length === 0 && missingPackCount === 0) return undefined
     const severity = list.some((d) => d.severity === 'error')
       ? 'error'
-      : missingPackCount > 0 || list.some((d) => d.severity === 'warning') ? 'warning' : 'info'
+      : 'warning'
     const count = list.length + missingPackCount
     return {
       count,
@@ -1821,8 +1916,9 @@ export function App(props: {
       get description() { return message('storagePanel.description') }, get ariaLabel() { return message('storagePanel.title') },
       placement: 'dock', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 29,
       toggleTestId: 'storage-sidebar-toggle', component: () => <StoragePanel app={app} focusBackend={storageFocus()} activeBackend={activeBackend}
-        onOpenAssets={(backend) => {
+        onOpenAssets={(backend, mountId) => {
           setAssetsBackendId(backend.id)
+          setAssetsMountFocus(mountId === undefined ? undefined : { mountId })
           setPanelOpen(app.panels, app.dock, 'assets', 'left', true)
         }} />,
     }),
@@ -1857,7 +1953,6 @@ export function App(props: {
     registerBuiltinPanel({
       id: 'boundary', get title() { return message('shell.panel.boundary.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 40,
-      indicator: boundaryIndicator,
       when: () => {
         boundaryStateTick()
         const tab = activeTab()
@@ -1877,7 +1972,7 @@ export function App(props: {
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 20,
       indicator: problemsIndicator,
       component: () => <ProblemsPanel app={app} diagnostics={problemDiagnostics}
-        importedNodes={importedNodes}
+        fixes={problemFixActions} importedNodes={importedNodes}
         compatSkips={() => activeBackend().compatSkips.get()}
         packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
         selection={selectionContext} />,
@@ -1933,9 +2028,50 @@ export function App(props: {
     backendsTick()
     return backends().some((backend) => backend.templatesEnabled.get())
   })
+  const openTemplates = (backend: Backend | undefined = app.libraryBackend()): void => {
+    if (backend?.templatesEnabled.get()) app.pages.open('templates', backend.id)
+  }
+  onCleanup(app.frontendDoors.command('workflow.new', {
+    get label() { return message('templatesEntry.blank') },
+    run: () => { app.createWorkflow() },
+  }))
+  onCleanup(app.keybindings.register({ command: 'workflow.new', combo: 'Alt+N' }))
+  const documentKeys = (command: string): readonly string[] | undefined => {
+    settingsTick()
+    const combo = app.keybindings.combo(command)
+    return combo === undefined ? undefined : shortcutKeys(combo)
+  }
+  onCleanup(app.pages.register({
+    id: 'templates',
+    get title() { return message('templatesPage.title') },
+    icon: LayoutTemplate,
+    enabled: () => {
+      backendsTick()
+      const page = shellTabs().find((tab) => isPageTab(tab) && tab.pageId === 'templates')
+      return page && isPageTab(page)
+        ? backends().some((backend) => backend.id === page.parameters && backend.templatesEnabled.get())
+        : templatesAvailable()
+    },
+    component: (context) => {
+      const backend = app.backends.get().find((candidate) => candidate.id === context.tab.parameters)
+      if (backend?.protocol !== 'dinkster') return undefined
+      return <TemplatesPage app={app} backend={backend}
+        onOpen={(entry) => {
+          const ref = entry.ref as TemplateCollectionRef
+          return ref.kind === 'remote'
+            ? app.openRemoteTemplate(ref.template, entry.title, backend.id, context.tab)
+            : app.openTemplate(ref.pack, ref.id, entry.title, backend.id, context.tab)
+        }}
+        onBlank={() => {
+          const workflow = app.createWorkflow()
+          app.setTabTarget(workflow.id, backend.id)
+          context.replaceWithWorkflow(workflow)
+        }}
+        onOpenStorage={() => openStorage(backend)} />
+    },
+  }))
   createEffect(() => {
     if (!templatesAvailable()) {
-      app.templateGalleryOpen.set(false)
       return
     }
     const unregisterSetting = app.settings.register({
@@ -1945,18 +2081,19 @@ export function App(props: {
       category: 'templates', type: 'string', defaultValue: '',
     })
     const unregisterCommand = app.frontendDoors.command('workflow.openTemplateGallery', {
-      get label() { return t('command.workflow.openTemplateGallery') },
-      run: () => app.templateGalleryOpen.set(true),
-      enabled: () => app.activeTab() !== undefined && app.activeTab()?.execution === undefined && activeBackend().templatesEnabled.get(),
+      get label() { return message('templatesEntry.fromTemplate') },
+      run: () => openTemplates(),
+      enabled: () => app.libraryBackend()?.templatesEnabled.get() === true,
     })
-    onCleanup(() => { unregisterCommand(); unregisterSetting() })
+    const unregisterKeybinding = app.keybindings.register({ command: 'workflow.openTemplateGallery', combo: 'Alt+T' })
+    onCleanup(() => { unregisterKeybinding(); unregisterCommand(); unregisterSetting() })
   })
   // The center region resolves every editor through EditorRegistry rather
   // than shell JSX branches.
   const GraphEditor = (editorProps: { readonly host?: EditorHostContext }) => {
+    const setupOwner = {}
     const tabs = useSignal(app.tabs)
     const globalActiveTabId = useSignal(app.activeTabId)
-    const galleryRequested = useSignal(app.templateGalleryOpen)
     const [documentRevision, setDocumentRevision] = createSolidSignal(0)
     const activeTabId = () => editorProps.host?.tabId() ?? globalActiveTabId()
     const activeEditorTab = () => tabs().find((tab) => tab.id === activeTabId())
@@ -1998,8 +2135,10 @@ export function App(props: {
       const root = tab.store.doc.graphs[tab.store.doc.root]
       return root !== undefined && Object.keys(root.nodes).length === 0
     }
-    const close = (): void => {
-      app.templateGalleryOpen.set(false)
+    const templatesEnabled = (): boolean => {
+      backendsTick()
+      const tab = activeEditorTab()
+      return tab !== undefined && app.backendForTab(tab).templatesEnabled.get()
     }
     return <div class="graph-editor-with-gallery">
       <div class="graph-editor-canvas">
@@ -2016,13 +2155,21 @@ export function App(props: {
             />
         </Show>
       </div>
-      <Show when={activeBackend().templatesEnabled.get() && empty() && !galleryRequested()}>
-        <ProductButton class="template-gallery-open" type="button" onClick={() => app.templateGalleryOpen.set(true)}>
-          {message('templateGallery.open')}
-        </ProductButton>
+      <Show when={empty() && !catalogSetupRequested()}>
+        <EditorFirstRunSetup backendUrl={activeBackend().baseUrl} onStatusChange={(status) => {
+          setSetupEditors((current) => {
+            const next = new Map(current)
+            if (status) next.set(setupOwner, { backend: activeBackend().baseUrl, status })
+            else next.delete(setupOwner)
+            return next
+          })
+        }} />
       </Show>
-      <Show when={activeBackend().templatesEnabled.get()}>
-        <TemplateGallery app={app} visible={galleryRequested} onClose={close} />
+      <Show when={templatesEnabled() && activeEditorTab()?.execution === undefined && !sessionFailed() && empty()}>
+        <div class="template-empty-canvas" data-testid="template-empty-canvas">
+          <span>{message('templatesEntry.addNode')}</span>
+          <span>{message('templatesEntry.or')}{' '}<ProductTextButton label={message('templateGallery.open')} onClick={() => openTemplates(app.backendForTab(activeEditorTab()!))} /></span>
+        </div>
       </Show>
     </div>
   }
@@ -2062,7 +2209,7 @@ export function App(props: {
    * editor consumed from double-firing as a command.
    */
   const onCommandKeyDown = (e: KeyboardEvent): void => {
-    dispatchAppCommandKey(app, e, activeTab() !== undefined)
+    dispatchAppCommandKey(app, e, shellTabs().some((tab) => tab.id === activeTabId()))
   }
   window.addEventListener('keydown', onCommandKeyDown)
   onCleanup(() => window.removeEventListener('keydown', onCommandKeyDown))
@@ -2170,6 +2317,7 @@ export function App(props: {
   const bottomOpen = () => zoneOpen('bottom') && bottomZonePanels().length > 0
   let bodyElement!: HTMLDivElement
   const [sideSpace, setSideSpace] = createSolidSignal<{ single: number; both: number }>()
+  const [bottomSpace, setBottomSpace] = createSolidSignal(REGION_SIZE_BOUNDS.bottom.fallback)
   onMount(() => {
     if (managedContext().kind === 'panel') return
     const sidebar = bodyElement.querySelector<HTMLElement>(':scope > .left-sidebar')!
@@ -2179,19 +2327,33 @@ export function App(props: {
       const sidebarWidth = sidebar.getBoundingClientRect().width
       const sidebarShare = sidebarWidth > 0 ? sidebarWidth + gap + Number.parseFloat(getComputedStyle(sidebar).marginRight) : 0
       const available = bodyElement.clientWidth - Number.parseFloat(style.paddingLeft)
-        - Number.parseFloat(style.paddingRight) - sidebarShare - 320
+        - Number.parseFloat(style.paddingRight) - sidebarShare - 200
       setSideSpace(bodyElement.clientWidth <= 520
         ? undefined
-        : { single: Math.max(0, available - gap), both: Math.max(0, available - 2 * gap) })
+        : { single: Math.max(0, Math.floor(available - gap)), both: Math.max(0, Math.floor(available - 2 * gap)) })
+      const tabHeight = Math.max(0, ...Array.from(bodyElement.querySelectorAll<HTMLElement>('.editor-group > .tab-strip'),
+        (strip) => strip.getBoundingClientRect().height))
+      setBottomSpace(Math.max(REGION_SIZE_BOUNDS.bottom.min, Math.floor(bodyElement.clientHeight - tabHeight - 160 - gap)))
     }
     const observer = new ResizeObserver(measure)
     observer.observe(bodyElement)
     observer.observe(sidebar)
+    if (regionElement) observer.observe(regionElement)
     measure()
     onCleanup(() => observer.disconnect())
   })
-  const renderedDockWidth = () => Math.min(dockWidth(), Math.max(REGION_SIZE_BOUNDS.left.min, sideSpace()?.single ?? dockWidth()))
-  const renderedRailWidth = () => Math.min(railWidth(), Math.max(REGION_SIZE_BOUNDS.right.min, sideSpace()?.single ?? railWidth()))
+  const maximumRegionSize = (region: ShellRegion): number => {
+    if (region === 'bottom') return bottomSpace()
+    const space = sideSpace()
+    const opposite = region === 'left' ? railWidth() : dockWidth()
+    const oppositeOpen = region === 'left' ? railOpen() : leftOpen()
+    return Math.max(REGION_SIZE_BOUNDS[region].min, space === undefined
+      ? bodyElement?.clientWidth ?? REGION_SIZE_BOUNDS[region].fallback
+      : oppositeOpen ? space.both - opposite : space.single)
+  }
+  const renderedDockWidth = () => Math.min(dockWidth(), maximumRegionSize('left'))
+  const renderedRailWidth = () => Math.min(railWidth(), maximumRegionSize('right'))
+  const renderedBottomHeight = () => Math.min(bottomHeight(), maximumRegionSize('bottom'))
   let previousRailOpen = railOpen()
   createEffect(() => {
     const right = railOpen()
@@ -2563,7 +2725,7 @@ export function App(props: {
       .then((project) => setProjectName(project.name), () => {})
     onCleanup(() => controller.abort())
   })
-  const account = createAccountSession(() => app.connection)
+  const account = createAccountSession(() => app.connection, '')
   const [projectList, setProjectList] = createSolidSignal<readonly ProductProject[]>()
   const [projectListFailed, setProjectListFailed] = createSolidSignal(false)
   const [projectsFocusNew, setProjectsFocusNew] = createSolidSignal(false)
@@ -2844,9 +3006,9 @@ export function App(props: {
               return message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
                 state: status === undefined ? '' : executionStatusLabel(status).toLocaleLowerCase() })
             }}
-            isShared={(tab) => collabTabs().has(tab.id)}
+            isShared={(tab) => collabTabs().has(tab.id) || boardForTab(tab.id)?.shared !== undefined}
             renderLeading={(tab) => (
-              <Show when={collabTabs().get(tab.id)} keyed>
+              <Show when={collabTabs().get(tab.id) ?? boardForTab(tab.id)?.shared} keyed>
                 {(entry) => <TabCollabDot entry={entry} />}
               </Show>
             )}
@@ -2859,6 +3021,14 @@ export function App(props: {
             onActivate={(event, tab) => activateTab(event, tab.id, p.groupId)}
             onClose={managedContext().kind === 'workflow' ? redockCurrentWindow : closeTab}
             onRename={(tab, title) => app.renameTab(tab.id, title)}
+            canRename={(tab) => {
+              const board = boardForTab(tab.id)
+              return board ? app.boards.canRename(board.id) : !isPageTab(tab) && ['graph', 'app'].includes(tab.editorKind)
+            }}
+            renameName={(tab) => {
+              const board = boardForTab(tab.id)
+              return board ? board.name : tab.title
+            }}
             onDuplicate={(tab) => {
               if (isPageTab(tab)) return
               void app.duplicateTab(tab.id).then((copy) => {
@@ -2872,11 +3042,30 @@ export function App(props: {
             onCloseOthers={managedContext().kind === 'primary' ? (tab) => closeOthers(tab, groupTabs()) : undefined}
             onPointerDown={(event, tab) => beginTabDrag(tab, event, p.groupId)}
             onNew={() => app.createWorkflow()}
-            canShare={(tab) => !isPageTab(tab) && tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')}
+            newItems={[
+              { label: message('templatesEntry.blank'), icon: Workflow, visible: true,
+                get keys() { return documentKeys('workflow.new') },
+                onSelect: () => { app.commands.get('workflow.new')!.run() } },
+              { label: message('templatesEntry.fromTemplate'), icon: LayoutTemplate,
+                get visible() { backendsTick(); return activeBackend().templatesEnabled.get() },
+                get keys() { return documentKeys('workflow.openTemplateGallery') },
+                onSelect: () => { app.commands.get('workflow.openTemplateGallery')?.run() } },
+            ]}
+            canShare={(tab) => {
+              if (isPageTab(tab)) {
+                const board = boardForTab(tab.id)
+                return board !== undefined && board.shared === undefined && backends().some((backend) =>
+                  backend.baseUrl === board.baseUrl && backend.protocol === 'dinkster')
+              }
+              return tab.execution === undefined && !collabTabs().has(tab.id) && backends().some((backend) => backend.protocol === 'dinkster')
+            }}
             onShare={(tab) => {
               app.activeTabId.set(tab.id)
               app.showTransientStatus(message('shell.share.sharing', { title: tab.title }))
-              void app.shareActiveTab().then((error) => {
+              const board = boardForTab(tab.id)
+              const sharing = board ? app.boards.share(board.id).then(() => undefined, (reason: unknown) =>
+                failureMessage(reason, 'The board could not be shared.')) : app.shareActiveTab()
+              void sharing.then((error) => {
                 app.showTransientStatus(error === undefined
                   ? message('shell.share.shared', { title: tab.title })
                   : message('shell.share.failed', { error }))
@@ -2966,7 +3155,7 @@ export function App(props: {
               activeView={paneEditorKind()}
               appViewEnabled={appViewEnabled()}
               activeLens={paneCanvasLens()}
-              lenses={app.lensRegistry.list().filter((lens) => lens.id !== 'exposure' || appViewEnabled())}
+              lenses={app.lensRegistry.list().filter((lens) => lens.id !== 'exposure' || exposureEnabled())}
               viewMenuOpen={viewMenu()}
               lensMenuOpen={lensMenu()}
               onToggleViewMenu={() => { setLensMenu(false); setViewMenu((open) => !open) }}
@@ -3025,9 +3214,9 @@ export function App(props: {
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), app.registryForTab(tab()) !== undefined)}
                       blockedReason={(backendsTick(), app.engineOffReason(tab(), message))}
-                      runControl={<Show when={tab().execution === undefined ? engineGate(tab()) : undefined}>
+                      runControl={(runButton) => <Show when={(backendsTick(), tab().execution === undefined ? app.backendForTab(tab()).supervisor.get() : undefined)} fallback={runButton()}>
                         {(status) => <EngineRunControl status={status()} baseUrl={app.backendForTab(tab()).baseUrl}
-                          onRestart={() => app.restartEngine(app.backendForTab(tab()))} />}
+                          onRestart={() => app.restartEngine(app.backendForTab(tab()))}>{runButton()}</EngineRunControl>}
                       </Show>}
                       hideRunList={engineGate(tab())?.state === 'failed'}
                       onQueue={tab().execution === undefined ? () => { void app.queue(tab()) } : undefined}
@@ -3309,7 +3498,7 @@ export function App(props: {
               label={message('shell.resize.primaryDockPanels')}
               value={renderedDockWidth()}
               min={REGION_SIZE_BOUNDS.left.min}
-              max={REGION_SIZE_BOUNDS.left.max}
+              max={maximumRegionSize('left')}
               testId="dock-resize"
               onPointerDown={beginResize('left', 1)}
               onResize={resizeFromKeyboard('left')}
@@ -3359,14 +3548,14 @@ export function App(props: {
               class="bottom-panel"
               data-testid="bottom-panel"
               data-active-panel={bottomActiveId()}
-              style={{ height: `${bottomHeight()}px` }}
+              style={{ height: `${renderedBottomHeight()}px` }}
             >
               <ShellResizeHandle
                 region="bottom"
                 label={message('shell.resize.bottomPanels')}
-                value={bottomHeight()}
+                value={renderedBottomHeight()}
                 min={REGION_SIZE_BOUNDS.bottom.min}
-                max={REGION_SIZE_BOUNDS.bottom.max}
+                max={maximumRegionSize('bottom')}
                 testId="bottom-resize"
                 onPointerDown={beginResize('bottom', -1)}
                 onResize={resizeFromKeyboard('bottom')}
@@ -3394,7 +3583,7 @@ export function App(props: {
             label={message('shell.resize.inspectorPanels')}
             value={renderedRailWidth()}
             min={REGION_SIZE_BOUNDS.right.min}
-            max={REGION_SIZE_BOUNDS.right.max}
+            max={maximumRegionSize('right')}
             testId="rail-resize"
             onPointerDown={beginResize('right', -1)}
             onResize={resizeFromKeyboard('right')}
@@ -3418,6 +3607,8 @@ export function App(props: {
         </aside></Show>
       </div>
 
+      <Show when={catalogSetupRequested()}><EditorFirstRunSetup backendUrl={activeBackend().baseUrl} requested
+        onComplete={() => { app.nodeCatalogSetupRequested.set(false); void app.refreshBackendSchemas(activeBackend()) }} /></Show>
       <Show when={panelDrag()}>{(drag) => {
         const descriptor = () => app.panels.get(drag().panelId)
         return (
@@ -3425,13 +3616,11 @@ export function App(props: {
             drag={drag()}
             ghostTitle={descriptor()?.title ?? drag().panelId}
             ghostIcon={descriptor()?.icon}
-            ghostActive={DOCK_ZONE_IDS.some((zone) => zoneSections(zone).some((section) => section.activeId === drag().panelId))}
           />
         )
       }}</Show>
       <Show when={tabDrag()}>{(drag) => (
-        <TabDragGhost title={drag().title} x={drag().x} y={drag().y} refused={drag().refused}
-          active={findGroup(displayLayout(), drag().sourceGroupId)?.activeTabId === drag().tabId} />
+        <TabDragGhost title={drag().title} icon={drag().icon} x={drag().x} y={drag().y} refused={drag().refused} />
       )}</Show>
 
       <Show when={!panelDrag()?.started && tabDrag() === undefined ? tooltip() : undefined}>{(tip) => <ShellTooltip tip={tip()} />}</Show>
@@ -3462,6 +3651,7 @@ export function App(props: {
       )}</Show>
       <TransientStatus message={transientStatus()} />
       <StatusBar app={app} backend={activeBackend} tab={activeTab} problems={problemsIndicator}
+        setupStatus={setupStatus}
         visible={statusBarVisible} placement={placementStatus} transient={transientStatus}
         context={() => {
           const tab = activeTab()
@@ -3514,7 +3704,7 @@ export function App(props: {
  * transitions (connected -> reconnecting -> closed) mutate the session in
  * place and would otherwise never rerender the dot.
  */
-function TabCollabDot(props: { entry: CollabTabState }) {
+function TabCollabDot(props: { entry: { readonly session: Pick<SharedDocumentSession, 'status'> } }) {
   const message = useAppMessage()
   const status = useSignal(props.entry.session.status)
   return (
@@ -3750,7 +3940,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
                 onClick={(event) => { event.stopPropagation(); setViewerGrid(false); setViewerIndex(index) }}
               >
                 <span class="output-thumbnail-preview">
-                  <Show when={!failed().has(image.key)} fallback={<span class="output-thumbnail-unavailable">Image unavailable</span>}>
+                  <Show when={!failed().has(image.key)} fallback={<ProductImageUnavailable />}>
                     <ViewerImage image={image} alt="" onLoad={() => markLoaded(image.key)} onError={() => markFailed(image.key)} />
                   </Show>
                   <span class="output-thumbnail-position">Output {index + 1} of {images().length}</span>

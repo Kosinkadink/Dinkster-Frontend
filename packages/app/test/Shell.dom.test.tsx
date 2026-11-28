@@ -34,6 +34,11 @@ function mount(home: HomeStatus = { role: 'home', state: 'stopped' }) {
       return Response.json(status)
     }
     if (path.startsWith('http://127.0.0.1:3637/')) return new Response('')
+    const project = /^\/api\/projects\/([^/]+)$/.exec(path)
+    if (project !== null) return Response.json({ project: {
+      id: decodeURIComponent(project[1]!), name: decodeURIComponent(project[1]!),
+      created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
+    } })
     const record = /^\/api\/projects\/([^/]+)\/opened$/.exec(path)
     if (record !== null && init?.method === 'POST') {
       recorded.push(decodeURIComponent(record[1]!))
@@ -220,7 +225,7 @@ describe('the one app shell', () => {
     view.shell.openProject('bookshop')
     await vi.waitFor(() => expect(view.page()).not.toBeNull())
     expect(view.text('failed')).toBe('The editor did not open')
-    expect(view.root.querySelector('[data-testid="line"]')?.getAttribute('title')).toBe('mount failed')
+    expect(view.root.querySelector('[data-testid="line"]')?.getAttribute('title')).toBe('')
     expect(held().childElementCount).toBe(0)
     await vi.waitFor(() => expect(view.root.querySelector('[data-testid="app-shell-cover"]')?.classList.contains('app-shell-covered')).toBe(false))
     expect(location.search).toBe('')

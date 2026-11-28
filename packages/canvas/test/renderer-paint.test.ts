@@ -618,6 +618,17 @@ describe('canvas hover affordance paint', () => {
     expect(inBand(closed, 120).length).toBeGreaterThan(0)
     expect(inBand(open, 120)).toEqual([])
     expect(inBand(open, 144)).toEqual(inBand(closed, 144))
+    for (const active of [false, true]) {
+      const exposed = paintWith(twoRows, (renderer) => {
+        renderer.setLensCapabilities({ widgetRowAffordance: () => ({ active, label: 'Expose' }) })
+        renderer.setOpenRow({ nodeId: 'hover-node', valueKey: 'amount' })
+      })
+      const tick = inBand(exposed, 120).filter((call) => call.method === 'roundRect')
+      expect(tick).toHaveLength(1)
+      expect(tick[0]!.args.slice(2, 4)).toEqual([14, 14])
+      expect(tick[0]!.fillStyle).toBe(active ? defaultTokens.colors.widgetAffordanceActive : defaultTokens.colors.widgetBackground)
+      expect(inBand(exposed, 120).some((call) => call.method === 'fillText')).toBe(false)
+    }
   })
 
   it('grows only the hovered node pin, from 11 px to 13 px across', () => {
@@ -1129,6 +1140,91 @@ describe('scene visual bounds and fitting', () => {
     renderer.fitToScene()
     expect(Object.values(renderer.getViewport()).every(Number.isFinite)).toBe(true)
     expect(renderer.getViewport().scale).toBe(2)
+    renderer.dispose()
+  })
+})
+
+describe('automatic node details', () => {
+  it.each([
+    [40, 0.15], [41, 0.22], [150, 0.22], [151, 0.3],
+  ])('uses the visible-node cutoff for %i nodes', (count, cutoff) => {
+    vi.useFakeTimers()
+    const { ctx } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    try {
+      const template = fixtureScene('clean').nodes[0]!
+      const visible = Array.from({ length: count }, (_, i) => ({ ...template, id: `visible-${i}`, x: i % 10 * 30, y: Math.floor(i / 10) * 30 }))
+      // The last visible node only intersects the left edge; offscreen nodes do not count.
+      visible[count - 1] = { ...visible[count - 1]!, x: -template.layout.width + 1 }
+      const outside = Array.from({ length: 200 }, (_, i) => ({ ...template, id: `outside-${i}`, x: 100000, y: 100000 }))
+      renderer.setScene(emptyScene({ nodes: [...visible, ...outside] }))
+      renderer.setDetailMode('automatic')
+      renderer.setViewport({ x: 0, y: 0, scale: cutoff - 0.001 })
+      vi.advanceTimersByTime(150)
+      expect(renderer.getDetailLevel()).toBe('overview')
+      renderer.setViewport({ x: 0, y: 0, scale: cutoff })
+      vi.advanceTimersByTime(150)
+      expect(renderer.getDetailLevel()).toBe('controls')
+    } finally {
+      renderer.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('recounts additions and removals but holds the cutoff throughout navigation', () => {
+    vi.useFakeTimers()
+    const { ctx } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    try {
+      const template = fixtureScene('clean').nodes[0]!
+      const nodes = Array.from({ length: 41 }, (_, i) => ({ ...template, id: `n${i}`, x: 10, y: 10 }))
+      renderer.setViewport({ x: 0, y: 0, scale: 0.2 })
+      renderer.setScene(emptyScene({ nodes: nodes.slice(0, 40) }))
+      renderer.setDetailMode('automatic')
+      expect(renderer.getDetailLevel()).toBe('controls')
+      renderer.setScene(emptyScene({ nodes }))
+      expect(renderer.getDetailLevel()).toBe('overview')
+      renderer.setViewportGesture(true)
+      renderer.setViewport({ x: 100000, y: 0, scale: 0.2 })
+      vi.advanceTimersByTime(1000)
+      expect(renderer.getDetailLevel()).toBe('overview')
+      renderer.setViewportGesture(false)
+      expect(renderer.getDetailLevel()).toBe('controls')
+      renderer.setViewport({ x: 0, y: 0, scale: 0.2 })
+      vi.advanceTimersByTime(149)
+      expect(renderer.getDetailLevel()).toBe('controls')
+      vi.advanceTimersByTime(1)
+      expect(renderer.getDetailLevel()).toBe('overview')
+      renderer.setScene(emptyScene({ nodes: nodes.slice(0, 40) }))
+      expect(renderer.getDetailLevel()).toBe('controls')
+    } finally {
+      renderer.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('switches back to the saved fixed threshold without replacing it with an automatic cutoff', () => {
+    const { ctx } = recordingCtx()
+    const renderer = new CanvasRenderer(fakeCanvas(ctx), defaultTokens)
+    renderer.setViewport({ x: 0, y: 0, scale: 0.2 })
+    renderer.setScene(fixtureScene('clean'))
+    renderer.setDetailMode('automatic')
+    expect(renderer.getDetailLevel()).toBe('controls')
+    renderer.setDetailMode('fixed')
+    expect(renderer.getDetailLevel()).toBe('overview')
+    renderer.setDetailMinScale(0.1)
+    expect(renderer.getDetailLevel()).toBe('controls')
+    renderer.setDetailMode('automatic')
+    renderer.setDetailMinScale(0.75)
+    expect(renderer.getDetailLevel()).toBe('controls')
+    renderer.setDetailMode('fixed')
+    expect(renderer.getDetailLevel()).toBe('overview')
+    renderer.setDetailMode('automatic')
+    renderer.setViewport({ x: 1, y: 0, scale: 0.2 })
+    renderer.setDetailMode('fixed')
+    renderer.setViewport({ x: 2, y: 0, scale: 0.2 })
+    renderer.setDetailMode('automatic')
+    expect(renderer.getDetailLevel()).toBe('controls')
     renderer.dispose()
   })
 })
@@ -2297,7 +2393,7 @@ describe('node chrome paint on the live renderer', () => {
               missingSchema: true,
               layout: {
                 ...n.layout,
-                rows: [{ kind: 'fallback' as const, y: n.layout.headerHeight, height: 24, label: 'steps', text: '20' }],
+                rows: [{ kind: 'fallback' as const, y: n.layout.headerHeight, height: 24, valueKey: 'steps', label: 'steps', text: '20' }],
                 pins: [],
               },
             }
@@ -2307,6 +2403,34 @@ describe('node chrome paint on the live renderer', () => {
     const texts = paint(scene).filter((c) => c.method === 'fillText').map((c) => c.args[0])
     expect(texts).toContain('steps')
     expect(texts).toContain('20')
+  })
+
+  it('fits missing-type row text without squeezing it at natural and manual widths', () => {
+    const label = 'previously_saved_sample_count'
+    const document = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'missing-text', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Missing', nextOrdinal: 1, nodes: {
+        missing: { id: 'missing', type: 'Unavailable', values: { [label]: 73 } },
+      }, links: {}, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { missing: { position: { x: 40, y: 40 } } } } } },
+    }).document!
+    const scene = buildScene({ document, graphId: 'g0', resolve: () => undefined,
+      tokens: defaultTokens, measure, widgetMeasure })
+    const node = scene.nodes[0]!
+    for (const width of [node.layout.width, 140]) {
+      const calls = paint({ ...scene, nodes: [{ ...node, layout: { ...node.layout, width } }] })
+      const texts = calls.filter((call) => call.method === 'fillText')
+      const key = texts.find((call) => fitted(call.args[0], label))!
+      const value = texts.find((call) => call.args[0] === '73')!
+      expect(key).toBeDefined()
+      expect(value).toBeDefined()
+      expect(key.args).toHaveLength(3)
+      expect(value.args).toHaveLength(3)
+      expect(Number(key.args[1]) + String(key.args[0]).length * 6)
+        .toBeLessThan(Number(value.args[1]) - 2 * 6)
+      if (width === node.layout.width) expect(key.args[0]).toBe(label)
+      else expect(String(key.args[0])).toMatch(/\.\.\.$/)
+    }
   })
 
   it('a field with an error paints a red outline; undiagnosed rows never do', () => {
@@ -3328,6 +3452,66 @@ describe('construct paint on the live renderer', () => {
     )
     expect(dotIdx).toBeGreaterThanOrEqual(0)
     expect(paintedAfter(calls, dotIdx, 'fill')?.fillStyle).toBe(LATENT)
+  })
+
+  it('dims kept and muted wires through chained reroutes without changing ordinary wires or type colors', () => {
+    const int = { kind: 'concrete', name: 'INT' } as const
+    const source: NodeSchema = {
+      type: 'Choice', displayName: 'Choice', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'choice', id: 'mode', displayName: 'Mode', required: true, shared: [], options: [
+        { key: 'fast', label: 'Fast', rows: [] },
+        { key: 'fine', label: 'Fine', rows: [
+          { kind: 'input', id: 'passes', type: int, optional: false, widget: { widgetType: 'INT', options: {}, default: 7 } },
+        ] },
+      ] }, { kind: 'output', id: 'out', type: int }],
+    }
+    const sink: NodeSchema = { ...source, type: 'Sink', body: [
+      { kind: 'input', id: 'in', type: int, optional: false },
+    ] }
+    for (const state of ['kept', 'ordinary', 'muted']) {
+      const selected = state === 'kept' ? 'fast' : 'fine'
+      const document = loadDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'kept-route', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'Kept', nextOrdinal: 2, nodes: {
+          source: { id: 'source', type: 'Choice', values: {}, dynamic: { mode: { selected } },
+            ...(state === 'muted' ? { mode: 'muted' } : {}) },
+          sink: { id: 'sink', type: 'Sink', values: {} },
+        }, links: {
+          first: { id: 'first', from: state === 'muted' ? { node: 'source', port: 'out' } : { node: 'source', tap: 'mode.passes' }, to: { reroute: 'a' } },
+          middle: { id: 'middle', from: { reroute: 'a' }, to: { reroute: 'b' } },
+          last: { id: 'last', from: { reroute: 'b' }, to: { node: 'sink', port: 'in' } },
+        }, nets: {}, reroutes: { a: { id: 'a' }, b: { id: 'b' } } } },
+        view: { graphs: { g0: { nodes: {
+          source: { position: { x: 20, y: 20 } }, sink: { position: { x: 900, y: 20 } },
+        }, reroutes: { a: { position: { x: 450, y: 120 } }, b: { position: { x: 600, y: 120 } } } } } },
+      }).document!
+      const scene = buildScene({ document, graphId: 'g0', resolve: (type) => type === 'Choice' ? source : sink,
+        tokens: defaultTokens, measure, widgetMeasure })
+      for (const scale of [1, 0.25]) {
+        const reroutes = [...scene.reroutes, ...Array.from({ length: 256 }, (_, i) => ({ id: `extra${i}`, x: 5000 + i * 30, y: 5000 }))]
+        const links = [...scene.links, ...Array.from({ length: 256 }, (_, i) => ({
+          ...scene.links[0]!, id: `extraLink${i}`, x1: 5000 + i * 30, y1: 5000, x2: 5020 + i * 30, y2: 5000,
+        }))]
+        const calls = paintWith({ ...scene, reroutes, links }, (renderer) => {
+          renderer.setDetailMode('fixed')
+          renderer.setDetailMinScale(0.3)
+          renderer.setViewport({ x: 0, y: 0, scale })
+        })
+        const alpha = state === 'kept' ? canvasPaintTokens.widget.inactiveOpacity : state === 'muted' ? canvasPaintTokens.node.modeOpacity : 1
+        for (const dot of scene.reroutes) {
+          const arc = calls.findIndex((call) => call.method === 'arc' && call.args[0] === dot.x && call.args[1] === dot.y)
+          expect(arc).toBeGreaterThanOrEqual(0)
+          const fill = paintedAfter(calls, arc, 'fill')!
+          expect(fill.globalAlpha).toBeCloseTo(alpha)
+          expect(fill.fillStyle).toBe(typeColor(defaultTokens, 'INT'))
+        }
+        for (const link of scene.links) {
+          const move = calls.findIndex((call) => call.method === 'moveTo' && call.args[0] === link.x1 && call.args[1] === link.y1)
+          expect(move).toBeGreaterThanOrEqual(0)
+          expect(paintedAfter(calls, move, 'stroke')?.globalAlpha).toBeCloseTo(alpha)
+        }
+      }
+    }
   })
 
   it('a hovered reroute reveals ghost sockets left and right; unhovered paints none', () => {

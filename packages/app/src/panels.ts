@@ -59,7 +59,7 @@ export interface PanelHeaderAction {
 }
 
 /**
- * A live attention badge a panel asks its hosts to render: a count with the
+ * A live problem badge a panel asks its hosts to render: a count with the
  * worst severity behind it. Hosts (tab strips, region toggles, floating
  * headers) own the rendering; the descriptor only supplies the facts, so the
  * badge follows the panel wherever it is placed. The label is the
@@ -67,11 +67,11 @@ export interface PanelHeaderAction {
  */
 export interface PanelIndicator {
   readonly count: number
-  readonly severity: 'error' | 'warning' | 'info'
+  readonly severity: 'error' | 'warning'
   readonly label: string
 }
 
-const SEVERITY_RANK: Readonly<Record<PanelIndicator['severity'], number>> = { error: 2, warning: 1, info: 0 }
+const SEVERITY_RANK: Readonly<Record<PanelIndicator['severity'], number>> = { error: 2, warning: 1 }
 
 /**
  * Combine several panels' indicators into one badge (a region toggle
@@ -85,7 +85,7 @@ export function aggregatePanelIndicators(
   if (active.length === 0) return undefined
   const worst = active.reduce((a, b) => (SEVERITY_RANK[b.severity] > SEVERITY_RANK[a.severity] ? b : a))
   const count = active.reduce((sum, entry) => sum + entry.count, 0)
-  return { count, severity: worst.severity, label: active.length === 1 ? active[0]!.label : `${count} notifications` }
+  return { count, severity: worst.severity, label: active.length === 1 ? active[0]!.label : `${count} problems` }
 }
 
 export interface PanelDescriptor {

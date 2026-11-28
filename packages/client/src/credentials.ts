@@ -1,4 +1,5 @@
 import type { FetchLike } from './connection-contract.js'
+import { requestFetch, requestFailure } from './request-failure.js'
 
 export interface CollabCredentials {
   readonly token?: string | undefined
@@ -32,9 +33,9 @@ export interface MintDelegation {
 }
 
 export async function mintDelegation(baseUrl: string, options: MintDelegation, fetchFn: FetchLike = fetch): Promise<{ token: string; id: string; expiresAt?: number }> {
-  const response = await fetchFn(`${baseUrl}/api/auth/delegations`, {
+  const response = await requestFetch(fetchFn)(`${baseUrl}/api/auth/delegations`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(options),
   })
-  if (!response.ok) throw new Error(`Connect agent: HTTP ${response.status}`)
+  if (!response.ok) throw await requestFailure(response, false)
   return response.json()
 }

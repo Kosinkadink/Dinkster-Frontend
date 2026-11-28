@@ -530,6 +530,44 @@ describe('Dinkster app menu', () => {
 })
 
 describe('canvas context menu availability', () => {
+  it.each([
+    ['en', 'Clear unused slots', 'Clear unused slots on 2 nodes'],
+    ['zh', '\u6e05\u9664\u672a\u4f7f\u7528\u7684\u63d2\u69fd', '\u6e05\u9664 2 \u4e2a\u8282\u70b9\u4e0a\u672a\u4f7f\u7528\u7684\u63d2\u69fd'],
+  ])('renders clear-unused-slot labels for single and multiple eligible nodes in %s', (locale, single, multiple) => {
+    setLocale(locale)
+    const registry = createMenuRegistry()
+    for (const contribution of coreMenuContributions()) registry.register(contribution)
+    const doc = {
+      graphs: { g0: { id: 'g0', name: 'root', nodes: {
+        n1: { id: 'n1', type: 'Stack', values: {}, dynamic: { items: { members: ['m0'], seq: 1 } } },
+        n2: { id: 'n2', type: 'Stack', values: {}, dynamic: { items: { members: ['m4'], seq: 5 } } },
+        n3: { id: 'n3', type: 'Plain', values: {} },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 3 } },
+      view: { graphs: { g0: { nodes: {} } } },
+    } as unknown as WorkflowDocument
+    for (const nodes of [['n1'], ['n1', 'n3'], ['n1', 'n2', 'n3']]) {
+      const groups = resolveNodeMenuGroups(registry, canvasMenuContext({
+        doc, namedNets: true, graphId: 'g0', target: { kind: 'node', nodeId: 'n1' },
+        selection: { nodes, links: [], reroutes: [] }, worldX: 10, worldY: 20,
+      }), false)
+      const root = document.createElement('div')
+      document.body.append(root)
+      const dispose = render(() => <ContextMenu
+        menu={{ x: 10, y: 20, worldX: 10, worldY: 20, groups }}
+        onInvoke={() => undefined} onClose={() => undefined}
+      />, root)
+      try {
+        const item = root.querySelector('[data-item-id="core.node.compactDynamic"]')!
+        expect(item.textContent?.trim()).toBe(nodes.includes('n2') ? multiple : single)
+        expect(item.getAttribute('aria-disabled')).toBe('false')
+        expect(root.textContent).not.toContain('Remove unused dynamic inputs')
+      } finally {
+        dispose()
+        root.remove()
+      }
+    }
+  })
+
   it('marks create empty subgraph aria-disabled and refuses invocation for a frozen tab', () => {
     const registry = createMenuRegistry()
     for (const contribution of coreMenuContributions()) registry.register(contribution)
@@ -1160,11 +1198,11 @@ describe('shared shell panel chrome', () => {
     const { host, dispose } = floatingPanel({ panel: {
       indicator: () => count() === 0
         ? undefined
-        : { count: count(), severity: 'info', label: 'Queue ready' },
+        : { count: count(), severity: 'warning', label: '1 problem' },
     } })
     const badge = () => host.querySelector('[data-testid="panel-indicator"]')
-    expect(badge()?.getAttribute('data-severity')).toBe('info')
-    expect(badge()?.querySelector('.visually-hidden')?.textContent).toBe('Queue ready')
+    expect(badge()?.getAttribute('data-severity')).toBe('warning')
+    expect(badge()?.querySelector('.visually-hidden')?.textContent).toBe('1 problem')
     setCount(0)
     expect(badge()).toBeNull()
     dispose()
@@ -1806,6 +1844,30 @@ describe('DockZoneHost', () => {
 })
 
 describe('left rail tooltip hover session', () => {
+  it('keeps keyboard help when the pointer leaves an unrelated canvas without a session', () => {
+    const root = document.createElement('div')
+    const target = document.createElement('button')
+    target.dataset['tooltipLabel'] = 'Search Dinkster'
+    const canvas = document.createElement('canvas')
+    root.append(target, canvas)
+    document.body.append(root)
+    const controller = new TooltipController(() => 500)
+    controller.register({ id: 'dom', resolve: (target) => ({ lines: [(target as { label: string }).label] }) })
+    const detach = attachDomTooltips(root, controller)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
+    target.focus()
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab' }))
+    expect(controller.visible?.lines).toEqual(['Search Dinkster'])
+
+    canvas.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: null }))
+    expect(document.activeElement).toBe(target)
+    expect(controller.visible?.lines).toEqual(['Search Dinkster'])
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(controller.visible).toBeUndefined()
+    detach()
+  })
+
   it('keeps the original delay deadline while moving between adjacent pending targets', () => {
     vi.useFakeTimers()
     const controller = new TooltipController(() => 500)

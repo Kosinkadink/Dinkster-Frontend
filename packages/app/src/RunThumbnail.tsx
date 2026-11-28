@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, Show } from 'solid-js'
+import { ProductImageUnavailable } from '@dinkster/ui'
 
-/** A paused video frame or image; unavailable media leaves no placeholder. */
+/** A paused video frame or image in a run row. */
 export function RunThumbnail(props: { readonly url: string; readonly mediaType: string }) {
   const [failed, setFailed] = createSignal(false)
   const [ready, setReady] = createSignal(false)
@@ -13,7 +14,9 @@ export function RunThumbnail(props: { readonly url: string; readonly mediaType: 
     setFailed(false)
     setReady(false)
   })
-  return <Show when={!failed()}>
+  return <Show when={!failed()} fallback={<Show when={props.mediaType.startsWith('image/')}>
+    <span class="run-thumbnail"><ProductImageUnavailable /></span>
+  </Show>}>
     <Show when={props.mediaType.startsWith('video/')} fallback={
       <img class="run-thumbnail" data-testid="run-thumbnail" data-ready={ready()} src={props.url} alt=""
         loading="lazy" decoding="async" onLoad={() => setReady(true)} onError={() => setFailed(true)} />

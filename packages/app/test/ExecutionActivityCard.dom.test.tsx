@@ -57,7 +57,7 @@ describe('ExecutionActivityCard', () => {
     expect(root.textContent).toContain('Workflow progress 61%')
     expect(root.textContent).toContain('1 error')
     expect(root.textContent).toContain('Pinned to canvas')
-    expect(root.querySelector('progress')?.getAttribute('value')).toBe('0.605')
+    expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0.605')
   })
 
   it('weights completed, cached, and concurrent active work without counting skipped nodes', () => {

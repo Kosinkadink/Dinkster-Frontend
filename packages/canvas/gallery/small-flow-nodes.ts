@@ -103,6 +103,55 @@ const onlyIf = schema('dinkster.utilities.only_if', 'Only if', [
   { ...out('value', T, 'Value'), optional: true },
 ])
 
+const unpack = schema('dinkster.utilities.unpack', 'Unpack', [
+  {
+    kind: 'input',
+    id: 'list',
+    displayName: 'List',
+    type: { kind: 'list', element: T },
+    optional: true,
+  },
+  {
+    ...field('count', 'Count', 'INT', 0, { min: 0, max: 512, step: 1 }),
+    hidden: true,
+    socketless: true,
+  },
+  {
+    kind: 'note',
+    id: 'empty',
+    text: 'Connect a list or record',
+    visible: { formula: 'not linked(list) or count == 0' },
+  },
+  {
+    kind: 'group',
+    id: 'items',
+    displayName: 'Items',
+    value: { ...out('item', T), optional: true },
+    keys: { kind: 'numbered', prefix: '', start: 0, pad: 0 },
+    grows: { count: 'count' },
+    minMembers: 0,
+    memberLabel: { formula: '"Item " + str(index())' },
+  },
+  {
+    kind: 'button',
+    id: 'set_count',
+    label: 'Set count',
+    steps: [
+      {
+        step: 'ask',
+        title: 'Set count',
+        rows: [
+          field('new_count', 'Count', 'INT', 0, { min: 0, max: 512, step: 1 }),
+        ],
+      },
+      { step: 'set', field: 'count', value: { formula: 'new_count' } },
+    ],
+  },
+])
+const listSource = schema('List', 'List', [
+  out('list', { kind: 'list', element: concrete('INT') }, 'List'),
+])
+
 const loadImage = schema('Load Image', 'Load image', [
   field('image', 'image', 'COMBO', 'photo.png', {
     options: ['photo.png', 'backup.png'],
@@ -653,6 +702,40 @@ export function smallFlowNodesGallery(
         scene(graphs, { graph: 'detail', through: 'a' }),
       ),
       states: { run: done },
+    })
+  }
+
+  cards.push({
+    caption:
+      'Unpack starts with no outputs and offers Set count. With no list wire it says "Connect a list or record", including after a count has been saved. Here the left node is new and the right has a saved count of 2; each keeps its own count. The number field explains a typed correction to 0 through 512 before Enter chooses it. A count arriving another way outside that range is refused whole, without changing anything.',
+    scene: scene({
+      root: {
+        nodes: {
+          empty: node(unpack, 0, 0, { width: 240 }),
+          saved: node(unpack, 300, 0, { width: 240, values: { count: 2 } }),
+        },
+      },
+    }),
+  })
+  for (const count of [3, 2]) {
+    cards.push({
+      caption:
+        count === 2
+          ? 'Set count changed 3 to 2. Item 2 still has a wire, so its label, pin and wire stay dimmed and give nothing. An unwired later output is removed. No new wire starts on the dimmed pin; removing its last wire removes the row.'
+          : 'Unpack with a hand-set count of 3 has Item 0, Item 1 and Item 2. Item 2 is wired to Has value. Growing back from 2 restores this same output with its original wire; undo also restores the previous count in one step. No run adds or removes outputs.',
+      scene: scene({
+        root: {
+          nodes: {
+            list: node(listSource, 0, 0, { width: 160 }),
+            unpack: node(unpack, 220, 0, { width: 240, values: { count } }),
+            has: node(hasValue, 520, 70, { width: 170 }),
+          },
+          links: [
+            ['list', 'list', 'unpack', 'list'],
+            ['unpack', 'items.2', 'has', 'value'],
+          ],
+        },
+      }),
     })
   }
 

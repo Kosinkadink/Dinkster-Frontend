@@ -22,6 +22,7 @@
  */
 import type { FetchLike } from './connection-contract.js'
 import { parseEngineNotReady, parseSupervisorStatus } from './supervisor.js'
+import { requestFetch, requestFailureReason } from './request-failure.js'
 
 export type BackendDiscovery =
   | { readonly kind: 'dinkster'; readonly supervised: boolean }
@@ -57,7 +58,7 @@ const probe = async (
     }
     return { status: res.status, contentType, body }
   } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) }
+    return { error: requestFailureReason(e) ?? 'The engine did not answer.' }
   }
 }
 
@@ -82,7 +83,7 @@ export async function discoverBackend(
   baseUrl: string,
   options: DiscoveryOptions = {},
 ): Promise<BackendDiscovery> {
-  const fetchFn = options.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init))
+  const fetchFn = requestFetch(options.fetchFn ?? ((url: string, init?: RequestInit) => fetch(url, init)))
   const timeoutMs = options.timeoutMs ?? 4000
   const base = baseUrl.replace(/\/+$/, '')
   let sawServer = false

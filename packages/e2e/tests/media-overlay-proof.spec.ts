@@ -65,7 +65,7 @@ async function mockBackend(page: Page): Promise<void> {
   await page.route('**/api/values*', async (route) => serveValue(route))
 }
 
-async function serveValue(route: Route): Promise<void> {
+async function serveValue(route: Route, sound?: { waveform?: Buffer; failure?: boolean; batch?: boolean }): Promise<void> {
   const url = new URL(route.request().url())
   const output = url.searchParams.get('outputId') ?? ''
   if (output === 'failed') {
@@ -79,14 +79,16 @@ async function serveValue(route: Route): Promise<void> {
   }
   const rendition = url.searchParams.get('rendition')
   if (rendition !== null) {
-    const body = output === 'image' ? png : output === 'webm' ? webm : output === 'audio' ? audio : mp4
+    const waveform = output === 'audio' && rendition === 'waveform'
+    const body = waveform ? sound?.waveform ?? png : output === 'image' ? png : output === 'webm' ? webm : output === 'audio' ? sound?.failure ? Buffer.from('unplayable sound') : audio : mp4
     await route.fulfill({
       status: 200,
-      contentType: spec.mime,
+      contentType: waveform ? 'image/png' : spec.mime,
       headers: {
         'X-Dinkster-Fingerprint': `proof-${output}`,
-        'X-Dinkster-Rendition': spec.rendition,
+        'X-Dinkster-Rendition': rendition,
         'X-Dinkster-Type-Id': spec.type,
+        ...(waveform ? { 'X-Dinkster-Waveform': 'sampled-peak' } : {}),
       },
       body,
     })
@@ -98,7 +100,7 @@ async function serveValue(route: Route): Promise<void> {
     : {
         typeId: output === 'list' ? 'VIDEO' : spec.type,
         fingerprint: `proof-${output}`,
-        ...(output === 'audio' ? { meta: { duration: 1, sample_rate: 8000, channels: 1 } } : {}),
+        ...(output === 'audio' ? { meta: { duration: 1, sample_rate: 8000, channels: 1, ...(sound?.batch ? { batch: 4 } : {}) } } : {}),
       }
   await route.fulfill({ json: {
     available: true,
@@ -106,17 +108,17 @@ async function serveValue(route: Route): Promise<void> {
     renditions: element === null && output === 'list'
       ? []
       : output === 'audio'
-        ? [{
+        ? [...(sound?.waveform ? [{ kind: 'waveform', mime: 'image/png', version: 'waveform-v1', parameters: ['waveform'], limits: { width: 512, height: 128, pixels: 65536 } }] : []), {
             kind: 'window', mime: 'audio/wav', default: true, version: 'window-v1',
-            parameters: ['window'], defaults: {},
+            parameters: sound?.batch ? ['window', 'batch'] : ['window'], defaults: sound?.batch ? { batch: '0' } : {},
             limits: { durationSeconds: 3, sampleValues: 24_000 },
           }]
         : [{ kind: spec.rendition, mime: spec.mime, default: true }],
   } })
 }
 
-async function installGraph(page: Page, associatedImage = false): Promise<void> {
-  await page.evaluate(async (associatedImage) => {
+async function installGraph(page: Page, associatedImage = false, soundLayout?: 'before-run' | 'default'): Promise<void> {
+  await page.evaluate(async ({ associatedImage, soundLayout }) => {
     const concrete = (name: string) => ({ kind: 'concrete', name } as const)
     const schema = (type: string, output: string, valueType: ReturnType<typeof concrete>, preview = true) => ({
       type,
@@ -153,13 +155,14 @@ async function installGraph(page: Page, associatedImage = false): Promise<void> 
     }
     const positions = Object.fromEntries(Object.keys(nodes).map((id, index) => [id, {
       position: { x: 50 + index % 3 * 430, y: 60 + Math.floor(index / 3) * 390 },
-      size: { width: 360, height: 320 },
+      ...(soundLayout === undefined || id !== 'audio' ? { size: { width: 360, height: 320 } } : {}),
     }]))
     await window.__dinksterTest!.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'media-proof', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'root', nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 20 } },
       view: { graphs: { g0: { nodes: positions } } },
     } as never, 'Media Overlay Proof')
+    if (soundLayout === 'before-run') return
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     const compiled = app.compileTab(tab)
@@ -209,7 +212,7 @@ async function installGraph(page: Page, associatedImage = false): Promise<void> 
     }])
     store.apply({ kind: 'completed', execution: ref, timestamp: Date.now() })
     window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
-  }, associatedImage)
+  }, { associatedImage, soundLayout })
 }
 
 test.beforeEach(async ({ page }) => {
@@ -228,6 +231,177 @@ async function installMediaProof(page: Page): Promise<void> {
   await expect(page.locator('.node-media-overlay[data-media-kind="video"]')).toHaveCount(4, { timeout: 15_000 })
   await expect(page.locator('.node-media-overlay[data-media-kind="audio"]')).toHaveCount(1)
 }
+
+test('sound preview fills its default and resized height', async ({ page }, testInfo) => {
+  const silentWaveform = Buffer.from(await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 512; canvas.height = 128
+    const context = canvas.getContext('2d')!
+    context.fillStyle = '#111827'; context.fillRect(0, 0, 512, 128)
+    context.fillStyle = '#374151'; context.fillRect(0, 64, 512, 1)
+    return canvas.toDataURL('image/png').split(',')[1]!
+  }), 'base64')
+  await page.route('**/api/values*', (route) => serveValue(route, { waveform: silentWaveform }))
+  await installGraph(page, false, 'before-run')
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 200, y: -330, scale: 1 }))
+  await page.screenshot({ path: testInfo.outputPath('sound-before-run.png') })
+  await installGraph(page, false, 'default')
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 200, y: -330, scale: 1 }))
+  const preview = page.locator('.node-media-overlay[data-node-id="audio"]')
+  await expect(preview.getByRole('button', { name: 'Play audio' })).toBeEnabled()
+  const waveform = preview.locator('.audio-waveform')
+  await expect.poll(() => waveform.evaluate((element) => element.getBoundingClientRect().height)).toBe(54)
+  await expect.poll(() => preview.evaluate((overlay) => {
+    const bounds = overlay.getBoundingClientRect()
+    const waveform = overlay.querySelector('.audio-waveform')!.getBoundingClientRect()
+    const rows = overlay.querySelectorAll('.audio-transport-row')
+    const last = rows[rows.length - 1]!.getBoundingClientRect()
+    return { top: waveform.top - bounds.top, bottom: bounds.bottom - last.bottom }
+  })).toEqual({ top: 8, bottom: 8 })
+  await page.screenshot({ path: testInfo.outputPath('sound-silent-default.png') })
+  await page.evaluate(() => {
+    const node = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'audio')!
+    window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'view.setNodeSize', params: {
+      graphId: 'g0', nodeId: 'audio', size: { width: node.layout.width, height: node.layout.height + 83 },
+    } })
+  })
+  await expect.poll(() => waveform.evaluate((element) => element.getBoundingClientRect().height)).toBe(137)
+  await page.screenshot({ path: testInfo.outputPath('sound-silent-taller.png') })
+})
+
+test('sound controls fit the node and retain playback, seeking, looping and volume without diagnostic lines', async ({ page }, testInfo) => {
+  const waveform = Buffer.from(await page.evaluate(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 512; canvas.height = 128
+    const context = canvas.getContext('2d')!
+    context.fillStyle = 'white'
+    for (let x = 0; x < 512; x += 4) {
+      const peak = 8 + Math.abs(Math.sin(x * 0.07) * Math.cos(x * 0.019)) * 52
+      context.fillRect(x, 64 - peak, 2, peak * 2)
+    }
+    return canvas.toDataURL('image/png').split(',')[1]!
+  }), 'base64')
+  for (const state of ['waveform', 'no-waveform', 'failure', 'batch'] as const) {
+    if (state !== 'waveform') {
+      await page.reload()
+      await waitForWorkspaceReady(page)
+    }
+    await page.route('**/api/values*', (route) => serveValue(route, {
+      ...(state === 'waveform' || state === 'batch' ? { waveform } : {}),
+      failure: state === 'failure', batch: state === 'batch',
+    }))
+    await installGraph(page)
+    await page.evaluate(() => {
+      window.__dinksterTest!.renderer!.setViewport({ x: 200, y: -330, scale: 1 })
+    })
+    const preview = page.locator('.node-media-overlay[data-node-id="audio"]')
+    const play = preview.getByRole('button', { name: 'Play audio' })
+    const seek = preview.getByRole('slider', { name: 'Audio position' })
+    const volume = preview.getByRole('slider', { name: 'Preview volume' })
+    const loop = preview.getByRole('button', { name: 'Loop', exact: true })
+    const element = preview.locator('audio')
+    if (state === 'failure') {
+      await expect(preview.getByRole('status')).toHaveText('This browser cannot play this sound')
+      await expect(play).toBeDisabled()
+      await expect(seek).toHaveAttribute('aria-disabled', 'true')
+    } else {
+      await expect(play).toBeEnabled()
+      await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.readyState)).toBeGreaterThan(0)
+      await loop.click()
+      await expect(loop).toHaveAttribute('aria-pressed', 'true')
+      const loopStyle = await loop.evaluate((button) => {
+        const style = getComputedStyle(button)
+        return { color: style.color, borderColor: style.borderTopColor, borderWidth: style.borderTopWidth }
+      })
+      expect(loopStyle.borderColor).toBe(loopStyle.color)
+      expect(loopStyle.borderWidth).toBe('1px')
+      await loop.focus(); await page.keyboard.press('Space')
+      await expect(loop).toHaveAttribute('aria-pressed', 'false')
+      await volume.click({ position: { x: 2, y: 8 } })
+      await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.volume)).toBeLessThan(0.5)
+      await volume.focus(); await page.keyboard.press('End'); await page.keyboard.press('ArrowLeft')
+      await expect(element).toHaveJSProperty('volume', 0.99)
+      await seek.click({ position: { x: 10, y: 8 } })
+      await expect.poll(() => seek.getAttribute('aria-valuenow')).not.toBe('0')
+      await expect(play).toBeEnabled()
+      await seek.focus(); await page.keyboard.press('Home')
+      await expect(seek).toHaveAttribute('aria-valuenow', '0')
+      await expect(play).toBeEnabled()
+      for (const input of ['mouse', 'keyboard']) {
+        await element.evaluate((audio: HTMLAudioElement) => {
+          audio.addEventListener('playing', () => {
+            audio.dataset['played'] = 'true'
+            audio.closest('.audio-transport')!.querySelector<HTMLButtonElement>('[aria-label="Pause audio"]')!.click()
+          }, { once: true })
+          delete audio.dataset['played']
+        })
+        if (input === 'mouse') await play.click()
+        else { await play.focus(); await page.keyboard.press('Enter') }
+        await expect(element).toHaveAttribute('data-played', 'true')
+        await expect(element).toHaveJSProperty('paused', true)
+      }
+      if (state === 'batch') {
+        await preview.getByRole('button', { name: 'Next audio batch' }).click()
+        await expect(preview).toContainText('2 of 4')
+        await preview.getByRole('button', { name: 'Previous audio batch' }).focus()
+        await page.keyboard.press('Enter')
+        await expect(preview).toContainText('1 of 4')
+      }
+      await seek.focus(); await page.keyboard.press('Home')
+      await expect(play).toBeEnabled()
+    }
+    await expect(preview).not.toContainText(/Not reported|Window preview|backend|Gain/)
+    await page.evaluate(() => {
+      const layout = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'audio')!.layout
+      window.__dinksterTest!.app.activeTab()!.store.dispatch({ command: 'view.setNodeSize', params: {
+        graphId: 'g0', nodeId: 'audio', size: { width: layout.minWidth, height: layout.minHeight },
+      } })
+    })
+    await expect.poll(() => page.evaluate(() => {
+      const layout = window.__dinksterTest!.renderer!.getScene().nodes.find((node) => node.id === 'audio')!.layout
+      return { width: layout.width - layout.minWidth, height: layout.height - layout.minHeight }
+    })).toEqual({ width: 0, height: 0 })
+    for (const scale of [1, 0.31]) {
+      await page.evaluate((scale) => window.__dinksterTest!.renderer!.setViewport({ x: 250 - 50 * scale, y: 120 - 450 * scale, scale }), scale)
+      await expect(play).toBeVisible()
+      const overflow = await preview.evaluate((overlay) => {
+        const bounds = overlay.getBoundingClientRect()
+        return Array.from(overlay.querySelectorAll('.audio-waveform, .audio-transport-row, button, [role="slider"], .dinkster-audio-time')).filter((node) => {
+          const rect = node.getBoundingClientRect()
+          return rect.left < bounds.left - 0.5 || rect.right > bounds.right + 0.5 || rect.bottom > bounds.bottom + 0.5
+        }).map((node) => node.className)
+      })
+      expect(overflow).toEqual([])
+      const clip = await page.evaluate(() => {
+        const renderer = window.__dinksterTest!.renderer!
+        const node = renderer.getScene().nodes.find((node) => node.id === 'audio')!
+        const viewport = renderer.getViewport()
+        const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+        return { x: canvas.left + node.x * viewport.scale + viewport.x - 12,
+          y: canvas.top + node.y * viewport.scale + viewport.y - 12,
+          width: node.layout.width * viewport.scale + 24, height: node.layout.height * viewport.scale + 24 }
+      })
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await page.screenshot({ path: testInfo.outputPath(`sound-${state}-${scale}.png`), animations: 'disabled', clip })
+      if (state === 'waveform' && scale === 1) {
+        await element.evaluate((audio: HTMLAudioElement) => { audio.playbackRate = 0.0625; audio.currentTime = 0.4 })
+        await play.click()
+        const pause = preview.getByRole('button', { name: 'Pause audio' })
+        await expect(pause).toBeVisible()
+        await expect.poll(() => element.evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(false)
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+        await page.screenshot({ path: testInfo.outputPath('sound-playing-1.png'), animations: 'disabled', clip })
+        await pause.click()
+        await loop.click()
+        await expect(loop).toHaveAttribute('aria-pressed', 'true')
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+        await page.screenshot({ path: testInfo.outputPath('sound-loop-on-1.png'), animations: 'disabled', clip })
+        await loop.click()
+        await seek.focus(); await page.keyboard.press('Home')
+      }
+    }
+  }
+})
 
 for (const previewAvailable of [true, false]) {
 test(`saved files retain original downloads with ${previewAvailable ? 'available' : 'failed'} associated images`, async ({ page }, testInfo) => {
@@ -428,9 +602,9 @@ test('real media, controls, zoom transitions, forwarding, clipping, and cleanup'
   await page.locator('.node-media-overlay').first().dispatchEvent('wheel', { deltaY: 120, clientX: 200, clientY: 200 })
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getViewport().scale)).not.toBe(before.scale)
 
-  for (const scale of [1.5, 1, 0.75, 0.6, 0.5, 0.49]) {
+  for (const scale of [1.5, 1, 0.75, 0.6, 0.5, 0.3, 0.29]) {
     await page.evaluate((value) => window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 15, scale: value }), scale)
-    if (scale >= 0.5) {
+    if (scale >= 0.3) {
       await expect(videoControls.first().getByRole('button', { name: /^(Play|Pause) video$/ })).toBeVisible()
     } else {
       await expect(page.locator('.node-media-overlay')).toHaveCount(0)
@@ -681,4 +855,92 @@ test('output pager cap retains focused, selected, and open-viewer roots without 
   await page.getByTestId('graph-canvas').focus()
   await expect(pagerFor(29)).toHaveCount(0)
   await expect(pagerFor(24)).toHaveCount(1)
+})
+
+test('editors and media stay usable until the configured node details cutoff', async ({ page }, info) => {
+  await page.route('**/api/mounts', (route) => route.fulfill({ json: {
+    activeOutputMount: 'output', mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }],
+  } }))
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    const concrete = (name: string) => ({ kind: 'concrete' as const, name })
+    app.registerSchemas([
+      { type: 'ZoomCurve', displayName: 'Curve editor', category: 'test', source: 'v3', isOutputNode: true, body: [
+        { kind: 'input', id: 'curve', type: concrete('CURVE'), optional: false,
+          widget: { widgetType: 'CURVE', options: { histogram: 'histogram' } } },
+        { kind: 'input', id: 'histogram', type: concrete('HISTOGRAM'), optional: true },
+      ] },
+      { type: 'ZoomSave', displayName: 'Save target', category: 'test', source: 'v3', isOutputNode: true, body: [
+        { kind: 'input', id: 'target', type: concrete('SAVE_TARGET'), optional: false,
+          widget: { widgetType: 'SAVE_TARGET', options: {} } },
+      ] },
+    ])
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'editor-zoom', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Root', nodes: {
+        curve0: { id: 'curve0', type: 'ZoomCurve', values: {
+          curve: { interpolation: 'linear', points: [{ position: 0, value: 0.1 }, { position: 0.4, value: 0.6 }, { position: 1, value: 0.9 }] },
+        } }, save: { id: 'save', type: 'ZoomSave', values: {} },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: { g0: { nodes: {
+        curve0: { position: { x: 40, y: 60 }, editors: { curve: { unfolded: true } } },
+        save: { position: { x: 400, y: 60 }, editors: { target: { unfolded: true } } },
+      } } } },
+    }, 'Editor zoom')
+    app.settings.set('canvas.detailMode', 'fixed')
+    app.settings.set('canvas.detailMinPercent', 30)
+    window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 20, scale: 0.4 })
+  })
+  const curve = page.locator('.node-editor-space-overlay[data-node-id="curve0"]')
+  const save = page.locator('.node-editor-space-overlay[data-node-id="save"]')
+  for (const scale of [0.75, 0.71, 0.5, 0.31, 0.3]) {
+    await page.evaluate((scale) => window.__dinksterTest!.renderer!.setViewport({ x: 60, y: 60, scale }), scale)
+    await page.screenshot({ path: info.outputPath(`editors-${Math.round(scale * 100)}.png`) })
+    await expect(curve.locator('circle.dinkster-canvas-curve-point')).toHaveCount(3)
+    const point = curve.locator('circle.dinkster-canvas-curve-point').nth(1)
+    const box = await point.boundingBox()
+    if (!box) throw new Error('curve point is not drawn')
+    const before = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.curve0!.values.curve)
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width / 2 + 6, box.y + box.height / 2 - 4, { steps: 3 })
+    await page.mouse.up()
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.curve0!.values.curve)).not.toEqual(before)
+    const prefix = save.getByRole('textbox')
+    await prefix.fill(`zoom-${scale}`)
+    await prefix.press('Enter')
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.save!.values.target)).toMatchObject({ prefix: `zoom-${scale}` })
+  }
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 60, y: 60, scale: 0.29 }))
+  await expect(page.locator('.node-editor-space-overlay')).toHaveCount(0)
+  await page.screenshot({ path: info.outputPath('editors-29.png') })
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 20))
+  await expect(curve).toBeVisible()
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 50))
+  await expect(curve).toHaveCount(0)
+  await installMediaProof(page)
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 30))
+  const audio = page.locator('.node-media-overlay[data-media-kind="audio"]')
+  for (const scale of [0.71, 0.5, 0.31]) {
+    await page.evaluate((scale) => window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 20, scale }), scale)
+    const seek = audio.getByRole('slider', { name: 'Audio position' })
+    await expect(seek).toBeVisible()
+    const before = await seek.getAttribute('aria-valuenow')
+    await seek.focus()
+    await seek.press('ArrowRight')
+    await expect(seek).not.toHaveAttribute('aria-valuenow', before!)
+    const video = page.locator('.node-media-overlay[data-node-id="mp4"]')
+    const mute = video.getByRole('button', { name: 'Mute video', exact: true })
+    const muted = await mute.getAttribute('aria-pressed')
+    await mute.click()
+    await expect(mute).toHaveAttribute('aria-pressed', muted === 'true' ? 'false' : 'true')
+    await audio.getByRole('button', { name: 'Play audio', exact: true }).click()
+    await expect(audio.locator('audio')).toHaveJSProperty('paused', false)
+    await audio.getByRole('button', { name: 'Pause audio', exact: true }).click()
+    await expect(audio.locator('audio')).toHaveJSProperty('paused', true)
+    await page.screenshot({ path: info.outputPath(`media-${Math.round(scale * 100)}.png`) })
+  }
+  await page.evaluate(() => window.__dinksterTest!.renderer!.setViewport({ x: 20, y: 20, scale: 0.29 }))
+  await expect(page.locator('.node-media-overlay')).toHaveCount(0)
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 20))
+  await expect(audio.getByRole('slider', { name: 'Audio position' })).toBeVisible()
 })

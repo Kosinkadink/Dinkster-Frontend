@@ -46,7 +46,10 @@ test('unresolved imported model is actionable, cancel-safe, mappable, undoable, 
   const checkpointEntries = await checkpointResponse.json() as { entries: Array<Record<string, unknown>> }
   const checkpoint = checkpointEntries.entries.find((entry) => entry['name'] === 'audit-local-checkpoint.safetensors')
   expect(checkpoint).toBeDefined()
-  const { kind: _kind, ...checkpointRef } = checkpoint!
+  const checkpointRef = {
+    digest: checkpoint!['digest'], name: checkpoint!['name'], size: checkpoint!['size'],
+    mediaType: checkpoint!['mediaType'], virtualPath: checkpoint!['virtualPath'],
+  }
   await page.evaluate(async (requested) => {
     const app = window.__dinksterTest!.app
     app.registerSchemas([{
@@ -182,17 +185,18 @@ test('a real missing model opens standalone review without posting a workflow', 
   const box = page.getByTestId('problem-box')
   await expect(box.getByTestId('problem-box-line')).toHaveCount(1)
   await page.screenshot({ path: test.info().outputPath('real-missing-model-box.png') })
-  await box.getByRole('button', { name: 'Review download', exact: true }).click()
-  const row = page.getByTestId('model-consent-row')
+  await box.getByRole('button', { name: 'Download models', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Download models', exact: true })
+  const row = dialog.locator('.dinkster-model-download-row')
   await expect(row).toHaveCount(1)
-  await expect(page.getByTestId('model-consent-phase')).toHaveText('Nothing downloads until you agree.')
-  await expect(page.getByTestId('asset-consent-dialog')).not.toContainText(/\brun\b/i)
-  await page.screenshot({ path: test.info().outputPath('real-missing-model-initial-review.png') })
-  await row.getByRole('button', { name: 'Review source', exact: true }).click()
-  await expect(page.getByTestId('model-consent-phase')).toHaveText("Choose a suggested source or enter the model file's URL, then review it. Nothing downloads until you agree.")
+  await expect(row).toContainText('No known source')
+  await expect(dialog.getByRole('button', { name: 'Run', exact: true })).toHaveCount(0)
+  await row.getByRole('button', { name: 'Choose a source', exact: true }).click()
+  await expect(dialog.getByRole('textbox', { name: 'Or paste a Hugging Face or Civitai file address', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /^Download/ })).toHaveCount(0)
   await expect(page.getByTestId('asset-consent-acquire')).toHaveCount(0)
   await page.screenshot({ path: test.info().outputPath('real-missing-model-review.png') })
-  await page.getByTestId('asset-consent-cancel').click()
+  await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
   await expect(row).toHaveCount(0)
   expect(posts.filter((path) => !['/api/models/presence', '/api/models/downloads/plan', '/api/workflows/plan'].includes(path))).toEqual([])
   expect(await page.evaluate(() => window.__dinksterTest!.app.store.executions.get().size)).toBe(0)

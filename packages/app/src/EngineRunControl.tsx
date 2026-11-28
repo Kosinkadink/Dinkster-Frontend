@@ -1,4 +1,4 @@
-import { Match, Show, Switch, createEffect, createSignal, createUniqueId, onCleanup, onMount } from 'solid-js'
+import { Match, Show, Switch, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, type JSX } from 'solid-js'
 import { fetchSupervisorEngineLog, type SupervisorStatus } from '@dinkster/client'
 import { ProductButton, ProductCodeBlock, ProductDialog, ProductIcon, ProductLoading, ProductSpinner, ProductTextButton } from '@dinkster/ui'
 import CircleAlert from 'lucide-solid/icons/circle-alert'
@@ -10,26 +10,26 @@ export function EngineRunControl(props: {
   readonly status: SupervisorStatus
   readonly baseUrl: string
   readonly onRestart: () => Promise<void>
+  readonly children?: JSX.Element
 }) {
   const message = useAppMessage()
   const [reasonOpen, setReasonOpen] = createSignal(false)
   const [restarting, setRestarting] = createSignal(false)
   const [logOpen, setLogOpen] = createSignal(false)
-  const [log, setLog] = createSignal<Awaited<ReturnType<typeof fetchSupervisorEngineLog>>>()
   const reasonId = `engine-reason-${createUniqueId()}`
   let root!: HTMLDivElement
   let trigger: HTMLButtonElement | undefined
   let reason: HTMLElement | undefined
-  let logRequest = 0
-  onCleanup(() => { logRequest++ })
 
-  createEffect(() => {
-    props.baseUrl
-    logRequest++
-    setLogOpen(false)
-    setLog(undefined)
-    setReasonOpen(false)
-  })
+  createEffect(on(
+    () => [props.baseUrl, props.status.open?.root, props.status.open?.engine] as const,
+    (installation, previous) => {
+      // Tab replacements can invalidate the getters without changing the installation.
+      if (previous && installation.every((value, index) => value === previous[index])) return
+      setLogOpen(false)
+      setReasonOpen(false)
+    },
+  ))
   createEffect(() => {
     if (props.status.state !== 'failed') setReasonOpen(false)
   })
@@ -58,13 +58,9 @@ export function EngineRunControl(props: {
       setRestarting(false)
     }
   }
-  const showLog = async (): Promise<void> => {
+  const showLog = (): void => {
     closeReason()
-    setLog(undefined)
     setLogOpen(true)
-    const request = ++logRequest
-    const result = await fetchSupervisorEngineLog(props.baseUrl)
-    if (request === logRequest) setLog(result)
   }
   const percent = (): number | undefined => {
     const progress = props.status.progress
@@ -82,7 +78,7 @@ export function EngineRunControl(props: {
         }
       }}
     >
-      <Switch>
+      <Switch fallback={props.children}>
         <Match when={props.status.state === 'starting'}>
           <span class="engine-run-starting" role="status" aria-live="polite">
             <ProductSpinner label={message('shell.engine.startingControl')} />
@@ -118,29 +114,65 @@ export function EngineRunControl(props: {
         </section>
       </Show>
       <Show when={logOpen()}>
-        <ProductDialog title={message('shell.engine.log')} size="wide" onDismiss={() => { logRequest++; setLogOpen(false) }}>
-          <Show when={log()} fallback={<ProductLoading label={message('shell.engine.loadingLog')} />}>
-            {(result) => <Switch>
-              <Match when={!result().ok}><p role="alert">{message('shell.engine.logUnavailable')}</p></Match>
-              <Match when={result().ok}>
-                {(() => {
-                  const tail = result()
-                  if (!tail.ok) return null
-                  return <>
-                    <Show when={tail.truncated}><p class="dinkster-description">{message('shell.engine.logTruncated')}</p></Show>
+        <EngineLogDialog baseUrl={props.baseUrl} onDismiss={() => setLogOpen(false)} />
+      </Show>
+    </div>
+  )
+}
+
+export function EngineLogDialog(props: { readonly baseUrl: string; readonly onDismiss: () => void }) {
+  const message = useAppMessage()
+  const baseUrl = createMemo(() => props.baseUrl)
+  const [log, setLog] = createSignal<Awaited<ReturnType<typeof fetchSupervisorEngineLog>>>()
+  let request = 0
+  onCleanup(() => {
+    request++
+  })
+  createEffect(() => {
+    const current = ++request
+    setLog(undefined)
+    void fetchSupervisorEngineLog(baseUrl()).then((result) => {
+      if (current === request) setLog(result)
+    })
+  })
+  return (
+    <ProductDialog title={message('shell.engine.log')} size="wide" onDismiss={props.onDismiss}>
+      <Show when={log()} fallback={<ProductLoading label={message('shell.engine.loadingLog')} />}>
+        {(result) => (
+          <Switch>
+            <Match when={!result().ok}>
+              <p role="alert">{message('shell.engine.logUnavailable')}</p>
+            </Match>
+            <Match when={result().ok}>
+              {(() => {
+                const tail = result()
+                if (!tail.ok) return null
+                return (
+                  <>
+                    <Show when={tail.truncated}>
+                      <p class="dinkster-description">{message('shell.engine.logTruncated')}</p>
+                    </Show>
                     <Show when={tail.available} fallback={<p>{message('shell.engine.noLog')}</p>}>
-                      <div class="engine-run-log" data-testid="engine-log-content" tabIndex={0}
-                        ref={(element) => queueMicrotask(() => { element.scrollTop = element.scrollHeight })}>
+                      <div
+                        class="engine-run-log"
+                        data-testid="engine-log-content"
+                        tabIndex={0}
+                        ref={(element) =>
+                          queueMicrotask(() => {
+                            element.scrollTop = element.scrollHeight
+                          })
+                        }
+                      >
                         <ProductCodeBlock value={tail.text || message('shell.engine.emptyLog')} />
                       </div>
                     </Show>
                   </>
-                })()}
-              </Match>
-            </Switch>}
-          </Show>
-        </ProductDialog>
+                )
+              })()}
+            </Match>
+          </Switch>
+        )}
       </Show>
-    </div>
+    </ProductDialog>
   )
 }

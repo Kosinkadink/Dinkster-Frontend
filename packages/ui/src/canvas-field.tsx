@@ -12,7 +12,7 @@ import {
 } from 'solid-js'
 import { Dynamic, Portal } from 'solid-js/web'
 import { ArrowDown, ArrowUp, ChevronDown, Dice5, Lock, Minus, Plus } from 'lucide-solid'
-import { CanvasRowList, canvasListLayout } from './canvas-list.js'
+import { CanvasRowList, canvasListBox, canvasListLayout } from './canvas-list.js'
 
 /** A box in screen pixels. */
 export interface CanvasBox {
@@ -255,6 +255,8 @@ interface CanvasRowFrameProps {
   rowWidth: number
   /** Height of a painted row whose focus frame has no content of its own. */
   rowHeight?: number
+  /** List headings grow vertically instead of hiding their final words. */
+  wrapLabel?: boolean
   place: CanvasSidePlace
   /**
    * The side part's top at normal size, from the row's top, or from the
@@ -404,6 +406,7 @@ export function CanvasRowFrame(
       data-overlay={content === undefined}
       data-neutral={props.neutral === true}
       data-zoomed={props.zoomed === true}
+      data-wrap-label={props.wrapLabel === true}
       data-testid={props.focus === true ? 'canvas-row-focus' : 'canvas-row-field'}
     >
       <div
@@ -473,6 +476,7 @@ export function CanvasRowField(
   return (
     <CanvasRowFrame
       rowWidth={props.rowWidth}
+      {...(props.wrapLabel === undefined ? {} : { wrapLabel: props.wrapLabel })}
       place={props.place}
       {...(props.sideTop === undefined ? {} : { sideTop: props.sideTop })}
       {...(props.sideMaxHeight === undefined
@@ -667,6 +671,7 @@ function StepGlyph(props: { path: string }) {
  */
 export function CanvasSidePart(props: {
   result?: string
+  note?: string
   problem?: string
   /** Id of the problem line, so the field can name it as its error. */
   problemId?: string
@@ -680,6 +685,9 @@ export function CanvasSidePart(props: {
     <>
       <Show when={props.result}>
         <p class="dinkster-canvas-side-result">{props.result}</p>
+      </Show>
+      <Show when={props.note}>
+        <p class="dinkster-canvas-side-kept">{props.note}</p>
       </Show>
       <Show when={props.problem}>
         <p
@@ -752,6 +760,9 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
   const [query, setQuery] = createSignal('')
   const [highlight, setHighlight] = createSignal<number>()
   const [listHeight, setListHeight] = createSignal(0)
+  const [headingSize, setHeadingSize] = createSignal({ width: 0, height: 0 }, {
+    equals: (a, b) => a.width === b.width && a.height === b.height,
+  })
   const [mount, setMount] = createSignal<HTMLElement>()
   const [position, setPosition] = createSignal({ x: 0, y: 0, width: 0, scale: 1, listPlace: 'below' as 'below' | 'above', listMaxHeight: 0 })
   let line!: HTMLDivElement
@@ -813,12 +824,14 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
     const top = example ? boundary!.top : Math.max(boundary?.top ?? 0, view?.offsetTop ?? 0)
     const right = example ? boundary!.right : Math.min(boundary?.right ?? window.innerWidth, (view?.offsetLeft ?? 0) + (view?.width ?? window.innerWidth))
     const bottom = example ? boundary!.bottom : Math.min(boundary?.bottom ?? window.innerHeight, (view?.offsetTop ?? 0) + (view?.height ?? window.innerHeight))
-    const layout = canvasListLayout({ x: box.x, y: box.y, width: box.width, height: box.height },
-      { x: left, y: top, width: right - left, height: bottom - top }, listHeight(), { width: 0, height: 0 }, scale, 0, 0)
-    setPosition({ x: (box.x - origin.left) / scale, y: (box.y - origin.top) / scale,
-      width: line.offsetWidth, scale, listPlace: layout.listPlace, listMaxHeight: layout.listMaxHeight ?? listHeight() })
+    const bounds = { x: left, y: top, width: right - left, height: bottom - top }
+    const menu = canvasListBox(box, bounds, headingSize(), scale)
+    const layout = canvasListLayout(menu,
+      bounds, listHeight() * scale, { width: 0, height: 0 }, 1, 0, 0)
+    setPosition({ x: (menu.x - origin.left) / scale, y: (menu.y - origin.top) / scale,
+      width: menu.width / scale, scale, listPlace: layout.listPlace, listMaxHeight: (layout.listMaxHeight ?? listHeight() * scale) / scale })
   }
-  createEffect(() => { void [open(), listHeight(), mount()]; queueMicrotask(place) })
+  createEffect(() => { void [open(), listHeight(), headingSize(), mount()]; queueMicrotask(place) })
   createEffect(() => {
     const current = position()
     if (popup) { popup.style.left = `${current.x}px`; popup.style.top = `${current.y}px` }
@@ -863,6 +876,7 @@ export function CanvasSideRepresentation(props: CanvasSideRepresentationProps) {
           <div ref={popup} class="dinkster-canvas-side-representation-list">
             <CanvasRowList
               rowWidth={position().width}
+              onHeadingSize={setHeadingSize}
               place="right"
               label="Display"
               query={query()}
@@ -1028,11 +1042,20 @@ export function CanvasSideActions(props: {
 
 export type CanvasSeedMode = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
-/** A seed's after-run mode as the icon drawn before its value. */
-export function CanvasSeedModeIcon(props: { mode: CanvasSeedMode }) {
+/** The mode's arrow follows numbers up/down and choices next/previous. */
+export function CanvasSeedModeIcon(props: {
+  mode: CanvasSeedMode
+  choice?: boolean
+}) {
+  const icon = () =>
+    props.choice && props.mode === 'increment'
+      ? ArrowDown
+      : props.choice && props.mode === 'decrement'
+        ? ArrowUp
+        : SEED_MODE_ICONS[props.mode]
   return (
     <Dynamic
-      component={SEED_MODE_ICONS[props.mode]}
+      component={icon()}
       class="dinkster-canvas-field-glyph"
       aria-label={props.mode}
       role="img"

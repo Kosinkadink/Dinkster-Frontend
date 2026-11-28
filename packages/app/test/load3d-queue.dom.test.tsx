@@ -1,6 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { asNodeId, diag, DINKSTER_SCHEMA_WIRE_VERSION } from '@dinkster/core'
+import { asNodeId, asPortId, boundaryOf, diag, DINKSTER_SCHEMA_WIRE_VERSION, documentResolver, emptyBoard } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
+import { WORKFLOW_MEDIA_TYPE } from '../src/app-state.js'
+import { activeProjectId } from '../src/projects.js'
+import { buildParamRows } from '../src/app-view-rows.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 const viewer = vi.hoisted(() => ({ mounts: [] as { camera?: unknown }[] }))
@@ -59,7 +62,7 @@ async function queueSetup(options: { wiredModel?: boolean } = {}) {
     ok: false, diagnostics: [diag('error', 'validation', 'submit.test', 'stop after submission')],
   })
   const queue = () => app.queue(tab, { kind: 'partial', targets: [{ instancePath: [], node: asNodeId('n1') }] })
-  return { app, tab, upload, submit, queue }
+  return { app, backend, tab, upload, submit, queue }
 }
 
 it('takes a 3D view\'s pictures at queue only when the view changed since they were taken', async () => {
@@ -112,4 +115,51 @@ it('stores and sends no pictures for a model that a wire brings', async () => {
     expect(Object.keys(sent).sort()).toEqual(['camera_info'])
     expect(Object.keys(state.tab.store.doc.graphs['g0']!.nodes['n1']!.values['image'] as object)).toEqual(['camera_info'])
   } finally { state.app.dispose() }
+})
+
+it('captures Board card 3D views privately and omits obsolete pictures when this run brings the model', async () => {
+  for (const variant of ['workflow', 'wired', 'blueprint'] as const) {
+    const wiredModel = variant === 'wired'
+    const kind = variant === 'blueprint' ? 'blueprint' : 'workflow'
+    const state = await queueSetup({ wiredModel })
+    try {
+      if (wiredModel) state.tab.store.dispatch({ command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'n1', inputId: 'image', value: {
+          ...(state.tab.store.doc.graphs.g0!.nodes.n1!.values.image as object),
+          image: asset('d', 'old.png'), mask: asset('e', 'old-mask.png'), normal: asset('f', 'old-normal.png'),
+        },
+      } })
+      const original = state.tab.store.doc
+      const tabs = state.app.tabs.get()
+      const source = kind === 'blueprint' ? { ...original, graphs: { g0: { ...original.graphs.g0!, boundary: boundaryOf([
+        { id: 'width', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('width') }, promoted: true },
+      ], [{ id: 'image', binds: { kind: 'port', node: asNodeId('n1'), port: asPortId('image') } }]) } } } : original
+      const bytes = JSON.stringify(source)
+      vi.spyOn(state.backend.connection, 'getLibraryRecord').mockResolvedValue({ id: 'view', scope: 'local', name: 'View',
+        digest: asset('a', 'view.json').digest, mediaType: WORKFLOW_MEDIA_TYPE, labels: [kind], created: 1, modified: 1, revision: 1 })
+      vi.spyOn(state.backend.connection, 'fetchAssetText').mockResolvedValue(bytes)
+      const board = state.app.boards.open(emptyBoard(), 'Views', state.backend.baseUrl)
+      const card = await state.app.boards.placeCard(board.id, { project: activeProjectId(), baseUrl: state.backend.baseUrl,
+        kind, source: { kind: 'library', recordId: 'view' }, name: 'View' }, { x: 0, y: 0 })
+      if (kind === 'blueprint') {
+        const resolve = state.backend.registry.get()!.resolve
+        const loaded = await state.app.boards.loadCard(board.id, card, resolve)
+        const input = buildParamRows(loaded, documentResolver(loaded, resolve))[0]!.entry
+        expect(board.session.dispatch({ command: 'board.card.input', params: { id: card, input, value: 648 } }).ok).toBe(true)
+      }
+      await expect(state.app.queueBoardCard(board, card)).rejects.toThrow('stop after submission')
+      const sent = Object.values(state.submit.mock.calls[0]![0].prompt).find((node) => node.class_type === 'dinkster.3d.load3_d')!.inputs.image as Record<string, { name?: string }>
+      if (wiredModel) {
+        expect(state.upload).not.toHaveBeenCalled()
+        expect(Object.keys(sent)).toEqual(['camera_info'])
+      } else {
+        expect([sent.image?.name, sent.mask?.name, sent.normal?.name]).toEqual(['viewport-image.png', 'viewport-mask.png', 'viewport-normal.png'])
+        expect(sent.pictures_view).toMatchObject({ width: kind === 'blueprint' ? 648 : 320, height: 240, camera_info: { fov: 50 } })
+      }
+      expect(state.app.tabs.get()).toBe(tabs)
+      expect(state.tab.store.doc).toBe(original)
+      expect(JSON.stringify(source)).toBe(bytes)
+      if (kind !== 'blueprint') expect(board.session.doc.items[card]).toMatchObject({ values: {} })
+    } finally { state.app.dispose() }
+  }
 })

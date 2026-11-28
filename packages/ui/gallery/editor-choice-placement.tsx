@@ -11,6 +11,10 @@ export function EditorChoicePlacementGallery() {
   const mounts = ['output', 'archive', 'renders', 'delivery', 'backup', 'usb1']
   return <ProductSection title="Choice lists stay on the canvas">
     <div class="dinkster-canvas-example-stage dinkster-canvas-choice-example" ref={(element) => { element.style.height = '360px' }}>
+      <CanvasEditorSpace ref={(element) => { element.style.left = '12px'; element.style.top = '12px'; element.style.width = '210px'; element.style.height = '60px' }}>
+        <CanvasEditorLine><CanvasEditorChoice label="Field of the detailed sampling settings used for the final image" value={curve()}
+          options={['Linear', 'Monotone cubic', 'Step']} onChange={setCurve} /></CanvasEditorLine>
+      </CanvasEditorSpace>
       <CanvasEditorSpace ref={(element) => { element.style.left = '12px'; element.style.top = '290px'; element.style.width = '300px'; element.style.height = '40px' }}>
         <CanvasEditorLine><CanvasEditorChoice label="Interpolation" value={curve()}
           options={['Linear', 'Monotone cubic', 'Step']} onChange={setCurve} /></CanvasEditorLine>

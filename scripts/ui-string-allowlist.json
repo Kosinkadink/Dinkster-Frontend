@@ -33,20 +33,6 @@
     "text:Stop recording",
     "text:bytes"
   ],
-  "AudioTransport.tsx": [
-    "attribute:alt:Server audio waveform",
-    "attribute:aria-label:Next audio batch",
-    "attribute:aria-label:Previous audio batch",
-    "text:Audio waveform",
-    "text:Batch",
-    "text:Batch selection not advertised by backend.",
-    "text:Gain",
-    "text:Loop",
-    "text:Next",
-    "text:Previous",
-    "text:Window preview only. Loop and gain do not change the value.",
-    "text:s"
-  ],
   "BadgePopover.tsx": [
     "attribute:title:Definition missing.",
     "attribute:title:No error details recorded.",
@@ -111,7 +97,6 @@
     "attribute:title:Embedded workflow found",
     "text:3D viewer unavailable",
     "text:Add reroute",
-    "text:After",
     "text:Bookmarks",
     "text:Cancel",
     "text:Cancel",
@@ -169,6 +154,9 @@
     "text:agent",
     "text:agent",
     "text:here now"
+  ],
+  "ControllerModeMenu.tsx": [
+    "text:After"
   ],
   "CustomizeLayoutDialog.tsx": [
     "text:Choose which supported shell regions are visible.",

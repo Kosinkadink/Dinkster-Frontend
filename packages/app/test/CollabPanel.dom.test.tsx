@@ -2,6 +2,7 @@
 
 import {
   createSignal as createCoreSignal,
+  emptyBoard,
   type CollabConnection,
   type CollabConnectionEvent,
   type CollabSessionDescriptor,
@@ -13,6 +14,7 @@ import { AppState, type CollabTabState, type Tab } from '../src/app-state.js'
 import type { CollabTransport } from '../src/collab.js'
 import { CollabPanel } from '../src/CollabPanel.js'
 import { SettingsRegistry } from '../src/settings.js'
+import { RequestFailure } from '@dinkster/client'
 
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 const nextTask = async (): Promise<void> => { await new Promise((resolve) => setTimeout(resolve, 0)); await flush() }
@@ -88,10 +90,14 @@ function mount(options: {
   const requestClose = vi.fn()
   const settings = new SettingsRegistry(undefined)
   settings.register({ id: 'canvas.grid.visible', name: 'Show canvas grid', type: 'boolean', defaultValue: true })
+  settings.register({ id: 'features.board.enabled', name: 'Enable Boards', type: 'boolean', defaultValue: false })
   const app = {
     tabs,
     activeTabId,
     collabTabs,
+    boards: { entries: createCoreSignal([]) },
+    backends: createCoreSignal([]),
+    backendsTick: createCoreSignal(0),
     collabActorId: 'local-actor-with-a-deliberately-long-identity',
     collabBackend: () => options.backend === false ? undefined : {},
     listCollabSessions: list,
@@ -120,7 +126,8 @@ function mountProductionRace() {
   let snapshotCount = 0
   let currentDescriptor: CollabSessionDescriptor | undefined
   let rejectEnd!: (reason: Error) => void
-  const pendingEnd = new Promise<void>((_resolve, reject) => { rejectEnd = reject })
+  let resolveEnd!: () => void
+  const pendingEnd = new Promise<void>((resolve, reject) => { resolveEnd = resolve; rejectEnd = reject })
   const connections: Array<{
     closed: boolean
     listeners: Set<(event: CollabConnectionEvent) => void>
@@ -159,6 +166,8 @@ function mountProductionRace() {
       snapshot = structuredClone(args.snapshot)
       currentDescriptor = {
         ...descriptor('production-watcher-session', args.documentId),
+        scope: args.scope,
+        ...(args.documentKind === undefined ? {} : { documentKind: args.documentKind }),
         revision: 0,
         snapshotRevision: 0,
       }
@@ -182,6 +191,7 @@ function mountProductionRace() {
     unmount,
     requestClose,
     rejectEnd,
+    resolveEnd,
     connectionCount: () => connections.length,
     snapshotCount: () => snapshotCount,
     connectionClosed: (index: number) => connections[index]?.closed,
@@ -202,6 +212,105 @@ afterEach(() => {
 })
 
 describe('CollabPanel', () => {
+  it('discards the old backend discovery after retargeting and joins only the new backend Board', async () => {
+    localStorage.clear()
+    sessionStorage.clear()
+    const oldList = deferred<void>()
+    const boardA = emptyBoard()
+    const boardB = emptyBoard()
+    let scope = ''
+    const sessionFor = (baseUrl: string): CollabSessionDescriptor => ({
+      ...descriptor(baseUrl === 'http://discovery-a' ? 'board-a' : 'board-b',
+        baseUrl === 'http://discovery-a' ? boardA.lineage : boardB.lineage),
+      documentKind: 'board', scope, revision: 0, snapshotRevision: 0,
+    })
+    const transport: CollabTransport = {
+      list: async (baseUrl, requestedScope) => {
+        if (baseUrl === 'http://discovery-a') await oldList.promise
+        return requestedScope === scope ? [sessionFor(baseUrl)] : []
+      },
+      get: async (baseUrl, sessionId) => baseUrl === 'http://discovery-b' && sessionId === 'board-b'
+        ? sessionFor(baseUrl) : undefined,
+      create: async () => { throw new Error('Unexpected publication') },
+      end: async () => {},
+      connect: () => ({
+        sessionId: 'board-b',
+        fetchSnapshot: async () => ({ revision: 0, document: boardB }),
+        fetchOps: async () => ({ kind: 'ops', ops: [] }),
+        putSnapshot: async () => ({ kind: 'ok' }),
+        postOp: async () => ({ kind: 'error', message: 'Unexpected edit' }),
+        sendPresence: () => {},
+        onEvent: (listener) => {
+          queueMicrotask(() => listener({ kind: 'connected', descriptor: sessionFor('http://discovery-b') }))
+          return () => {}
+        },
+        close: () => {},
+      }),
+    }
+    const app = new AppState({ collabTransport: transport })
+    productionApps.push(app)
+    scope = app.boards.scope
+    const a = app.addBackend('http://discovery-a', 'A', false, 'dinkster')!
+    const b = app.addBackend('http://discovery-b', 'B', false, 'dinkster')!
+    const workflow = app.activeTab()!
+    app.setTabTarget(workflow.id, a.id)
+    app.settings.set('features.board.enabled', true)
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <CollabPanel app={app} requestClose={() => {}} />, root)
+    try {
+      await flush()
+      app.setTabTarget(workflow.id, b.id)
+      oldList.resolve()
+      await vi.waitFor(() => expect(root.querySelector('[data-session-id="board-b"]')).not.toBeNull())
+      expect(root.querySelector('[data-session-id="board-a"]')).toBeNull()
+      root.querySelector<HTMLButtonElement>('[data-session-id="board-b"] [data-testid="collab-join"]')!.click()
+      await vi.waitFor(() => expect(app.activeTabId.get()).toBe(`page:board:${boardB.lineage}`))
+      expect(app.boards.entries.get().map((entry) => entry.session.doc)).toEqual([boardB])
+    } finally { oldList.resolve(); unmount() }
+  })
+
+  it('discovers, joins, leaves and ends a session-backed Board without workflow presence', async () => {
+    const mounted = mountProductionRace()
+    const { app, root } = mounted
+    app.settings.set('features.board.enabled', true)
+    const local = app.boards.open(emptyBoard(), 'References', app.collabBackend()!.baseUrl)
+    local.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'note', kind: 'note', text: 'Keep this note', rect: { x: 25, y: 40, width: 180, height: 90 },
+    }] } })
+    const shared = await app.boards.share(local.id)
+    app.pages.open(`board:${local.id}`)
+    await nextTask()
+    expect(root.querySelector('#collab-current-heading')?.textContent).toBe('This Board')
+    expect(root.querySelector('[data-testid="collab-status"]')?.textContent).toContain('Live')
+    expect(root.querySelector('[data-testid="collab-participants"]')).toBeNull()
+    root.querySelector<HTMLButtonElement>('[data-testid="collab-leave"]')!.click()
+    await nextTask()
+    expect(app.boards.entries.get()[0]!.shared).toBeUndefined()
+    expect(app.boards.entries.get()[0]!.session.doc.items.note).toMatchObject({ text: 'Keep this note' })
+    expect(shared.shared!.session.status.get()).toBe('closed')
+    app.pages.close(`page:board:${local.id}`)
+    app.boards.close(local.id)
+    root.querySelector<HTMLButtonElement>('[data-testid="collab-refresh"]')!.click()
+    await nextTask()
+    expect(root.querySelector('[data-testid="collab-session"]')?.textContent).toContain('Board - ')
+    expect(root.querySelector('[data-testid="collab-session"] .product-list-row-primary')?.textContent).toBe('References')
+    root.querySelector<HTMLButtonElement>('[data-testid="collab-join"]')!.click()
+    await nextTask()
+    expect(app.activeTabId.get()).toBe(`page:board:${local.id}`)
+    expect(root.querySelector('.collab-session-identity h3')?.textContent).toBe('References')
+    expect(app.boards.entries.get()[0]!.session.doc.items.note).toMatchObject({ text: 'Keep this note' })
+    expect(root.querySelector('[data-testid="collab-participants"]')).toBeNull()
+    root.querySelector<HTMLButtonElement>('[data-testid="collab-end"]')!.click()
+    expect(root.querySelector('[data-testid="collab-end-confirm"]')).not.toBeNull()
+    confirmationButton(root, 'End session for everyone').click()
+    mounted.resolveEnd()
+    await nextTask()
+    expect(app.boards.entries.get()[0]!.shared).toBeUndefined()
+    expect(app.boards.entries.get()[0]!.session.doc.items.note).toMatchObject({ text: 'Keep this note' })
+    mounted.unmount()
+  })
+
   it('distinguishes initial loading, no backend, empty, and list failure', async () => {
     const loadingList = deferred<readonly CollabSessionDescriptor[]>()
     const loading = mount({ list: () => loadingList.promise })
@@ -224,7 +333,7 @@ describe('CollabPanel', () => {
     unavailable.unmount()
     unavailable.root.remove()
 
-    const failed = mount({ list: async () => { throw new Error('backend unavailable') } })
+    const failed = mount({ list: async () => { throw new RequestFailure('GET', '/api/sessions', 503, 'backend unavailable') } })
     await flush()
     expect(failed.root.querySelector('[data-testid="collab-list-error"]')?.textContent).toContain('backend unavailable')
     expect(failed.root.querySelector('[data-testid="collab-list-error"]')?.getAttribute('role')).toBe('alert')
@@ -435,11 +544,11 @@ describe('CollabPanel', () => {
       'The collaboration session closed. The workflow is available locally.',
     )
 
-    mounted.rejectEnd(new Error('network lost after remote close'))
+    mounted.rejectEnd(new RequestFailure('DELETE', '/api/sessions/test', undefined))
     await nextTask()
 
     expect(mounted.root.querySelector('[data-testid="collab-end-error"]')?.textContent).toContain(
-      'network lost after remote close',
+      'The engine did not answer.',
     )
     expect(mounted.root.querySelector('[data-testid="collab-unshared"]')).toBe(document.activeElement)
     expect(mounted.root.querySelector('[role="status"]')?.textContent).toContain(
