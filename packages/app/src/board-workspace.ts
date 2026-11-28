@@ -1,5 +1,5 @@
 import {
-  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, DocumentStore, assetMultiSelect, boardMediaKindOf, buildGraphConnectivity, connectSharedBoardSession, coreCommandRegistry, createLocalBoardSession, createSignal, defaultValuesOf, documentResolver, elabInputsOf, elaborateInterface, exposedKey, exposedToJson, isValidCollabTitle, jsonSameValue, loadBoard, loadDocument, planBoardCommand, t, valueKeyOf,
+  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, DocumentStore, assetMultiSelect, boardMediaKindOf, buildGraphConnectivity, connectSharedBoardSession, coreCommandRegistry, createLocalBoardSession, createSignal, defaultValuesOf, documentResolver, elabInputsOf, elaborateInterface, exposedKey, exposedToJson, isAssetWidgetInput, isValidCollabTitle, jsonSameValue, loadBoard, loadDocument, planBoardCommand, t, valueKeyOf,
   type AssetRef, type BoardAsset, type BoardCardItem, type BoardCardSource, type BoardDocument, type BoardItemInput, type BoardRect, type BoardSession, type CollabSessionDescriptor, type ControllerMode, type Json, type NodeSchema, type SharedBoardSession, type WorkflowDocument,
 } from '@dinkster/core'
 import type { AssetUploadDestination, DinksterConnection, LibraryRecord } from '@dinkster/client'
@@ -37,7 +37,7 @@ function cardMediaInput(document: WorkflowDocument, asset: BoardAsset,
   resolve: (type: string) => NodeSchema | undefined,
 ) {
   return buildParamRows(document, documentResolver(document, resolve)).find((row) => {
-    if (row.kind !== 'live' || row.linked || row.derived || row.spec?.widgetType !== 'ASSET' || row.spec.selection === true) return false
+    if (row.kind !== 'live' || row.linked || row.derived || row.spec === undefined || !isAssetWidgetInput(row.item.spec) || row.spec.selection === true) return false
     const accept = row.spec.options['accept']
     return isCompatible({ ...asset, id: asset.digest, source: { id: 'board', label: 'Board' } },
       Array.isArray(accept) ? accept.filter((value): value is string => typeof value === 'string') : [], row.spec.kind)
