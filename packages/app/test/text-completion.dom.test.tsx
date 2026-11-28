@@ -101,6 +101,27 @@ const staticExtension = (items: readonly TextCompletion[]): TextWidgetEditorExte
 })
 
 describe('multiline text suggestion surface', () => {
+  it('offers completions for the real occurrence owner of an entered Inputs field', async () => {
+    const mounted = mountEditor([{
+      id: 'test.occurrence',
+      supports: (context) => context.graphId === 'g0' && context.nodeId === 'n0' && context.inputId === 'text' && context.nodeType === 'comfy.CLIPTextEncode',
+      complete: () => [completion('gold', 'gold', 0, 1, 'gold')],
+    }], undefined, {
+      graphId: 'detail',
+      target: {
+        kind: 'input', nodeId: '@boundary:inputs', valueKey: 'exportedText',
+        familyOwner: { graphId: 'g0', nodeId: 'n0', valueKey: 'text' },
+      },
+    })
+
+    mounted.input('g')
+    await mounted.flush()
+    expect(document.querySelector('[data-testid="suggestion-option"]')?.textContent).toContain('gold')
+    mounted.key('Enter')
+    expect(mounted.textarea.value).toBe('gold')
+    mounted.unmount()
+  })
+
   it('loads live embedding inventory without a static extension and applies its exact replacement', async () => {
     let resolve!: (names: readonly string[]) => void
     const choices = vi.fn(() => new Promise<readonly string[]>((done) => { resolve = done }))

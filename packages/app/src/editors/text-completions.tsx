@@ -63,9 +63,12 @@ export function createTextCompletions(host: WidgetEditorProps, isLive: () => boo
 
   const completionContext = (): TextWidgetEditorContext | undefined => {
     if (!text || ed.spec === undefined || ed.target.kind !== 'input') return undefined
-    const nodeType = ed.tab.store.doc.graphs[ed.graphId]?.nodes[ed.target.nodeId]?.type
+    const owner = ed.target.familyOwner
+    const graphId = owner?.graphId ?? ed.graphId
+    const nodeId = owner?.nodeId ?? ed.target.nodeId
+    const nodeType = ed.tab.store.doc.graphs[graphId]?.nodes[nodeId]?.type
     return nodeType === undefined ? undefined : {
-      graphId: ed.graphId, nodeId: ed.target.nodeId, inputId: ed.target.valueKey, nodeType, spec: ed.spec,
+      graphId, nodeId, inputId: owner?.valueKey ?? ed.target.valueKey, nodeType, spec: ed.spec,
     }
   }
   const closeCompletions = (): void => {
