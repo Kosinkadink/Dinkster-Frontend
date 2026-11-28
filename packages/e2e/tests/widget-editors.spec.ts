@@ -113,6 +113,24 @@ catalogTest('secret rows save and remove through the selected connection without
   await expect(missing).toHaveCount(0)
   expect(source).toBe('account')
   await page.screenshot({ path: testInfo.outputPath('secret-refused-editor.png') })
+  const minimize = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const viewport = renderer.getViewport()
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'caption')!
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return {
+      x: canvas.left + (node.x + 14) * viewport.scale + viewport.x,
+      y: canvas.top + (node.y + node.layout.headerHeight / 2) * viewport.scale + viewport.y,
+    }
+  })
+  await page.keyboard.press('Escape')
+  await page.mouse.click(minimize.x, minimize.y)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
+    .find((node) => node.id === 'caption')!.layout.minimized)).toBe(true)
+  await expect(missing).toHaveCount(0)
+  await rejected.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+  await expect(box.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('secret-refused-minimized.png') })
   await box.getByRole('button', { name: 'Replace secret', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
   await expect(dialog.getByRole('combobox', { name: 'Name', exact: true })).toHaveValue('caption-service')
