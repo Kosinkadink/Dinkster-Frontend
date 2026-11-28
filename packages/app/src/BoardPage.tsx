@@ -61,7 +61,7 @@ function BoardResultActions(props: {
     void (async () => {
       const asset = await props.app.boards.resolveMediaAsset(props.entry.id, item.id, current)
       if (!asset || !current()) return
-      const sources = await boardContinuationSources(props.app, props.entry, project, item.asset, current)
+      const sources = await boardContinuationSources(props.app, props.entry, project, asset, current)
       if (!current()) return
       setLoaded({ continuation: { itemId: item.id, asset, resolve: registry.resolve }, sources, current })
       if (sources.errors.length) props.onError(sources.errors.join('; '))

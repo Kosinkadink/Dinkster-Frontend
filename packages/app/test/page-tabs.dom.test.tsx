@@ -11,6 +11,7 @@ import * as boardMedia from '../src/board-media.js'
 import { setPanelOpen } from '../src/panel-location.js'
 import { BOARD_MEDIA_TYPE, asPromptId, boundaryOf, emptyBoard, exposedKey, loadDocument } from '@dinkster/core'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { activeProjectId } from '../src/projects.js'
 import {
   layoutGroups,
   repairEditorLayout,
@@ -412,6 +413,20 @@ describe('app page tabs', () => {
       expect(submit).not.toHaveBeenCalled()
       expect(entry.session.undo()).toBe(true)
       expect(entry.session.doc.order).toEqual(['picture'])
+      const pngOnly = { ...schema, body: schema.body.map((input) => input.kind !== 'input' ? input : {
+        ...input, widget: { ...input.widget!, options: { accept: ['image/png'] } },
+      }) }
+      backend.registry.set({ ...registry, resolve: (type) => type === schema.type ? pngOnly : registry.resolve(type) })
+      vi.mocked(backend.connection.listLocalAssets).mockResolvedValue({ assets: [{
+        asset: { ...asset, mediaType: 'image/jpeg', name: 'Canonical.jpg' }, aliases: [], observations: [],
+      }] })
+      picture().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+      await vi.waitFor(() => expect(root.querySelector('[aria-label="Continue with"]')).not.toBeNull())
+      root.querySelector<HTMLButtonElement>('[aria-label="Continue with"]')!.click()
+      await vi.waitFor(() => expect(document.body.textContent).toContain('None in this project'))
+      expect(menuItem('Enhance details')).toBeUndefined()
+      root.querySelector<HTMLButtonElement>('[aria-label="Continue with"]')!.click()
+      expect(entry.session.doc.order).toEqual(['picture'])
       availability.mockResolvedValue([{ digest: asset.digest, status: 'missing' }])
       app.backendsTick.update((value) => value + 1)
       picture().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
@@ -423,6 +438,70 @@ describe('app page tabs', () => {
       expect(entry.session.undo()).toBe(true)
       expect(entry.session.doc.order).toEqual(['picture'])
       expect(source.graphs.g0.nodes.n0.values).toEqual({ a: saved, b: null })
+    } finally { dispose(); app.dispose(); root.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
+  })
+
+  it('opens a selected result\'s original frozen workflow rather than its newer run or edited saved source', async () => {
+    const app = createWorkflowApp()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    const backend = app.addBackend('http://board-result-history:8000', 'Result history', false, 'dinkster')!
+    backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
+    const digest = `blake3:${'d'.repeat(64)}`
+    const record = { id: 'producing-source', scope: 'local', name: 'Original source', digest,
+      mediaType: 'application/x-dinkster-workflow+json', labels: ['workflow'], created: 1, modified: 2, revision: 1 }
+    const source = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'result-history-source', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Original source', nodes: {
+        n0: { id: 'n0', type: 'std.math.add_ints', values: { a: 3, b: 4 } },
+      }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1 } }, view: { graphs: {} } }
+    let bytes = JSON.stringify(source)
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record)
+    vi.spyOn(backend.connection, 'fetchAssetText').mockImplementation(async () => bytes)
+    vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(digest)
+    vi.spyOn(backend.connection, 'listLibrary').mockResolvedValue({ records: [] })
+    vi.spyOn(backend.connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+      digests.map((digest) => ({ digest, status: 'missing' })))
+    vi.spyOn(backend.connection, 'getHistoryRun').mockResolvedValue(undefined)
+    let ordinal = 0
+    vi.spyOn(backend.connection, 'submit').mockImplementation(async () => ({ ok: true,
+      execution: { connection: backend.id, prompt: asPromptId(`prompt-${++ordinal}`) }, jobRef: `job-${ordinal}` }))
+    try {
+      const entry = app.boards.open(emptyBoard(), 'Run provenance', backend.baseUrl)
+      const card = await app.boards.placeCard(entry.id, { project: activeProjectId(), baseUrl: backend.baseUrl,
+        kind: 'workflow', source: { kind: 'library', recordId: record.id }, name: record.name }, { x: 10, y: 20 })
+      const original = (await app.queueBoardCard(entry, card))!
+      const snapshot = app.store.get(original)!.artifact!.snapshot
+      app.store.apply({ kind: 'completed', execution: original, timestamp: 1 })
+      bytes = JSON.stringify({ ...source, graphs: { g0: { ...source.graphs.g0, nodes: {
+        n0: { ...source.graphs.g0.nodes.n0, values: { a: 39, b: 47 } },
+      } } } })
+      const newer = (await app.queueBoardCard(entry, card))!
+      app.store.apply({ kind: 'completed', execution: newer, timestamp: 2 })
+      expect(app.store.get(newer)!.artifact!.snapshot).not.toEqual(snapshot)
+      const addResult = (id: string, job: string) => entry.session.dispatch({ command: 'board.run.add', params: {
+        job, card, items: [{ id, kind: 'picture',
+          asset: { digest, name: `${id}.png`, mediaType: 'image/png', origin: { job, node: 'n0' } },
+          rect: { x: 420, y: id === 'original-result' ? 40 : 280, width: 280, height: 175 } }],
+      } })
+      expect(addResult('original-result', 'job-1').ok).toBe(true)
+      expect(addResult('unavailable-result', 'unavailable-job').ok).toBe(true)
+      app.pages.open(`board:${entry.id}`)
+      const tab = app.pages.tabs().find((tab) => tab.id === `page:board:${entry.id}`) as PageTab
+      dispose = render(() => <PageTabPanel host={app.pages} tab={tab} />, root)
+      const select = (id: string) => root.querySelector(`[data-board-item="${id}"]`)!
+        .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+      select('original-result')
+      await vi.waitFor(() => expect([...root.querySelectorAll('button')].find((button) => button.textContent === 'Open workflow')).toBeDefined())
+      const open = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Open workflow')!
+      open.click()
+      await vi.waitFor(() => expect(app.activeTab()?.execution).toEqual(original))
+      expect(app.activeTab()?.store.doc).toEqual(snapshot)
+      expect(app.activeTab()?.store.doc.graphs.g0!.nodes.n0!.values).toEqual({ a: 3, b: 4 })
+      select('unavailable-result')
+      await Promise.resolve()
+      expect([...root.querySelectorAll('button')].some((button) => button.textContent === 'Open workflow')).toBe(false)
+      expect(JSON.parse(bytes).graphs.g0.nodes.n0.values).toEqual({ a: 39, b: 47 })
     } finally { dispose(); app.dispose(); root.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
   })
 

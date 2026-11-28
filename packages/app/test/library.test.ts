@@ -270,6 +270,17 @@ describe('Board card sources', () => {
     await expect(app.boards.placeCard(board.id, selection, { x: 0, y: 0 }, () => true,
       { itemId: 'picture', asset: selected, resolve: incompatible })).rejects.toThrow('no compatible exposed input')
     expect(board.session.doc).toEqual(settled)
+    if (kind === 'workflow') {
+      const pngOnly = (type: string): NodeSchema | undefined => type !== schema.type ? registry.resolve(type) : {
+        ...schema, body: schema.body.map((input) => input.kind !== 'input' ? input : {
+          ...input, widget: { ...input.widget!, options: { accept: ['image/png'] } },
+        }),
+      }
+      await expect(app.boards.placeCard(board.id, selection, { x: 0, y: 0 }, () => true,
+        { itemId: 'picture', asset: { ...selected, mediaType: 'image/jpeg', name: 'Canonical.jpg' }, resolve: pngOnly }))
+        .rejects.toThrow('no compatible exposed input')
+      expect(board.session.doc).toEqual(settled)
+    }
     vi.spyOn(connection, 'checkAssetAvailability').mockResolvedValueOnce([{ digest: DIGEST, status: 'missing' }])
     await expect(app.boards.placeCard(board.id, selection, { x: 0, y: 0 }, () => true,
       { itemId: 'picture', asset: selected, resolve: backend.registry.get()!.resolve })).rejects.toThrow('file is unavailable')

@@ -379,7 +379,7 @@ export class BoardWorkspace {
     let continuedFrom: BoardCardItem['continuedFrom']
     if (continuation && origin && 'asset' in origin && asset) {
       const document = cardFace(loaded.document, selection.kind, loaded.name ?? selection.name, continuation.resolve)
-      const input = cardMediaInput(document, origin.asset, continuation.resolve)
+      const input = cardMediaInput(document, asset, continuation.resolve)
       if (!input || input.kind !== 'live') throw new Error('This source has no compatible exposed input')
       const availability = await connection.checkAssetAvailability([asset.digest], { scope: 'local' })
       if (!current()) throw new Error('Board changed while loading the card; nothing was placed')
