@@ -41,6 +41,7 @@ import {
 } from './controls.js'
 import { ProductAudioWaveform } from './audio-waveform.js'
 import { useFieldFocus } from './field-focus.js'
+import { ProductImage } from './image.js'
 
 export interface ProductBoardProps {
   readonly store: BoardSession
@@ -767,12 +768,9 @@ export function ProductBoard(props: ProductBoardProps) {
                       when={((item) => item.kind === 'picture' && item)(item())}
                     >
                       {(picture) => (
-                        <img
-                          class="dinkster-board-picture"
+                        <ProductImage
                           src={props.assetUrl(picture().asset)}
                           alt={picture().asset.name}
-                          draggable={false}
-                          loading="lazy"
                           onLoad={(event) =>
                             setMetadata({
                               width: event.currentTarget.naturalWidth,
