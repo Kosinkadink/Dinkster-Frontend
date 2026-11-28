@@ -515,6 +515,20 @@
   .asset-match-candidates code { grid-column: 1; }
 }
 
+@media (width < 560px) {
+  .asset-file-picker > .asset-editor-scroll { overflow: hidden; }
+  .asset-file-picker .asset-editor-body { display: flex; flex-direction: column; overflow: hidden; }
+  .asset-file-picker .asset-browser-section { flex: 1 0 0; min-height: min-content; }
+  .asset-file-picker .collection-panel { min-height: min-content; }
+  .asset-file-picker .collection-content { flex: 1; min-height: calc(var(--dinkster-space-32) * 6); }
+  .asset-file-picker .collection-content:has(.collection-items.list) { min-height: calc(var(--dinkster-space-32) * 4); }
+  .asset-file-picker .collection-items { max-height: none; }
+  .asset-file-picker .asset-selection-summary { flex: 0 1 auto; max-height: min(410px, calc((100dvh - var(--dinkster-space-16)) / 2)); box-sizing: border-box; }
+  .asset-file-picker .asset-selection-summary[data-has-selection='false'] { display: none; }
+  .asset-file-picker .asset-selection-summary > * { flex: none; }
+  .asset-file-picker .asset-selection-summary > .asset-section-heading { position: sticky; top: calc(-1 * var(--dinkster-space-12)); z-index: 1; background: var(--dinkster-surface-raised); box-shadow: 0 calc(-1 * var(--dinkster-space-12)) 0 var(--dinkster-surface-raised); }
+}
+
 .color-editor {
   display: flex;
   flex-direction: column;

@@ -851,7 +851,7 @@ export const AssetFilePicker: Component<AssetFilePickerProps> = (props) => {
                 </Show>
               </Show>
             </section>
-            <section class="asset-selection-summary" data-testid="asset-selection-summary" aria-label="Selection">
+            <section class="asset-selection-summary" data-testid="asset-selection-summary" aria-label="Selection" data-has-selection={assetSelection().length > 0}>
               <header class="asset-section-heading">
                 <div>
                   <h3>{assetMulti && assetSelection().length > 0
@@ -935,6 +935,11 @@ export const AssetFilePicker: Component<AssetFilePickerProps> = (props) => {
               <Show when={inspectedModelDetail() ?? selectionDetailModel()} keyed>
                 {(detail) => <LogicalModelVariantFacts detail={detail} />}
               </Show>
+              <Show when={uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined} keyed>
+                {(backend) => <Show when={assetSelection()[0]} keyed>{(ref) => <AssetFileLocation compact connection={backend.connection}
+                  backendUrl={backend.baseUrl} digest={ref.digest} project={project}
+                  isCurrent={() => live && props.backend() === backend && activeProjectId() === project} />}</Show>}
+              </Show>
               <Show when={assetSelection().length > 0}>
                 {/* Clearing only stages an empty selection: nothing commits
                     before the footer commit, Cancel restores the stored
@@ -951,11 +956,6 @@ export const AssetFilePicker: Component<AssetFilePickerProps> = (props) => {
               </Show>
             </section>
             </div>
-            <Show when={uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined} keyed>
-              {(backend) => <For each={assetSelection()}>{(ref) => <AssetFileLocation connection={backend.connection}
-                backendUrl={backend.baseUrl} digest={ref.digest} project={project}
-                isCurrent={() => live && props.backend() === backend && activeProjectId() === project} />}</For>}
-            </Show>
             <Show when={classifiedMediaKind === 'media/audio' && ed.spec?.allowUpload === true}>
               <AudioRecorder disabled={assetUploading()} onSave={async (file) => {
                 const abort = new AbortController()

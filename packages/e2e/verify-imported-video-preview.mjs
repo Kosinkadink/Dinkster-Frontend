@@ -18,10 +18,15 @@ const surface = process.env.DINKSTER_PREVIEW_SURFACE ?? transfer.surfaces[0]
 assert.ok(['field', 'canvas'].includes(surface))
 const requestedWidth = process.env.DINKSTER_PREVIEW_WIDTH
 assert.ok(!requestedWidth || ['1440', '390'].includes(requestedWidth))
+const layoutOnly = process.env.DINKSTER_PREVIEW_LAYOUT === '1'
+assert.ok(!layoutOnly || (surface === 'field' && requestedWidth === '390'))
 const viewports = [
   [1440, 950],
   [390, 844],
-].filter(([width]) => !requestedWidth || width === Number(requestedWidth))
+].filter(
+  ([width]) =>
+    !layoutOnly && (!requestedWidth || width === Number(requestedWidth)),
+)
 const document = transfer.attempts.at(-1).browser.document
 assert.equal(document.lineage, `video-transfer-${transfer.surfaces[0]}`)
 const nodes = Object.values(document.graphs[document.root].nodes)
@@ -102,6 +107,73 @@ try {
       .getByRole('button', { name: 'Browse folders', exact: true })
       .click()
     await expect(page.getByTestId('asset-editor')).toBeVisible()
+  }
+  if (layoutOnly) {
+    const editor = page.getByTestId('asset-editor')
+    const card = editor.getByTestId('asset-selection-summary')
+    const files = editor.locator('.collection-items')
+    const capture = async (name) => {
+      const state = { name }
+      result.states.push(state)
+      state.geometry = await editor.evaluate((element) => {
+        const rect = (selector) =>
+          element.querySelector(selector)?.getBoundingClientRect().toJSON()
+        const list = element.querySelector('.collection-items')
+        return {
+          files: rect('.collection-items'),
+          firstFile: rect('.collection-entry'),
+          card: rect('.asset-selection-summary'),
+          header: rect('.asset-selection-summary .asset-section-heading'),
+          picture: rect('.video-preview-picture'),
+          preview: rect('.asset-video-preview'),
+          footer: rect('.product-action-footer'),
+          dialog: element.closest('dialog').getBoundingClientRect().toJSON(),
+          scrollTop: list.scrollTop,
+          scrollHeight: list.scrollHeight,
+          clientHeight: list.clientHeight,
+        }
+      })
+      state.graphs = await page.evaluate(
+        () => window.__dinksterTest.app.activeTab().store.doc.graphs,
+      )
+      await page.screenshot({ path: join(artifacts, `${name}.png`) })
+      assert.deepEqual(state.graphs, document.graphs)
+      assert.deepEqual(result.uploads, [])
+      return state.geometry
+    }
+    await expect(editor.getByTestId('video-timing')).not.toContainText(
+      'unknown',
+    )
+    await expect(editor).not.toContainText('not advertised')
+    await capture('picker-video-1440')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await editor.getByTestId('asset-selection-remove').click()
+    await expect(card).toBeHidden()
+    await capture('picker-empty-390')
+    await files
+      .getByTestId('collection-entry')
+      .filter({ hasText: node.values.video.name })
+      .click()
+    await expect(card).toBeVisible()
+    await expect
+      .poll(() =>
+        card.locator('video').evaluate((element) => element.readyState),
+      )
+      .toBeGreaterThanOrEqual(2)
+    const selected = await capture('picker-video-390')
+    assert.ok(selected.files.bottom <= selected.card.top)
+    assert.ok(selected.card.bottom <= selected.footer.top)
+    assert.ok(selected.card.height <= selected.dialog.height / 2)
+    assert.ok(selected.files.height >= selected.firstFile.height)
+    assert.ok(selected.picture.height > 0)
+    assert.ok(selected.preview.height >= selected.picture.height)
+    await files.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+    const scrolled = await capture('picker-files-scrolled-390')
+    assert.ok(scrolled.scrollTop > 0, 'Files must actually scroll')
+    assert.deepEqual(scrolled.card, selected.card)
+    assert.deepEqual(scrolled.footer, selected.footer)
   }
   const controls =
     surface === 'field'

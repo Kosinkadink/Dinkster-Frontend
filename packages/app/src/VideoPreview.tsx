@@ -132,7 +132,6 @@ export function VideoPreview(props: {
     }
     const source = inspection()
     if (!source?.canSelectFrame) {
-      setError('Frame selector is not advertised; showing browser seek only.')
       return
     }
     frameRequest?.abort()
@@ -267,14 +266,20 @@ export function VideoPreview(props: {
           <For each={['loop', 'muted', 'autoplay'] as const}>{(key) => <button type="button" aria-label={key === 'muted' ? 'Mute video' : `${key === 'loop' ? 'Loop' : 'Autoplay'} video`} aria-pressed={preferences()[key]} onClick={() => changePreference(key)}>{key === 'muted' ? 'Mute' : key === 'loop' ? 'Loop' : 'Auto'}</button>}</For>
         </div>
         <div class="video-preview-readout" data-testid="video-timing">
-          {indexedFrame() === undefined ? `${position().toFixed(2)}s` : 'Time unknown'} / {inspection()?.duration === undefined ? 'Duration unknown' : `${total().toFixed(2)}s`}
-          {' | '}{frameLabel()}
-          {inspection()?.frameCount === undefined ? ' / count unknown' : ` / ${inspection()!.frameCount} (${inspection()?.frameCountKind ?? 'quality unknown'})`}
-          {' | '}<span title="Reported FPS; not used to convert time and frame index">{fps() === undefined ? 'FPS unknown' : `${fps()!.toFixed(3)} fps`}</span>
+          <Show when={indexedFrame() === undefined}>{position().toFixed(2)}s</Show>
+          <Show when={inspection()?.duration !== undefined}>{indexedFrame() === undefined ? ' / ' : ''}{total().toFixed(2)}s</Show>
+          <Show when={indexedFrame() !== undefined || inspection()?.frameCount !== undefined}>
+            {indexedFrame() === undefined || inspection()?.duration !== undefined ? ' | ' : ''}
+            <Show when={indexedFrame() !== undefined} fallback={`${inspection()?.frameCount} ${inspection()?.frameCount === 1 ? 'frame' : 'frames'}`}>{frameLabel()}</Show>
+            <Show when={indexedFrame() !== undefined && inspection()?.frameCount !== undefined}> / {inspection()?.frameCount}</Show>
+            <Show when={inspection()?.frameCountKind}>{(kind) => ` (${kind()})`}</Show>
+          </Show>
+          <Show when={fps() !== undefined}>
+            {' | '}
+            <span title="Reported FPS; not used to convert time and frame index">{fps()!.toFixed(3)} fps</span>
+          </Show>
         </div>
-        <span class="video-preview-readout">{inspection()?.canSelectFrame
-          ? 'Frame stepping starts at 0 after playback or time seek.'
-          : 'Frame selector unavailable: not advertised.'}</span>
+        <Show when={inspection()?.canSelectFrame}><span class="video-preview-readout">Frame stepping starts at 0 after playback or time seek.</span></Show>
         <Show when={(inspection()?.count ?? 0) > 1}>
           <div class="video-preview-navigation" aria-label="Video outputs">
             <button type="button" aria-label="Previous video" disabled={busy() || inspection()!.index === 0} onClick={() => void select(inspection()!.index - 1)}>Previous</button>
