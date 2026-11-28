@@ -1472,8 +1472,10 @@ describe('lifecycle races', () => {
         return ports[0]!
       }
       const documents = factory(new SharedWorkerDocumentAuthority())
-      const different = structuredClone(snapshot)
-      different.graphs.g0!.nodes.n0!.title = 'Established in another window'
+      const graph = snapshot.graphs.g0!
+      const different: WorkflowDocument = { ...snapshot, graphs: { ...snapshot.graphs, g0: {
+        ...graph, nodes: { ...graph.nodes, n0: { ...graph.nodes.n0!, title: 'Established in another window' } },
+      } } }
       const peer = change === 'authority-different'
         ? await connectSharedWorkerSession(original.id, different, coreCommandRegistry(), { actorId: 'other' }, documents)
         : undefined
