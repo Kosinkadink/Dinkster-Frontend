@@ -2068,14 +2068,50 @@ describe('Boundary sample acceptance compilation', () => {
 
     it(`boundary/multi-row-member/${context}`, () => {
       const store = storeFor(boundarySample(level))
-      edit(store, 'dynamic.materialize', { graphId: 'root', nodeId: 'first', frames: [{ construct: 'layers', members: ['layer0'] }] })
-      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: 'layers.layer0.strength', value: 0.8 })
+      edit(store, 'dynamic.materialize', { graphId: 'root', nodeId: 'first', frames: [{ construct: 'layers', members: ['layer0', 'layer1'] }] })
+      edit(store, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {
+        'layers.layer0.strength': 0.8, 'layers.layer1.strength': 0.25,
+      } })
+      edit(store, 'dynamic.materialize', { graphId: 'root', nodeId: 'second', frames: [{ construct: 'layers', members: ['layer0'] }] })
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'second', inputId: 'layers.layer0.strength', value: 0.6 })
       edit(store, 'link.connect', { graphId: 'root', from: { node: 'imageA', port: 'image' }, to: { node: 'first', port: 'layers.layer0.image' } })
       edit(store, 'link.connect', { graphId: 'root', from: { node: 'first', port: 'layers.layer0.result' }, to: { node: 'sink', port: 'number' } })
+      const original = store.doc
       const compiled = prompt(store.doc)
-      expect(compiled[path]!.inputs['layers.layer2.image']).toEqual(['imageA', 0])
-      expect(compiled[path]!.inputs['layers.layer2.strength']).toBe(0.8)
-      expect(compiled.sink!.inputs.number).toEqual([path, 2])
+      const second = level === 1 ? 'second.sample' : 'second.detail.sample'
+      expect(compiled[path]!.inputs).toMatchObject({
+        'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4,
+        'layers.layer2.image': ['imageA', 0], 'layers.layer2.strength': 0.8, 'layers.layer3.strength': 0.25,
+      })
+      expect(compiled[second]!.inputs['layers.layer2.strength']).toBe(0.6)
+      expect(compiled[second]!.outputMembers?.layers).toEqual(['layer0', 'layer1', 'layer2'])
+      const check = (current: WorkflowDocument, reordered: boolean) => {
+        expect(loadDocument(JSON.parse(JSON.stringify(current))).document).toEqual(current)
+        const actual = prompt(current)
+        expect(actual[path]).toEqual({ ...compiled[path]!,
+          outputIds: [
+            'layers.layer0.result', 'layers.layer1.result',
+            ...(reordered ? ['layers.layer3.result', 'layers.layer2.result'] : ['layers.layer2.result', 'layers.layer3.result']),
+            'outputs.o0', 'outputs.o1', 'outputs.o2', 'result', 'output91',
+          ],
+          outputMembers: { ...compiled[path]!.outputMembers,
+            layers: reordered ? ['layer0', 'layer1', 'layer3', 'layer2'] : ['layer0', 'layer1', 'layer2', 'layer3'] },
+        })
+        expect(actual.sink!.inputs.number).toEqual([path, reordered ? 3 : 2])
+        expect(actual[second]).toEqual(compiled[second])
+        expect(current.graphs.root!.nodes.second).toEqual(original.graphs.root!.nodes.second)
+        expect(current.graphs.root!.links).toEqual(original.graphs.root!.links)
+        expect(current.graphs.detail).toEqual(original.graphs.detail)
+        expect(current.graphs.portrait).toEqual(original.graphs.portrait)
+      }
+      check(original, false)
+      edit(store, 'dynamic.moveMember', { graphId: 'root', nodeId: 'first', construct: 'layers', member: 'layer1', index: 0 })
+      const reordered = store.doc
+      check(reordered, true)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(original)
+      expect(store.redo()).toBe(true)
+      expect(store.doc).toEqual(reordered)
     })
 
     it(`boundary/nested-group/${context}`, () => {
