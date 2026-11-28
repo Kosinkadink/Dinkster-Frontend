@@ -1716,8 +1716,8 @@ describe('small flow node wire gestures', () => {
     harness.fire('pointermove', accepted.x, accepted.y + acceptedInput.y)
     harness.fire('pointerup', accepted.x, accepted.y + acceptedInput.y)
     expect(Object.values(store.doc.graphs.root!.links).some((link) =>
-      'node' in link.from && link.from.node === 'fixed' && link.from.port === 'result' &&
-      'node' in link.to && link.to.node === 'imageSink' && link.to.port === 'value')).toBe(true)
+      'port' in link.from && link.from.node === 'fixed' && link.from.port === 'result' &&
+      'port' in link.to && link.to.node === 'imageSink' && link.to.port === 'value')).toBe(true)
     harness.controller.dispose()
   })
 
