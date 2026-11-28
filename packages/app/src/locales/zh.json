@@ -24,6 +24,8 @@
   "board.title": "看板",
   "board.chooseWorkflow": "选择工作流",
   "board.chooseBlueprint": "选择蓝图",
+  "board.addWorkflow": "添加工作流",
+  "board.addBlueprint": "添加蓝图",
   "board.noWorkflows": "此项目中没有工作流",
   "board.noBlueprints": "此项目中没有蓝图",
   "board.import.title": "导入媒体",

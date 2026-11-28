@@ -246,11 +246,22 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
   /></div>
     <Show when={picking()} keyed>{(request) => <ModalSurface title={t(request.kind === 'workflow' ? 'board.chooseWorkflow' : 'board.chooseBlueprint')}
       modalId="board-card-picker" testId="board-card-picker" onRequestClose={cancelPicker}>
+      <div class="library-panel">
       <CollectionPanel sources={[request.source]} variant="select" defaultMode="list" searchPriority="primary"
         renderState={(state) => state.kind === 'empty' ? <ProductEmptyState
           title={t(request.kind === 'workflow' ? 'board.noWorkflows' : 'board.noBlueprints')} /> : undefined}
-        pick={{ pickable: (entry) => entry.owner === request.backend.id,
+        detailRail={(entry) => <Show when={entry}>{(selected) => <aside class="library-detail-rail" data-selected="true">
+          <strong>{selected().title}</strong>
+          <Show when={selected().description}>{(description) => <p>{description()}</p>}</Show>
+          <ProductActionFooter>
+            <ProductButton variant="primary" loading={placing()} onClick={() => void pickCard(selected())}>
+              {t(request.kind === 'workflow' ? 'board.addWorkflow' : 'board.addBlueprint')}
+            </ProductButton>
+          </ProductActionFooter>
+        </aside>}</Show>}
+        pick={{ confirm: true, pickable: (entry) => entry.owner === request.backend.id,
           onPick: (entry) => void pickCard(entry) }} onEscape={cancelPicker} />
+      </div>
     </ModalSurface>}</Show>
     <Show when={importing()} keyed>{(request) => <ModalSurface
       title={t('board.import.title')} modalId="canvas-import" testId="board-import-dialog"

@@ -121,6 +121,7 @@ function LibraryDetailRail(props: {
     <aside
       class="library-detail-rail"
       data-testid="library-detail-rail"
+      data-selected={props.entry !== undefined}
       aria-label={props.message('library.detail.selected')}
       ref={(element) => { rail = element }}
     >

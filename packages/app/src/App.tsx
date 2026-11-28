@@ -1327,6 +1327,17 @@ export function App(props: {
   const cancelling = useSignal(app.cancellingExecutions)
   // A run is named by the workflow it was queued under, so renaming its tab later leaves the run's row alone.
   const runName = (execution: ExecutionState): string => execution.workflowName ?? app.tabTitleFor(execution.ref)
+  const executionFacts = (execution: ExecutionState): ChosenRunFact[] => {
+    const nodes = Object.values(execution.nodes)
+    return [
+      { label: message('runs.chosen.state'), text: executionStatusLabel(execution.status) },
+      ...(execution.startedAt === undefined ? [] : [{ label: message('runs.chosen.started'), text: formatCollectionDate(execution.startedAt) }]),
+      ...(execution.startedAt === undefined || execution.endedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText((execution.endedAt - execution.startedAt) / 1000) }]),
+      { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', {
+        ran: nodes.filter((node) => node.state === 'done').length, cached: nodes.filter((node) => node.state === 'cached').length,
+      }) },
+    ]
+  }
   const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
     const live = () => liveTabOf(p.exec)
     const pending = createMemo(() => runIsPending(p.exec))
@@ -1344,17 +1355,6 @@ export function App(props: {
     const [menuMount, setMenuMount] = createSolidSignal<HTMLElement>()
     const reason = (): string | undefined => p.exec.status === 'error'
       ? p.exec.errors.map((error) => error.message).join(' ') || undefined : undefined
-    const facts = (): ChosenRunFact[] => {
-      const nodes = Object.values(p.exec.nodes)
-      return [
-        { label: message('runs.chosen.state'), text: executionStatusLabel(p.exec.status) },
-        ...(p.exec.startedAt === undefined ? [] : [{ label: message('runs.chosen.started'), text: formatCollectionDate(p.exec.startedAt) }]),
-        ...(p.exec.startedAt === undefined || p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText((p.exec.endedAt - p.exec.startedAt) / 1000) }]),
-        { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', {
-          ran: nodes.filter((node) => node.state === 'done').length, cached: nodes.filter((node) => node.state === 'cached').length,
-        }) },
-      ]
-    }
     return <RunRow entry={p.exec} name={runName(p.exec)} workflow={runName(p.exec)}
       statusInNote all={p.all} testId="execution-row" nodeTitle={runtimeNodeTitle}
       cancelling={cancelling().has(executionKey(p.exec.ref))}
@@ -1379,7 +1379,7 @@ export function App(props: {
               else app.pinExecutionOverlay(tab.id, p.exec.ref)
             } : undefined}
           />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
-          {...(pending() ? {} : { chosen: <ChosenRun name={runName(p.exec)} reason={reason()} facts={facts()}
+          {...(pending() ? {} : { chosen: <ChosenRun name={runName(p.exec)} reason={reason()} facts={executionFacts(p.exec)}
             detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
             menuMount={menuMount()} onCopyDetails={() => { void navigator.clipboard?.writeText(JSON.stringify(p.exec, null, 2)) }} /> })} />
       </Show>
@@ -1649,7 +1649,10 @@ export function App(props: {
     const [inspectOpen, setInspectOpen] = createSolidSignal(false)
     const facts = (): ChosenRunFact[] => {
       const run = record()
-      if (run === undefined) return []
+      if (run === undefined) {
+        const execution = known()
+        return execution === undefined ? [] : executionFacts(execution)
+      }
       return [
         { label: message('runs.chosen.state'), text: executionStatusLabel(run.state === 'failed' ? 'error' : run.state) },
         ...(run.startedAt === undefined ? [] : [{ label: message('runs.chosen.started'), text: formatCollectionDate(run.startedAt * 1000) }]),

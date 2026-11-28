@@ -1692,6 +1692,8 @@
   "board.title": "Board",
   "board.chooseWorkflow": "Choose workflow",
   "board.chooseBlueprint": "Choose blueprint",
+  "board.addWorkflow": "Add workflow",
+  "board.addBlueprint": "Add blueprint",
   "board.noWorkflows": "No workflows in this project",
   "board.noBlueprints": "No blueprints in this project",
   "board.import.title": "Import media",

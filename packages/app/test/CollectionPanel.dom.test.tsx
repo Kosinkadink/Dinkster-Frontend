@@ -21,6 +21,33 @@ afterEach(() => {
 })
 
 describe('CollectionPanel folder navigation', () => {
+  it('lets confirming choosers inspect a row before committing it by double-click or Enter', async () => {
+    const entries = [{ id: 'a', title: 'Garden', description: 'A garden study' }, { id: 'b', title: 'Ocean', description: 'An ocean study' }]
+    const source: CollectionSource = { id: 'blueprints', label: 'Blueprints', page: async () => ({ items: entries }) }
+    const [chosen, setChosen] = createSignal('')
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <>
+      <CollectionPanel sources={[source]} pick={{ confirm: true, pickable: () => true, onPick: (entry) => setChosen((previous) => `${previous}${entry.title};`) }}
+        detailRail={(entry) => <aside>{entry?.description}</aside>} />
+      <output>{chosen()}</output>
+    </>, root)
+    await vi.waitFor(() => expect(root.querySelector('[data-entry="a"]')).not.toBeNull())
+    const garden = root.querySelector<HTMLElement>('[data-entry="a"]')!
+    garden.click()
+    expect(root.querySelector('aside')?.textContent).toBe('A garden study')
+    expect(root.querySelector('output')?.textContent).toBe('')
+    garden.click()
+    garden.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    expect(root.querySelector('output')?.textContent).toBe('Garden;')
+    const ocean = root.querySelector<HTMLElement>('[data-entry="b"]')!
+    ocean.click()
+    ocean.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(root.querySelector('aside')?.textContent).toBe('An ocean study')
+    expect(root.querySelector('output')?.textContent).toBe('Garden;Ocean;')
+    unmount()
+  })
+
   it('shows kind labels only for mixed results and a count only while more matches remain', async () => {
     const source: CollectionSource = {
       id: 'choices', label: 'Choices',
