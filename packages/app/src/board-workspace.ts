@@ -293,6 +293,21 @@ export class BoardWorkspace {
     }
   }
 
+  /** Test the same source face that placement uses, without creating a card or running it. */
+  async cardAcceptsMedia(id: string, kind: BoardCardItem['kind'], source: BoardCardSource,
+    asset: BoardAsset, resolve: (type: string) => NodeSchema | undefined,
+    stillWanted: () => boolean = () => true,
+  ): Promise<boolean> {
+    const entry = this.mediaEntry(id)
+    const connection = this.options.mediaConnection(entry.baseUrl)
+    if (!connection) throw new Error('This Board\'s backend is unavailable')
+    const current = () => !this.disposed && stillWanted() && this.entries.get().includes(entry) &&
+      this.options.mediaConnection(entry.baseUrl) === connection
+    const loaded = await this.cardSource(connection, kind, source, current)
+    if (!current()) throw new Error('Board changed while loading the card')
+    return cardMediaInput(cardFace(loaded.document, kind, loaded.name ?? '', resolve), asset, resolve) !== undefined
+  }
+
   /** Resolve and validate the source before committing a single undoable placement. */
   async placeCard(id: string, source: {
     readonly project: string

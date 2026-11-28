@@ -21,6 +21,7 @@ import {
 } from '../src/app-state.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { buildParamRows } from '../src/app-view-rows.js'
+import { boardContinuationSources } from '../src/collections.js'
 import { activeProjectId } from '../src/projects.js'
 
 // AppState builds its WS url from the page origin; give the node test env one.
@@ -169,6 +170,54 @@ describe('Board card sources', () => {
     expect(submit).not.toHaveBeenCalled()
     expect(tab.store.doc).toBe(originalTab)
     expect(JSON.parse(bytes)).toEqual(source)
+
+    await expect(app.boards.cardAcceptsMedia(board.id, selection.kind, selection.source, selected,
+      backend.registry.get()!.resolve)).resolves.toBe(true)
+    if (kind === 'workflow') {
+      const unchanged = board.session.doc
+      const records = [record(), record({ id: 'hidden', digest: DIGEST2, modified: 100 }),
+        ...Array.from({ length: 10 }, (_, index) => record({ id: `workflow-${index}`, name: `Picture ${index}`, modified: 20 - index })),
+        record({ id: 'blueprint', name: 'Saved blueprint', labels: ['blueprint'], modified: 30 })]
+      vi.spyOn(connection, 'listLibrary').mockImplementation(async (request) => {
+        expect(request).toMatchObject({ project: activeProjectId(), scope: LIBRARY_SCOPE })
+        return request.cursor === undefined ? { records: records.slice(0, 2), cursor: 'remaining' } : { records: records.slice(2) }
+      })
+      vi.spyOn(connection, 'getLibraryRecord').mockImplementation(async (recordId) => records.find((item) => item.id === recordId))
+      const blueprint = { ...source, graphs: { g0: { ...source.graphs.g0, boundary: boundaryOf([
+        { id: 'picture', binds: { kind: 'port', node: asNodeId('n0'), port: asPortId('b') }, promoted: true },
+      ], []) } } }
+      vi.spyOn(connection, 'fetchAssetText').mockImplementation(async (digest) => digest === DIGEST2
+        ? JSON.stringify(CHAIN_DOC) : JSON.stringify(blueprint))
+      const withPack = backend.registry.get()!
+      backend.registry.set({ ...withPack, packs: new Map([...withPack.packs ?? [], ['picture.tools', {
+        displayName: 'Picture tools', blueprints: [{ id: 'picture', name: 'Pack picture', digest: `sha256:${'c'.repeat(64)}` }],
+      }]]) })
+      vi.spyOn(connection, 'fetchBlueprintBody').mockResolvedValue(loadDocument(blueprint).document)
+      let wanted = true
+      const catalogue = await boardContinuationSources(app, board, activeProjectId(), selected, () => wanted)
+      expect(catalogue.errors).toEqual([])
+      expect(catalogue.recent.map((item) => item.title)).toEqual([
+        'Saved Flow', 'Saved blueprint', 'Picture 0', 'Picture 1', 'Picture 2', 'Picture 3', 'Picture 4', 'Picture 5',
+      ])
+      expect(catalogue.recent[0]!.id).toBe(id)
+      expect((await catalogue.workflows.page({ query: 'Picture 9', limit: 1 })).items.map((item) => item.id)).toEqual(['workflow-9'])
+      const page = await catalogue.workflows.page({ query: '', limit: 2 })
+      expect(page.total).toBe(11)
+      expect(page.cursor).toBeDefined()
+      const allBlueprints = await catalogue.blueprints.page({ query: '', limit: 20 })
+      expect(allBlueprints.items.map((item) => item.title).sort()).toEqual(['Pack picture', 'Saved blueprint'])
+      const incompatibleCatalogue = await boardContinuationSources(app, board, activeProjectId(), { ...selected, mediaType: 'video/mp4' })
+      expect(incompatibleCatalogue.recent).toEqual([])
+      expect((await incompatibleCatalogue.workflows.page({ query: '', limit: 20 })).total).toBe(0)
+      expect((await incompatibleCatalogue.blueprints.page({ query: '', limit: 20 })).total).toBe(0)
+      expect(board.session.doc).toBe(unchanged)
+      expect(submit).not.toHaveBeenCalled()
+      wanted = false
+      await expect(async () => catalogue.workflows.page({ query: '', limit: 2 })).rejects.toThrow('Board changed')
+      backend.registry.set(withPack)
+      vi.spyOn(connection, 'getLibraryRecord').mockResolvedValue(record())
+      vi.spyOn(connection, 'fetchAssetText').mockResolvedValue(bytes)
+    }
 
     const settled = board.session.doc
     const incompatible = (type: string): NodeSchema | undefined => type !== schema.type ? registry.resolve(type) : {

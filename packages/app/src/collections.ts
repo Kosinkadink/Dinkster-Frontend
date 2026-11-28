@@ -14,12 +14,15 @@ import {
   t,
   type CollectionEntry,
   type CollectionSource,
+  type BoardAsset,
+  type BoardCardItem,
   type BoardCardSource,
 } from '@dinkster/core'
 import { HISTORY_STATES, type ExecutionState, type HistoryPage, type HistoryRunRecord, type LibraryRecord, type TemplateDescriptor } from '@dinkster/client'
 import { LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState, type Backend } from './app-state.js'
 import { runAttributionLabel, type RunAttribution } from './run-attribution.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
+import type { BoardEntry } from './board-workspace.js'
 
 const COLLECTION_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
   year: 'numeric',
@@ -403,6 +406,24 @@ export function workflowsSource(app: AppState,
   }
 }
 
+const savedBlueprintEntry = (record: LibraryRecord, backend: Backend): CollectionEntry => ({
+  id: `saved:${record.id}`, owner: backend.id, title: record.name, kind: 'blueprint',
+  subtitle: `Modified ${formatCollectionRowDate(record.modified * 1000)}`,
+  badges: record.labels.filter((label) => label !== 'blueprint'),
+  details: [{ label: 'blueprint id', text: record.id }, { label: 'backend', text: backend.label },
+    { label: 'digest', text: record.digest }, { label: 'revision', text: String(record.revision) }],
+  ref: { kind: 'library', recordId: record.id } satisfies BoardCardSource,
+})
+
+const packBlueprintEntries = (backend: Backend): CollectionEntry[] =>
+  [...backend.registry.get()?.packs ?? []].flatMap(([packId, pack]) =>
+    (pack.blueprints ?? []).map((blueprint): CollectionEntry => ({
+      id: `pack:${JSON.stringify([packId, blueprint.id])}`, owner: backend.id, title: blueprint.name,
+      kind: 'blueprint', subtitle: blueprint.description ?? pack.displayName, badges: blueprint.tags ?? [],
+      details: [{ label: 'pack', text: pack.displayName }, { label: 'digest', text: blueprint.digest }],
+      ref: { kind: 'pack', packId, blueprintId: blueprint.id, digest: blueprint.digest } satisfies BoardCardSource,
+    })))
+
 /** Saved project and enabled-pack blueprints share one ungrouped picker. */
 export function boardBlueprintsSource(backendForPage: () => Backend | undefined, project: string): CollectionSource {
   return {
@@ -419,29 +440,13 @@ export function boardBlueprintsSource(backendForPage: () => Backend | undefined,
           req.signal?.throwIfAborted()
           const page = await backend.connection.listLibrary({ scope: LIBRARY_SCOPE, project,
             label: 'blueprint', limit: 200, ...(next === undefined ? {} : { cursor: next }) })
-          items.push(...page.records.map((record): CollectionEntry => ({
-            id: `saved:${record.id}`, owner: backend.id, title: record.name,
-            kind: 'blueprint',
-            subtitle: `Modified ${formatCollectionRowDate(record.modified * 1000)}`,
-            badges: record.labels.filter((label) => label !== 'blueprint'),
-            details: [{ label: 'blueprint id', text: record.id }, { label: 'backend', text: backend.label },
-              { label: 'digest', text: record.digest }, { label: 'revision', text: String(record.revision) }],
-            ref: { kind: 'library', recordId: record.id } satisfies BoardCardSource,
-          })))
+          items.push(...page.records.map((record) => savedBlueprintEntry(record, backend)))
           next = page.cursor
         } while (next !== undefined)
       } catch (reason) { errors.push(reason instanceof Error ? reason.message : String(reason)) }
       const registry = backend.registry.get()
       if (!registry) errors.push('Blueprint packs are unavailable')
-      for (const [packId, pack] of registry?.packs ?? []) {
-        for (const blueprint of pack.blueprints ?? []) items.push({
-          id: `pack:${JSON.stringify([packId, blueprint.id])}`, owner: backend.id, title: blueprint.name,
-          kind: 'blueprint',
-          subtitle: blueprint.description ?? pack.displayName, badges: blueprint.tags ?? [],
-          details: [{ label: 'pack', text: pack.displayName }, { label: 'digest', text: blueprint.digest }],
-          ref: { kind: 'pack', packId, blueprintId: blueprint.id, digest: blueprint.digest } satisfies BoardCardSource,
-        })
-      }
+      items.push(...packBlueprintEntries(backend))
       req.signal?.throwIfAborted()
       const page = await localCollectionSource({ id: 'board-blueprints', label: 'Blueprints', corpus: () => items })
         .page({ ...req, ...(cursor === undefined ? {} : { cursor }) })
@@ -449,6 +454,81 @@ export function boardBlueprintsSource(backendForPage: () => Backend | undefined,
       return { ...page, owner: backend.id, ...(next === undefined ? {} : { cursor: next }),
         ...(errors.length === 0 ? {} : { error: errors.join('; ') }) }
     },
+  }
+}
+
+/** Resolve the complete project corpus before filtering or paging either shared chooser. */
+export async function boardContinuationSources(app: AppState, board: BoardEntry, project: string,
+  asset: BoardAsset, stillWanted: () => boolean = () => true,
+): Promise<{ readonly recent: readonly CollectionEntry[]; readonly workflows: CollectionSource;
+  readonly blueprints: CollectionSource; readonly errors: readonly string[] }> {
+  const backend = app.backends.get().find((candidate) => candidate.baseUrl === board.baseUrl && candidate.protocol === 'dinkster')
+  const registry = backend?.registry.get()
+  if (!backend || !registry) throw new Error('This Board\'s backend is unavailable')
+  const document = board.session.doc
+  const current = () => stillWanted() && app.boards.entries.get().includes(board) &&
+    board.session.doc === document && app.backends.get().includes(backend) && backend.registry.get() === registry
+  const assertCurrent = () => { if (!current()) throw new Error('Board changed while loading compatible sources') }
+  const records: LibraryRecord[] = []
+  let cursor: string | undefined
+  do {
+    assertCurrent()
+    const page = await backend.connection.listLibrary({ scope: LIBRARY_SCOPE, project, limit: 200,
+      ...(cursor === undefined ? {} : { cursor }) })
+    assertCurrent()
+    records.push(...page.records)
+    cursor = page.cursor
+  } while (cursor !== undefined)
+  const saved = records.sort((a, b) => b.modified - a.modified).flatMap((record): CollectionEntry[] =>
+    record.labels.includes('workflow') ? [workflowEntry(record, backend)]
+      : record.labels.includes('blueprint') ? [savedBlueprintEntry(record, backend)] : [])
+  const cards = [...board.session.doc.order].reverse().flatMap((id): BoardCardItem[] => {
+    const item = board.session.doc.items[id]!
+    return item.kind === 'workflow' || item.kind === 'blueprint' ? [item] : []
+  })
+  const existing = cards.map((card): CollectionEntry => ({
+    id: card.id, title: card.name, kind: card.kind, ref: card.source, owner: backend.id,
+  }))
+  const accepted = new Map<string, boolean>()
+  const errors: string[] = []
+  const sourceOf = (entry: CollectionEntry): BoardCardSource => entry.kind === 'workflow' && entry.ref === undefined
+    ? { kind: 'library', recordId: entry.id } : entry.ref as BoardCardSource
+  const keyOf = (entry: CollectionEntry): string => {
+    const source = sourceOf(entry)
+    return JSON.stringify([entry.kind, ...(source.kind === 'library' ? ['library', source.recordId]
+      : ['pack', source.packId, source.blueprintId, source.digest])])
+  }
+  const compatible = async (entries: readonly CollectionEntry[]): Promise<CollectionEntry[]> => {
+    const result: CollectionEntry[] = []
+    for (const entry of entries) {
+      assertCurrent()
+      const key = keyOf(entry)
+      if (!accepted.has(key)) {
+        try {
+          accepted.set(key, await app.boards.cardAcceptsMedia(board.id, entry.kind as BoardCardItem['kind'],
+            sourceOf(entry), asset, registry.resolve, current))
+        } catch (reason) {
+          assertCurrent()
+          accepted.set(key, false)
+          errors.push(`${entry.title}: ${reason instanceof Error ? reason.message : String(reason)}`)
+        }
+      }
+      assertCurrent()
+      if (accepted.get(key)) result.push(entry)
+    }
+    return result
+  }
+  const recent: CollectionEntry[] = []
+  const seen = new Set<string>()
+  for (const entry of await compatible([...existing, ...saved])) {
+    const key = keyOf(entry)
+    if (!seen.has(key) && recent.length < 8) { seen.add(key); recent.push({ ...entry, ref: sourceOf(entry) }) }
+  }
+  const workflows = await compatible(saved.filter((entry) => entry.kind === 'workflow'))
+  const blueprints = await compatible([...saved.filter((entry) => entry.kind === 'blueprint'), ...packBlueprintEntries(backend)])
+  return { recent, errors,
+    workflows: localCollectionSource({ id: 'workflows', label: 'Workflows', corpus: () => { assertCurrent(); return workflows } }),
+    blueprints: localCollectionSource({ id: 'board-blueprints', label: 'Blueprints', corpus: () => { assertCurrent(); return blueprints } }),
   }
 }
 
