@@ -5864,7 +5864,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           look: tokens.nodeLook,
           nodeTop: hit.node.y,
           nodeBottom: hit.node.y + hit.node.layout.height,
-          sideEdges: rowSideEdges(hit.node.layout.rows, hit.row),
+          sideEdges: {
+            ...rowSideEdges(hit.node.layout.rows, hit.row),
+            ...(renderer.getLensCapabilities().widgetRowAffordance?.(hit.node, hit.row) === undefined ? {} : { right: false }),
+          },
           storedAtOpen: stored ?? null,
           handOff: () => setRowHandedOff(untrack(editor)),
           ...(help === undefined ? {} : { help }),
@@ -6059,7 +6062,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         look: tokens.nodeLook,
         nodeTop: node.y,
         nodeBottom: node.y + node.layout.height,
-        sideEdges: rowSideEdges(node.layout.rows, row),
+        sideEdges: {
+          ...rowSideEdges(node.layout.rows, row),
+          ...(renderer.getLensCapabilities().widgetRowAffordance?.(node, row) === undefined ? {} : { right: false }),
+        },
         ...(defaultText == null ? {} : { defaultText }),
         ...(help === undefined ? {} : { help }),
         ...(arriving === undefined ? {} : { arriving }),
