@@ -136,6 +136,8 @@ export interface ExecutionState {
   /** Latest frame WITHOUT node attribution (legacy binary protocol). */
   readonly lastPreview?: PreviewData
   readonly errors: readonly Diagnostic[]
+  /** Refusals repaired locally; retained in history, hidden only in live editors. */
+  readonly resolvedSecretErrors?: readonly Diagnostic[]
   readonly submittedBy?: ExecutionSubmitter
   /** Server-global native run identity used to prove a persisted result. */
   readonly jobRef?: string
@@ -148,6 +150,23 @@ export interface ExecutionState {
   readonly queuedAt: number
   readonly startedAt?: number
   readonly endedAt?: number
+}
+
+function rejectedSecretName(state: ExecutionState, diagnostic: Diagnostic): string | undefined {
+  const input = diagnostic.runtime?.hints?.find((hint) => hint.code === 'secret-rejected')?.inputId
+  const runtimeId = diagnostic.data?.['runtimeId']
+  if (input === undefined || typeof runtimeId !== 'string') return undefined
+  const name = state.artifact?.prompt[runtimeId]?.inputs[input]
+  return typeof name === 'string' ? name : undefined
+}
+
+function namedSecretError(state: ExecutionState, error: Diagnostic): Diagnostic {
+  const name = rejectedSecretName(state, error)
+  if (name === undefined || error.runtime === undefined) return error
+  const message = `The service refused the secret ${JSON.stringify(name)}.`
+  if (error.message === message) return error
+  return { ...error, message, runtime: { ...error.runtime, exceptionMessage: message,
+    hints: (error.runtime.hints ?? []).map((hint) => hint.code === 'secret-rejected' ? { ...hint, message } : hint) } }
 }
 
 /** Retract the provisional "results unknown" warning once disproven. */
@@ -382,6 +401,20 @@ export class ExecutionStore {
     return this.map.get(executionKey(ref))
   }
 
+  /** A successful replacement repairs existing refusals, not future failures or run history. */
+  resolveSecretErrors(connection: ConnectionId, name: string): void {
+    for (const state of this.map.values()) {
+      if (state.ref.connection !== connection) continue
+      const resolved = new Set(state.resolvedSecretErrors)
+      for (const error of state.errors) {
+        if (rejectedSecretName(state, error) === name) resolved.add(error)
+      }
+      if (resolved.size !== (state.resolvedSecretErrors?.length ?? 0)) {
+        this.put({ ...state, resolvedSecretErrors: [...resolved] })
+      }
+    }
+  }
+
   /**
    * Record a locally submitted execution with its artifact. WS events for
    * this execution may have arrived BEFORE the /prompt response resolved
@@ -399,7 +432,8 @@ export class ExecutionStore {
     this.unconfirmed.delete(key)
     const existing = this.map.get(key)
     if (existing) {
-      this.put({ ...existing, artifact, ...identity })
+      const state = { ...existing, artifact, ...identity }
+      this.put({ ...state, errors: state.errors.map((error) => namedSecretError(state, error)) })
       return
     }
     // A fresh entry must not inherit a loss verdict left by an evicted
@@ -771,7 +805,7 @@ export class ExecutionStore {
               ),
             }
           : { ...state.nodes }
-        const diagnostic = diag('error', 'runtime', `runtime.${event.detail.exceptionType}`, event.detail.exceptionMessage, {
+        let diagnostic = diag('error', 'runtime', `runtime.${event.detail.exceptionType}`, event.detail.exceptionMessage, {
           runtime: event.detail,
           anchor: {
             execution: event.execution,
@@ -779,6 +813,7 @@ export class ExecutionStore {
           },
           ...(event.runtimeNodeId ? { data: { runtimeId: event.runtimeNodeId } } : {}),
         })
+        diagnostic = namedSecretError(state, diagnostic)
         const base = this.provisionallyLost.delete(state.key)
           ? withoutLostDiagnostics(state.errors)
           : state.errors

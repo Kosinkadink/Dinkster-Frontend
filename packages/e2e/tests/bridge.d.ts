@@ -345,6 +345,7 @@ interface DinksterTestBridge {
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
     renameTab(id: string, title: string): void
+    executionForTab(tab: DinksterBridgeTab): import('@dinkster/client').ExecutionState | undefined
     executionsForTab(tab: DinksterBridgeTab): readonly import('@dinkster/client').ExecutionState[]
     createRegion(tab: DinksterBridgeTab, graphId: string, position: { x: number; y: number }, kind: 'map' | 'fold' | 'while'):
       Promise<{ ok: boolean; diagnostics: readonly unknown[] }>

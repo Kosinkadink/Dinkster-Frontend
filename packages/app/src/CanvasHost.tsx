@@ -8508,6 +8508,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             if (!secretContextIsCurrent(target.tab, target.backend, target.principal)) throw new Error('Secret context changed')
             await target.backend.connection.saveSecret(name, value, scope)
             await target.chooseName(name)
+            if (secretContextIsCurrent(target.tab, target.backend, target.principal)) {
+              props.app.store.resolveSecretErrors(target.backend.id, target.name)
+            }
           }}
           onCancel={() => setSecretEditor(undefined)}
           onSaved={() => {

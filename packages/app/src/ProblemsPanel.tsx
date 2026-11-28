@@ -236,6 +236,9 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
   const groups = createMemo(() => {
     const folded = new Set(missingModels()?.diagnostics)
     return groupProblemDiagnostics(filterDiagnostics([...props.diagnostics(), ...packDiagnostics()]).filter((entry) => !folded.has(entry)), props.app.activeTab()?.store.doc)
+  }, undefined, {
+    // Focusing a problem can rebuild equal diagnostics before the native toggle event.
+    equals: (before, after) => JSON.stringify(before) === JSON.stringify(after),
   })
 
   return (

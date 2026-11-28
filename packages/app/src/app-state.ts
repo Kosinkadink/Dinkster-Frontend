@@ -10797,7 +10797,14 @@ export class AppState {
    */
   executionForTab(tab: Tab): ExecutionState | undefined {
     if (tab.execution) return this.store.get(tab.execution)
-    return this.pinnedExecutionFor(tab) ?? this.latestExecutionFor(tab.store.doc.lineage)
+    const execution = this.pinnedExecutionFor(tab) ?? this.latestExecutionFor(tab.store.doc.lineage)
+    if (!execution?.resolvedSecretErrors?.length) return execution
+    const resolved = new Set(execution.resolvedSecretErrors)
+    const errors = execution.errors.filter((error) => !resolved.has(error))
+    const repairedNodes = new Set(execution.resolvedSecretErrors.map((error) => error.data?.['runtimeId']))
+    for (const error of errors) repairedNodes.delete(error.data?.['runtimeId'])
+    return { ...execution, errors, nodes: Object.fromEntries(Object.entries(execution.nodes)
+      .filter(([id, progress]) => progress.state !== 'error' || !repairedNodes.has(id))) }
   }
 
   /**

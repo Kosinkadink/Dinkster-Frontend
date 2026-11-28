@@ -92,7 +92,7 @@ catalogTest('secret rows save and remove through the selected connection without
   expect(writes).toEqual(['save'])
   expect((await activeDoc(page)).graphs).toEqual(graph)
   await page.screenshot({ path: testInfo.outputPath('secret-set-editor.png') })
-  await page.evaluate(() => {
+  const rejectSecret = async () => page.evaluate(() => {
     const app = window.__dinksterTest!.app
     const tab = app.activeTab()!
     type Artifact = Parameters<typeof app.store.register>[1]
@@ -100,14 +100,15 @@ catalogTest('secret rows save and remove through the selected connection without
       compileTabCached(candidate: typeof tab): { ok: true; artifact: Artifact } | { ok: false } | undefined
     }).compileTabCached(tab)
     if (compiled === undefined || !compiled.ok) throw new Error('Secret fixture did not compile')
-    const execution = { connection: app.backends.get()[0]!.id, prompt: 'rejected-secret' }
+    const execution = { connection: app.backends.get()[0]!.id, prompt: `rejected-secret-${Date.now()}` }
     app.store.register(execution, compiled.artifact)
     app.store.apply({ kind: 'error', execution, runtimeNodeId: 'caption', timestamp: Date.now(),
       detail: { exceptionType: 'execution', exceptionMessage: 'The service refused this secret.', traceback: [],
         hints: [{ code: 'secret-rejected', message: 'The service refused this secret.', inputId: 'credential' }] },
     } as never)
   })
-  const rejected = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'The service refused this secret.' })
+  await rejectSecret()
+  const rejected = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'The service refused the secret "caption-service".' })
   await expect(rejected).toBeVisible()
   await rejected.locator('summary').click()
   await rejected.getByRole('button', { name: 'Show on canvas', exact: true }).click()
@@ -245,6 +246,45 @@ catalogTest('secret rows save and remove through the selected connection without
   expect((await activeDoc(page)).graphs.g0!.nodes.caption!.values.credential).toBe('caption-service-new')
   await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
   expect((await activeDoc(page)).graphs).toEqual(unnamedGraph)
+  source = 'account'
+  principal = 'account-a'
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    await app.backends.get()[0]!.connection.accountStatus()
+    await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'caption', inputId: 'credential', value: 'caption-service',
+    } })
+  })
+  for (const action of ['box', 'panel']) {
+    await rejectSecret()
+    await expect(rejected).toBeVisible()
+    await rejected.locator('summary').click()
+    await rejected.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+    await expect(box).toContainText('The service refused the secret "caption-service".')
+    await page.screenshot({ path: testInfo.outputPath(`secret-named-refusal-${action}.png`) })
+    const replace = action === 'box' ? box : rejected
+    await replace.getByRole('button', { name: 'Replace secret', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(rejected).toBeVisible()
+    await rejected.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+    await expect(box).toContainText('The service refused the secret "caption-service".')
+    await replace.getByRole('button', { name: 'Replace secret', exact: true }).click()
+    await dialog.getByLabel('Secret value', { exact: true }).fill('synthetic-editor-credential')
+    await dialog.getByRole('button', { name: 'Save secret', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(rejected).toHaveCount(0)
+    await expect(box).toHaveCount(0)
+    expect(await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      const live = app.executionForTab(app.activeTab()!)!
+      const original = [...app.store.executions.get().values()].find((execution) =>
+        execution.ref.connection === live.ref.connection && execution.ref.prompt === live.ref.prompt)!
+      return { liveErrors: live.errors.length, liveNode: live.nodes.caption?.state,
+        originalErrors: original.errors.length, status: original.status }
+    })).toEqual({ liveErrors: 0, liveNode: undefined, originalErrors: 1, status: 'error' })
+    await page.screenshot({ path: testInfo.outputPath(`secret-replaced-${action}.png`) })
+  }
+  expect(writes).toEqual(['save', 'remove', 'save', 'save', 'save'])
 })
 
 catalogTest('a Slider with an overflowing range explains its Number fallback', async ({ page }, testInfo) => {
