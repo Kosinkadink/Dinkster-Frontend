@@ -20,14 +20,17 @@ describe.skipIf(!LIVE_URL && !PREPARE)('native generic boundary delivery', () =>
       : await connection.fetchSchemas()
     const resolve = 'resolve' in registry ? registry.resolve : (type: string) => registry.schemas.get(type)
     const schemaHash = 'hash' in registry ? registry.hash : 'generic-boundary'
-    const graphFeatures = 'graphFeatures' in registry ? registry.graphFeatures ?? [] : []
+    const graphFeatures = 'graphFeatures' in registry ? registry.graphFeatures ?? [] : ['typedLiteral']
     const node = (id: string, type: string, extra = {}) => ({ id: asNodeId(id), type, values: {}, ...extra }) as GraphDef['nodes'][string]
     const graph = (id: string, nodes: GraphDef['nodes']): GraphDef => ({
       id, name: id, nodes, links: {}, nets: {}, reroutes: {}, nextOrdinal: 100,
     } as GraphDef)
     const port = depth === 1 ? 'rows' : 'payload'
     const detail = graph('detail', {
-      inner: node('inner', 'boundary-sample.generic-members', { values: { 'items.item0.value': 0.17, 'items.item1.value': 0.63 }, dynamic: { items: { members: ['item1', 'item0'] } } }),
+      inner: node('inner', 'boundary-sample.generic-members', { values: {
+        'items.item0.value': { $typed: { type: 'FLOAT', value: 0.17 } },
+        'items.item1.value': { $typed: { type: 'FLOAT', value: 0.63 } },
+      }, dynamic: { items: { members: ['item1', 'item0'] } } }),
       alpha: node('alpha', 'boundary-sample.generic'), beta: node('beta', 'boundary-sample.generic'),
     })
     Object.assign(detail, { boundary: { body: [
