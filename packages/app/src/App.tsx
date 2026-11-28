@@ -1628,14 +1628,15 @@ export function App(props: {
     const now = useNow()
     const note = () => {
       const execution = known()
+      const run = record()
+      const status = run === undefined ? execution?.status : run.state === 'failed' ? 'error' : run.state
       // Durable records count seconds; the store counts milliseconds.
-      const finished = record()?.finishedAt
-      const ended = execution?.endedAt ?? (finished === undefined ? undefined : finished * 1000)
+      const ended = run === undefined ? execution?.endedAt : run.finishedAt * 1000
       if (ended === undefined) return p.entry.subtitle
       // Runs of one workflow are told apart by their age; the job id stays in the opened run.
       const grouped = p.entry.children?.length ?? 0
       const parts = [
-        ...(execution === undefined ? [] : [executionStatusLabel(execution.status)]),
+        ...(status === undefined ? [] : [executionStatusLabel(status)]),
         runAge(ended, now()),
         ...(grouped > 1 ? [message('runs.row.grouped', { count: grouped })] : []),
       ]
