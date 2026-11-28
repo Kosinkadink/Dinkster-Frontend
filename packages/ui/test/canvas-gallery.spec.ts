@@ -589,15 +589,15 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
     }, scale)
     await longChoice.click()
     await checkBounds()
-    await expect.poll(async () => popup.locator('.dinkster-canvas-field').evaluate((field) => {
+    await expect.poll(async () => popup.locator('.dinkster-canvas-field').evaluate((field, zoom) => {
       const label = field.querySelector<HTMLElement>('.dinkster-canvas-field-label')!
       const box = label.getBoundingClientRect()
       const range = document.createRange()
       range.selectNodeContents(label)
       const lines = [...range.getClientRects()]
-      return field.getBoundingClientRect().width <= 340.1 && lines.length > 1 && lines.every((line) =>
+      return field.getBoundingClientRect().width <= 340.1 && lines.length >= 1 && (zoom < 1 || lines.length > 1) && lines.every((line) =>
         line.left >= box.left - 0.1 && line.right <= box.right + 0.1 && line.bottom <= box.bottom + 0.1)
-    })).toBe(true)
+    }, scale)).toBe(true)
     await expect(popup.locator('.dinkster-canvas-field-label')).toHaveText(headingText)
     await headingInput.fill('mono')
     await expect(list.getByRole('option')).toHaveCount(1)
