@@ -101,7 +101,7 @@ test('refuses a replaced project and requires fresh review after a save refusal'
   await dialog.getByRole('button', { name: 'Save link', exact: true }).click()
   await expect(dialog.getByRole('alert')).toContainText('Refresh to review its current state')
   expect(state.writes).toBe(0)
-  await expect(dialog.getByRole('button', { name: 'Save link', exact: true })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Save link', exact: true })).toBeDisabled()
   await page.screenshot({ path: info.outputPath('refused.png') })
   await dialog.getByRole('button', { name: 'Refresh', exact: true }).click()
   await chooseOption(dialog.getByRole('combobox'), 'Film cloud')
