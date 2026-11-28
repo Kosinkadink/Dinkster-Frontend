@@ -11,6 +11,7 @@ import {
   type JSX,
 } from 'solid-js'
 import {
+  ArrowRight,
   Ellipsis,
   Images,
   MousePointer2,
@@ -53,7 +54,7 @@ import {
 } from './controls.js'
 import { ProductAudioWaveform } from './audio-waveform.js'
 import { useFieldFocus } from './field-focus.js'
-import { ProductMenu } from './menu.js'
+import { ProductMenu, type ProductMenuItem } from './menu.js'
 import { ProductProgress } from './messages.js'
 import { BlueprintIcon } from './search.js'
 import { ProductImage } from './image.js'
@@ -73,13 +74,15 @@ export function ProductBoardCard(props: {
   readonly onChooseInputs?: (() => void) | undefined
   readonly onOpenLastRun?: (() => void) | undefined
   readonly onContentHeight?: ((height: number) => void) | undefined
+  readonly onInputPosition?: ((key: string, offset: number | undefined) => void) | undefined
   readonly onRemove: () => void
 }) {
   let card!: HTMLDivElement
   let fields!: HTMLDivElement
   onMount(() => {
-    if (!props.onContentHeight) return
+    if (!props.onContentHeight && !props.onInputPosition) return
     let frame = 0
+    let reported: string[] = []
     const measure = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
@@ -100,18 +103,32 @@ export function ProductBoardCard(props: {
           parseFloat(style.borderTopWidth) +
           parseFloat(style.borderBottomWidth)
         props.onContentHeight?.(height)
+        const bounds = card.getBoundingClientRect()
+        const scale = bounds.height / card.offsetHeight
+        const rows = [...fields.querySelectorAll<HTMLElement>('[data-board-input-key]')]
+        const keys = rows.map((row) => row.dataset['boardInputKey']!)
+        for (const key of reported) if (!keys.includes(key)) props.onInputPosition?.(key, undefined)
+        for (const row of rows) {
+          const rect = row.getBoundingClientRect()
+          const middle = (rect.top + rect.bottom) / 2
+          props.onInputPosition?.(row.dataset['boardInputKey']!, (middle - bounds.top) / scale)
+        }
+        reported = keys
       })
     }
     const observer = new ResizeObserver(measure)
     observer.observe(fields)
     observer.observe(card.querySelector('header')!)
     observer.observe(card.querySelector('footer')!)
+    fields.parentElement!.addEventListener('scroll', measure)
     createEffect(() => {
       void props.error
       measure()
     })
     onCleanup(() => {
       observer.disconnect()
+      fields.parentElement!.removeEventListener('scroll', measure)
+      for (const key of reported) props.onInputPosition?.(key, undefined)
       cancelAnimationFrame(frame)
     })
   })
@@ -211,6 +228,39 @@ export function ProductBoardCard(props: {
   )
 }
 
+/** Working actions below one selected result; both menu entrances share one list. */
+export function ProductBoardResultBar(props: {
+  readonly continuation?: {
+    readonly kind: BoardMediaItem['kind']
+    readonly recent: readonly ProductMenuItem[]
+    readonly onChooseWorkflow: () => void
+    readonly onChooseBlueprint: () => void
+  } | undefined
+  readonly onOpenWorkflow?: (() => void) | undefined
+  readonly onRemove: () => void
+  readonly actionsRef?: ((open: () => void) => void) | undefined
+}) {
+  return <div class="dinkster-board-result-bar" onPointerDown={(event) => event.stopPropagation()}
+    onKeyDown={(event) => event.stopPropagation()}>
+    <Show when={props.continuation}>{(continuation) => <>
+      <ProductMenu label="Continue with" icon={ArrowRight} fill="quiet"
+        heading={`Workflows that take a ${continuation().kind}`}
+        items={[
+          ...(continuation().recent.length ? continuation().recent : [{ note: 'None in this project' }]),
+          'separator',
+          { label: 'Choose a workflow...', icon: Workflow, onSelect: continuation().onChooseWorkflow },
+          { label: 'Choose a blueprint...', icon: BlueprintIcon, onSelect: continuation().onChooseBlueprint },
+        ]} />
+      <span class="dinkster-board-result-divider" role="separator" />
+    </>}</Show>
+    <Show when={props.onOpenWorkflow}>{(open) => <ProductButton fill="quiet"
+      onClick={open()}><ProductIcon icon={Workflow} />Open workflow</ProductButton>}</Show>
+    <ProductMenu label="Result actions" icon={Ellipsis} iconOnly fill="quiet"
+      ref={(control) => props.actionsRef?.(control.open)}
+      items={[{ label: 'Remove from board', icon: Trash2, onSelect: props.onRemove }]} />
+  </div>
+}
+
 export interface ProductBoardProps {
   readonly store: BoardSession
   readonly fill?: boolean
@@ -232,6 +282,13 @@ export interface ProductBoardProps {
   readonly card?: (
     item: Accessor<BoardCardItem>,
     remove: () => void,
+    inputPosition: (key: string, offset: number | undefined, value: () => unknown) => void,
+  ) => JSX.Element
+  readonly result?: (
+    item: Accessor<BoardMediaItem>,
+    select: (id: string) => void,
+    remove: () => void,
+    actionsRef: (open: () => void) => void,
   ) => JSX.Element
   /** Absent when the source kind is unavailable; cancellation resolves without an id. */
   readonly onAddCard?: {
@@ -546,6 +603,7 @@ export function ProductBoard(props: ProductBoardProps) {
   useFieldFocus()
   const [document, setDocument] = createSignal(props.store.doc)
   const [selected, setSelected] = createSignal<string>()
+  const [inputPositions, setInputPositions] = createSignal<ReadonlyMap<string, { offset: number; value: () => unknown }>>(new Map())
   const [editingSection, setEditingSection] = createSignal<string>()
   const [editingNote, setEditingNote] = createSignal<string>()
   const [tool, setTool] = createSignal<'select' | 'note' | 'section'>('select')
@@ -807,6 +865,26 @@ export function ProductBoard(props: ProductBoardProps) {
       ]
     })
   })
+  const continuations = createMemo(() => Object.values(document().items).flatMap((card) => {
+    if (card.kind !== 'workflow' && card.kind !== 'blueprint') return []
+    const reference = card.continuedFrom
+    if (!reference) return []
+    const origin = document().items[reference.itemId]
+    if (!origin || !('asset' in origin)) return []
+    const position = inputPositions().get(JSON.stringify([card.id, reference.inputKey]))
+    if (!position) return []
+    const value = position.value()
+    const files = Array.isArray(value) ? value : [value]
+    if (!files.some((file) => file !== null && typeof file === 'object' && !Array.isArray(file) &&
+      file['digest'] === origin.asset.digest)) return []
+    const from = itemRect(origin)
+    const to = itemRect(card)
+    const startX = from.x + from.width
+    const startY = from.y + from.height / 2
+    const endY = to.y + position.offset
+    const bend = (startX + to.x) / 2
+    return [{ id: card.id, path: `M ${startX} ${startY} C ${bend} ${startY}, ${bend} ${endY}, ${to.x} ${endY}` }]
+  }))
   let touches:
     | readonly [{ x: number; y: number }, { x: number; y: number }]
     | undefined
@@ -968,6 +1046,7 @@ export function ProductBoard(props: ProductBoardProps) {
               const item = () => document().items[id]!
               const initialItem = item()
               let element!: HTMLDivElement
+              let openActions: (() => void) | undefined
               const [metadata, setMetadata] = createSignal<{
                 width?: number
                 height?: number
@@ -1016,6 +1095,13 @@ export function ProductBoard(props: ProductBoardProps) {
                     onDblClick={() => {
                       if (item().kind === 'note') setEditingNote(id)
                     }}
+                    onContextMenu={(event) => {
+                      if (!props.result || !('asset' in item())) return
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setSelected(id)
+                      queueMicrotask(() => { if (selected() === id) openActions?.() })
+                    }}
                   >
                     <Show
                       when={((item) =>
@@ -1030,6 +1116,16 @@ export function ProductBoard(props: ProductBoardProps) {
                             params: { ids: [id] },
                           })
                           if (selected() === id) setSelected(undefined)
+                        }, (key, offset, value) => {
+                          const positionKey = JSON.stringify([id, key])
+                          const previous = inputPositions().get(positionKey)
+                          if (previous?.offset === offset && previous?.value === value) return
+                          setInputPositions((positions) => {
+                            const next = new Map(positions)
+                            if (offset === undefined) next.delete(positionKey)
+                            else next.set(positionKey, { offset, value })
+                            return next
+                          })
                         })
                       }
                     </Show>
@@ -1146,11 +1242,17 @@ export function ProductBoard(props: ProductBoardProps) {
                     <Show when={selected() === id}>
                       <Show when={((item) => 'asset' in item && item)(item())}>
                         {(media) => (
-                          <div class="dinkster-board-caption">
-                            {media().asset.name}
-                            <Show when={facts()}>
-                              {(value) => <span>{value()}</span>}
-                            </Show>
+                          <div class="dinkster-board-result-caption">
+                            <div class="dinkster-board-caption">
+                              {media().asset.name}
+                              <Show when={facts()}>
+                                {(value) => <span>{value()}</span>}
+                              </Show>
+                            </div>
+                            {props.result?.(media, setSelected, () => {
+                              props.store.dispatch({ command: 'board.item.remove', params: { ids: [id] } })
+                              setSelected(undefined)
+                            }, (open) => { openActions = open })}
                           </div>
                         )}
                       </Show>
@@ -1247,6 +1349,8 @@ export function ProductBoard(props: ProductBoardProps) {
               </For>
             )}
           </For>
+          <For each={continuations()}>{(line) => <path class="dinkster-board-history"
+            data-board-continuation={line.id} d={line.path} />}</For>
           <For each={history()}>
             {(line) => (
               <path

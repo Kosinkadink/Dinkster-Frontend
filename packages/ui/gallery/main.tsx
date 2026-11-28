@@ -117,6 +117,7 @@ import { SearchGallery } from './search.js'
 import { BoardGallery } from './board.js'
 import { BoardCardsGallery } from './board-cards.js'
 import { BoardResultsGallery } from './board-results.js'
+import { BoardContinuationGallery } from './board-continuation.js'
 import { ResultPicturesGallery } from './result-pictures.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
@@ -236,7 +237,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#board-cards', '#board-results', '#engine-states', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#board-cards', '#board-results', '#board-continuation', '#engine-states', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -251,6 +252,8 @@ function Gallery() {
         title={
           route() === '#settings-section'
             ? 'Settings groups'
+            : route() === '#board-continuation'
+            ? 'Continue with'
             : route() === '#dropdowns'
             ? 'Dropdowns'
             : route().endsWith('field-alignment')
@@ -267,7 +270,7 @@ function Gallery() {
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#board-cards' || route() === '#board-results' || route() === '#node-search'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#board-cards' || route() === '#board-results' || route() === '#board-continuation' || route() === '#node-search'}
       >
         <Show
           when={!loading()}
@@ -565,6 +568,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#board-results'}>
               <BoardResultsGallery />
+            </Match>
+            <Match when={route() === '#board-continuation'}>
+              <BoardContinuationGallery />
             </Match>
             <Match when={route() === '#result-pictures'}>
               <ResultPicturesGallery />

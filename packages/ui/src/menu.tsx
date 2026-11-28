@@ -91,6 +91,8 @@ function Menu(props: {
   align?: 'start' | 'end' | undefined
   busy?: boolean
   title?: string | undefined
+  heading?: string | undefined
+  ref?: ((control: { open: () => void }) => void) | undefined
   attention?: ProductAttention | undefined
   filter?: { label: string; placeholder?: string } | undefined
   onTrigger?: (() => void) | undefined
@@ -215,6 +217,7 @@ function Menu(props: {
       focusInitialItem(last)
     })
   }
+  props.ref?.({ open: () => show() })
   // Dismissal listeners exist only while the menu is open, so a page with
   // many menus does not run one handler per menu on every press.
   createEffect(() => {
@@ -358,6 +361,9 @@ function Menu(props: {
               </div>
             )}
           </Show>
+          <Show when={props.heading}>
+            {(heading) => <div class="dinkster-menu-note" role="presentation">{heading()}</div>}
+          </Show>
           <Show when={props.identity}>
             {(identity) => (
               <div
@@ -492,7 +498,9 @@ export function ProductMenu(props: {
   labelContent?: JSX.Element
   triggerName?: string
   title?: string
-  items: readonly (ProductMenuItem | 'separator')[]
+  items: readonly MenuEntry[]
+  heading?: string | undefined
+  ref?: ((control: { open: () => void }) => void) | undefined
   identity?: MenuIdentity
   icon?: LucideIcon
   iconOnly?: boolean
@@ -519,6 +527,8 @@ export function ProductMenu(props: {
       align={props.align}
       attention={props.attention}
       title={props.title}
+      heading={props.heading}
+      ref={props.ref}
       filter={props.filter}
     >
       <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
