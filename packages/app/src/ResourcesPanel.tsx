@@ -2,7 +2,7 @@ import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid
 import { ChevronRight } from 'lucide-solid'
 import type { DinksterConnection, MemoryGovernorDevice, MemoryStatus, RuntimeSettings } from '@dinkster/client'
 import { formatByteProgress, formatByteSize } from '@dinkster/core'
-import { ProductButton, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductField, ProductIcon, ProductNotice, ProductResourceUsage, ProductTextInput, ProductToast, type ProductResourceSample, type ProductResourceSegment } from '@dinkster/ui'
+import { ProductButton, ProductByteSizeInput, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductField, ProductIcon, ProductNotice, ProductResourceUsage, ProductToast, type ProductResourceSample, type ProductResourceSegment } from '@dinkster/ui'
 import { MemoryStatusController } from './memory-status.js'
 import { ProductSlider } from './ProductSlider.js'
 import { useSignal } from './solid-adapter.js'
@@ -37,7 +37,6 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
   const [telemetryError, setTelemetryError] = createSignal('')
   const [budgetDraft, setBudgetDraft] = createSignal<Readonly<Record<string, number>>>({})
   const [headroomDraft, setHeadroomDraft] = createSignal<number>()
-  const [otherBudgetDraft, setOtherBudgetDraft] = createSignal<Readonly<Record<string, string>>>({})
   const [notification, setNotification] = createSignal<{ message: string }>()
   const [pending, setPending] = createSignal(false)
   const [clock, setClock] = createSignal(Date.now())
@@ -109,32 +108,13 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
   const budgetName = (device: string) => device === 'ram' ? message('resources.systemMemory') : device === 'disk' ? message('resources.disk') : device
   const configuredBudgetValue = (device: string) => {
     const value = configuredBudgets()[device]
-    return typeof value === 'number' ? formatByteSize(value, 'GB') : value === undefined ? '' : String(value)
+    return typeof value === 'number' || typeof value === 'string' ? value : undefined
   }
-  const otherBudgetValue = (device: string) => otherBudgetDraft()[device] ?? configuredBudgetValue(device)
-  const changeOtherBudget = (device: string, value: string) => setOtherBudgetDraft((current) => {
-    const next = { ...current }
-    if (value === configuredBudgetValue(device)) delete next[device]
-    else next[device] = value
-    return next
-  })
-  const saveOtherBudgets = async () => {
-    await act(async () => {
-      const value = { ...configuredBudgets() }
-      for (const [device, text] of Object.entries(otherBudgetDraft())) {
-        const trimmed = text.trim()
-        const size = /^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB)$/i.exec(trimmed)
-        if (trimmed === '') delete value[device]
-        else if (size) {
-          const unit = size[2]!.toUpperCase()
-          const exponent = unit === 'B' ? 0 : 'KMGT'.indexOf(unit[0]!) + 1
-          value[device] = Math.round(Number(size[1]) * 1024 ** exponent)
-        } else value[device] = /^\d+$/.test(trimmed) ? Number(trimmed) : trimmed
-      }
-      const section = await connection().updateRuntimeSetting('memory-budgets', value)
-      setSettings((current) => current ? { ...current, settings: { ...current.settings, 'memory-budgets': section } } : current)
-      setOtherBudgetDraft({})
-    })
+  const updateOtherBudget = (device: string, budget: number | string | undefined) => {
+    const value = { ...configuredBudgets() }
+    if (budget === undefined) delete value[device]
+    else value[device] = budget
+    void update('memory-budgets', value)
   }
   const headroom = () => {
     const configured = settings()?.settings['memory-headroom']?.value
@@ -237,15 +217,13 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
             <Show when={granted('aimdo-policy')}><RuntimeSettingsPanel connection={connection()} backendLabel={props.backend.label} categories={['aimdo-policy']} alwaysOpen /></Show>
             <Show when={granted('memory-budgets')}><For each={cards()}>{(device) => <div class="dinkster-resource-limit-control"><span>{cards().length > 1 ? message('resources.cardLimit', { name: status()!.memoryGovernor![device]!.measured?.gpuName ?? device }) : message('resources.memoryLimit')}</span><ProductSlider ariaLabel={message('resources.cardLimit', { name: device })} min={0} max={status()!.memoryGovernor![device]!.measured!.totalBytes} step={64 * 1024 ** 2} value={budgetValue(device)} disabled={pending() || stale()} onInput={(value) => setBudgetDraft((current) => ({ ...current, [device]: value }))} onCommit={(value) => void update('memory-budgets', { ...settings()!.settings['memory-budgets']!.value as Record<string, unknown>, [device]: value })} /><span>{budgetDraft()[device] === undefined && limit(device) === undefined ? message('resources.automatic') : formatByteSize(budgetValue(device))}</span></div>}</For></Show>
             <Show when={granted('memory-budgets') && otherBudgets().length > 0}>
-              <form class="dinkster-stack" onSubmit={(event) => { event.preventDefault(); void saveOtherBudgets() }}>
+              <div class="dinkster-stack">
                 <strong>{message('resources.otherLimits')}</strong>
                 <p class="dinkster-description">{message('resources.exactLimitHelp')}</p>
-                <For each={otherBudgets()}>{(device) => <ProductField label={budgetName(device)}>{(attributes) => <div class="dinkster-stack">
-                  <ProductTextInput {...attributes} value={otherBudgetValue(device)} placeholder={message('runtimeSettings.memory.automatic')} disabled={pending() || stale()} onInput={(event) => changeOtherBudget(device, event.currentTarget.value)} />
-                  <ProductButton type="button" disabled={pending() || stale() || otherBudgetValue(device) === ''} onClick={() => changeOtherBudget(device, '')}>{message('runtimeSettings.memory.automatic')}</ProductButton>
-                </div>}</ProductField>}</For>
-                <ProductButton type="submit" disabled={pending() || stale() || Object.keys(otherBudgetDraft()).length === 0}>{message('runtimeSettings.action.apply')}</ProductButton>
-              </form>
+                <For each={otherBudgets()}>{(device) => <ProductField label={budgetName(device)}>{(attributes) =>
+                  <ProductByteSizeInput {...attributes} allowExpressions value={configuredBudgetValue(device)} placeholder={message('resources.automatic')} disabled={pending() || stale()} onCommit={(value) => updateOtherBudget(device, value)} />
+                }</ProductField>}</For>
+              </div>
             </Show>
             <Show when={granted('memory-headroom') && headroom() !== undefined}><div class="dinkster-resource-limit-control"><span>{message('resources.keepFree')}</span><ProductSlider ariaLabel={message('resources.keepFree')} min={0} max={Math.max(...cards().map((device) => status()!.memoryGovernor![device]!.measured?.totalBytes ?? 0), headroom()!, 1024 ** 3)} step={64 * 1024 ** 2} value={headroomDraft() ?? headroom()!} disabled={pending() || stale()} onInput={setHeadroomDraft} onCommit={(value) => void update('memory-headroom', value)} /><span>{formatByteSize(headroomDraft() ?? headroom()!)}</span></div></Show>
           </ProductDisclosure>

@@ -1,6 +1,6 @@
 import { createSignal as coreSignal } from '@dinkster/core'
 import type { ConnectionStatus, DinksterConnection, MemoryStatus } from '@dinkster/client'
-import { RequestFailure } from '@dinkster/client'
+import { RequestFailure, RuntimeSettingsError } from '@dinkster/client'
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -103,29 +103,38 @@ it('preserves non-card and unmeasured budgets with exact sizes and automatic rem
   expect(field('custom').value).toBe('0.1 GB')
   expect(root.querySelectorAll('[role="slider"]')).toHaveLength(1)
   const input = (name: string, value: string) => { const element = field(name); element.value = value; element.dispatchEvent(new Event('input', { bubbles: true })) }
-  const form = field('Disk').closest('form')!
-  const apply = form.querySelector<HTMLButtonElement>('button[type="submit"]')!
-  expect(apply.disabled).toBe(true)
+  const commit = async (name: string, value: string) => {
+    input(name, value)
+    field(name).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await flush()
+  }
+  field('System memory').dispatchEvent(new FocusEvent('blur'))
+  expect(updateRuntimeSetting).not.toHaveBeenCalled()
   input('System memory', '9.0 GB')
-  expect(apply.disabled).toBe(false)
-  input('System memory', '9.3 GB')
-  expect(apply.disabled).toBe(true)
-  input('custom', '7G'); input('vram:cuda:1', '1.5GB')
-  field('Disk').parentElement!.querySelector('button')!.click()
-  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
+  field('System memory').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  expect(field('System memory').value).toBe('9.3 GB')
+  expect(updateRuntimeSetting).not.toHaveBeenCalled()
+  await commit('custom', '7G')
+  await commit('vram:cuda:1', '1.5GB')
+  await commit('Disk', '')
   expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 8e9, ram: 10000000000, 'vram:cuda:1': 1610612736, custom: '7G' })
   expect(field('System memory').value).toBe('9.3 GB')
   expect(field('vram:cuda:1').value).toBe('1.5 GB')
   expect(field('custom').value).toBe('7G')
-  expect(apply.disabled).toBe(true)
-  input('System memory', '1.75 GB'); input('vram:cuda:1', '987654321')
-  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
+  field('custom').dispatchEvent(new FocusEvent('blur'))
+  expect(updateRuntimeSetting).toHaveBeenCalledTimes(3)
+  await commit('System memory', '1.75 GB')
+  await commit('vram:cuda:1', '987654321 B')
   expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 8e9, ram: 1879048192, 'vram:cuda:1': 987654321, custom: '7G' })
   expect(field('System memory').value).toBe('1.8 GB')
-  updateRuntimeSetting.mockRejectedValueOnce(new RequestFailure('PUT', '/api/settings', 400, 'Exact budget rejected.'))
-  input('System memory', 'bad size'); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
+  updateRuntimeSetting.mockRejectedValueOnce(new RuntimeSettingsError(400, { error: 'invalid-settings', category: 'memory-budgets', message: 'Exact budget rejected.' }))
+  await commit('System memory', 'bad size')
   expect(root.textContent).toContain('Exact budget rejected.')
-  expect(field('System memory').value).toBe('bad size')
+  expect(field('System memory').value).toBe('1.8 GB')
+  await commit('System memory', '')
+  expect(field('System memory').value).toBe('')
+  expect(field('System memory').placeholder).toBe('Automatic')
+  expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 8e9, 'vram:cuda:1': 987654321, custom: '7G' })
   unmount()
 })
 

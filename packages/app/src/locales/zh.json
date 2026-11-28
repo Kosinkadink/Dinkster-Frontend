@@ -1301,7 +1301,7 @@
   "resources.limits": "限制",
   "resources.otherLimits": "其他限制",
   "resources.disk": "磁盘",
-  "resources.exactLimitHelp": "输入精确大小，例如 1.5 GB。也接受整数字节数和 K/M/G/T 大小。自动选项会移除显式预算。",
+  "resources.exactLimitHelp": "输入大小（例如 1.5 GB）或后端表达式。不带单位的数字按 GB 计算。清空字段以使用自动设置。",
   "resources.memoryLimit": "显存限制",
   "resources.automatic": "自动",
   "resources.cardLimit": "显存限制，{name}",

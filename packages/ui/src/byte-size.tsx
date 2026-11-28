@@ -15,15 +15,26 @@ export function ProductByteSizeInput(
   props: Omit<
     ComponentProps<typeof ProductTextInput>,
     'value' | 'onInput' | 'onChange' | 'onBlur' | 'onKeyDown' | 'ref'
-  > & {
-    readonly value: number
-    readonly onCommit: (bytes: number) => void
-    readonly minimum?: number | undefined
-    readonly error?: string | undefined
-  },
+  > &
+    (
+      | {
+          readonly allowExpressions?: false
+          readonly value: number
+          readonly onCommit: (bytes: number) => void
+        }
+      | {
+          readonly allowExpressions: true
+          readonly value: number | string | undefined
+          readonly onCommit: (value: number | string | undefined) => void
+        }
+    ) & {
+      readonly minimum?: number | undefined
+      readonly error?: string | undefined
+    },
 ) {
   const [local, input] = splitProps(props, [
     'value',
+    'allowExpressions',
     'onCommit',
     'minimum',
     'error',
@@ -37,7 +48,10 @@ export function ProductByteSizeInput(
   const [invalid, setInvalid] = createSignal<string>()
   let unchanged = ''
   const restore = () => {
-    unchanged = formatByteSize(local.value, 'GB')
+    unchanged =
+      typeof local.value === 'number'
+        ? formatByteSize(local.value, 'GB')
+        : (local.value ?? '')
     setDraft(unchanged)
     setInvalid(undefined)
   }
@@ -51,6 +65,14 @@ export function ProductByteSizeInput(
     if (local.disabled || draft() === unchanged) return
     const bytes = parseByteSize(draft())
     if (bytes === undefined) {
+      if (props.allowExpressions) {
+        const expression = draft().trim() || undefined
+        unchanged = expression ?? ''
+        setDraft(unchanged)
+        setInvalid(undefined)
+        if (expression !== props.value) props.onCommit(expression)
+        return
+      }
       setInvalid(strings.byteSizeInvalid)
       return
     }

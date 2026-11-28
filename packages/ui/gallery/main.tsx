@@ -188,6 +188,7 @@ function Gallery() {
   const [nameTaken, setNameTaken] = createSignal(false)
   const [activity, setActivity] = createSignal('No action yet')
   const [sizeLimit, setSizeLimit] = createSignal(10000000000)
+  const [memoryBudget, setMemoryBudget] = createSignal<number | string>()
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
   const [formMount, setFormMount] = createSignal('input')
@@ -708,6 +709,9 @@ function Gallery() {
                 </ProductField>
                 <ProductField label="Unavailable size limit">
                   {(attributes) => <ProductByteSizeInput {...attributes} value={4097} disabled onCommit={() => {}} />}
+                </ProductField>
+                <ProductField label="Memory budget" description="Enter a size or backend expression. Clear to use Automatic.">
+                  {(attributes) => <ProductByteSizeInput {...attributes} allowExpressions value={memoryBudget()} placeholder="Automatic" onCommit={setMemoryBudget} />}
                 </ProductField>
                 <ProductField
                   label="Email address"
