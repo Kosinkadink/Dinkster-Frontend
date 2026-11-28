@@ -1,4 +1,4 @@
-import { For, Show, createMemo } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 
 export function ProductCountStrip(props: {
   readonly label: string
@@ -19,6 +19,19 @@ export function ProductCountStrip(props: {
   const total = createMemo(() =>
     weighted().reduce((sum, segment) => sum + (segment.weight ?? segment.count), 0),
   )
+  const [singleColumn, setSingleColumn] = createSignal(false)
+  let legend: HTMLDListElement | undefined
+  const measure = () => {
+    if (!legend?.isConnected) return
+    const columnWidth = (legend.clientWidth - Number.parseFloat(getComputedStyle(legend).columnGap)) / 2
+    setSingleColumn([...legend.children].some((entry) => {
+      const label = entry.querySelector('dt')!
+      const value = entry.querySelector('dd')!
+      const gap = Number.parseFloat(getComputedStyle(entry).columnGap)
+      return label.getBoundingClientRect().width + value.getBoundingClientRect().width + gap > columnWidth
+    }))
+  }
+  createEffect(() => { segments(); queueMicrotask(measure) })
   return (
     <Show when={segments().length > 0}>
       <div class="dinkster-count-strip">
@@ -31,7 +44,16 @@ export function ProductCountStrip(props: {
             )}
           </For>
         </div></Show>
-        <dl class="dinkster-count-legend" aria-label={props.label}>
+        <dl ref={(element) => {
+          legend = element
+          onMount(() => {
+            const observer = new ResizeObserver(measure)
+            observer.observe(element)
+            measure()
+            void document.fonts?.ready.then(measure)
+            onCleanup(() => observer.disconnect())
+          })
+        }} class="dinkster-count-legend" data-columns={singleColumn() ? 1 : 2} aria-label={props.label}>
           <For each={segments()}>
             {(segment) => (
               <div>
