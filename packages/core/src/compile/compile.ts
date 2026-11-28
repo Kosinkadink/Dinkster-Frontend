@@ -909,7 +909,7 @@ function compileImpl(
       const rule = d.code === 'node.rule.failed'
       const diagnostic = diag(d.severity, 'compile', d.code, `[${where}] ${d.message}`, {
         ...(d.anchor !== undefined ? { anchor: d.anchor } : {}),
-        ...(rule ? { refs: ruleProblemRefs(d, owner.graphId, owner.nodeId), ...(d.data !== undefined ? { data: d.data } : {}) }
+        ...(rule ? { refs: ruleProblemRefs(d, owner.graphId, owner.nodeId), data: { ...d.data, nodeMessage: d.message } }
           : d.refs !== undefined ? { refs: d.refs } : {}),
       })
       diags.push(diagnostic)
@@ -1946,13 +1946,13 @@ function compileImpl(
         if (lowered !== undefined) fn.inputs[inputId] = lowered
       }
     }
-    // Derived values (combo selectors) are authoritative and applied LAST:
+    // Active derived values (combo selectors) are authoritative and applied LAST:
     // the elaborated interface (which branch inputs exist) was computed FROM
     // this selection, so nothing - not even a promoted override - may
     // contradict it in the prompt. Occurrence-level selector overrides need
     // occurrence-state forwarding to re-elaborate first.
     for (const input of fn.elab.inputs) {
-      if (input.derivedValue !== undefined && input.apiName !== undefined) {
+      if (input.derivedValue !== undefined && !input.inert && input.apiName !== undefined) {
         fn.inputs[input.spec.id] = input.derivedValue
       }
     }
@@ -3147,6 +3147,8 @@ function compileImpl(
         if (conflict.code !== 'solve.varConflict' || conflict.severity !== 'error' || conflict.data?.['node'] !== fn.node.id) continue
         diags.push(diag('error', 'compile', 'compile.typeVariableConflict', conflict.message, {
           anchor: { occurrence: fn.occ, ...(conflict.anchor?.port !== undefined ? { port: conflict.anchor.port } : {}) },
+          ...(conflict.refs === undefined ? {} : { refs: conflict.refs }),
+          ...(conflict.data === undefined ? {} : { data: conflict.data }),
         }))
       }
     }

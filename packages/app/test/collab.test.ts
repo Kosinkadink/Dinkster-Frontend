@@ -17,6 +17,7 @@ import {
   asLinkId,
   asNodeId,
   asPortId,
+  coreCommandRegistry,
   diag,
   emptyBoard,
   isValidActorId,
@@ -37,8 +38,9 @@ import {
   type WorkflowDocument,
 } from '@dinkster/core'
 import { buildDinksterRegistry } from '@dinkster/client'
-import { SharedWorkerDocumentAuthority } from '../src/shared-worker-authority.js'
+import { SharedWorkerDocumentAuthority, type WorkerPortLike } from '../src/shared-worker-authority.js'
 import { SharedWorkerTabAuthority } from '../src/workspace-worker-authority.js'
+import { connectSharedWorkerSession } from '../src/shared-worker-connection.js'
 import seedBasic from '../../core/fixtures/workflows/seed-basic.json'
 import seedSubgraph from '../../core/fixtures/workflows/seed-subgraph.json'
 import { AppState, type Tab } from '../src/app-state.js'
@@ -1449,6 +1451,131 @@ const gate = (): { promise: Promise<void>; open: () => void } => {
 }
 
 describe('lifecycle races', () => {
+  it('shares through unchanged authority promotion but refuses edits, replacements and closure without losing history', async () => {
+    for (const change of ['none', 'pristine', 'authority-different', 'before-promotion', 'after-promotion', 'undo', 'replace', 'close'] as const) {
+      const server = new FakeCollabServer()
+      const snapshotRequested = gate()
+      const snapshotRelease = gate()
+      const connections: FakeConn[] = []
+      const connect = server.transport.connect
+      server.transport.connect = (args) => {
+        const connection = connect(args) as FakeConn
+        connections.push(connection)
+        const fetchSnapshot = connection.fetchSnapshot.bind(connection)
+        connection.fetchSnapshot = async () => {
+          snapshotRequested.open()
+          await snapshotRelease.promise
+          return fetchSnapshot()
+        }
+        return connection
+      }
+      let app = makeApp(server)
+      expect(await app.openDocument(structuredClone(seedBasic), 'Promotion share')).toEqual([])
+      if (change === 'authority-different') {
+        app.flushPersistTabs()
+        app.dispose()
+        app = makeApp(server)
+      }
+      const original = activeTab(app)
+      const baseline = nodeCount(original)
+      if (change !== 'pristine' && change !== 'authority-different') {
+        expect((await addNode(app, original)).ok).toBe(true)
+        expect((await addNode(app, original)).ok).toBe(true)
+        expect(original.store.undo()).toBe(true)
+      }
+      const snapshot = original.store.doc
+      const pending = app.shareActiveTab()
+      await snapshotRequested.promise
+
+      const edit = async () => {
+        const tab = activeTab(app)
+        expect((await app.dispatchTo(tab, {
+          command: 'node.setTitle', params: { graphId: 'g0', nodeId: 'n0', title: 'Keep this edit' },
+        })).ok).toBe(true)
+      }
+      if (change === 'before-promotion') await edit()
+      const factory = (authority: { connect(port: WorkerPortLike): void }) => () => {
+        const listeners = [new Set<(event: MessageEvent<unknown>) => void>(), new Set<(event: MessageEvent<unknown>) => void>()]
+        const ports = listeners.map((own, side): WorkerPortLike => ({
+          postMessage: (message) => {
+            const data = structuredClone(message)
+            queueMicrotask(() => { for (const listener of listeners[1 - side]!) listener({ data } as MessageEvent<unknown>) })
+          },
+          addEventListener: (_type, listener) => { own.add(listener) },
+        }))
+        authority.connect(ports[1]!)
+        return ports[0]!
+      }
+      const documents = factory(new SharedWorkerDocumentAuthority())
+      const graph = snapshot.graphs.g0!
+      const different: WorkflowDocument = { ...snapshot, graphs: { ...snapshot.graphs, g0: {
+        ...graph, nodes: { ...graph.nodes, n0: { ...graph.nodes.n0!, title: 'Established in another window' } },
+      } } }
+      const peer = change === 'authority-different'
+        ? await connectSharedWorkerSession(original.id, different, coreCommandRegistry(), { actorId: 'other' }, documents)
+        : undefined
+      await app.enableWorkspaceAuthority(documents, factory(new SharedWorkerTabAuthority()))
+      const promoted = activeTab(app)
+      expect(promoted.store).not.toBe(original.store)
+      expect((promoted.store as SharedDocumentSession).status.get()).toBe('live')
+      if (change === 'authority-different') {
+        expect(promoted.store.doc).toEqual(different)
+        expect(promoted.store.revision).toBe(original.store.revision)
+      } else if (change !== 'before-promotion') {
+        expect(promoted.store.doc).toEqual(snapshot)
+        expect(promoted.store.revision).toBe(original.store.revision)
+      }
+      if (change === 'after-promotion' || change === 'undo') {
+        await edit()
+        if (change === 'undo') {
+          expect(promoted.store.undo()).toBe(true)
+          await (promoted.store as SharedDocumentSession).settle()
+          expect(promoted.store.doc).toEqual(snapshot)
+        }
+      }
+      if (change === 'replace') expect(await app.openDocument(structuredClone(snapshot), 'Replacement')).toEqual([])
+      if (change === 'close') app.closeTab(original.id)
+      const kept = app.tabs.get().find((tab) => tab.id === original.id)
+      const keptDocument = kept?.store.doc
+      const keptHistory = kept?.store.historySnapshot()
+      snapshotRelease.open()
+      const result = await pending
+
+      if (change === 'none' || change === 'pristine') {
+        expect(result, change).toBeUndefined()
+        const shared = sharedSession(app, original.id)
+        expect(shared.doc).toEqual(snapshot)
+        expect(shared.canUndo).toBe(change === 'none')
+        expect(shared.canRedo).toBe(change === 'none')
+        if (change === 'none') {
+          expect(shared.redo()).toBe(true)
+          await shared.settle()
+          expect(nodeCount(activeTab(app))).toBe(baseline + 2)
+          expect(shared.undo()).toBe(true)
+          await shared.settle()
+          expect(shared.doc).toEqual(snapshot)
+          expect(shared.undo()).toBe(true)
+          await shared.settle()
+          expect(nodeCount(activeTab(app))).toBe(baseline)
+        }
+        expect(server.sessions.size).toBe(1)
+        expect(connections.filter((connection) => !connection.closed)).toHaveLength(1)
+        expect(server.endedSessions).toEqual([])
+      } else {
+        expect(result, change).toBe('The workflow could not be shared.')
+        expect(app.collabFor(original.id), change).toBeUndefined()
+        const current = app.tabs.get().find((tab) => tab.id === original.id)
+        expect(current?.store.doc, change).toEqual(keptDocument)
+        expect(current?.store.historySnapshot(), change).toEqual(keptHistory)
+        expect(server.sessions.size, change).toBe(0)
+        expect(server.endedSessions, change).toHaveLength(1)
+        expect(connections.every((connection) => connection.closed), change).toBe(true)
+      }
+      peer?.close()
+      app.dispose()
+    }
+  })
+
   it('rechecks the wire-15 mode gate when a collab rebase changes content at the same revision', async () => {
     const server = new FakeCollabServer()
     let holdPosts = false

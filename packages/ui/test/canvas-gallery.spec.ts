@@ -681,6 +681,39 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
     name: 'Interpolation Linear',
     exact: true,
   })
+  const headingText = 'Field of the detailed sampling settings used for the final image'
+  const longChoice = stage.getByRole('button', { name: `${headingText} Linear`, exact: true })
+  const headingInput = popup.getByRole('combobox')
+  for (const scale of [0.75, 1, 1.5]) {
+    await longChoice.locator('..').evaluate((element, zoom) => {
+      const editor = element.closest<HTMLElement>('.dinkster-canvas-editor')!
+      editor.style.top = '330px'
+      editor.style.transformOrigin = 'top left'
+      editor.style.transform = `scale(${zoom})`
+    }, scale)
+    await longChoice.click()
+    await checkBounds()
+    await expect.poll(async () => popup.locator('.dinkster-canvas-field').evaluate((field, zoom) => {
+      const label = field.querySelector<HTMLElement>('.dinkster-canvas-field-label')!
+      const box = label.getBoundingClientRect()
+      const range = document.createRange()
+      range.selectNodeContents(label)
+      const lines = [...range.getClientRects()]
+      return field.getBoundingClientRect().width <= 340.1 && lines.length >= 1 && (zoom < 1 || lines.length > 1) && lines.every((line) =>
+        line.left >= box.left - 0.1 && line.right <= box.right + 0.1 && line.bottom <= box.bottom + 0.1)
+    }, scale)).toBe(true)
+    await expect(popup.locator('.dinkster-canvas-field-label')).toHaveText(headingText)
+    await expect.poll(async () => headingInput.evaluate((input) => {
+      const style = getComputedStyle(input)
+      const measure = document.createElement('canvas').getContext('2d')!
+      measure.font = `italic ${style.fontSize} ${style.fontFamily}`
+      return input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) >= measure.measureText(input.getAttribute('placeholder')!).width
+    })).toBe(true)
+    await headingInput.fill('mono')
+    await expect(list.getByRole('option')).toHaveCount(1)
+    await headingInput.press('Escape')
+    await expect(longChoice).toBeFocused()
+  }
   await curve.click()
   await expect(list.getByRole('option')).toHaveCount(3)
   await checkBounds()
@@ -729,7 +762,7 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
       element.style.height = '160px'
       const editor = element.querySelectorAll<HTMLElement>(
         '.dinkster-canvas-editor',
-      )[1]!
+      )[2]!
       editor.style.top = '10px'
       editor.style.transformOrigin = 'top right'
       editor.style.transform = `scale(${zoom})`
@@ -1375,8 +1408,11 @@ for (const theme of ['dark', 'light'] as const) {
     await cardsReady(page, 'tabs', theme)
     // The narrow example's first strip and its +5: measured text leaves room for four strips.
     const canvas = page.getByTestId('canvas-tabs-14')
+    await page.clock.install()
     await canvas.hover({ position: { x: 16, y: 152 } })
-    await expect(canvas).toHaveAttribute('title', 'Detail 1')
+    await page.clock.fastForward(1000)
+    await expect(canvas).not.toHaveAttribute('title')
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
     await expect(canvas).toHaveScreenshot(`tabs-hover-${theme}.png`)
     await page.mouse.move(0, 0)
     await expect(canvas).not.toHaveAttribute('title', /.+/)
@@ -1504,8 +1540,23 @@ for (const theme of ['dark', 'light'] as const) {
         )
         if (id === 'run-editable' || id === 'run-frozen') {
           const running = page.getByTestId(`canvas-${id}-1`)
+          await page.clock.install()
           await running.hover({ position: { x: 45, y: 185 } })
-          await expect(running).toHaveAttribute('title', 'Running')
+          await page.clock.fastForward(1000)
+          await expect(page.getByRole('tooltip')).toHaveCount(0)
+          await expect(running).not.toHaveAttribute('title')
+        }
+        if (id === 'badges') {
+          await page.clock.install()
+          await page.getByTestId('canvas-badges-0').hover({ position: { x: 39, y: 280 } })
+          await page.clock.fastForward(1000)
+          await expect(page.getByRole('tooltip')).toHaveCount(0)
+          await page.getByTestId('canvas-badges-2').hover({ position: { x: 45, y: 185 } })
+          await page.clock.fastForward(1000)
+          const tooltip = page.getByRole('tooltip')
+          await expect(tooltip).toHaveText('Blocked: Missing image')
+          await page.keyboard.press('Escape')
+          await expect(tooltip).toHaveCount(0)
         }
         await page.setViewportSize({ width: 390, height: 1000 })
         await cardsReady(page, id, theme)

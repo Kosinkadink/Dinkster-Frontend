@@ -71,7 +71,7 @@ export function problemBoxRows(node: SceneNode): readonly ProblemBoxRow[] {
       if (row.input !== undefined) rows.push({ key: row.input.portId, name: row.input.name ?? row.input.label, field: false })
       if (row.output !== undefined) rows.push({ key: outputRowKey(row.output.portId), name: row.output.name ?? row.output.label, field: false })
     } else if (row.kind === 'fallback') {
-      rows.push({ key: row.label, name: row.label, field: false })
+      rows.push({ key: row.valueKey, name: row.label, field: false })
     }
   }
   return rows

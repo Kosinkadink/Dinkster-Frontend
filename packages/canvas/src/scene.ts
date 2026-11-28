@@ -8,6 +8,7 @@
 import {
   asNodeId,
   asPortId,
+  asRerouteId,
   belongsToGroup,
   initialGroupMembership,
   type GroupMembership,
@@ -230,6 +231,14 @@ const sameTypeExpr = (left: TypeExpr, right: TypeExpr): boolean => {
   if (left.kind !== right.kind) return false
   switch (left.kind) {
     case 'concrete': return left.name === (right as typeof left).name
+    case 'record': {
+      const other = right as typeof left
+      return left.name === other.name && left.fields.length === other.fields.length && left.fields.every((field, index) => {
+        const found = other.fields[index]!
+        return field.id === found.id && field.name === found.name && field.optional === found.optional && sameTypeExpr(field.type, found.type)
+      })
+    }
+    case 'record_field': return left.input === (right as typeof left).input && left.index === (right as typeof left).index
     case 'union': {
       const names = (right as typeof left).names
       return left.names.length === names.length && left.names.every((name, index) => name === names[index])
@@ -451,6 +460,10 @@ export interface SceneReroute {
   readonly y: number
   /** Concrete type traced from the driving output, when statically known. */
   readonly typeName?: string
+  /** The driving field or output is kept only for its existing wire. */
+  readonly dimmed?: true
+  /** Every effective producer is muted, using the same trace as the wire. */
+  readonly sourceMuted?: true
 }
 
 /** Reroute dot radius (world units). A deliberately large junction: easy to grab, reads as a station on the noodle. */
@@ -613,14 +626,15 @@ function projectTypeThroughRegionInputs(
   return projected
 }
 
-/** Resolve parent producers outward so each drilled graph receives only its occurrence's constraints. */
-function projectedTypeConstraints(
+/** Resolve parent producers outward for occurrence-local solving and boundary display. */
+function projectedParentTypes(
   document: WorkflowDocument,
   resolve: SchemaResolver,
   topology: EffectiveOccurrenceTopology,
   graphId: string,
-): readonly ProjectedTypeConstraint[] {
+): { readonly constraints: readonly ProjectedTypeConstraint[]; readonly types: ReadonlyMap<EffectiveLinkIdentity, TypeExpr> } {
   const resolveDocumentNode = documentNodeResolver(document, resolve)
+  const types = new Map<EffectiveLinkIdentity, TypeExpr>()
   type ProjectionSolve = {
     readonly graph: GraphDef
     readonly result: SolveResult
@@ -631,15 +645,18 @@ function projectedTypeConstraints(
     effective: EffectiveOccurrenceTopology | undefined,
     targetGraphId: string,
   ): readonly ProjectedTypeConstraint[] => (effective?.projectedParentLinks ?? []).flatMap((link) => {
-    if (link.to.graphId !== targetGraphId || !isPortEndpoint(link.to.endpoint)) return []
+    if (link.to.graphId !== targetGraphId) return []
     const solved = solveProjectionGraph(link.from.graphId, link.from.instancePath)
     if (solved === undefined) return []
     return traceEndpointAll(solved.graph, link.from.endpoint, buildRerouteIndex(solved.graph)).flatMap((trace) => {
       if (trace.kind !== 'output') return []
       const type = solved.result.portTypeOf(trace.ref.node, 'output', trace.ref.port)
-      return type === undefined ? [] : [{
-        type: projectTypeThroughRegionInputs(document, link, type),
-        to: link.to.endpoint as PortRef,
+      if (type === undefined) return []
+      const projected = projectTypeThroughRegionInputs(document, link, type)
+      types.set(link.identity, projected)
+      return !isPortEndpoint(link.to.endpoint) ? [] : [{
+        type: projected,
+        to: link.to.endpoint,
         label: `projected ${JSON.stringify(link.identity)}`,
         variableSource: solved.variableSources.get(trace.ref.node)!,
       }]
@@ -721,7 +738,7 @@ function projectedTypeConstraints(
     cache.set(key, solved)
     return solved
   }
-  return constraintsOf(topology, graphId)
+  return { constraints: constraintsOf(topology, graphId), types }
 }
 
 /** A field row whose stored value the host checks. */
@@ -729,7 +746,9 @@ export interface StoredValueRow {
   readonly nodeId: string
   readonly inputId: string
   readonly valueKey: string
+  readonly label?: string
   readonly spec: WidgetSpec
+  readonly derivedValue?: Json
 }
 
 export interface BuildSceneInput {
@@ -975,7 +994,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       const widget = item.spec.widget
       if (check === undefined || widget === undefined) continue
       const spec = resolveWidgetRepresentation(widget, representations?.[valueKey]).spec
-      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, stored)) problemRows.add(item.address.port)
+      if (check({ nodeId, inputId: item.spec.id, valueKey, label: item.spec.displayName ?? item.spec.id, spec }, stored)) problemRows.add(item.address.port)
     }
     return problemRows.size > (solverProblems?.size ?? 0)
       ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
@@ -1163,12 +1182,13 @@ export function buildScene(input: BuildSceneInput): Scene {
   // visible pin receives the solver's display type. Keeping this substitution
   // here (rather than teaching layout about graph constraints) preserves the
   // document -> elaboration -> solving -> rendering dependency direction.
+  const { constraints: parentConstraints, types: parentInputTypes } = effective === undefined
+    ? { constraints: [], types: new Map<EffectiveLinkIdentity, TypeExpr>() }
+    : projectedParentTypes(input.document, input.resolve, effective, def.id)
   const solvedTypes = solveGraphTypes(effectiveGraph, input.resolve, {
     resolveNode: (node) => resolveNode(input.graphId, node, sourcePath),
     connectivityOf,
-    ...(effective === undefined ? {} : {
-      projectedInputs: projectedTypeConstraints(input.document, input.resolve, effective, def.id),
-    }),
+    projectedInputs: parentConstraints,
   })
   // Definition-owned identities (the shown body graph's own links and net
   // sinks) keep their ordinary scene ids so every selection/gesture seam
@@ -1240,9 +1260,9 @@ export function buildScene(input: BuildSceneInput): Scene {
 
   const nodes: SceneNode[] = []
   const byId = new Map<string, SceneNode>()
-  // An automatic value that cannot be worked out: the field's warning, also
-  // listed in Problems, where picking it moves to the field.
-  const automaticDiagnostics: Diagnostic[] = []
+  // Declared field warnings also belong in Problems, where picking one
+  // moves to its field. Several projected ports can share one selection.
+  const fieldDiagnostics = new Map<string, Diagnostic>()
   let fallbackY = 0
   for (const node of Object.values(def.nodes)) {
     const view = viewNodes[node.id]
@@ -1271,8 +1291,13 @@ export function buildScene(input: BuildSceneInput): Scene {
       : undefined
     for (const diagnostic of elaborated?.diagnostics ?? []) {
       const port = diagnostic.data?.['input']
-      if (diagnostic.code !== 'automatic.default' || typeof port !== 'string') continue
-      automaticDiagnostics.push({ ...diagnostic, anchor: { port: { node: asNodeId(node.id), port: asPortId(port) } } })
+      if ((diagnostic.code !== 'automatic.default' && diagnostic.code !== 'record-field-removed') || typeof port !== 'string') continue
+      const selection = diagnostic.code === 'record-field-removed'
+        ? elabInputsOf(elaborated!).find((item) => item.spec.id === port)?.recordSelectionRows : undefined
+      const valueKey = selection !== undefined && selection.length > 1 ? `$record/${port}/${selection.length - 1}` : port
+      const anchored = { ...diagnostic, anchor: { port: { node: asNodeId(node.id), port: asPortId(port) } },
+        refs: [{ graphId: input.graphId, nodeId: node.id, portId: port, valueKey, direction: 'input' as const }] }
+      fieldDiagnostics.set(JSON.stringify(anchored), anchored)
     }
     const baseLayout = schema
       ? layoutNode(schema, occurrenceNode, input.tokens, measure, input.widgetMeasure, {
@@ -1303,6 +1328,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           view?.size,
           view?.collapsed === true,
           input.schemasPending === true,
+          input.document.environment?.nodes[node.type]?.inputLabels,
         )
     // A promoted boundary input owns the value and editable menu of the
     // inner row it binds; edits on that row write to the owning instance.
@@ -1331,13 +1357,13 @@ export function buildScene(input: BuildSceneInput): Scene {
             const menuRow = optionsOwner === undefined ? row : {
               ...row, optionsTarget: { ...row.optionsTarget!, ...optionsOwner },
             }
-            const valueOwner = input.occurrenceView!.valueOwners?.get(node.id)?.get(row.valueKey)
+            const valueOwner = input.occurrenceView!.valueOwners?.get(node.id)?.get(row.recordSelection?.inputId ?? row.valueKey)
             return valueOwner === undefined ? menuRow : {
               ...menuRow,
               familyOwner: {
                 graphId: valueOwner.graphId,
                 nodeId: valueOwner.nodeId,
-                construct: row.valueKey,
+                construct: row.recordSelection?.inputId ?? row.valueKey,
                 valueKey: valueOwner.valueKey,
               },
             }
@@ -1347,6 +1373,9 @@ export function buildScene(input: BuildSceneInput): Scene {
     const layoutWithPorts = schema
       ? {
           ...rawLayout,
+          rows: rawLayout.rows.map((row) => row.kind !== 'widget' || row.recordSelection === undefined || row.familyOwner !== undefined
+            ? row : { ...row, familyOwner: { graphId: def.id, nodeId: node.id,
+              construct: row.recordSelection.inputId, valueKey: row.recordSelection.inputId } }),
           pins: rawLayout.pins.map((pin) => {
             const type = pin.widgetTap === true ? pin.type : solvedTypes.portTypeOf(
               asNodeId(node.id),
@@ -1434,27 +1463,38 @@ export function buildScene(input: BuildSceneInput): Scene {
   const reroutes: SceneReroute[] = []
   const rerouteById = new Map<string, SceneReroute>()
   let rerouteFallbackY = 0
-  const outputTypeName = (ref: PortRef): string | undefined => {
+  const outputType = (ref: PortRef): TypeExpr | undefined => {
     const producer = byId.get(ref.node)
     const key = ref.port
     // Real output only: a widget tap shares its input's port id on the 'out'
     // side, so an unguarded lookup would color off the widget row.
     const pin = producer?.layout.pins.find((p) => p.direction === 'out' && p.portId === key && p.widgetTap !== true)
-    return pin === undefined ? undefined : canonicalTypeIdOf(pin.type)
+    return pin?.type
   }
-  const widgetTapTypeName = (nodeId: string, inputId: string): string | undefined => {
+  const widgetTapType = (nodeId: string, inputId: string): TypeExpr | undefined => {
     const node = byId.get(nodeId)
     const pin = node?.layout.pins.find((p) => p.widgetTap === true && p.address.port === inputId)
-    return pin === undefined ? undefined : canonicalTypeIdOf(pin.type)
+    return pin?.type
   }
-  const tracedTypeName = (from: LinkEndpoint): string | undefined => {
+  const parentRerouteTypes = new Map<string, TypeExpr>()
+  for (const link of effective?.projectedParentLinks ?? []) {
+    if (link.to.graphId !== def.id || !isRerouteRef(link.to.endpoint)) continue
+    const type = parentInputTypes.get(link.identity)
+    if (type !== undefined) parentRerouteTypes.set(link.to.endpoint.reroute, type)
+  }
+  const tracedType = (from: LinkEndpoint): TypeExpr | undefined => {
     if (isWidgetTapRef(from)) {
-      return widgetTapTypeName(from.node, from.tap)
+      return widgetTapType(from.node, from.tap)
     }
     const trace = traceEndpoint(def, from, rerouteIndex)
-    if (trace.kind === 'tapValue') return widgetTapTypeName(trace.node, trace.input)
+    if (trace.kind === 'tapValue') return widgetTapType(trace.node, trace.input)
+    if (trace.kind === 'undriven') return parentRerouteTypes.get(trace.reroute)
     if (trace.kind !== 'output') return undefined
-    return outputTypeName(trace.ref)
+    return outputType(trace.ref)
+  }
+  const tracedTypeName = (from: LinkEndpoint): string | undefined => {
+    const type = tracedType(from)
+    return type === undefined ? undefined : canonicalTypeIdOf(type)
   }
   const bypassInput = (ref: PortRef, consumerType?: TypeExpr) => {
     const node = byId.get(ref.node)
@@ -1519,11 +1559,20 @@ export function buildScene(input: BuildSceneInput): Scene {
   for (const reroute of Object.values(def.reroutes)) {
     const pos = viewReroutes[reroute.id]?.position ?? { x: 0, y: (rerouteFallbackY += canvasPaintTokens.scene.rerouteFallbackStepY) }
     const typeName = tracedTypeName({ reroute: reroute.id })
+    const sources = traceEndpointAll(def, { reroute: reroute.id }, rerouteIndex)
+    const dimmed = sources.length > 0 && sources.every((source) => {
+      if (source.kind === 'tapValue') return byId.get(source.node)?.layout.pins.some((pin) =>
+        pin.widgetTap === true && pin.address.port === source.input && pin.kept !== undefined) === true
+      if (source.kind === 'output') return byId.get(source.ref.node)?.layout.pins.some((pin) =>
+        pin.direction === 'out' && pin.widgetTap !== true && pin.portId === source.ref.port && pin.kept !== undefined) === true
+      return false
+    })
     const sceneReroute: SceneReroute = {
       id: reroute.id,
       x: pos.x,
       y: pos.y,
       ...(typeName !== undefined ? { typeName } : {}),
+      ...(dimmed ? { dimmed: true as const } : {}),
     }
     reroutes.push(sceneReroute)
     rerouteById.set(reroute.id, sceneReroute)
@@ -1533,7 +1582,10 @@ export function buildScene(input: BuildSceneInput): Scene {
   const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr; kept?: true } | undefined => {
     if (isRerouteRef(end)) {
       const r = rerouteById.get(end.reroute)
-      return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id }, ...(r.typeName ? { type: typeExprFromTypeId(r.typeName) } : {}) } : undefined
+      const type = tracedType(end)
+      return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id },
+        ...(type === undefined ? {} : { type }), ...(r.dimmed ? { kept: true as const } : {}),
+      } : undefined
     }
     if (isWidgetTapRef(end)) {
       const node = byId.get(end.node)
@@ -1661,6 +1713,16 @@ export function buildScene(input: BuildSceneInput): Scene {
       return (successors.get(endpointKey(ref)) ?? []).flatMap((to) =>
         consumerTypes(to, nextPath).filter((type) => bypassInput(ref, type)?.input.address.port === end.port))
     })
+  }
+  for (const [index, reroute] of reroutes.entries()) {
+    const end = { reroute: asRerouteId(reroute.id) }
+    const types = consumerTypes(end)
+    if (types.length === 0) types.push(undefined)
+    if (types.every((type) => tracedSourceMuted(end, type))) {
+      const muted: SceneReroute = { ...reroute, sourceMuted: true }
+      reroutes[index] = muted
+      rerouteById.set(reroute.id, muted)
+    }
   }
   for (const c of connections) {
     const from = endPoint(c.from, 'out')
@@ -1845,11 +1907,16 @@ export function buildScene(input: BuildSceneInput): Scene {
           outsideSpaces.set(row.inputId, { ...outsideSpaces.get(row.inputId), [row.valueKey]: space })
           continue
         }
-        const owner = row.kind === 'widget' ? fieldOwners.get(row.inputId) : undefined
+        if (row.kind !== 'widget') continue
+        const inputId = row.recordSelection?.inputId ?? row.inputId
+        const owner = fieldOwners.get(inputId)
         // Rows whose options are edited on the node (editable choices)
         // stay pins: those edits target the node itself.
-        if (row.kind !== 'widget' || owner === undefined || row.selector !== undefined || row.optionsTarget !== undefined) continue
-        outsideRows.set(row.inputId, [{ ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }])
+        if (owner === undefined || row.selector !== undefined || row.optionsTarget !== undefined) continue
+        outsideRows.set(inputId, [...(outsideRows.get(inputId) ?? []), { ...row, familyOwner: {
+          graphId: owner.graphId, nodeId: owner.nodeId,
+          construct: row.recordSelection?.inputId ?? row.valueKey, valueKey: owner.valueKey,
+        } }])
       }
     }
     // A value the owner receives by a wire outside the subgraph is not
@@ -2055,7 +2122,6 @@ export function buildScene(input: BuildSceneInput): Scene {
       const from = item.wireHidden === true ? pinlessRowAnchor(item.id) : boundaryPin(inputsNode, item.id)
       if (!from) continue
       const pinType = inputsNode.layout.pins.find((p) => p.portId === item.id)?.type
-      const typeName = pinType === undefined ? undefined : canonicalTypeIdOf(pinType)
       // One noodle per binding: fan-out targets render exactly like the
       // primary (the boundary pin fans out to every bound inner input).
       const bindings = [item.binds, ...(item.alsoBinds ?? [])]
@@ -2073,6 +2139,8 @@ export function buildScene(input: BuildSceneInput): Scene {
         }) === true
         const targets = projected.length > 0 ? projected : fallback === undefined || locallyDriven ? [] : [{ anchor: fallback, identities: [] }]
         targets.forEach(({ anchor: to, identities }, aliasIndex) => {
+          const type = identities.map((identity) => parentInputTypes.get(identity)).find((value) => value !== undefined) ?? pinType
+          const typeName = type === undefined ? undefined : canonicalTypeIdOf(type)
           links.push({
             id: `${i === 0 ? `boundary:inputs:${item.id}` : `boundary:inputs:${item.id}:${i}`}${aliasIndex === 0 ? '' : `:alias:${aliasIndex}`}`,
             from: { kind: 'boundary', side: 'inputs', item: item.id },
@@ -2081,6 +2149,7 @@ export function buildScene(input: BuildSceneInput): Scene {
             y1: from.y,
             x2: to.x,
             y2: to.y,
+            ...(type === undefined ? {} : { fromType: type }),
             ...(typeName !== undefined ? { typeName } : {}),
             boundary: true,
             ...(item.wireHidden === true ? { hidden: true as const } : {}),
@@ -2108,16 +2177,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       const to = boundaryPin(outputsNode, item.id)
       if (!to) continue
       const pinType = outputsNode.layout.pins.find((p) => p.portId === item.id)?.type
-      const traced =
-        item.binds.kind === 'port'
-          ? tracedTypeName({
-              node: item.binds.node,
-              port: item.binds.port,
-            })
-          : item.binds.kind === 'widgetTap'
-            ? widgetTapTypeName(item.binds.node, item.binds.tap)
-          : undefined
-      const typeName = traced ?? (pinType === undefined ? undefined : canonicalTypeIdOf(pinType))
+      const type = item.binds.kind === 'port' || item.binds.kind === 'widgetTap' ? tracedType(item.binds) ?? pinType : pinType
+      const typeName = type === undefined ? undefined : canonicalTypeIdOf(type)
       const maybeAbsent = item.binds.kind === 'port' && tracedMaybeAbsent({ node: item.binds.node, port: item.binds.port })
       const sourceMuted = item.binds.kind === 'port' && tracedSourceMuted({ node: item.binds.node, port: item.binds.port })
       const projected = projectedAnchors('out', item, item.binds)
@@ -2132,6 +2193,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           y1: from.y,
           x2: to.x,
           y2: to.y,
+          ...(type === undefined ? {} : { fromType: type }),
           ...(typeName !== undefined ? { typeName } : {}),
           ...(maybeAbsent ? { maybeAbsent: true as const } : {}),
           ...(sourceMuted ? { sourceMuted: true as const } : {}),
@@ -2146,7 +2208,7 @@ export function buildScene(input: BuildSceneInput): Scene {
   const result: Scene = {
     graphId: input.graphId, nodes, links, reroutes, netStubs, groups, boundaryNodes,
     ...(graphView?.groupMembership === undefined ? {} : { groupMembership: graphView.groupMembership }),
-    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...automaticDiagnostics],
+    diagnostics: [...solverDiagnostics, ...(effective?.diagnostics ?? []), ...fieldDiagnostics.values()],
     ...(input.occurrence !== undefined ? { occurrence: { owner: input.occurrence.owner, bodyGraph: def.id } } : {}),
   }
   if (input.layoutGeneration !== undefined && input.occurrence === undefined && input.occurrenceView === undefined && view !== undefined) {
@@ -2235,6 +2297,7 @@ function missingLayout(
   sizeOverride?: SizeOverride,
   minimized = false,
   pending = false,
+  inputLabels: Readonly<Record<string, string>> = {},
 ): NodeLayout {
   const titleRenamed = node.title !== undefined && node.title !== node.type
   // A node waiting for definitions shows its type id without the pack part,
@@ -2248,6 +2311,10 @@ function missingLayout(
   const pins: PinLayout[] = []
   let y = tokens.headerHeight
   let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + TITLE_START + tokens.padX + canvasPaintTokens.node.titleWidthPadding
+  const inputKeys = [...new Set([...Object.keys(node.values ?? {}), ...connections.inputs.map((ref) => ref.port)])]
+  const labels = Object.fromEntries(inputKeys.map((key, index) => [key,
+    inputLabels[key] ?? (/^field_[0-9a-f]+$/.test(key) ? `Field ${index + 1}` : key),
+  ]))
 
   const pairs = Math.max(connections.inputs.length, connections.outputs.length)
   for (let i = 0; i < pairs; i++) {
@@ -2256,7 +2323,7 @@ function missingLayout(
     const height = tokens.rowHeight
     const input = inRef === undefined ? undefined : {
       portId: inRef.port,
-      label: inRef.port,
+      label: labels[inRef.port]!,
       type: unknownType,
       address: { port: inRef.port },
     }
@@ -2294,10 +2361,13 @@ function missingLayout(
   }
   for (const [key, value] of Object.entries(node.values ?? {})) {
     const text = fallbackValueText(value)
-    rows.push({ kind: 'fallback', y, height: tokens.rowHeight, label: key, text })
+    const label = labels[key]!
+    rows.push({ kind: 'fallback', y, height: tokens.rowHeight, valueKey: key, label, text })
     contentWidth = Math.max(
       contentWidth,
-      tokens.padX * 2 + measure(key, 'label') + canvasPaintTokens.node.widgetLabelPadding + measure(text, 'value'),
+      tokens.padX * 2 + canvasPaintTokens.widget.fallback.textInset * 2 +
+        measure(label, 'label') + canvasPaintTokens.widget.labelWidthPadding +
+        measure(text, 'value') + canvasPaintTokens.widget.fallbackValueWidthPadding,
     )
     y += tokens.rowHeight
   }

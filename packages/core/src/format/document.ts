@@ -917,6 +917,8 @@ export interface EnvironmentPackStamp {
 export interface EnvironmentNodeStamp {
   /** Owning pack id at stamp time (host-attributed, never self-claimed). */
   readonly pack?: string
+  /** Declared input names retained for display when the node type is unavailable. */
+  readonly inputLabels?: Readonly<Record<string, string>>
   /**
    * The backend's schema_signature content hash (computational interface
    * only). Opaque: compared for equality, never parsed.

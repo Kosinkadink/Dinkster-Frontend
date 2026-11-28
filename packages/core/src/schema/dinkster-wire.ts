@@ -7,8 +7,9 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
+import type { Json } from '../format/document.js'
 import { isReplacementRule, type ReplacementRule } from '../replace/model.js'
-import { allRowsOf, inputsOf, KNOWN_VALUE_LIMITS, outputsOf, scopeRowsOf } from './model.js'
+import { allRowsOf, canonicalTypeIdOf, inputsOf, KNOWN_VALUE_LIMITS, outputsOf, scopeRowsOf } from './model.js'
 import { checkBody, formulaTablesOf, isLayoutId, isMemberKey, isOptionKey, isRowId, isVariantKey, MAX_GROUP_MEMBERS } from './body.js'
 import { isCanonicalUnsafeInteger } from './numeric-step.js'
 import { isComboValue } from './combo-options.js'
@@ -56,17 +57,10 @@ import type {
   WidgetRepresentationSpec,
   WidgetSpec,
 } from './model.js'
+import { primitiveWidgetFor } from './widget-defaults.js'
 
 /** The single schema wire contract decoded by this frontend. */
 export const DINKSTER_SCHEMA_WIRE_VERSION = 2
-
-/** Widget kinds implied by built-in primitive type ids. */
-const PRIMITIVE_WIDGETS: Readonly<Record<string, string>> = {
-  INT: 'INT',
-  FLOAT: 'FLOAT',
-  STRING: 'STRING',
-  BOOLEAN: 'BOOLEAN',
-}
 
 const ABSENT_POLICIES: ReadonlySet<string> = new Set(['skip', 'accept', 'fail', 'omit'])
 
@@ -353,6 +347,8 @@ export function typeExprFromDinksterWire(wire: unknown): TypeExpr {
       return { kind: w.kind, element: typeExprFromDinksterWire(w.element) }
     case 'tuple':
     case 'tuple_element':
+    case 'record':
+    case 'record_field':
       return wireType(wire, 'type')
     default:
       throw new Error(`unknown type expression kind: ${String(w.kind)}`)
@@ -541,9 +537,6 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
         if (remoteObject['refreshButton'] !== undefined && typeof remoteObject['refreshButton'] !== 'boolean') {
           throw new Error(`${where}.remote.refreshButton must be a boolean`)
         }
-      }
-      if (!lookedOptions && (!Array.isArray(options) || options.length === 0) && remote === undefined && descriptor['editableOptions'] !== true) {
-        throw new Error(`${where} requires options or remote`)
       }
       return
     }
@@ -1026,18 +1019,14 @@ function widgetFor(
           diags.push(diag('warning', 'schema', 'schema.dinkster.badComboRemote', `${nodeType}.${id}: COMBO remote requires a route starting with '/'`))
         }
       }
-      if (options === undefined && remote === undefined && lookedOptions === undefined && descriptor.editableOptions !== true) {
-        diags.push(diag('warning', 'schema', 'schema.dinkster.badCombo', `${nodeType}.${id}: COMBO has no options or option source`))
-      } else {
-        return {
-          widgetType: 'COMBO',
-          options: options !== undefined ? { options } : {},
-          ...(lookedOptions !== undefined ? { looked: { options: lookedOptions } } : {}),
-          ...(descriptor.editableOptions === true ? { editableOptions: true as const } : {}),
-          ...(typeof descriptor.optionsInput === 'string' ? { optionsInput: descriptor.optionsInput } : {}),
-          ...(remote !== undefined ? { remote } : {}),
-          ...(dflt !== undefined ? { default: dflt } : {}),
-        }
+      return {
+        widgetType: 'COMBO',
+        options: options !== undefined ? { options } : {},
+        ...(lookedOptions !== undefined ? { looked: { options: lookedOptions } } : {}),
+        ...(descriptor.editableOptions === true ? { editableOptions: true as const } : {}),
+        ...(typeof descriptor.optionsInput === 'string' ? { optionsInput: descriptor.optionsInput } : {}),
+        ...(remote !== undefined ? { remote } : {}),
+        ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
     if (descriptor.type === 'MULTI_COMBO') {
@@ -1290,14 +1279,7 @@ function widgetFor(
     }
     throw new Error(`${nodeType}.${id}: widget descriptor is incompatible with its input`)
   }
-  if (type.kind !== 'concrete') return undefined
-  const widgetType = PRIMITIVE_WIDGETS[type.name]
-  if (widgetType === undefined) return undefined
-  return {
-    widgetType,
-    options: {},
-    ...(dflt !== undefined ? { default: dflt } : {}),
-  }
+  return primitiveWidgetFor(type, dflt)
 }
 
 function decodeInput(nodeType: string, entry: WireEntry, diags: Diagnostic[], normalizedType?: TypeExpr): InputSpec {
@@ -1501,6 +1483,35 @@ function wireType(value: unknown, where: string): TypeExpr {
       if (!Array.isArray(type['elements'])) throw new Error(`${where}.elements must be an array`)
       return { kind: 'tuple', elements: type['elements'].map((element, index) => wireType(element, `${where}.elements[${index}]`)) }
     }
+    case 'record': {
+      if (type['templateId'] !== undefined && (typeof type['templateId'] !== 'string' || type['templateId'] === '')) {
+        throw new Error(`${where}.templateId must be a non-empty string`)
+      }
+      const types = stringList(type['types'], 'types', 1)
+      if (types.length !== 1) throw new Error(`${where}.types must contain exactly one record identity`)
+      if (types[0]!.length > 64 || !/^[a-z][a-z0-9]*(?:[-_.][a-z0-9]+)*$/.test(types[0]!)) throw new Error(`${where} requires a lowercase namespaced record identity`)
+      if (!Array.isArray(type['fields'])) throw new Error(`${where}.fields must be an array`)
+      const ids = new Set<string>()
+      const names = new Set<string>()
+      const fields = type['fields'].map((raw, index) => {
+        const at = `${where}.fields[${index}]`
+        const field = wireObject(raw, at)
+        const id = wireSegment(field['id'], `${at}.id`)
+        const name = wireSegment(field['name'], `${at}.name`)
+        if (ids.has(id) || names.has(name)) throw new Error(`${at} has a duplicate field identity or name`)
+        ids.add(id)
+        names.add(name)
+        const fieldType = wireType(field['type'], `${at}.type`)
+        if (canonicalTypeIdOf(fieldType) === undefined) throw new Error(`${at}.type must be a declared concrete type`)
+        if (field['default'] !== undefined) wireJson(field['default'], `${at}.default`)
+        return { id, name, type: fieldType, optional: wireBoolean(field['optional'], `${at}.optional`, false),
+          ...(field['default'] !== undefined && field['default'] !== null ? { default: field['default'] as Json } : {}) }
+      })
+      return { kind: 'record', name: types[0]!, fields,
+        ...(type['templateId'] !== undefined ? { templateId: type['templateId'] as string } : {}) }
+    }
+    case 'record_field':
+      return { kind: 'record_field', input: wireSegment(type['input'], `${where}.input`), index: wireSegment(type['index'], `${where}.index`) }
     case 'tuple_element': {
       const input = type['input'] === undefined ? undefined : wireSegment(type['input'], `${where}.input`)
       const element = type['element'] === undefined ? undefined : wireType(type['element'], `${where}.element`)
@@ -2185,7 +2196,11 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
     const decodedInputs = new Map(inputsOf(baseSchema).map((item) => [item.id, item]))
     const decodedOutputs = outputsOf(baseSchema)
     const validateTupleDeclaration = (type: TypeExpr, output: boolean): void => {
-      if (type.kind === 'tuple_element') {
+      if (type.kind === 'record_field') {
+        const source = decodedInputs.get(type.input)
+        const selector = decodedInputs.get(type.index)
+        if (source?.type.kind !== 'record' || selector?.type.kind !== 'concrete' || !['STRING', 'COMBO'].includes(selector.type.name)) throw new Error('record_field requires a record input and a STRING or COMBO selector of the node')
+      } else if (type.kind === 'tuple_element') {
         const source = type.input === undefined ? undefined : decodedInputs.get(type.input)
         const selector = typeof type.index === 'string' ? decodedInputs.get(type.index) : undefined
         if (!output || (type.input !== undefined && source === undefined)) throw new Error('tuple_element requires a tuple input of the node and an output declaration')
@@ -2204,7 +2219,7 @@ export function parseDinksterSchema(nodeType: string, wire: DinksterWireSchema):
       const input = decodedInputs.get(knownValue.input)
       const inputType = input?.type.kind === 'concrete' ? input.type.name : undefined
       const outputType = output.type.kind === 'concrete' ? output.type.name : undefined
-      const samePrimitive = outputType !== undefined && PRIMITIVE_WIDGETS[outputType] !== undefined && inputType === outputType
+      const samePrimitive = primitiveWidgetFor(output.type) !== undefined && inputType === outputType
       // A chosen option is its text, so a choice may also be known as a STRING.
       const fromChoice = inputType === 'COMBO' && (outputType === 'COMBO' || outputType === 'STRING')
       // A variable's known value applies once the variable is bound to a primitive or COMBO.

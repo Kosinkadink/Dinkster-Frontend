@@ -1702,6 +1702,22 @@ export class CanvasRenderer {
     return layoutNodeBadges(node, this.badges[node.id] ?? [], this.badgeLayoutOptions(node))
   }
 
+  /** The words actually painted, so help can distinguish a full label from a cut or hidden one. */
+  getBadgeText(entry: BadgePlacement): string {
+    const { badge } = entry
+    if (badge.placement === 'title') return badge.count === undefined ? '' : String(badge.count)
+    if (entry.compact && badge.icon !== undefined) return ''
+    const ctx = this.canvas.getContext('2d')!
+    const paint = { ...canvasPaintTokens.badge.tab, ...this.tokens.badgeTab }
+    const width = entry.overflow ? entry.width : Math.max(0, entry.width - paint.padding * 2 -
+      (badge.icon === undefined ? 0 : paint.iconSize + paint.iconGap))
+    ctx.save()
+    ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${paint.fontSize}px ${this.tokens.fontFamily}`
+    const text = fitText(ctx, badge.glyph, width)
+    ctx.restore()
+    return text
+  }
+
   private nodeDecorations: Readonly<Record<string, NodeDecoration>> = {}
 
   setNodeDecorations(decorations: Readonly<Record<string, NodeDecoration>>): void {
@@ -2689,7 +2705,7 @@ export class CanvasRenderer {
       const batches = new Map<string | undefined, Array<readonly [number, number, number, number]>>()
       for (const link of scene.links) {
         if (link.hidden === true || this.overlay.hiddenLinkIds?.has(link.id) === true ||
-            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || this.nothingLinks.has(link.id) || link.dimmed === true || link.mismatch === true) continue
+            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || this.nothingLinks.has(link.id) || link.dimmed === true || link.sourceMuted === true || link.mismatch === true) continue
         const bounds = linkBounds(link.x1, link.y1, link.x2, link.y2)
         if (bounds.maxX + paintPad < view.x || bounds.minX - paintPad > view.x + view.w ||
             bounds.maxY + paintPad < view.y || bounds.minY - paintPad > view.y + view.h) continue
@@ -2818,7 +2834,7 @@ export class CanvasRenderer {
         this.scopeHighlight === undefined) {
       const batches = new Map<string | undefined, Array<readonly [number, number]>>()
       for (const reroute of this.scene.reroutes) {
-        if (this.overlay.rerouteSelection?.has(reroute.id) === true ||
+        if (reroute.dimmed === true || reroute.sourceMuted === true || this.overlay.rerouteSelection?.has(reroute.id) === true ||
             this.overlay.dropTargets?.has(rerouteTargetKey(reroute.id)) === true ||
             this.overlay.hoveredReroute === reroute.id) continue
         const pad = Math.max(rerouteRadius + canvasPaintTokens.reroute.cullPadding, statusRingCullPad(rerouteRadius, scale))
@@ -2859,6 +2875,8 @@ export class CanvasRenderer {
         : Math.max(rerouteRadius + canvasPaintTokens.reroute.cullPadding, statusRingCullPad(rerouteRadius, scale))
       if (rx + pad < view.x || rx - pad > view.x + view.w || ry + pad < view.y || ry - pad > view.y + view.h) continue
       if (this.scopeHighlight && !this.scopeHighlight.reroutes.has(r.id)) ctx.globalAlpha = SCOPE_DIM
+      if (r.dimmed) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+      if (r.sourceMuted) ctx.globalAlpha *= canvasPaintTokens.node.modeOpacity
       if (this.overlay.dropTargets?.has(rerouteTargetKey(r.id))) {
         ctx.beginPath()
         ctx.arc(rx, ry, rerouteRadius + STATUS_RING_GAP, 0, Math.PI * 2)
@@ -3718,7 +3736,7 @@ export class CanvasRenderer {
         if (badge.count !== undefined) ctx.fillText(String(badge.count), x + mark.padding + mark.iconSize + mark.gap, textY)
       } else if (entry.overflow) {
         ctx.textAlign = 'center'
-        ctx.fillText(fitText(ctx, badge.glyph, width), x + width / 2, textY)
+        ctx.fillText(this.getBadgeText(entry), x + width / 2, textY)
       } else {
         let textX = x + paint.padding
         if (badge.icon !== undefined) {
@@ -3726,7 +3744,7 @@ export class CanvasRenderer {
           textX += paint.iconSize + paint.iconGap
         }
         if (!entry.compact || badge.icon === undefined) {
-          ctx.fillText(fitText(ctx, badge.glyph, Math.max(0, x + width - paint.padding - textX)), textX, textY)
+          ctx.fillText(this.getBadgeText(entry), textX, textY)
         }
       }
       ctx.restore()
@@ -4307,16 +4325,21 @@ export class CanvasRenderer {
           const paint = canvasPaintTokens.widget
           ctx.fillRect(node.x + t.padX, rowY + t.rowGeometry.fieldInsetY, l.width - t.padX * 2, row.height - t.rowGeometry.fieldInsetY * 2)
           ctx.globalAlpha = rowAlpha * paint.fallback.opacity
+          const usable = Math.max(0, l.width - t.padX * 2 - paint.fallback.textInset * 2)
+          const labelZone = shareRowWidth(usable, measureWidth(ctx, row.label) + paint.labelWidthPadding,
+            measureWidth(ctx, row.text) + paint.fallbackValueWidthPadding, true)
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
-          ctx.fillText(row.label, node.x + t.padX + paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.labelRatio)
+          ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - paint.labelClipPadding)),
+            node.x + t.padX + paint.fallback.textInset, rowY + row.height / 2)
           ctx.fillStyle = t.colors.value
           ctx.textAlign = 'right'
-          ctx.fillText(row.text, node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.valueRatio)
+          ctx.fillText(fitText(ctx, row.text, Math.max(0, usable - labelZone)),
+            node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2)
           ctx.textAlign = 'left'
           ctx.globalAlpha = rowAlpha
           // A problem on this stored value outlines its row.
-          this.paintRowProblem(ctx, sceneNode.id, row.label, {
+          this.paintRowProblem(ctx, sceneNode.id, row.valueKey, {
             x: node.x + t.padX, y: rowY + t.rowGeometry.fieldInsetY,
             width: l.width - t.padX * 2, height: row.height - t.rowGeometry.fieldInsetY * 2, radius: 0,
           })

@@ -30,7 +30,7 @@ describe('unresolved imported ASSET diagnostics', () => {
     expect(diagnostic.severity).toBe('error')
     expect(diagnostic.code).toBe('widget.ASSET.unresolvedImport')
     expect(diagnostic.code).not.toBe('widget.ASSET.badValue')
-    expect(diagnostic.message).toBe('loader.ckpt_name: imported file "missing-model.safetensors" is unavailable')
+    expect(diagnostic.message).toBe('imported file "missing-model.safetensors" is unavailable')
     expect(diagnostic.data).toEqual({
       requested: 'models\\checkpoints/missing-model.safetensors',
       expectedKind: 'model/checkpoint',

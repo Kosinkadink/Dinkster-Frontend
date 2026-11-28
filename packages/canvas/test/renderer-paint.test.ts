@@ -2393,7 +2393,7 @@ describe('node chrome paint on the live renderer', () => {
               missingSchema: true,
               layout: {
                 ...n.layout,
-                rows: [{ kind: 'fallback' as const, y: n.layout.headerHeight, height: 24, label: 'steps', text: '20' }],
+                rows: [{ kind: 'fallback' as const, y: n.layout.headerHeight, height: 24, valueKey: 'steps', label: 'steps', text: '20' }],
                 pins: [],
               },
             }
@@ -2403,6 +2403,34 @@ describe('node chrome paint on the live renderer', () => {
     const texts = paint(scene).filter((c) => c.method === 'fillText').map((c) => c.args[0])
     expect(texts).toContain('steps')
     expect(texts).toContain('20')
+  })
+
+  it('fits missing-type row text without squeezing it at natural and manual widths', () => {
+    const label = 'previously_saved_sample_count'
+    const document = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'missing-text', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Missing', nextOrdinal: 1, nodes: {
+        missing: { id: 'missing', type: 'Unavailable', values: { [label]: 73 } },
+      }, links: {}, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { missing: { position: { x: 40, y: 40 } } } } } },
+    }).document!
+    const scene = buildScene({ document, graphId: 'g0', resolve: () => undefined,
+      tokens: defaultTokens, measure, widgetMeasure })
+    const node = scene.nodes[0]!
+    for (const width of [node.layout.width, 140]) {
+      const calls = paint({ ...scene, nodes: [{ ...node, layout: { ...node.layout, width } }] })
+      const texts = calls.filter((call) => call.method === 'fillText')
+      const key = texts.find((call) => fitted(call.args[0], label))!
+      const value = texts.find((call) => call.args[0] === '73')!
+      expect(key).toBeDefined()
+      expect(value).toBeDefined()
+      expect(key.args).toHaveLength(3)
+      expect(value.args).toHaveLength(3)
+      expect(Number(key.args[1]) + String(key.args[0]).length * 6)
+        .toBeLessThan(Number(value.args[1]) - 2 * 6)
+      if (width === node.layout.width) expect(key.args[0]).toBe(label)
+      else expect(String(key.args[0])).toMatch(/\.\.\.$/)
+    }
   })
 
   it('a field with an error paints a red outline; undiagnosed rows never do', () => {
@@ -3424,6 +3452,66 @@ describe('construct paint on the live renderer', () => {
     )
     expect(dotIdx).toBeGreaterThanOrEqual(0)
     expect(paintedAfter(calls, dotIdx, 'fill')?.fillStyle).toBe(LATENT)
+  })
+
+  it('dims kept and muted wires through chained reroutes without changing ordinary wires or type colors', () => {
+    const int = { kind: 'concrete', name: 'INT' } as const
+    const source: NodeSchema = {
+      type: 'Choice', displayName: 'Choice', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'choice', id: 'mode', displayName: 'Mode', required: true, shared: [], options: [
+        { key: 'fast', label: 'Fast', rows: [] },
+        { key: 'fine', label: 'Fine', rows: [
+          { kind: 'input', id: 'passes', type: int, optional: false, widget: { widgetType: 'INT', options: {}, default: 7 } },
+        ] },
+      ] }, { kind: 'output', id: 'out', type: int }],
+    }
+    const sink: NodeSchema = { ...source, type: 'Sink', body: [
+      { kind: 'input', id: 'in', type: int, optional: false },
+    ] }
+    for (const state of ['kept', 'ordinary', 'muted']) {
+      const selected = state === 'kept' ? 'fast' : 'fine'
+      const document = loadDocument({
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'kept-route', root: 'g0',
+        graphs: { g0: { id: 'g0', name: 'Kept', nextOrdinal: 2, nodes: {
+          source: { id: 'source', type: 'Choice', values: {}, dynamic: { mode: { selected } },
+            ...(state === 'muted' ? { mode: 'muted' } : {}) },
+          sink: { id: 'sink', type: 'Sink', values: {} },
+        }, links: {
+          first: { id: 'first', from: state === 'muted' ? { node: 'source', port: 'out' } : { node: 'source', tap: 'mode.passes' }, to: { reroute: 'a' } },
+          middle: { id: 'middle', from: { reroute: 'a' }, to: { reroute: 'b' } },
+          last: { id: 'last', from: { reroute: 'b' }, to: { node: 'sink', port: 'in' } },
+        }, nets: {}, reroutes: { a: { id: 'a' }, b: { id: 'b' } } } },
+        view: { graphs: { g0: { nodes: {
+          source: { position: { x: 20, y: 20 } }, sink: { position: { x: 900, y: 20 } },
+        }, reroutes: { a: { position: { x: 450, y: 120 } }, b: { position: { x: 600, y: 120 } } } } } },
+      }).document!
+      const scene = buildScene({ document, graphId: 'g0', resolve: (type) => type === 'Choice' ? source : sink,
+        tokens: defaultTokens, measure, widgetMeasure })
+      for (const scale of [1, 0.25]) {
+        const reroutes = [...scene.reroutes, ...Array.from({ length: 256 }, (_, i) => ({ id: `extra${i}`, x: 5000 + i * 30, y: 5000 }))]
+        const links = [...scene.links, ...Array.from({ length: 256 }, (_, i) => ({
+          ...scene.links[0]!, id: `extraLink${i}`, x1: 5000 + i * 30, y1: 5000, x2: 5020 + i * 30, y2: 5000,
+        }))]
+        const calls = paintWith({ ...scene, reroutes, links }, (renderer) => {
+          renderer.setDetailMode('fixed')
+          renderer.setDetailMinScale(0.3)
+          renderer.setViewport({ x: 0, y: 0, scale })
+        })
+        const alpha = state === 'kept' ? canvasPaintTokens.widget.inactiveOpacity : state === 'muted' ? canvasPaintTokens.node.modeOpacity : 1
+        for (const dot of scene.reroutes) {
+          const arc = calls.findIndex((call) => call.method === 'arc' && call.args[0] === dot.x && call.args[1] === dot.y)
+          expect(arc).toBeGreaterThanOrEqual(0)
+          const fill = paintedAfter(calls, arc, 'fill')!
+          expect(fill.globalAlpha).toBeCloseTo(alpha)
+          expect(fill.fillStyle).toBe(typeColor(defaultTokens, 'INT'))
+        }
+        for (const link of scene.links) {
+          const move = calls.findIndex((call) => call.method === 'moveTo' && call.args[0] === link.x1 && call.args[1] === link.y1)
+          expect(move).toBeGreaterThanOrEqual(0)
+          expect(paintedAfter(calls, move, 'stroke')?.globalAlpha).toBeCloseTo(alpha)
+        }
+      }
+    }
   })
 
   it('a hovered reroute reveals ghost sockets left and right; unhovered paints none', () => {
