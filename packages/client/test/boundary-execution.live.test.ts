@@ -99,6 +99,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
         mode: { key: sibling && !extra ? 'text' : 'image', mix: 0.3, picture: null, text: sibling && !extra ? 'second text' : null },
         source: { variant: sibling ? 'image' : 'mask', pixels: sibling ? [0.125, 0.25, 0.5] : [0.75], gain },
       })
+      let disconnectedPrompt: unknown
       const run = async (phase: string, gain: number) => {
         const doc = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
         expect(doc).toEqual(store.doc); expect(doc.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
@@ -116,6 +117,11 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
           expect(node.slotVariants!.source).toBe(wanted.source.variant)
         }
         console.info('Boundary following prepared', JSON.stringify({ depth, phase, document: doc, prompt: compiled.artifact.prompt, receivers }))
+        if (phase === 'runtime-disconnected') {
+          expect(disconnectedPrompt).toBeDefined()
+          expect(compiled.artifact.prompt).toEqual(disconnectedPrompt)
+          return
+        }
         const submitted = await connection.submit(compiled.artifact)
         expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
         if (!submitted.ok) throw new Error('Type-following scalar was refused')
@@ -137,6 +143,7 @@ describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
               console.info('Boundary following receipt', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt, nodeId, expected: wanted, actual }))
               expect(actual, nodeId).toEqual(wanted)
             }
+            if (phase === 'literal-disconnected') disconnectedPrompt = compiled.artifact.prompt
             return
           }
           await new Promise((resolve) => setTimeout(resolve, 50))
