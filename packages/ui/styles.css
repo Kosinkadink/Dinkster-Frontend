@@ -1515,6 +1515,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-fixes-notice { position: relative; display: grid; justify-items: center; gap: var(--dinkster-space-4); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
 .dinkster-fixes-line { max-width: 100%; flex-direction: column; white-space: nowrap; }
 .dinkster-fixes-actions { display: flex; align-items: center; width: 100%; }
+.dinkster-fixes-actions > .dinkster-button[data-icon-only] { margin-left: auto; }
 .dinkster-fixes-line > .dinkster-canvas-editor-note { align-self: stretch; }
 .dinkster-fixes-title { min-width: 0; padding: 0 var(--dinkster-space-8); color: var(--dinkster-text-secondary); white-space: normal; }
 .dinkster-fixes-review { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(100% + 10px); display: flex; flex-direction: column; box-sizing: border-box; width: min(var(--dinkster-fixes-review-width), var(--canvas-fixes-width, calc(100vw - 20px))); max-height: var(--dinkster-fixes-review-max-height); border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-raised); box-shadow: var(--dinkster-elevation-high); }
