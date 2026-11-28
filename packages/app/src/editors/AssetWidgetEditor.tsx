@@ -42,6 +42,7 @@ import { tabDocumentUnchanged } from '../widget-editor-anchor.js'
 import { AssetQuickList, assetQuickListAllowed } from './AssetQuickList.js'
 import type { Backend } from '../app-state.js'
 import type { WidgetEditorState } from '../WidgetEditorController.js'
+import { rowPlacement, visibleCanvas } from './row-placement.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -1084,16 +1085,37 @@ export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
   const [picker, setPicker] = createSolidSignal(props.ed.inRow === undefined || props.ed.stagedFile !== undefined ||
     !assetQuickListAllowed(props.ed.spec, props.ed.declaredType, props.ed.mergeableTypes))
   const [file, setFile] = createSolidSignal<File>()
-  const QuickList: Component<WidgetEditorImplementationProps> = (implementation) => <AssetQuickList {...implementation}
-    browse={() => setPicker(true)} add={(chosen) => {
-      if (props.onAssetFileImport !== undefined) {
-        props.onAssetFileImport(chosen)
-        implementation.close()
-      } else {
-        setFile(chosen)
-        setPicker(true)
-      }
-    }} />
+  const QuickList: Component<WidgetEditorImplementationProps> = (implementation) => {
+    const ed = props.ed
+    const inRow = ed.inRow!
+    const backend = props.app.backendForTab(ed.tab)
+    const openedTab = ed.tab
+    const store = openedTab.store
+    const revision = store.revision
+    const registry = props.app.registryForTab(openedTab)
+    const current = (): boolean => openedTab.store === store && store.revision === revision &&
+      tabDocumentUnchanged(openedTab, revision, ed.tab) && props.app.tabs.get().includes(ed.tab) &&
+      props.app.backendForTab(ed.tab) === backend && props.app.registryForTab(ed.tab) === registry
+    const bounds = visibleCanvas(props.boundary)
+    const placement = createMemo(() => rowPlacement({ rect: ed.rect, ...inRow }, props.viewport(), bounds(), { width: 0, height: 0 }))
+    return <AssetQuickList state={ed} backend={backend} current={current} placement={placement} bounds={bounds} look={inRow.look}
+      {...(registry?.uploadLimits === undefined ? {} : { uploadLimits: registry.uploadLimits })}
+      {...(inRow.handOff === undefined ? {} : { handOff: inRow.handOff })}
+      {...(props.bindClickAway === undefined ? {} : { bindClickAway: props.bindClickAway })}
+      focusRow={() => { if (ed.target.kind === 'input') props.focusRow?.(ed.target) }}
+      moveRow={(direction) => { if (ed.target.kind === 'input') props.moveRow?.(ed.target, direction) }}
+      close={implementation.close} commitValue={implementation.commitValue}
+      commitPending={implementation.commitPending} commitError={implementation.commitError}
+      browse={() => setPicker(true)} add={(chosen) => {
+        if (props.onAssetFileImport !== undefined) {
+          props.onAssetFileImport(chosen)
+          implementation.close()
+        } else {
+          setFile(chosen)
+          setPicker(true)
+        }
+      }} />
+  }
   return <Show when={picker()} fallback={<WidgetEditorController {...props} implementation={QuickList} />}>
     <AssetPickerWidgetEditor {...props} ed={file() === undefined ? props.ed : { ...props.ed, stagedFile: file()! }}
       commitImportedFile={file() !== undefined} />

@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show, type Component } from 'solid-js'
 import { assetMultiSelect, isAssetWidgetInput, type CollectionEntry, type WidgetSpec, type TypeExpr } from '@dinkster/core'
-import { CanvasRowField, CanvasRowPopup, ProductButton, ProductSegmented } from '@dinkster/ui'
+import { CanvasRowField, CanvasRowPopup, ProductButton, ProductSegmented, type CanvasBox } from '@dinkster/ui'
 import { CollectionPanel } from '../CollectionPanel.js'
 import { ProductNotice } from '../ProductForm.js'
 import { ProductSelect } from '../ProductSelect.js'
@@ -13,40 +13,46 @@ import type { AssetSourceAdapter } from '../asset-browser/types.js'
 import { safeLocalStorage } from '../collections.js'
 import { activeProjectId } from '../projects.js'
 import { useAppMessage } from '../locale.js'
-import { tabDocumentUnchanged } from '../widget-editor-anchor.js'
-import type { WidgetEditorImplementationProps } from '../WidgetEditorController.js'
-import { placeRow, rowPlacement, visibleCanvas } from './row-placement.js'
+import type { Backend } from '../app-state.js'
+import type { WidgetEditorImplementationProps, WidgetEditorState } from '../WidgetEditorController.js'
+import { placeRow, type RowPlacement } from './row-placement.js'
 
 export function assetQuickListAllowed(spec: WidgetSpec | undefined, type: TypeExpr | undefined, mergeableTypes?: readonly string[]): boolean {
   return spec !== undefined && isAssetWidgetInput({ widget: spec }) && spec.selection !== true && !spec.kind?.startsWith('model/') &&
     !(type !== undefined && assetMultiSelect(type, mergeableTypes))
 }
 
-export const AssetQuickList: Component<WidgetEditorImplementationProps & {
+export interface AssetQuickListProps extends Pick<WidgetEditorImplementationProps,
+  'close' | 'commitValue' | 'commitPending' | 'commitError'> {
+  readonly state: Pick<WidgetEditorState, 'spec' | 'initial' | 'label'>
+  readonly backend: Backend
+  readonly uploadLimits?: Readonly<Record<string, number>> | null
+  readonly current: () => boolean
+  readonly placement: () => RowPlacement
+  readonly bounds: () => CanvasBox
+  readonly look: 'original' | 'flat-title'
+  readonly focusRow?: () => void
+  readonly moveRow?: (direction: 1 | -1) => void
+  readonly handOff?: () => void
+  readonly bindClickAway?: (handler: (() => unknown) | undefined) => void
   readonly browse: () => void
   readonly add: (file: File) => void
-}> = (props) => {
-  const host = props.editor
+}
+
+export const AssetQuickList: Component<AssetQuickListProps> = (props) => {
   const message = useAppMessage()
-  const ed = host.ed
-  const inRow = ed.inRow!
-  const backend = host.app.backendForTab(ed.tab)
+  const ed = props.state
+  const backend = props.backend
   const project = activeProjectId()
-  const openedTab = ed.tab
-  const store = openedTab.store
-  const revision = store.revision
-  const registry = host.app.registryForTab(openedTab)
   let live = true
   let connectionChanged = false
   const unsubscribe = backend.connection.status.subscribe(() => { connectionChanged = true })
   onCleanup(() => { live = false; unsubscribe() })
-  const current = () => live && !connectionChanged && openedTab.store === store && store.revision === revision &&
-    tabDocumentUnchanged(openedTab, revision, ed.tab) && host.app.tabs.get().includes(ed.tab) &&
-    host.app.backendForTab(ed.tab) === backend && host.app.registryForTab(ed.tab) === registry && activeProjectId() === project
+  const current = () => live && !connectionChanged && props.current() && activeProjectId() === project
   const acceptValue = ed.spec?.options['accept']
   const accept = Array.isArray(acceptValue) ? acceptValue.filter((item): item is string => typeof item === 'string') : []
   const kind = ed.spec?.kind ?? mediaKindForAccept(accept)
-  const policy = assetUploadPolicy(kind, registry?.uploadLimits)
+  const policy = assetUploadPolicy(kind, props.uploadLimits)
   const matchesStoredAsset = (entry: CollectionEntry): boolean => {
     const ref = assetItemOf(entry)
     const initial = ed.initial
@@ -61,7 +67,6 @@ export const AssetQuickList: Component<WidgetEditorImplementationProps & {
   const [error, setError] = createSignal<string>()
   const [query, setQuery] = createSignal('')
   const [input, setInput] = createSignal<HTMLInputElement>()
-  const bounds = visibleCanvas(host.boundary)
   let frame!: HTMLDivElement
   let chooser!: HTMLInputElement
   let addButton!: HTMLButtonElement
@@ -79,29 +84,28 @@ export const AssetQuickList: Component<WidgetEditorImplementationProps & {
       folders: false,
     }))
   })
-  const placement = createMemo(() => rowPlacement({ rect: ed.rect, ...inRow }, host.viewport(), bounds(), { width: 0, height: 0 }))
-  createEffect(() => placeRow(frame, placement()))
-  host.bindClickAway?.(() => { if (props.commitPending()) return false; props.close(); return true })
-  onCleanup(() => host.bindClickAway?.(undefined))
+  createEffect(() => placeRow(frame, props.placement()))
+  props.bindClickAway?.(() => { if (props.commitPending()) return false; props.close(); return true })
+  onCleanup(() => props.bindClickAway?.(undefined))
   const handOff = (file?: File): void => {
     if (!current() || props.commitPending()) return
-    inRow.handOff?.()
+    props.handOff?.()
     if (file === undefined) props.browse()
     else props.add(file)
   }
   return <div ref={frame} class="widget-in-row-field" data-testid="widget-editor" data-editor-mode="ASSET" data-editor-surface="asset-quick-list"
     onKeyDown={(event) => {
       if (event.isComposing || event.defaultPrevented) return
-      if (event.key === 'Escape') { event.preventDefault(); props.close(); if (ed.target.kind === 'input') host.focusRow?.(ed.target) }
+      if (event.key === 'Escape') { event.preventDefault(); props.close(); props.focusRow?.() }
       if (event.key === 'Tab' && !props.commitPending() &&
         (event.shiftKey ? event.target === input() : event.target === addButton)) {
-        event.preventDefault(); props.close(); if (ed.target.kind === 'input') host.moveRow?.(ed.target, event.shiftKey ? -1 : 1)
+        event.preventDefault(); props.close(); props.moveRow?.(event.shiftKey ? -1 : 1)
       }
     }}>
-    <CanvasRowField look={inRow.look} rowWidth={placement().rowWidth} place={placement().place} zoomed={placement().scale > 1}
+    <CanvasRowField look={props.look} rowWidth={props.placement().rowWidth} place={props.placement().place} zoomed={props.placement().scale > 1}
       label={ed.label} value={query()} onInput={setQuery} inputLabel={ed.label} placeholder={message('assets.quickList.placeholder')}
       inputRef={(element) => { setInput(element); queueMicrotask(() => element.focus()) }} />
-    <CanvasRowPopup row={placement().screen} bounds={bounds()} scale={placement().scale}>
+    <CanvasRowPopup row={props.placement().screen} bounds={props.bounds()} scale={props.placement().scale}>
       <div class="asset-quick-list">
         <Show when={error()}>{(value) => <ProductNotice tone="error">{value()}</ProductNotice>}</Show>
         <Show when={adapters() !== undefined} fallback={<p role="status">{message('assets.quickList.loading')}</p>}>
