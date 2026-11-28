@@ -11,6 +11,12 @@ const source = process.env.DINKSTER_TRANSFER_SOURCE
 const artifacts = process.env.DINKSTER_TRANSFER_ARTIFACTS
 const mount = process.env.DINKSTER_TRANSFER_MOUNT
 const expectedPolicy = process.env.DINKSTER_TRANSFER_POLICY
+const surfaceFilter = process.env.DINKSTER_TRANSFER_SURFACE
+assert.ok(
+  surfaceFilter === undefined || ['field', 'canvas'].includes(surfaceFilter),
+  'DINKSTER_TRANSFER_SURFACE must be field or canvas when set',
+)
+const surfaces = surfaceFilter ? [surfaceFilter] : ['field', 'canvas']
 if (
   !frontend ||
   !backend ||
@@ -42,12 +48,15 @@ for await (const chunk of createReadStream(file)) expectedHash.update(chunk)
 const sha256 = expectedHash.digest('hex')
 await mkdir(artifacts, { recursive: true })
 const browser = await chromium.launch({ headless: true })
-const page = await browser.newPage({ viewport: { width: 1440, height: 950 } })
+const page = await browser.newPage({
+  viewport: { width: 1440, height: 950 },
+})
 page.setDefaultTimeout(30_000)
 const evidence = {
   source: basename(file),
   size,
   sha256,
+  surfaces,
   policy,
   refused,
   pageErrors: [],
@@ -177,7 +186,7 @@ try {
       }
     }, 0)
 
-  for (const surface of ['field', 'canvas']) {
+  for (const surface of surfaces) {
     await page.evaluate(
       async ({ surface, mount }) => {
         const app = window.__dinksterTest.app
@@ -220,7 +229,11 @@ try {
           },
           `Video transfer ${surface}`,
         )
-        window.__dinksterTest.renderer.setViewport({ x: 0, y: 0, scale: 1 })
+        window.__dinksterTest.renderer.setViewport({
+          x: 0,
+          y: 0,
+          scale: 1,
+        })
         localStorage.setItem(
           'dinkster.uploadDestination.local.default',
           JSON.stringify({ version: 1, mount, folder: '' }),
@@ -368,7 +381,10 @@ try {
           await page.screenshot({
             path: join(artifacts, `${surface}-${expectedPolicy}-before.png`),
           })
-          await page.getByTestId('canvas-import-confirm').click()
+          await page
+            .getByTestId('canvas-import-dialog')
+            .getByRole('button', { name: 'Import video', exact: true })
+            .click()
         }
         await expect.poll(() => uploads.length).toBe(1)
         response = await mediaResponse
