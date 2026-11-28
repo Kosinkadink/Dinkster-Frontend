@@ -376,8 +376,8 @@ const PROBLEM_BOX = canvasPaintTokens.badge.tab.problemBox
 
 /**
  * Where the box hangs, in canvas-pane px (the canvas element's own px): below the node and its tabs, its
- * left edge under the node's, so it never covers the node, its pins or its wires. The box is as wide as
- * its longest line needs, at least its row of tabs and at most a limit set by the screen, not by the node
+ * preferred left edge under the node's; the view moves it inside the pane's horizontal margins.
+ * The box is as wide as its longest line needs, at least its row of tabs and at most a limit set by the screen, not by the node
  * or the zoom: its widest, or the canvas pane's width less a margin at each side when that is smaller.
  * Longer lines wrap there. Undefined while the zoom is too low for tabs: the box returns with them.
  */
