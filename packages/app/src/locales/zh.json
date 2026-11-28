@@ -1416,7 +1416,7 @@
   "fixesNotice.undo": "撤销",
   "fixesNotice.redo": "重做调整",
   "fixesNotice.dismiss": "关闭",
-  "fixesNotice.refused": "其他人之后修改了其中一个已调整的值。",
+  "fixesNotice.refused": "其中一个已调整的值之后被修改了。",
   "fixesNotice.heading": "此工作流中的调整",
   "fixesNotice.summary": "{nodes} 个节点上的 {changes} 项调整",
   "fixesNotice.group": "{kind} ({count})",

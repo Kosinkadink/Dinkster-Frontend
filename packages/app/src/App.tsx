@@ -3210,9 +3210,9 @@ export function App(props: {
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), app.registryForTab(tab()) !== undefined)}
                       blockedReason={(backendsTick(), app.engineOffReason(tab(), message))}
-                      runControl={(runButton) => <Show when={(backendsTick(), tab().execution === undefined ? app.backendForTab(tab()).supervisor.get() : undefined)} fallback={runButton}>
+                      runControl={(runButton) => <Show when={(backendsTick(), tab().execution === undefined ? app.backendForTab(tab()).supervisor.get() : undefined)} fallback={runButton()}>
                         {(status) => <EngineRunControl status={status()} baseUrl={app.backendForTab(tab()).baseUrl}
-                          onRestart={() => app.restartEngine(app.backendForTab(tab()))}>{runButton}</EngineRunControl>}
+                          onRestart={() => app.restartEngine(app.backendForTab(tab()))}>{runButton()}</EngineRunControl>}
                       </Show>}
                       hideRunList={engineGate(tab())?.state === 'failed'}
                       onQueue={tab().execution === undefined ? () => { void app.queue(tab()) } : undefined}

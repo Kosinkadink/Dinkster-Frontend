@@ -53,7 +53,7 @@ const strings: FixesNoticeStrings = {
   undo: 'Undo',
   redo: 'Redo adjustments',
   dismiss: 'Dismiss',
-  refused: 'Someone else has since changed one of the adjusted values.',
+  refused: 'One of the adjusted values was changed afterwards.',
   heading: 'Adjusted in this workflow',
   summary: (changes, nodes) =>
     `${plural(changes, 'adjustment', 'adjustments')} across ${plural(nodes, 'node', 'nodes')}`,
@@ -209,8 +209,7 @@ const cards: readonly NoticeCard[] = [
   {
     id: 'removed-choices',
     title: 'Removed choices only',
-    description:
-      'The settings link currently appears for node replacements. With only removed choices in the list, there is no link.',
+    description: 'The settings link appears only when a node was replaced.',
     changes: firstKinds.filter((item) => item.kind === 'removedChoice'),
     review: true,
     stage: 'wide',
@@ -254,7 +253,7 @@ const cards: readonly NoticeCard[] = [
     id: 'refused',
     title: 'Undo refused',
     description:
-      'Another person changed one of the adjusted values after the editor made it. Undo is off for the whole notice, which says why; their value is never overwritten. Review still works.',
+      'One adjusted value changed after the editor made it. Undo is off for the whole notice, which says why; the later value is never overwritten. Review still works.',
     changes: twelve,
     state: 'refused',
   },
