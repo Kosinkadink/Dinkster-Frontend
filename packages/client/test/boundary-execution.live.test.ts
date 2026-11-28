@@ -39,6 +39,121 @@ const types: Record<string, string> = {
 
 describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
   for (const depth of [1, 2]) {
+    it(`boundary/type-following-scalar/native-depth-${depth}`, async () => {
+      const connection = new DinksterConnection({ id: asConnectionId('following-scalar'), baseUrl: LIVE_URL!, clientId: `following-${process.pid}` })
+      const registry = await connection.fetchSchemas()
+      const primitive: NodeSchema = {
+        type: 'dinkster.utilities.primitive_float', displayName: 'Float', category: 'utilities', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+            widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
+          { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, knownValue: { input: 'value' } },
+        ],
+      }
+      const resolve = (type: string) => type === primitive.type ? primitive : registry.resolve(type)
+      const document = JSON.parse(readFileSync(new URL('./fixtures/boundary-sample.json', import.meta.url), 'utf8')) as WorkflowDocument
+      if (depth === 1) {
+        delete (document.graphs as Record<string, unknown>).portrait
+        for (const id of ['first', 'second']) Object.assign(document.graphs.root!.nodes[id]!, { type: '#detail' })
+      }
+      for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+        if (types[node.type]) Object.assign(node, { type: types[node.type] })
+      }
+      const detail = document.graphs.detail!, group = depth === 1 ? 'feed' : 'payload', key = `${group}.gain`
+      Object.assign(detail.nodes.sample!.values, { 'source.gain': 0.6 })
+      Object.assign(detail.nodes, { extra: { ...structuredClone(detail.nodes.sample!), id: 'extra',
+        values: { ...detail.nodes.sample!.values, 'source.gain': 0.17 } } })
+      Object.assign(detail, { boundary: { body: detail.boundary!.body.map((row) =>
+        'id' in row && row.id === 'source' ? { ...row, id: 'feed' } : row) } })
+      if (depth === 2) {
+        Object.assign(document.graphs.portrait!, { boundary: { body: document.graphs.portrait!.boundary!.body.map((row) =>
+          'id' in row && row.id === 'source' ? { ...row, id: 'payload', binds: { kind: 'construct', node: 'detail', port: 'feed' } } : row) } })
+        Object.assign(document.graphs.portrait!.nodes.detail!.values, { 'feed.gain': 0.3 })
+      }
+      Object.assign(document.graphs.root!.nodes, {
+        literal: { id: 'literal', type: primitive.type, values: { value: 0.57 } },
+        runtime: { id: 'runtime', type: 'boundary-sample.float', values: {} },
+      })
+      for (const [id, value, producer, port] of [['first', 0.4, 'maskB', 'mask'], ['second', 0.9, 'imageA', 'image']] as const) {
+        Object.assign(document.graphs.root!.nodes[id]!.values, { [key]: value })
+        Object.assign(document.graphs.root!.links, { [id]: { id, from: { node: producer, port }, to: { node: id, port: group } } })
+      }
+      const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve) }))
+      const edit = (command: string, params: Record<string, Json>) => {
+        const before = store.doc, result = store.dispatch({ command, params })
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+        const after = store.doc; expect(store.undo()).toBe(true)
+        const undone = structuredClone(store.doc)
+        for (const [id, graph] of Object.entries(undone.graphs)) Object.assign(graph, { nextOrdinal: before.graphs[id]!.nextOrdinal })
+        expect(undone).toEqual(before); expect(store.redo()).toBe(true); expect(store.doc).toEqual(after)
+      }
+      edit('boundary.addBinding', { graphId: 'detail', itemId: 'feed', node: 'extra', port: 'source' })
+      const definitions = store.doc.graphs, first = depth === 1 ? 'first.sample' : 'first.detail.sample'
+      const second = depth === 1 ? 'second.sample' : 'second.detail.sample'
+      const expected = (gain: number, sibling: boolean, extra: boolean) => ({
+        description: {}, image: null, mask: null, strength: extra ? 0.3 : sibling ? 0.8 : 0.2,
+        layers: [{ key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null }],
+        nested: [{ key: 'n0', weights: [{ key: 'w0', value: 0.3 }] },
+          { key: 'n1', weights: [{ key: 'w0', value: 0.3 }, { key: 'w1', value: 0.3 }] }],
+        mode: { key: sibling && !extra ? 'text' : 'image', mix: 0.3, picture: null, text: sibling && !extra ? 'second text' : null },
+        source: { variant: sibling ? 'image' : 'mask', pixels: sibling ? [0.125, 0.25, 0.5] : [0.75], gain },
+      })
+      const run = async (phase: string, gain: number) => {
+        const doc = loadDocument(JSON.parse(JSON.stringify(store.doc))).document!
+        expect(doc).toEqual(store.doc); expect(doc.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
+        expect(doc.graphs.detail).toEqual(definitions.detail); expect(doc.graphs.portrait).toEqual(definitions.portrait)
+        const compiled = compile({ document: doc, revision: 1, resolve, scope: { kind: 'full' },
+          connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Type-following scalar did not compile')
+        const receivers = { [first]: expected(gain, false, false), [first.replace('.sample', '.extra')]: expected(gain, false, true),
+          [second]: expected(0.9, true, false), [second.replace('.sample', '.extra')]: expected(0.9, true, true) }
+        for (const [id, wanted] of Object.entries(receivers)) {
+          const node = compiled.artifact.prompt[id]!, runtime = phase === 'runtime' && id.startsWith('first.')
+          expect(node.inputs.source).toEqual([id.startsWith('first.') ? 'maskB' : 'imageA', 0])
+          expect(node.inputs['source.gain']).toEqual(runtime ? ['runtime', 0] : wanted.source.gain)
+          expect(node.slotVariants!.source).toBe(wanted.source.variant)
+        }
+        console.info('Boundary following prepared', JSON.stringify({ depth, phase, document: doc, prompt: compiled.artifact.prompt, receivers }))
+        const submitted = await connection.submit(compiled.artifact)
+        expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
+        if (!submitted.ok) throw new Error('Type-following scalar was refused')
+        console.info('Boundary following submission', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt }))
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline) {
+          const job = await connection.fetchJob(submitted.execution.prompt)
+          if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
+          if (job?.state === 'completed') {
+            for (const [nodeId, wanted] of Object.entries(receivers)) {
+              const query = { jobId: submitted.execution.prompt, nodeId, outputId: 'receipt' }
+              const peek = await connection.values().peek(query)
+              expect(peek.available, JSON.stringify(peek)).toBe(true)
+              if (!peek.available) throw new Error('Type-following receipt unavailable')
+              const rendition = await connection.values().rendition(query, 'text', { descriptor: peek.descriptor })
+              expect(rendition.available, JSON.stringify(rendition)).toBe(true)
+              if (!rendition.available) throw new Error('Type-following text unavailable')
+              const actual = JSON.parse(new TextDecoder().decode(rendition.bytes))
+              console.info('Boundary following receipt', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt, nodeId, expected: wanted, actual }))
+              expect(actual, nodeId).toEqual(wanted)
+            }
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        throw new Error('Type-following scalar did not complete')
+      }
+      for (const [source, port, gain] of [['literal', 'value', 0.57], ['runtime', 'number', 0.9]] as const) {
+        edit('link.connect', { graphId: 'root', from: { node: source, port }, to: { node: 'first', port: key } })
+        await run(source, gain)
+        const wire = Object.values(store.doc.graphs.root!.links).find((link) => 'node' in link.to && link.to.node === 'first' && 'port' in link.to && link.to.port === key)!
+        edit('link.disconnect', { graphId: 'root', linkId: wire.id })
+        await run(`${source}-disconnected`, 0.4)
+      }
+    }, 120_000)
+  }
+
+  for (const depth of [1, 2]) {
     it(`boundary/nested-group/native-depth-${depth}`, async () => {
       const connection = new DinksterConnection({ id: asConnectionId('nested-live'), baseUrl: LIVE_URL!, clientId: `nested-${process.pid}` })
       const registry = await connection.fetchSchemas()
