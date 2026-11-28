@@ -2,6 +2,7 @@
    for continuity; it is a docked panel, not an overlay). */
 .library-panel {
   flex: 1;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   display: flex;
