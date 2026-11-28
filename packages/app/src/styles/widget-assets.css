@@ -430,6 +430,11 @@
 .asset-editor .collection-content { flex: none; flex-wrap: nowrap; overflow: visible; }
 .asset-editor .collection-items,
 .asset-editor .collection-state-list { min-width: 0; min-height: 0; max-height: none; overflow: visible; }
+.asset-file-picker .asset-editor-body { min-height: 0; flex: 1; }
+.asset-file-picker .asset-browser-section { min-height: 0; overflow: hidden; }
+.asset-file-picker .asset-selection-summary { overflow-y: auto; }
+.asset-file-picker .collection-panel { min-height: 0; flex: 1; overflow: hidden; }
+.asset-file-picker .collection-content { flex: 0 1 auto; overflow: hidden; }
 .asset-file-picker .collection-items { max-height: calc(var(--dinkster-space-32) * 12); overflow-y: auto; }
 .asset-file-picker .asset-view-controls { flex-wrap: wrap; }
 .asset-browser-selection { width: min(220px, 50%); box-sizing: border-box; flex: none; max-height: 100%; }
