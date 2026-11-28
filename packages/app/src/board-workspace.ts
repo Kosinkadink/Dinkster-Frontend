@@ -1,10 +1,11 @@
 import {
-  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, DocumentStore, boardMediaKindOf, buildGraphConnectivity, connectSharedBoardSession, coreCommandRegistry, createLocalBoardSession, createSignal, defaultValuesOf, documentResolver, elabInputsOf, elaborateInterface, exposedKey, exposedToJson, isValidCollabTitle, jsonSameValue, loadBoard, loadDocument, planBoardCommand, t, valueKeyOf,
-  type BoardAsset, type BoardCardItem, type BoardCardSource, type BoardDocument, type BoardItemInput, type BoardRect, type BoardSession, type CollabSessionDescriptor, type ControllerMode, type Json, type NodeSchema, type SharedBoardSession, type WorkflowDocument,
+  BOARD_MAX_NAME, BOARD_MEDIA_TYPE, DocumentStore, assetMultiSelect, boardMediaKindOf, buildGraphConnectivity, connectSharedBoardSession, coreCommandRegistry, createLocalBoardSession, createSignal, defaultValuesOf, documentResolver, elabInputsOf, elaborateInterface, exposedKey, exposedToJson, isValidCollabTitle, jsonSameValue, loadBoard, loadDocument, planBoardCommand, t, valueKeyOf,
+  type AssetRef, type BoardAsset, type BoardCardItem, type BoardCardSource, type BoardDocument, type BoardItemInput, type BoardRect, type BoardSession, type CollabSessionDescriptor, type ControllerMode, type Json, type NodeSchema, type SharedBoardSession, type WorkflowDocument,
 } from '@dinkster/core'
 import type { AssetUploadDestination, DinksterConnection, LibraryRecord } from '@dinkster/client'
 import type { CollabTransport } from './collab.js'
 import { buildParamRows } from './app-view-rows.js'
+import { isCompatible } from './asset-browser/helpers.js'
 
 type BoardConnection = Pick<DinksterConnection, 'uploadMediaAsset' | 'checkAssetAvailability' |
   'uploadAsset' | 'createLibraryRecord' | 'patchLibraryRecord' | 'getLibraryRecord' | 'fetchAssetText'> &
@@ -27,6 +28,42 @@ export interface BoardEntry {
     readonly descriptor: CollabSessionDescriptor
     readonly session: SharedBoardSession
   }
+}
+
+/** Compatibility follows the exposed face, not node names or hidden inputs. */
+function cardMediaInput(document: WorkflowDocument, asset: BoardAsset,
+  resolve: (type: string) => NodeSchema | undefined,
+) {
+  return buildParamRows(document, documentResolver(document, resolve)).find((row) => {
+    if (row.kind !== 'live' || row.linked || row.derived || row.spec?.widgetType !== 'ASSET' || row.spec.selection === true) return false
+    const accept = row.spec.options['accept']
+    return isCompatible({ ...asset, id: asset.digest, source: { id: 'board', label: 'Board' } },
+      Array.isArray(accept) ? accept.filter((value): value is string => typeof value === 'string') : [], row.spec.kind)
+  })
+}
+
+function cardFace(document: WorkflowDocument, kind: BoardCardItem['kind'], name: string,
+  resolve: (type: string) => NodeSchema | undefined,
+): WorkflowDocument {
+  if (kind !== 'blueprint') return document
+  let root = 'board-root'
+  while (document.graphs[root]) root += '-copy'
+  const schema = documentResolver(document, resolve)(`#${document.root}`)
+  if (!schema) throw new Error('Blueprint inputs are unavailable')
+  const values = defaultValuesOf(schema) as Record<string, Json>
+  const wrapped = loadDocument({
+    ...document, root,
+    graphs: { ...document.graphs, [root]: {
+      id: root, name, nodes: { n0: { id: 'n0', type: `#${document.root}`, values } },
+      links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+    } },
+    view: { graphs: { ...document.view.graphs, [root]: { nodes: { n0: { position: { x: 0, y: 0 } } } } } },
+    ext: { ...document.ext, 'dinkster.exposed': exposedToJson(elabInputsOf(elaborateInterface(schema,
+      { values },
+    )).map((input) => ({ graphId: root, nodeId: 'n0', inputId: input.spec.id }))) },
+  })
+  if (!wrapped.document) throw new Error(wrapped.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+  return wrapped.document
 }
 
 /** Apply exposed overrides and private advancing controls without changing source bytes. */
@@ -263,7 +300,13 @@ export class BoardWorkspace {
     readonly kind: BoardCardItem['kind']
     readonly source: BoardCardSource
     readonly name: string
-  }, point: { readonly x: number; readonly y: number }, stillWanted: () => boolean = () => true): Promise<string> {
+  }, point: { readonly x: number; readonly y: number }, stillWanted: () => boolean = () => true,
+    continuation?: {
+      readonly itemId: string
+      readonly asset: AssetRef
+      readonly resolve: (type: string) => NodeSchema | undefined
+    },
+  ): Promise<string> {
     const entry = this.mediaEntry(id)
     if (source.project !== this.options.project || source.baseUrl !== entry.baseUrl)
       throw new Error('Cards must come from this Board\'s project and backend')
@@ -271,19 +314,49 @@ export class BoardWorkspace {
     const location = { ...point }
     const connection = this.options.mediaConnection(entry.baseUrl)
     if (!connection) throw new Error('This Board\'s backend is unavailable')
+    const origin = continuation === undefined ? undefined : entry.session.doc.items[continuation.itemId]
+    const asset = continuation === undefined ? undefined : structuredClone(continuation.asset)
+    if (continuation && (!origin || !('asset' in origin) || origin.asset.digest !== asset?.digest))
+      throw new Error('The selected result is no longer on this Board')
     const current = () => !this.disposed && stillWanted() && this.entries.get().includes(entry) &&
-      this.options.mediaConnection(entry.baseUrl) === connection
+      this.options.mediaConnection(entry.baseUrl) === connection &&
+      (origin === undefined || entry.session.doc.items[origin.id] === origin)
     const loaded = await this.cardSource(connection, selection.kind, selection.source, current)
     if (!current()) throw new Error('Board changed while loading the card; nothing was placed')
     let x = location.x - 170
     let y = location.y - 94
-    while (Object.values(entry.session.doc.items).some((item) => item.rect.x === x && item.rect.y === y)) {
-      x += 24
-      y += 24
+    let values: Record<string, Json> = {}
+    let continuedFrom: BoardCardItem['continuedFrom']
+    if (continuation && origin && 'asset' in origin && asset) {
+      const document = cardFace(loaded.document, selection.kind, loaded.name ?? selection.name, continuation.resolve)
+      const input = cardMediaInput(document, origin.asset, continuation.resolve)
+      if (!input || input.kind !== 'live') throw new Error('This source has no compatible exposed input')
+      const availability = await connection.checkAssetAvailability([asset.digest], { scope: 'local' })
+      if (!current()) throw new Error('Board changed while loading the card; nothing was placed')
+      if (!availability.some((row) => row.digest === asset.digest && row.status === 'available'))
+        throw new Error('The selected result file is unavailable')
+      const inputKey = exposedKey(input.entry)
+      values = { [inputKey]: assetMultiSelect(input.item.spec.type) ? [asset] : asset }
+      continuedFrom = { itemId: origin.id, inputKey }
+      x = origin.rect.x + origin.rect.width + 24
+      y = origin.rect.y
+      for (;;) {
+        const hits = Object.values(entry.session.doc.items).filter((item) => item.kind !== 'section' &&
+          x < item.rect.x + item.rect.width + 24 && x + 340 + 24 > item.rect.x &&
+          y < item.rect.y + item.rect.height + 24 && y + 188 + 24 > item.rect.y)
+        if (!hits.length) break
+        x = Math.max(...hits.map((item) => item.rect.x + item.rect.width + 24))
+      }
+    } else {
+      while (Object.values(entry.session.doc.items).some((item) => item.rect.x === x && item.rect.y === y)) {
+        x += 24
+        y += 24
+      }
     }
     const result = entry.session.dispatch({ command: 'board.item.add', params: { items: [{
       kind: selection.kind, name: (loaded.name ?? selection.name).slice(0, BOARD_MAX_NAME),
-      source: selection.source, values: {}, autoSize: true, rect: { x, y, width: 340, height: 188 },
+      source: selection.source, values, autoSize: true, rect: { x, y, width: 340, height: 188 },
+      ...(continuedFrom === undefined ? {} : { continuedFrom }),
     }] } })
     if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
     return result.created[0]!
@@ -341,28 +414,7 @@ export class BoardWorkspace {
     }
     const loaded = await this.cardSource(connection, card.kind, card.source, current)
     if (!current()) throw new Error('Card changed while loading')
-    let document = loaded.document
-    if (card.kind === 'blueprint') {
-      let root = 'board-root'
-      while (document.graphs[root]) root += '-copy'
-      const schema = documentResolver(document, resolve)(`#${document.root}`)
-      if (!schema) throw new Error('Blueprint inputs are unavailable')
-      const values = defaultValuesOf(schema) as Record<string, Json>
-      const wrapped = loadDocument({
-        ...document, root,
-        graphs: { ...document.graphs, [root]: {
-          id: root, name: card.name, nodes: { n0: { id: 'n0', type: `#${document.root}`, values } },
-          links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
-        } },
-        view: { graphs: { ...document.view.graphs, [root]: { nodes: { n0: { position: { x: 0, y: 0 } } } } } },
-        ext: { ...document.ext, 'dinkster.exposed': exposedToJson(elabInputsOf(elaborateInterface(schema,
-          { values },
-        )).map((input) => ({ graphId: root, nodeId: 'n0', inputId: input.spec.id }))) },
-      })
-      if (!wrapped.document) throw new Error(wrapped.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
-      document = wrapped.document
-    }
-    return document
+    return cardFace(loaded.document, card.kind, card.name, resolve)
   }
 
   private async cardSource(connection: BoardConnection, kind: BoardCardItem['kind'], source: BoardCardSource,

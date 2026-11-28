@@ -86,6 +86,7 @@ export interface BoardCardItem {
   readonly controllers?: Readonly<Record<string, ControllerMode>>
   /** Only new, never manually resized cards may refit when their controls change. */
   readonly autoSize?: boolean
+  readonly continuedFrom?: { readonly itemId: string; readonly inputKey: string }
 }
 
 export type BoardItem = (BoardMediaItem | BoardNoteItem | BoardSectionItem | BoardCardItem) & {
@@ -231,7 +232,7 @@ export function readBoardItem(id: string, value: Json | undefined): BoardItem | 
   if (sectionId !== undefined && (typeof sectionId !== 'string' || !ITEM_ID.test(sectionId))) return fail('item.section', `${where}: sectionId must be an item id`)
   const membership = sectionId === undefined ? {} : { sectionId: sectionId as string }
   const kind = value['kind']
-  const content = kind === 'workflow' || kind === 'blueprint' ? ['name', 'source', 'values', 'controllers', 'autoSize'] : [kind === 'note' ? 'text' : kind === 'section' ? 'name' : 'asset']
+  const content = kind === 'workflow' || kind === 'blueprint' ? ['name', 'source', 'values', 'controllers', 'autoSize', 'continuedFrom'] : [kind === 'note' ? 'text' : kind === 'section' ? 'name' : 'asset']
   if (Object.keys(value).some((key) => !['id', 'kind', 'rect', 'sectionId', ...content].includes(key))) return fail('item.invalid', `${where}: item contains unsupported fields`)
   const rect = readRect(value['rect'], where)
   if ('severity' in rect) return rect
@@ -244,6 +245,13 @@ export function readBoardItem(id: string, value: Json | undefined): BoardItem | 
     if (!isObject(values)) return fail('item.invalid', `${where}: card values must be an object`)
     const autoSize = value['autoSize']
     if (autoSize !== undefined && typeof autoSize !== 'boolean') return fail('item.invalid', `${where}: card autoSize must be a boolean`)
+    const continuedFrom = value['continuedFrom']
+    if (continuedFrom !== undefined && (!isObject(continuedFrom) ||
+      Object.keys(continuedFrom).length !== 2 ||
+      typeof continuedFrom['itemId'] !== 'string' || !ITEM_ID.test(continuedFrom['itemId']) ||
+      typeof continuedFrom['inputKey'] !== 'string' || continuedFrom['inputKey'] === '')) {
+      return fail('item.invalid', `${where}: card continuation reference is invalid`)
+    }
     const controllers = value['controllers']
     if (controllers !== undefined && (!isObject(controllers) || Object.values(controllers).some((mode) =>
       typeof mode !== 'string' || !['fixed', 'increment', 'decrement', 'randomize'].includes(mode)))) {
@@ -251,6 +259,7 @@ export function readBoardItem(id: string, value: Json | undefined): BoardItem | 
     }
     return { id, kind, rect, name, source, values, ...membership,
       ...(autoSize === undefined ? {} : { autoSize }),
+      ...(continuedFrom === undefined ? {} : { continuedFrom: continuedFrom as NonNullable<BoardCardItem['continuedFrom']> }),
       ...(controllers === undefined ? {} : { controllers: controllers as Readonly<Record<string, ControllerMode>> }) }
   }
   if (typeof kind === 'string' && isBoardMediaKind(kind)) {

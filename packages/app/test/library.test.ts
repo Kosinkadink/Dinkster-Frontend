@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { BOARD_MEDIA_TYPE, asNodeId, asPortId, asPromptId, boundaryOf, compile, diag, documentResolver, emptyBoard, exposedKey, type DinksterNodesPayload, type JsonObject, type NodeSchema } from '@dinkster/core'
+import { BOARD_MEDIA_TYPE, asNodeId, asPortId, asPromptId, boundaryOf, compile, diag, documentResolver, emptyBoard, exposedKey, loadBoard, loadDocument, type DinksterNodesPayload, type JsonObject, type NodeSchema } from '@dinkster/core'
 import { buildDinksterRegistry, type HistoryRunRecord, type LibraryRecord } from '@dinkster/client'
 import {
   AppState,
@@ -107,6 +107,95 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 }
 
 describe('Board card sources', () => {
+  it.each(['workflow', 'saved-blueprint', 'pack-blueprint'] as const)('continues into a new %s card without running or changing the source', async (kind) => {
+    const { backend, tab } = await nativeSetup()
+    const { connection, baseUrl } = backend
+    const registry = backend.registry.get()!
+    const originalSchema = registry.resolve('std.math.add_ints')!
+    const schema: NodeSchema = { ...originalSchema, body: originalSchema.body.map((input) => input.kind !== 'input' ? input : {
+      ...input, type: kind === 'pack-blueprint' && input.id === 'b'
+        ? { kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'IMAGE' } } }
+        : { kind: 'concrete', name: 'ASSET' },
+      widget: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/*'] }, default: null },
+    }) }
+    backend.registry.set({ ...registry, resolve: (type) => type === schema.type ? schema : registry.resolve(type) })
+    const selected = { digest: DIGEST, name: 'Selected.png', mediaType: 'image/png', size: 137, virtualPath: 'results/Selected.png' }
+    const saved = { digest: DIGEST2, name: 'Saved.png', mediaType: 'image/png', size: 251, virtualPath: 'Saved.png' }
+    const source = { ...CHAIN_DOC, graphs: { g0: { ...CHAIN_DOC.graphs.g0,
+      nodes: { n0: { id: 'n0', type: schema.type, values: { a: saved, b: null } } }, links: {},
+      ...(kind === 'workflow' ? {} : { boundary: boundaryOf([
+        { id: 'first', binds: { kind: 'port', node: asNodeId('n0'), port: asPortId('b') }, promoted: true },
+        { id: 'second', binds: { kind: 'port', node: asNodeId('n0'), port: asPortId('a') }, promoted: true },
+      ], []) }),
+    } }, ext: { 'dinkster.exposed': [
+      { graphId: 'g0', nodeId: 'n0', inputId: 'b' }, { graphId: 'g0', nodeId: 'n0', inputId: 'a' },
+    ] } }
+    const bytes = JSON.stringify(source)
+    vi.spyOn(connection, 'getLibraryRecord').mockResolvedValue(record({ labels: [kind === 'workflow' ? 'workflow' : 'blueprint'] }))
+    vi.spyOn(connection, 'fetchAssetText').mockResolvedValue(bytes)
+    vi.spyOn(connection, 'fetchBlueprintBody').mockResolvedValue(loadDocument(source).document)
+    vi.spyOn(connection, 'checkAssetAvailability').mockResolvedValue([{ digest: DIGEST, status: 'available' }])
+    const submit = vi.spyOn(connection, 'submit')
+    const board = app.boards.open(emptyBoard(), 'Continue with', baseUrl)
+    board.session.dispatch({ command: 'board.item.add', params: { items: [
+      { id: 'picture', kind: 'picture', asset: { digest: selected.digest, name: selected.name, mediaType: selected.mediaType }, rect: { x: 40, y: 80, width: 280, height: 175 } },
+      { id: 'obstacle', kind: 'note', text: 'Stay here', rect: { x: 400, y: 90, width: 100, height: 50 } },
+      { id: 'second-obstacle', kind: 'note', text: 'Stay here too', rect: { x: 800, y: 80, width: 100, height: 150 } },
+      { id: 'section', kind: 'section', name: 'Results', rect: { x: 300, y: 60, width: 1200, height: 300 } },
+    ] } })
+    const selection = { project: activeProjectId(), baseUrl, kind: kind === 'workflow' ? 'workflow' as const : 'blueprint' as const,
+      source: kind === 'pack-blueprint'
+        ? { kind: 'pack' as const, packId: 'test.pack', blueprintId: 'two-pictures', digest: `sha256:${'a'.repeat(64)}` }
+        : { kind: 'library' as const, recordId: 'r1' }, name: 'Two pictures' }
+    const existing = await app.boards.placeCard(board.id, selection, { x: -500, y: -500 })
+    const before = board.session.doc
+    const originalTab = tab.store.doc
+    const id = await app.boards.placeCard(board.id, selection, { x: 0, y: 0 }, () => true,
+      { itemId: 'picture', asset: selected, resolve: backend.registry.get()!.resolve })
+    const document = await app.boards.loadCard(board.id, id, backend.registry.get()!.resolve)
+    const rows = buildParamRows(document, documentResolver(document, backend.registry.get()!.resolve))
+    const firstValue = kind === 'pack-blueprint' ? [selected] : selected
+    const inputKey = exposedKey({ graphId: kind === 'workflow' ? 'g0' : 'board-root', nodeId: 'n0', inputId: kind === 'workflow' ? 'b' : 'first' })
+    expect(rows.map((row) => row.kind === 'live' && row.value)).toEqual([firstValue, saved])
+    expect(board.session.doc.items[id]).toMatchObject({ rect: { x: 924, y: 80, width: 340, height: 188 }, sectionId: 'section',
+      values: { [inputKey]: firstValue }, continuedFrom: { itemId: 'picture', inputKey } })
+    expect(board.session.doc.items[existing]).toEqual(before.items[existing])
+    for (const item of before.order) expect(board.session.doc.items[item]).toEqual(before.items[item])
+    expect(loadBoard(JSON.parse(JSON.stringify(board.session.doc))).document).toEqual(board.session.doc)
+    expect(board.session.undo()).toBe(true)
+    expect(board.session.doc).toEqual(before)
+    expect(board.session.redo()).toBe(true)
+    expect(board.session.doc.items[id]).toBeDefined()
+    expect(submit).not.toHaveBeenCalled()
+    expect(tab.store.doc).toBe(originalTab)
+    expect(JSON.parse(bytes)).toEqual(source)
+
+    const settled = board.session.doc
+    const incompatible = (type: string): NodeSchema | undefined => type !== schema.type ? registry.resolve(type) : {
+      ...schema, body: schema.body.map((input) => input.kind !== 'input' ? input : {
+        ...input, widget: { ...input.widget!, kind: 'media/video', options: { accept: ['video/*'] } },
+      }),
+    }
+    await expect(app.boards.placeCard(board.id, selection, { x: 0, y: 0 }, () => true,
+      { itemId: 'picture', asset: selected, resolve: incompatible })).rejects.toThrow('no compatible exposed input')
+    expect(board.session.doc).toEqual(settled)
+    vi.spyOn(connection, 'checkAssetAvailability').mockResolvedValueOnce([{ digest: DIGEST, status: 'missing' }])
+    await expect(app.boards.placeCard(board.id, selection, { x: 0, y: 0 }, () => true,
+      { itemId: 'picture', asset: selected, resolve: backend.registry.get()!.resolve })).rejects.toThrow('file is unavailable')
+    expect(board.session.doc).toEqual(settled)
+    let reopened = board
+    vi.spyOn(connection, 'checkAssetAvailability').mockImplementationOnce(async () => {
+      app.boards.close(board.id)
+      reopened = app.boards.open(settled, 'Reopened', baseUrl)
+      return [{ digest: DIGEST, status: 'available' }]
+    })
+    await expect(app.boards.placeCard(board.id, selection, { x: 0, y: 0 }, () => true,
+      { itemId: 'picture', asset: selected, resolve: backend.registry.get()!.resolve })).rejects.toThrow('Board changed')
+    expect(reopened.session.doc).toEqual(settled)
+    expect(reopened.session.canUndo).toBe(false)
+    expect(app.executionsForBoardCard(reopened, id)).toEqual([])
+  })
+
   it('opens a new recorded Board run frozen in another browser without trusting a changed source or compile proof', async () => {
     const { backend } = await nativeSetup()
     vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record())
