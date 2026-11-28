@@ -594,6 +594,8 @@ export interface InputSpec extends PortSpecBase {
   readonly optional: boolean
   /** Derived boundary input forwarding an edit-time schema literal. */
   readonly outputSchemaSource?: true
+  /** Declared record behind a promoted field selector, independent of its saved choice. */
+  readonly recordSelectionSource?: TypeExpr
   /** Declared absence policy; undefined = the required-ness default. */
   readonly onAbsent?: AbsentPolicy
   /** The execution accepts storage-backed values directly (wire 39); true or omitted. */

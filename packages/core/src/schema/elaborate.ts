@@ -235,6 +235,8 @@ export interface ElaboratedInput {
   readonly ancestry?: readonly DynamicAncestor[]
   /** Value not stored in node.values (a choice's dropdown: the chosen key). */
   readonly derivedValue?: Json
+  /** Declared record a field selector reads, retained when its field alone is promoted. */
+  readonly recordSelectionSource?: TypeExpr
   /** Per-level views of one saved record-field selection, never extra inputs. */
   readonly recordSelectionRows?: readonly {
     readonly record: string
@@ -2641,108 +2643,116 @@ function elaboratePass(
     })
   }
 
+  const projectRecord = (inputId: string, source: TypeExpr | undefined, onRemoved?: (message: string) => void): TypeExpr | undefined => {
+    let selector = items.find((item) => item.kind === 'input' && item.spec.id === inputId)
+    if (source?.kind === 'record' && selector?.kind === 'input') {
+      const index = items.indexOf(selector)
+      selector = { ...selector, recordSelectionSource: source }
+      items[index] = selector
+    }
+    const stored = Object.hasOwn(node.values, inputId) ? node.values[inputId]
+      : selector?.kind === 'input' ? readWhenUnset(selector.spec) : undefined
+    try {
+      if (source?.kind !== 'record' || typeof stored !== 'string' || linked(inputId)) throw new Error('Record selection requires a declared record and a stored field path.')
+      const selection: unknown = JSON.parse(stored)
+      const saved = typeof selection === 'object' && selection !== null && !Array.isArray(selection)
+        ? selection as Record<string, unknown> : undefined
+      const path = saved === undefined ? selection : saved['path']
+      if (!Array.isArray(path) || path.length === 0 || !path.every((key) => typeof key === 'string' && key !== '')) throw new Error('Record selection requires a nonempty path of stable field IDs.')
+      const oldType = saved === undefined ? undefined : typeExprFromDinksterWire(saved['type'])
+      if (oldType !== undefined && canonicalTypeIdOf(oldType) === undefined) throw new Error('Saved record selection requires a resolved type.')
+      if (saved !== undefined && typeof saved['name'] !== 'string') throw new Error('Saved record selection requires a field name.')
+      let current: TypeExpr | undefined = source
+      const names: string[] = []
+      for (const key of path) {
+        const field: RecordField | undefined = current?.kind === 'record' ? current.fields.find((field) => field.id === key) : undefined
+        if (field !== undefined) names.push(field.name)
+        current = field?.type
+      }
+      const fits = current !== undefined && (oldType === undefined || recordFieldTypeFits(current, oldType))
+      if (selector?.kind === 'input' && selector.spec.widget !== undefined) {
+        const widget = selector.spec.widget
+        const choices = normalizedComboOptions(widget)
+        const matching = choices.find((option) => {
+          if (typeof option.value !== 'string') return false
+          try {
+            const candidate = JSON.parse(option.value)
+            if (candidate === null || Array.isArray(candidate) || typeof candidate.name !== 'string' || !Array.isArray(candidate.path)) return false
+            const declared = typeExprFromDinksterWire(candidate.type)
+            return current !== undefined && recordFieldTypeFits(current, declared) && recordFieldTypeFits(declared, current) &&
+              candidate.path.length === path.length && candidate.path.every((key: unknown, index: number) => key === path[index])
+          } catch { return false }
+        })
+        if (!census && view && fits && (saved === undefined || !Object.hasOwn(node.values, inputId)) && typeof matching?.value === 'string') {
+          unstoredRecordSelections[inputId] = matching.value
+        }
+        if (fits || oldType !== undefined) {
+          const label = fits ? names.join(' / ') : `${saved!['name']} (removed)`
+          const shown = { value: stored, label }
+          const presented = fits && matching !== undefined
+            ? choices.map((option) => option === matching ? shown : option)
+            : [...choices.filter((option) => option.value !== stored), shown]
+          const candidates = choices.flatMap((option) => {
+            if (typeof option.value !== 'string') return []
+            try {
+              const candidate = JSON.parse(option.value)
+              return Array.isArray(candidate.path) && typeof candidate.name === 'string'
+                ? [{ ...option, path: candidate.path as string[] }] : []
+            } catch { return [] }
+          })
+          const rows: NonNullable<ElaboratedInput['recordSelectionRows']>[number][] = []
+          let record: TypeExpr = source
+          let parent: Json = stored
+          for (let depth = 0; record.kind === 'record'; depth++) {
+            const prefix = path.slice(0, depth)
+            const options: { value: Json; label: string }[] = candidates.filter((candidate) => candidate.path.length === depth + 1 &&
+              prefix.every((key, index) => key === candidate.path[index]))
+              .map((candidate) => ({ value: candidate.value, label: record.kind === 'record'
+                ? record.fields.find((field) => field.id === candidate.path[depth])?.name ?? candidate.label : candidate.label }))
+            if (depth > 0) options.unshift({ value: parent, label: t('canvas.record.wholeRecord') })
+            const field: RecordField | undefined = record.fields.find((field) => field.id === path[depth])
+            const selected = options.find((option) => {
+              if (typeof option.value !== 'string') return false
+              try { return JSON.parse(option.value).path[depth] === path[depth] } catch { return false }
+            })
+            let value: Json = selected?.value ?? parent
+            if (depth < path.length && (field === undefined || field.type.kind !== 'record' || depth === path.length - 1)) {
+              const oldName = String(saved?.['name'] ?? names.join(' / ')).split(' / ').slice(depth).join(' / ')
+              const final = { value: stored, label: fits ? field!.name : `${oldName} (removed)` }
+              const at = options.findIndex((option) => fits ? option === selected : option.value === stored)
+              if (at >= 0) options[at] = final
+              else options.push(final)
+              value = stored
+            }
+            rows.push({ record: record.name, value, options })
+            if (field === undefined || depth >= path.length || field.type.kind !== 'record' || !fits && depth === path.length - 1) break
+            parent = value
+            record = field.type
+          }
+          const index = items.indexOf(selector)
+          items[index] = { ...selector, ...(Array.isArray(widget.options['options']) ? { recordSelectionRows: rows } : {}),
+            spec: { ...selector.spec, widget: { ...widget, options: { ...widget.options, options: presented } } } }
+        }
+      }
+      if (fits) return current!
+      if (oldType === undefined) throw new Error('The selected record field is no longer declared.')
+      const message = current === undefined ? `Record field '${saved!['name']}' was removed.`
+        : `Record field '${saved!['name']}' changed type from ${canonicalTypeIdOf(oldType)} to ${canonicalTypeIdOf(current)}.`
+      diagnostics.push(diag('warning', 'schema', 'record-field-removed', message, {
+        ...(options.nodeId === undefined ? {} : { anchor: { port: { node: options.nodeId, port: asPortId(inputId) } } }),
+        data: { input: inputId, oldType, ...(current === undefined ? {} : { newType: current }) },
+      }))
+      onRemoved?.(message)
+      return oldType
+    } catch (error) {
+      report('elab.record.selection', error instanceof Error ? error.message : 'Invalid record field selection.', inputId)
+      return undefined
+    }
+  }
   const project = (type: TypeExpr, onRemoved?: (message: string) => void): TypeExpr => {
     if (type.kind === 'record_field') {
       const source = items.find((item) => item.kind === 'input' && item.spec.id === type.input)
-      const selector = items.find((item) => item.kind === 'input' && item.spec.id === type.index)
-      const stored = Object.hasOwn(node.values, type.index) ? node.values[type.index]
-        : selector?.kind === 'input' ? readWhenUnset(selector.spec) : undefined
-      try {
-        if (source?.kind !== 'input' || source.spec.type.kind !== 'record' || typeof stored !== 'string' || linked(type.index)) throw new Error('Record selection requires a declared record and a stored field path.')
-        const selection: unknown = JSON.parse(stored)
-        const saved = typeof selection === 'object' && selection !== null && !Array.isArray(selection)
-          ? selection as Record<string, unknown> : undefined
-        const path = saved === undefined ? selection : saved['path']
-        if (!Array.isArray(path) || path.length === 0 || !path.every((key) => typeof key === 'string' && key !== '')) throw new Error('Record selection requires a nonempty path of stable field IDs.')
-        const oldType = saved === undefined ? undefined : typeExprFromDinksterWire(saved['type'])
-        if (oldType !== undefined && canonicalTypeIdOf(oldType) === undefined) throw new Error('Saved record selection requires a resolved type.')
-        if (saved !== undefined && typeof saved['name'] !== 'string') throw new Error('Saved record selection requires a field name.')
-        let current: TypeExpr | undefined = source.spec.type
-        const names: string[] = []
-        for (const key of path) {
-          const field: RecordField | undefined = current?.kind === 'record' ? current.fields.find((field) => field.id === key) : undefined
-          if (field !== undefined) names.push(field.name)
-          current = field?.type
-        }
-        const fits = current !== undefined && (oldType === undefined || recordFieldTypeFits(current, oldType))
-        if (selector?.kind === 'input' && selector.spec.widget !== undefined) {
-          const widget = selector.spec.widget
-          const choices = normalizedComboOptions(widget)
-          const matching = choices.find((option) => {
-            if (typeof option.value !== 'string') return false
-            try {
-              const candidate = JSON.parse(option.value)
-              if (candidate === null || Array.isArray(candidate) || typeof candidate.name !== 'string' || !Array.isArray(candidate.path)) return false
-              const declared = typeExprFromDinksterWire(candidate.type)
-              return current !== undefined && recordFieldTypeFits(current, declared) && recordFieldTypeFits(declared, current) &&
-                candidate.path.length === path.length && candidate.path.every((key: unknown, index: number) => key === path[index])
-            } catch { return false }
-          })
-          if (!census && view && fits && (saved === undefined || !Object.hasOwn(node.values, type.index)) && typeof matching?.value === 'string') {
-            unstoredRecordSelections[type.index] = matching.value
-          }
-          if (fits || oldType !== undefined) {
-            const label = fits ? names.join(' / ') : `${saved!['name']} (removed)`
-            const shown = { value: stored, label }
-            const presented = fits && matching !== undefined
-              ? choices.map((option) => option === matching ? shown : option)
-              : [...choices.filter((option) => option.value !== stored), shown]
-            const candidates = choices.flatMap((option) => {
-              if (typeof option.value !== 'string') return []
-              try {
-                const candidate = JSON.parse(option.value)
-                return Array.isArray(candidate.path) && typeof candidate.name === 'string'
-                  ? [{ ...option, path: candidate.path as string[] }] : []
-              } catch { return [] }
-            })
-            const rows: NonNullable<ElaboratedInput['recordSelectionRows']>[number][] = []
-            let record: TypeExpr = source.spec.type
-            let parent: Json = stored
-            for (let depth = 0; record.kind === 'record'; depth++) {
-              const prefix = path.slice(0, depth)
-              const options: { value: Json; label: string }[] = candidates.filter((candidate) => candidate.path.length === depth + 1 &&
-                prefix.every((key, index) => key === candidate.path[index]))
-                .map((candidate) => ({ value: candidate.value, label: record.kind === 'record'
-                  ? record.fields.find((field) => field.id === candidate.path[depth])?.name ?? candidate.label : candidate.label }))
-              if (depth > 0) options.unshift({ value: parent, label: t('canvas.record.wholeRecord') })
-              const field: RecordField | undefined = record.fields.find((field) => field.id === path[depth])
-              const selected = options.find((option) => {
-                if (typeof option.value !== 'string') return false
-                try { return JSON.parse(option.value).path[depth] === path[depth] } catch { return false }
-              })
-              let value: Json = selected?.value ?? parent
-              if (depth < path.length && (field === undefined || field.type.kind !== 'record' || depth === path.length - 1)) {
-                const oldName = String(saved?.['name'] ?? names.join(' / ')).split(' / ').slice(depth).join(' / ')
-                const final = { value: stored, label: fits ? field!.name : `${oldName} (removed)` }
-                const at = options.findIndex((option) => fits ? option === selected : option.value === stored)
-                if (at >= 0) options[at] = final
-                else options.push(final)
-                value = stored
-              }
-              rows.push({ record: record.name, value, options })
-              if (field === undefined || depth >= path.length || field.type.kind !== 'record' || !fits && depth === path.length - 1) break
-              parent = value
-              record = field.type
-            }
-            const index = items.indexOf(selector)
-            items[index] = { ...selector, ...(Array.isArray(widget.options['options']) ? { recordSelectionRows: rows } : {}),
-              spec: { ...selector.spec, widget: { ...widget, options: { ...widget.options, options: presented } } } }
-          }
-        }
-        if (fits) return current!
-        if (oldType === undefined) throw new Error('The selected record field is no longer declared.')
-        const message = current === undefined ? `Record field '${saved!['name']}' was removed.`
-          : `Record field '${saved!['name']}' changed type from ${canonicalTypeIdOf(oldType)} to ${canonicalTypeIdOf(current)}.`
-        diagnostics.push(diag('warning', 'schema', 'record-field-removed', message, {
-          ...(options.nodeId === undefined ? {} : { anchor: { port: { node: options.nodeId, port: asPortId(type.index) } } }),
-          data: { input: type.index, oldType, ...(current === undefined ? {} : { newType: current }) },
-        }))
-        onRemoved?.(message)
-        return oldType
-      } catch (error) {
-        report('elab.record.selection', error instanceof Error ? error.message : 'Invalid record field selection.', type.index)
-        return type
-      }
+      return projectRecord(type.index, source?.kind === 'input' ? source.spec.type : undefined, onRemoved) ?? type
     }
     if (type.kind === 'tuple_element') {
       const input = items.find((item) => item.kind === 'input' && item.spec.id === type.input)
@@ -2777,6 +2787,9 @@ function elaboratePass(
       items[index] = { ...item, spec: { ...item.spec, type,
         ...(widget === undefined ? {} : { widget }), ...(removed ? { optional: true } : {}),
       } }
+    }
+    else if (item.kind === 'input' && item.spec.recordSelectionSource !== undefined) {
+      projectRecord(item.spec.id, item.spec.recordSelectionSource)
     }
   }
 

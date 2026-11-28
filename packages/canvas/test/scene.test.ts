@@ -521,6 +521,55 @@ describe('buildScene', () => {
         expect(session.doc.graphs.g0!.nodes.read!.values).toEqual({ field: seed })
       }
     }
+    const promoted = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'promoted-picker', root: 'root',
+      graphs: {
+        root: { id: 'root', name: 'Root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+          first: { id: 'first', type: '#body', values: { choice: seed } },
+          second: { id: 'second', type: '#body', values: { choice: whole } },
+        } },
+        body: { id: 'body', name: 'Body', nextOrdinal: 1, links: {}, nets: {}, reroutes: {},
+          nodes: { read: { id: 'read', type: 'Read', values: { field: whole } } },
+          boundary: { body: [{ kind: 'input', id: 'choice', promoted: true,
+            binds: { kind: 'port', node: 'read', port: 'field' } }] },
+        },
+      }, view: { graphs: {} },
+    })
+    expect(promoted.diagnostics).toEqual([])
+    const promotedSession = createLocalSession(promoted.document!, coreCommandRegistry())
+    const promotedScene = (owner?: string) => buildScene({ document: promotedSession.doc,
+      graphId: owner === undefined ? 'root' : 'body',
+      resolve: documentResolver(promotedSession.doc, (type) => type === 'Read' ? parsed.schema : undefined),
+      tokens: defaultTokens, measure, widgetMeasure: () => ({ viewId: 'core.select', rows: 1 }),
+      ...(owner === undefined ? {} : { occurrence: {
+        owner: { instancePath: [], node: asNodeId(owner) }, plannerAvailable: true,
+      } }),
+    })
+    for (const [id, value] of [['first', seed], ['second', whole]] as const) {
+      const outer = promotedScene().nodes.find((node) => node.id === id)!
+      const outerRows = outer.layout.rows.filter((row) => row.kind === 'widget')
+      expect(outerRows).toHaveLength(2)
+      expect(outerRows[1]!.derivedValue).toBe(value)
+      expect(outerRows.map((row) => row.familyOwner?.valueKey)).toEqual(['choice', 'choice'])
+      const panel = promotedScene(id).boundaryNodes.find((node) => node.side === 'inputs')!
+      const fields = panel.layout.rows.filter((row) => row.kind === 'widget')
+      expect(fields).toHaveLength(2)
+      expect(fields[1]!.derivedValue).toBe(value)
+      expect(fields.map((row) => row.familyOwner)).toEqual(fields.map(() => ({
+        graphId: 'root', nodeId: id, construct: 'choice', valueKey: 'choice',
+      })))
+    }
+    const panelRow = promotedScene('first').boundaryNodes.find((node) => node.side === 'inputs')!
+      .layout.rows.filter((row) => row.kind === 'widget')[1]!
+    const owner = panelRow.familyOwner!
+    expect(promotedSession.dispatch({ command: 'node.setValue', params: {
+      graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey!, value: other,
+    } }).ok).toBe(true)
+    expect(promotedSession.doc.graphs.root!.nodes.first!.values).toEqual({ choice: other })
+    expect(promotedSession.doc.graphs.root!.nodes.second!.values).toEqual({ choice: whole })
+    expect(promotedSession.doc.graphs.body!.nodes.read!.values).toEqual({ field: whole })
+    expect(promotedSession.undo()).toBe(true)
+    expect(promotedSession.doc.graphs.root!.nodes.first!.values).toEqual({ choice: seed })
   })
 
   it('keeps numeric edit scenes equal to a fresh build and declines value-dependent presentation', () => {

@@ -695,6 +695,7 @@ export function deriveBoundarySchema(
   const seenIds = new Set<string>()
   const routeCache = new WeakMap<object, Partial<Record<'input' | 'output', { node: NodeData; route: BoundaryRoute }>>>()
   const slotTypeBindings = new WeakMap<NodeData, ReadonlyMap<string, TypeExpr>>()
+  const promotedInputs = new WeakMap<NodeData, ReturnType<typeof elabInputsOf>>()
 
   /** A type variable a chosen variant of a top-scope type choice binds. */
   const typeBindingsFor = (node: NodeData): ReadonlyMap<string, TypeExpr> => {
@@ -1051,6 +1052,12 @@ export function deriveBoundarySchema(
     }
     if (!fanoutOk) continue
     const inheritedOptions = inner.widget?.editableOptions ? node.dynamic?.[item.binds.port]?.options : undefined
+    if (promoted && !promotedInputs.has(node)) {
+      promotedInputs.set(node, elabInputsOf(elaborateInterface(resolveNode(node)!, node,
+        (connectivityOf ??= buildGraphConnectivity(graph))(node.id))))
+    }
+    const recordSelectionSource = promoted
+      ? promotedInputs.get(node)?.find((input) => input.spec.id === item.binds.port)?.recordSelectionSource : undefined
     const narrowed = promoted ? narrowedRange(item, inner) : undefined
     const promotedWidget = promoted ? {
       ...inner.widget!,
@@ -1083,6 +1090,7 @@ export function deriveBoundarySchema(
         : inner.widget !== undefined
           ? { forceInput: true }
           : {}),
+      ...(recordSelectionSource !== undefined ? { recordSelectionSource } : {}),
       ...(inner.lazy !== undefined ? { lazy: inner.lazy } : {}),
       ...(automatic !== undefined ? { automatic } : {}),
       ...(promotedWidget?.looked !== undefined || automatic !== undefined

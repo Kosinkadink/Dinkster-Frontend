@@ -1875,11 +1875,16 @@ export function buildScene(input: BuildSceneInput): Scene {
           outsideSpaces.set(row.inputId, { ...outsideSpaces.get(row.inputId), [row.valueKey]: space })
           continue
         }
-        const owner = row.kind === 'widget' ? fieldOwners.get(row.inputId) : undefined
+        if (row.kind !== 'widget') continue
+        const inputId = row.recordSelection?.inputId ?? row.inputId
+        const owner = fieldOwners.get(inputId)
         // Rows whose options are edited on the node (editable choices)
         // stay pins: those edits target the node itself.
-        if (row.kind !== 'widget' || owner === undefined || row.selector !== undefined || row.optionsTarget !== undefined) continue
-        outsideRows.set(row.inputId, [{ ...row, familyOwner: { graphId: owner.graphId, nodeId: owner.nodeId, construct: row.valueKey, valueKey: owner.valueKey } }])
+        if (owner === undefined || row.selector !== undefined || row.optionsTarget !== undefined) continue
+        outsideRows.set(inputId, [...(outsideRows.get(inputId) ?? []), { ...row, familyOwner: {
+          graphId: owner.graphId, nodeId: owner.nodeId,
+          construct: row.recordSelection?.inputId ?? row.valueKey, valueKey: owner.valueKey,
+        } }])
       }
     }
     // A value the owner receives by a wire outside the subgraph is not
