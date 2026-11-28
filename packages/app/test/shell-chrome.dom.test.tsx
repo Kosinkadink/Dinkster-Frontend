@@ -1844,6 +1844,30 @@ describe('DockZoneHost', () => {
 })
 
 describe('left rail tooltip hover session', () => {
+  it('keeps keyboard help when the pointer leaves an unrelated canvas without a session', () => {
+    const root = document.createElement('div')
+    const target = document.createElement('button')
+    target.dataset['tooltipLabel'] = 'Search Dinkster'
+    const canvas = document.createElement('canvas')
+    root.append(target, canvas)
+    document.body.append(root)
+    const controller = new TooltipController(() => 500)
+    controller.register({ id: 'dom', resolve: (target) => ({ lines: [(target as { label: string }).label] }) })
+    const detach = attachDomTooltips(root, controller)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
+    target.focus()
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab' }))
+    expect(controller.visible?.lines).toEqual(['Search Dinkster'])
+
+    canvas.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: null }))
+    expect(document.activeElement).toBe(target)
+    expect(controller.visible?.lines).toEqual(['Search Dinkster'])
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(controller.visible).toBeUndefined()
+    detach()
+  })
+
   it('keeps the original delay deadline while moving between adjacent pending targets', () => {
     vi.useFakeTimers()
     const controller = new TooltipController(() => 500)
