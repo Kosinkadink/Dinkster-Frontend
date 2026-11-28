@@ -84,6 +84,33 @@ await page.addInitScript(() => {
     }
     return response
   }
+  const openRequest = XMLHttpRequest.prototype.open
+  XMLHttpRequest.prototype.open = function (method, url, ...args) {
+    if (
+      method.toUpperCase() === 'POST' &&
+      new URL(String(url), window.location.href).pathname ===
+        '/api/assets/media'
+    ) {
+      this.addEventListener(
+        'load',
+        () => {
+          try {
+            window.__transferResponses.push({
+              status: this.status,
+              payload: JSON.parse(this.responseText),
+            })
+          } catch (error) {
+            window.__transferResponses.push({
+              status: this.status,
+              error: String(error),
+            })
+          }
+        },
+        { once: true },
+      )
+    }
+    return openRequest.call(this, method, url, ...args)
+  }
   for (const [method, counter] of [
     ['arrayBuffer', 'largeArrayBuffer'],
     ['text', 'largeText'],
@@ -237,13 +264,10 @@ try {
       })
       const position = await point.jsonValue()
       await page.mouse.click(position.x, position.y)
-      await expect(page.getByTestId('asset-editor')).toBeVisible()
-      await expect(page.getByTestId('upload-destination-mount')).toContainText(
-        mount,
-      )
-      const metadata = page.getByTestId('asset-schema-metadata')
-      if (policy === null) await expect(metadata).not.toContainText('per file')
-      else await expect(metadata).toContainText('per file')
+      const quickList = page.locator('[data-editor-surface="asset-quick-list"]')
+      await expect(quickList).toBeVisible()
+      if (policy === null) await expect(quickList).toContainText('Any size')
+      else await expect(quickList).toContainText('Up to')
       await page.screenshot({
         path: join(artifacts, `${surface}-${expectedPolicy}-before.png`),
       })
@@ -277,7 +301,7 @@ try {
     try {
       if (surface === 'field') {
         await page
-          .getByTestId('asset-editor')
+          .locator('[data-editor-surface="asset-quick-list"]')
           .locator('input[type=file]')
           .setInputFiles(file)
       } else {
@@ -306,11 +330,19 @@ try {
         })
       }
       if (refused) {
-        const notice =
-          surface === 'field'
-            ? page.getByTestId('asset-editor').locator('.asset-error')
-            : page.getByTestId('canvas-file-drop-surface')
-        await expect(notice).toContainText(/exceeds.*upload limit/i)
+        let notice = page.getByTestId('canvas-file-drop-surface')
+        if (surface === 'field') {
+          const status = page.getByTestId('asset-field-import-status')
+          await expect(status).toHaveAttribute('data-phase', 'refused')
+          await status
+            .getByRole('button', { name: 'Details', exact: true })
+            .click()
+          notice = page.getByRole('dialog', {
+            name: 'File not added',
+            exact: true,
+          })
+        }
+        await expect(notice).toContainText(/This engine takes videos up to/i)
         assert.equal(
           await page.evaluate(() =>
             JSON.stringify(window.__dinksterTest.app.activeTab().store.doc),
@@ -353,12 +385,12 @@ try {
         const payload = captured.payload
         assert.equal(payload.asset.size, size)
         if (surface === 'field') {
-          await expect(page.getByTestId('asset-apply')).toBeEnabled()
-          await page.screenshot({
-            path: join(artifacts, `${surface}-${expectedPolicy}-staged.png`),
-          })
-          await page.getByTestId('asset-apply').click()
-          await expect(page.getByTestId('asset-editor')).toBeHidden()
+          await expect(
+            page.locator('[data-editor-surface="asset-quick-list"]'),
+          ).toBeHidden()
+          await expect(
+            page.getByTestId('asset-field-import-status'),
+          ).toBeHidden()
         }
         await expect
           .poll(() =>
@@ -371,6 +403,8 @@ try {
           )
           .toEqual([payload.asset])
         const query = new URL(uploads[0].url()).searchParams
+        assert.equal(query.get('mount'), mount)
+        assert.equal(new URL(uploads[0].url()).origin, new URL(frontend).origin)
         const stored = new URL(
           `/api/assets/${encodeURIComponent(payload.asset.digest)}`,
           backend,
