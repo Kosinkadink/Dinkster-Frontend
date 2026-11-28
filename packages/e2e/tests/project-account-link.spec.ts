@@ -5,9 +5,10 @@ import { chooseOption } from '../choices.js'
 const accountId = '48bb018e-5b17-4e68-bd81-c6412c4bcd72'
 const issuer = 'https://identity.example.test'
 
-async function openProjects(page: Page) {
+async function openProjects(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Film', exact: true }).click()
   await page.getByRole('menuitem', { name: 'All projects', exact: true }).click()
+  await expect(page.getByTestId('projects-dialog')).toBeVisible()
 }
 
 async function accountFixture(page: Page) {
@@ -100,7 +101,7 @@ test('refuses a replaced project and requires fresh review after a save refusal'
   await dialog.getByRole('button', { name: 'Save link', exact: true }).click()
   await expect(dialog.getByRole('alert')).toContainText('Refresh to review its current state')
   expect(state.writes).toBe(0)
-  await expect(dialog.getByRole('button', { name: 'Save link', exact: true })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Save link', exact: true })).toBeDisabled()
   await page.screenshot({ path: info.outputPath('refused.png') })
   await dialog.getByRole('button', { name: 'Refresh', exact: true }).click()
   await chooseOption(dialog.getByRole('combobox'), 'Film cloud')
