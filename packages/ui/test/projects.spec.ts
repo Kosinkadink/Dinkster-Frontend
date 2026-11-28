@@ -4,6 +4,7 @@ test('installation row cancellation stays separate from pointer and keyboard sel
   for (const width of [1280, 390]) {
     for (const activation of ['Enter', 'Space', 'pointer']) {
       await page.setViewportSize({ width, height: 1000 })
+      await page.goto('about:blank')
       await page.goto('/#projects')
       await page.getByRole('button', { name: 'Installations', exact: true }).click()
       const grid = page.getByRole('grid', { name: 'Installations', exact: true })
