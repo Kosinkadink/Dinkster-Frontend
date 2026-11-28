@@ -741,6 +741,7 @@ export interface StoredValueRow {
   readonly inputId: string
   readonly valueKey: string
   readonly spec: WidgetSpec
+  readonly derivedValue?: Json
 }
 
 export interface BuildSceneInput {

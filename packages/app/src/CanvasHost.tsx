@@ -449,6 +449,7 @@ export function storedValueProblems(
   // explicit null IS stored (ASSET and MOUNT use it as "no value") and must
   // reach the validator.
   if (value === undefined) return []
+  if (row.derivedValue !== undefined) value = row.derivedValue
   const where = `${row.nodeId}.${row.valueKey}`
   if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
     // Model names are valid bindings; the backend presence read owns their availability.
@@ -5123,7 +5124,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             out.push(problem)
           } else {
             out.push(...storedValueProblems(widgetRegistry(), scene.graphId,
-              { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey]))
+              { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec,
+                ...(row.derivedValue === undefined ? {} : { derivedValue: row.derivedValue }) }, node.node.values[row.valueKey]))
           }
         }
       }
