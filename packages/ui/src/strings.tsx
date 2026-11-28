@@ -31,6 +31,8 @@ export const defaultProductStrings = {
   saveFailed: 'Changes could not be saved. Try again.',
   byteSizeInvalid: 'Enter a size in B, KB, MB, GB or TB.',
   byteSizeMinimum: 'Enter a size of at least {size}.',
+  colorValue: 'Color value',
+  colorInvalid: 'Enter an RGB color as #rrggbb.',
   loading: 'Loading',
   tryAgain: 'Try again',
   version: 'Version',
