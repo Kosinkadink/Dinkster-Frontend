@@ -46,7 +46,7 @@ describe('CollectionPanel grouped rows', () => {
       dispose = render(() => <CollectionPanel sources={[source]} />, root)
       await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-retry"]')).not.toBeNull())
       expect(root.textContent).toContain('Moon pack')
-      expect(root.textContent).toContain('Saved blueprints unavailable')
+      expect(root.textContent).toContain('Could not load Blueprints.')
       failed = false
       root.querySelector<HTMLButtonElement>('[data-testid="collection-retry"]')!.click()
       await vi.waitFor(() => expect(root.textContent).toContain('Moon saved'))

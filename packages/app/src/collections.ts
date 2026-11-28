@@ -421,10 +421,11 @@ export function boardBlueprintsSource(backendForPage: () => Backend | undefined,
             label: 'blueprint', limit: 200, ...(next === undefined ? {} : { cursor: next }) })
           items.push(...page.records.map((record): CollectionEntry => ({
             id: `saved:${record.id}`, owner: backend.id, title: record.name,
-            subtitle: `Modified ${formatCollectionDate(record.modified * 1000)}`,
-            badges: [...record.labels.filter((label) => label !== 'blueprint'), `rev ${record.revision}`],
+            kind: 'blueprint',
+            subtitle: `Modified ${formatCollectionRowDate(record.modified * 1000)}`,
+            badges: record.labels.filter((label) => label !== 'blueprint'),
             details: [{ label: 'blueprint id', text: record.id }, { label: 'backend', text: backend.label },
-              { label: 'digest', text: record.digest }],
+              { label: 'digest', text: record.digest }, { label: 'revision', text: String(record.revision) }],
             ref: { kind: 'library', recordId: record.id } satisfies BoardCardSource,
           })))
           next = page.cursor
@@ -435,6 +436,7 @@ export function boardBlueprintsSource(backendForPage: () => Backend | undefined,
       for (const [packId, pack] of registry?.packs ?? []) {
         for (const blueprint of pack.blueprints ?? []) items.push({
           id: `pack:${JSON.stringify([packId, blueprint.id])}`, owner: backend.id, title: blueprint.name,
+          kind: 'blueprint',
           subtitle: blueprint.description ?? pack.displayName, badges: blueprint.tags ?? [],
           details: [{ label: 'pack', text: pack.displayName }, { label: 'digest', text: blueprint.digest }],
           ref: { kind: 'pack', packId, blueprintId: blueprint.id, digest: blueprint.digest } satisfies BoardCardSource,
