@@ -395,7 +395,7 @@
 }
 .gesture-refusal-toast[data-frozen] > span { display: flex; align-items: center; gap: var(--dinkster-space-4); }
 .gesture-refusal-toast span { min-height: 0; flex: 1; overflow: auto; overflow-wrap: anywhere; }
-.gesture-refusal-toast button {
+.gesture-refusal-toast button.product-button {
   display: grid;
   flex: none;
   place-items: center;

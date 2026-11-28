@@ -7471,17 +7471,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                 const stage = canvasEl.closest('.canvas-stage')
                 const controls = [...(stage?.querySelectorAll<HTMLElement>(
                   '.canvas-stage-toolbar > *, .minimap:not(.hidden), .canvas-corner-bar',
-                ) ?? [])].map(control => control.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0)
-                const overlapsControls = controls.some(box => placement.left < box.right &&
-                  placement.left + placement.width > box.left && placement.top < box.bottom &&
+                ) ?? [])].map(control => control.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0 &&
+                  placement.left < box.right && placement.left + placement.width > box.left)
+                const overlapsControls = controls.some(box => placement.top < box.bottom &&
                   placement.top + size.height > box.top)
                 const above = placement.top < input.y || overlapsControls
-                const topBound = Math.max(canvas.top + 12, ...controls.filter(box =>
-                  box.bottom <= input.nodeTop && placement.left < box.right && placement.left + placement.width > box.left,
-                ).map(box => box.bottom + 12))
-                const maxHeight = above ? Math.max(0, input.nodeTop - 12 - topBound) : placement.maxHeight
+                const topBound = canvas.top + 12
+                let bottomBound = input.nodeTop - 12
+                if (above) {
+                  for (const box of controls.sort((a, b) => b.top - a.top)) {
+                    if (box.top < bottomBound && box.bottom > bottomBound - size.height) bottomBound = box.top - 12
+                  }
+                }
+                const maxHeight = above ? Math.max(0, bottomBound - topBound) : placement.maxHeight
                 element.style.left = `${placement.left}px`
-                element.style.top = `${above ? Math.max(topBound, input.nodeTop - 12 - Math.min(size.height, maxHeight)) : placement.top}px`
+                element.style.top = `${above ? Math.max(topBound, bottomBound - Math.min(size.height, maxHeight)) : placement.top}px`
                 element.style.width = `${placement.width}px`
                 element.style.maxHeight = `${maxHeight}px`
               }
