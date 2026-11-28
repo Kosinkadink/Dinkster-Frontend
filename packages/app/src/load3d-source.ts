@@ -1,5 +1,5 @@
-import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, inputsOf, occurrencesForView, parseAssetTypeId, parseTypedLiteralWire, portRefKey, type ExecutionRef, type Json, type WidgetParts } from '@dinkster/core'
-import { viewInstancePath, type AppState, type Tab } from './app-state.js'
+import { asPortId, buildRerouteIndex, companionSourcesOf, defaultValuesOf, inputsOf, occurrencesForView, parseAssetTypeId, parseTypedLiteralWire, portRefKey, type CompileArtifact, type ExecutionRef, type Json, type SchemaResolver, type WidgetParts, type WorkflowDocument } from '@dinkster/core'
+import { viewInstancePath, type AppState, type Backend, type Tab } from './app-state.js'
 import { liveExactnessFor } from './companion-display.js'
 import { validFile3dAsset as validAsset, file3dFormatFromBytes as formatFromBytes } from './file3d-preview.js'
 import type { Model3dLoadOptions } from './model3d-viewer.js'
@@ -46,16 +46,24 @@ const FILE_3D_TYPES = ['FILE_3D', 'FILE_3D_GLB', 'FILE_3D_GLTF', 'FILE_3D_FBX', 
  * read; a read that fails releases what it fetched, and one that succeeds
  * leaves that to the caller.
  */
-export async function openLoad3dSource(app: AppState, tab: Tab, at: {
+export async function openLoad3dSource(app: AppState, owner: Tab | {
+  readonly document: WorkflowDocument
+  readonly backend: Backend
+  readonly resolve: SchemaResolver
+  readonly inputs: CompileArtifact['prompt'][string]['inputs']
+  readonly current: () => boolean
+}, at: {
   readonly graphId: string
   readonly nodeId: string
   readonly parts: WidgetParts | undefined
 }, signal: AbortSignal): Promise<Load3dSource> {
-  const backend = app.backendForTab(tab)
+  const tab = 'store' in owner ? owner : undefined
+  const backend = 'store' in owner ? app.backendForTab(owner) : owner.backend
   if (backend.protocol !== 'dinkster') throw new Load3dSourceError('native')
-  const graph = tab.store.doc.graphs[at.graphId]
+  const document = 'store' in owner ? owner.store.doc : owner.document
+  const graph = document.graphs[at.graphId]
   const node = graph?.nodes[at.nodeId]
-  const resolveSchema = app.registryForTab(tab)?.resolve
+  const resolveSchema = 'store' in owner ? app.registryForTab(owner)?.resolve : owner.resolve
   const index = graph === undefined ? undefined : buildRerouteIndex(graph)
   const sources = graph === undefined ? undefined : companionSourcesOf(graph, index, (sourceId, inputId) => {
     const source = graph.nodes[sourceId]
@@ -73,28 +81,39 @@ export async function openLoad3dSource(app: AppState, tab: Tab, at: {
     const row = rowOf(part)
     if (row === undefined) return undefined
     const source = sources?.get(row)
-    if (source === undefined && node !== undefined && index !== undefined) {
+    if ('store' in owner && source === undefined && node !== undefined && index !== undefined) {
       const key = portRefKey({ node: node.id, port: asPortId(row) })
       if (index.inputDriverOf.has(key) || index.netSourceOf.has(key)) return undefined
     }
-    const value = source === undefined ? node?.values[row] ?? defaults[row] : source.kind === 'literal' ? source.value : resolved.get(part)
+    const value = 'store' in owner
+      ? source === undefined ? node?.values[row] ?? defaults[row] : source.kind === 'literal' ? source.value : resolved.get(part)
+      : owner.inputs[row] as Json | undefined
     const typed = value === undefined ? undefined : parseTypedLiteralWire(value)
     return typed === undefined ? value : typed.value
   }
   const urls: string[] = []
   const release = (): void => { urls.splice(0).forEach((url) => URL.revokeObjectURL(url)) }
-  const backendCurrent = (): boolean => app.backendForTab(tab).connection === backend.connection
+  const backendCurrent = (): boolean => 'store' in owner
+    ? app.backendForTab(owner).connection === backend.connection : owner.current()
   let current = (): boolean => !signal.aborted && backendCurrent()
   const unavailable = () => new Load3dSourceError('unavailable')
   try {
     const inputs = ['model_3d', 'model_file', 'camera_info', 'model_3d_info', 'width', 'height']
-    const producers = inputs.flatMap((inputId) => {
+    if (!('store' in owner)) {
+      const wired = inputs.filter((part) => {
+        const row = rowOf(part)
+        const value = row === undefined ? undefined : owner.inputs[row]
+        return Array.isArray(value) && value.length === 2 && typeof value[0] === 'string' && typeof value[1] === 'number'
+      })
+      if (wired.length > 0) throw new Load3dSourceError('notKnown', wired.includes('model_3d') || wired.includes('model_file'))
+    }
+    const producers = tab === undefined ? [] : inputs.flatMap((inputId) => {
       const row = rowOf(inputId)
       const source = row === undefined ? undefined : sources?.get(row)
       return source?.kind === 'producer' ? [{ inputId, source }] : []
     })
     let producerExecution: ExecutionRef | undefined
-    if (producers.length > 0) {
+    if (tab !== undefined && producers.length > 0) {
       if (producers.some(({ source }) => graph?.nodes[source.node] === undefined)) throw unavailable()
       const execution = app.executionForTab(tab)
       const ran = execution?.artifact

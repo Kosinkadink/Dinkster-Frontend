@@ -318,6 +318,7 @@ describe('Tab editorKind', () => {
     const restored = prepareWorkflowApp(new AppState())
     expect(restored.activeTab()!.editorKind).toBe(GRAPH_EDITOR_KIND)
     expect(restored.activeTab()!.store.doc.ext?.['dinkster.exposed']).toEqual(exposed)
+    restored.settings.set('features.board.enabled', false)
     restored.settings.set('features.appView.enabled', true)
     expect(restored.keybindings.match({ key: 'v', altKey: true } as KeyboardEvent)).toBe('view.toggleAppView')
     restored.commands.get('view.toggleAppView')!.run()

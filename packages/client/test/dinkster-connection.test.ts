@@ -26,7 +26,7 @@ import {
   type Prompt,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { buildDinksterRegistry, DinksterConnection, ExecutionStore, IMAGE_DOCUMENT_MEDIA_TYPE, hydrateDinksterCompletedExecution, PackInstallError, promptToDinksterGraph, reconcileDinksterExecutions, targetsForArtifact, type FetchLike, type WebSocketLike } from '../src/index.js'
+import { buildDinksterRegistry, DinksterConnection, ExecutionStore, IMAGE_DOCUMENT_MEDIA_TYPE, hydrateDinksterTerminalExecution, PackInstallError, promptToDinksterGraph, reconcileDinksterExecutions, targetsForArtifact, type FetchLike, type WebSocketLike } from '../src/index.js'
 import { uuidv4 } from '../src/dinkster-connection.js'
 import { requestFailureReason, subscribeRequestFailures } from '../src/request-failure.js'
 
@@ -2788,9 +2788,11 @@ describe('reconcileDinksterExecutions', () => {
     },
   )
 
-  it('hydrates persisted image outputs after run_finished observed an unfinished job', async () => {
+  it.each(['completed', 'failed', 'cancelled'] as const)('hydrates saved files after a live terminal event: %s', async (state) => {
     const job: Record<string, unknown> = { state: 'running' }
     const { conn, store, seedRunning } = harness({ '/api/jobs/cid/j1': job })
+    let hydration: Promise<void> | undefined
+    conn.onLiveTerminal((execution) => { hydration = hydrateDinksterTerminalExecution(conn, store, execution) })
     seedRunning('j1')
     conn.ingest({ type: 'run_finished', jobId: 'j1' })
     expect(store.get(ref('j1'))!.status).toBe('running')
@@ -2799,14 +2801,26 @@ describe('reconcileDinksterExecutions', () => {
     const outputs = { save: { images: {
       typeId: 'IMAGE', fingerprint: 'saved-image', meta: { shape: [2, 48, 64, 3] },
     } } }
-    Object.assign(job, { state: 'completed', outputs, artifacts: [],
+    const artifacts = [{ nodeId: 'save', digest: `blake3:${'7'.repeat(64)}`,
+      name: 'saved.mp4', size: 137, mediaType: 'video/mp4', virtualPath: 'mounts/renders/saved.mp4' }]
+    Object.assign(job, { state, ...(state === 'completed' ? { outputs } : {}), artifacts,
       automaticValues: [{ nodeId: 'save', inputId: 'fps', value: 24, source: 'default' }] })
-    conn.ingest({ type: 'job_state', jobId: 'j1', state: 'completed' })
-    expect(store.get(ref('j1'))!.status).toBe('completed')
-    await hydrateDinksterCompletedExecution(conn, store, ref('j1'))
-    expect(store.get(ref('j1'))!.outputs).toEqual(outputs)
+    conn.ingest({ type: 'job_state', jobId: 'j1', state })
+    expect(hydration).toBeDefined()
+    await hydration
+    expect(store.get(ref('j1'))!.status).toBe(state === 'failed' ? 'error' : state)
+    expect(store.get(ref('j1'))!.outputs).toEqual(state === 'completed' ? outputs : {})
+    expect(store.get(ref('j1'))!.artifacts).toEqual(artifacts)
     expect(store.get(ref('j1'))!.artifactsHydrated).toBe(true)
     expect(store.get(ref('j1'))!.automaticValues).toEqual([{ runtimeNodeId: 'save', inputId: 'fps', value: 24, workedOut: false }])
+
+    const cached = harness({ '/api/jobs/cid/j1': job })
+    cached.seedRunning('j1')
+    cached.conn.ingest({ type: 'job_state', jobId: 'j1', state })
+    await reconcileDinksterExecutions(cached.conn, cached.store)
+    expect(cached.store.get(ref('j1'))).toMatchObject({
+      status: state === 'failed' ? 'error' : state, artifacts, artifactsHydrated: true,
+    })
   })
 
   it('completes a run whose terminal event was missed, hydrating output descriptors', async () => {

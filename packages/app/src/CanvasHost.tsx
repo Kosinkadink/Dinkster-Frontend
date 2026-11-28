@@ -75,7 +75,7 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { CanvasColorArriving, CanvasRowAbsence, CanvasSeedModeIcon, CanvasSidePart, ProductSecretDialog } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart, ProductSecretDialog } from '@dinkster/ui'
 import {
   defaultValuesOf,
   hasKnownLinkDropAnchorType,
@@ -113,6 +113,7 @@ import {
   nodeSearchFields,
   searchVisibilityOf,
   isAssetWidgetInput,
+  isComboWidgetInput,
   isPortEndpoint,
   planOccurrenceLinkMutation,
   samePortRef,
@@ -146,7 +147,8 @@ import {
   type WorkflowDocument,
   widgetRepresentationChoices,
 } from '@dinkster/core'
-import { Check, CheckCircle2, FileUp, LoaderCircle, Snowflake, TriangleAlert, X } from 'lucide-solid'
+import { CheckCircle2, FileUp, LoaderCircle, Snowflake, TriangleAlert, X } from 'lucide-solid'
+import { ControllerModeMenu } from './ControllerModeMenu.js'
 import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
 import { runClock } from './execution-activity.js'
 import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
@@ -2013,6 +2015,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly inputId: string
     readonly mode: ControllerMode
     readonly trigger: 'after_generate' | 'after_refresh'
+    readonly choice: boolean
     readonly lifetime: object
     readonly refusal: Diagnostic | undefined
   }
@@ -2058,8 +2061,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     controller: ControllerMenuState,
     mode: ControllerMode,
   ): Promise<void> => {
-    // The compact canvas-row menu is the sole controller surface. Refuse
-    // when the tab object that opened it is gone.
+    // Refuse when the tab object that opened the menu is gone.
     if (!props.app.tabs.get().includes(controller.tab) || pendingController() === controller.lifetime) return
     const store = controller.tab.store
     const stack = controller.tab.graphStack.get()
@@ -2521,8 +2523,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [menu, setMenu] = createSolidSignal<OwnedMenuAnchor | undefined>(undefined)
   let refreshMenuScopes: (() => void) | undefined
   createEffect(on(selectionScopesChanged, () => refreshMenuScopes?.(), { defer: true }))
-  const appViewEnabled = createMemo(() => (settingsTick(), props.app.appViewEnabled))
-  createEffect(() => { appViewEnabled(); setMenu(undefined) })
+  const exposureEnabled = createMemo(() => (settingsTick(), props.app.exposureEnabled))
+  createEffect(() => { exposureEnabled(); setMenu(undefined) })
   /** Set in onMount; invoking needs the controller + renderer closures. */
   let menuInvoke: (item: MenuActionItem) => void = () => {}
 
@@ -3582,6 +3584,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           inputId: hit.row.familyOwner?.valueKey ?? hit.row.valueKey,
           mode: hit.row.controllerMode,
           trigger: hit.row.spec.controller ?? 'after_generate',
+          choice: isComboWidgetInput({ widget: hit.row.spec }),
         })
       },
       onBadgeClick: (node, badge, rect) => {
@@ -7377,6 +7380,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       progress: state?.status === 'running' ? executionProgress(state) : undefined,
       queuedAt: state?.queuedAt,
       sync: props.app.frozenSyncStatus(tab),
+      boardRun: state?.artifact?.snapshot.ext?.['dinkster.boardCard'] !== undefined,
       tooltip: message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
         state: state === undefined ? '' : executionStatusLabel(state.status).toLocaleLowerCase() }),
       live: props.app.liveTabFor(tab.store.doc.lineage),
@@ -8058,49 +8062,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             data-testid="seed-controller-catcher"
             onPointerDown={(event) => { if (event.target === event.currentTarget) setControllerMenu(undefined) }}
           >
-            <div
-              ref={controllerMenuEl}
-              class="floating-surface seed-controller-menu"
-              data-testid="seed-controller-menu"
-              style={{ left: `${menu().x}px`, top: `${menu().y}px` }}
-              role="menu"
-              aria-busy={pendingController() === menu().lifetime}
-            >
-              <div class="seed-controller-title">After {menu().trigger === 'after_refresh' ? 'refresh' : 'generate'}</div>
-              <For each={[
-                { mode: 'fixed' as const, label: 'Fixed', description: menu().trigger === 'after_refresh' ? 'Keep this value after refresh.' : 'Keep this value after a successful run.' },
-                { mode: 'increment' as const, label: menu().trigger === 'after_refresh' ? 'Next' : 'Increment', description: menu().trigger === 'after_refresh' ? 'Choose the next option after refresh.' : 'Add the widget step after a successful run.' },
-                { mode: 'decrement' as const, label: menu().trigger === 'after_refresh' ? 'Previous' : 'Decrement', description: menu().trigger === 'after_refresh' ? 'Choose the previous option after refresh.' : 'Subtract the widget step after a successful run.' },
-                {
-                  mode: 'randomize' as const,
-                  label: menu().trigger === 'after_refresh' ? 'Randomize after refresh' : 'Randomize after run',
-                  description: menu().trigger === 'after_refresh'
-                    ? 'After each refresh, choose a random option; selecting this mode does not change the current value.'
-                    : 'After each successful run, choose a new seed within bounds; selecting this mode does not change the current value.',
-                },
-              ]}>
-                {(option) => (
-                  <ProductButton variant="ghost" size="compact"
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={menu().mode === option.mode}
-                    class={`seed-controller-option${menu().mode === option.mode ? ' selected' : ''}`}
-                    data-testid={`seed-controller-${option.mode}`}
-                    disabled={pendingController() === menu().lifetime}
-                    onClick={() => { void commitControllerMode(menu(), option.mode) }}
-                  >
-                    <CanvasSeedModeIcon mode={option.mode} trigger={menu().trigger} />
-                    <span><strong>{option.label}</strong><small>{option.description}</small></span>
-                    <Show when={menu().mode === option.mode}><Icon icon={Check} /></Show>
-                  </ProductButton>
-                )}
-              </For>
-              <Show when={menu().refusal} keyed>
-                {(refusal) => <ProductNotice tone="error" testId="controller-refusal">
-                  <strong>{refusal.code}</strong>: {refusal.message}
-                </ProductNotice>}
-              </Show>
-            </div>
+            <ControllerModeMenu ref={(element) => {
+              controllerMenuEl = element
+              element.style.left = `${menu().x}px`
+              element.style.top = `${menu().y}px`
+            }}
+              mode={menu().mode} trigger={menu().trigger} choice={menu().choice} pending={pendingController() === menu().lifetime}
+              refusal={menu().refusal} onMode={(mode) => { void commitControllerMode(menu(), mode) }} />
           </div>
         )}
       </Show>
@@ -8193,7 +8161,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   : f().status === 'queued'
                     ? message('frozen.queued')
                     : f().queuedAt === undefined ? '' : message('frozen.ran', { time: runClock(f().queuedAt!) })}
-                {' '}{message(f().sync === 'in-sync' ? 'frozen.sync.inSync' : f().sync === 'diverged' ? 'frozen.sync.diverged' : 'frozen.sync.noLive')}
+                <Show when={!f().boardRun}>
+                  {' '}{message(f().sync === 'in-sync' ? 'frozen.sync.inSync' : f().sync === 'diverged' ? 'frozen.sync.diverged' : 'frozen.sync.noLive')}
+                </Show>
               </span>
               <Show when={f().schemasUnavailable}>
                 <span class="frozen-schema-warning" data-testid="frozen-schema-missing">

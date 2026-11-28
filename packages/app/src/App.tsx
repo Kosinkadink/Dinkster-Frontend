@@ -28,6 +28,7 @@ import FileIcon from 'lucide-solid/icons/file'
 import FileText from 'lucide-solid/icons/file-text'
 import Film from 'lucide-solid/icons/film'
 import type { LucideIcon } from 'lucide-solid'
+import { ProductImageUnavailable } from '@dinkster/ui'
 import { backendConnectionStatus, backendMetadataError, currentGraphId, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
@@ -531,6 +532,10 @@ export function App(props: {
   const appViewEnabled = createMemo((): boolean => {
     settingsTick()
     return app.appViewEnabled
+  })
+  const exposureEnabled = createMemo((): boolean => {
+    settingsTick()
+    return app.exposureEnabled
   })
   const backends = useSignal(app.backends)
   const backendsTick = useSignal(app.backendsTick)
@@ -1672,7 +1677,7 @@ export function App(props: {
       onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
       <div class="run-row-line">
-        <span class="run-row-thumbnail" aria-hidden="true">
+        <span class="run-row-thumbnail">
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
         </span>
         <span class="run-row-text">
@@ -3150,7 +3155,7 @@ export function App(props: {
               activeView={paneEditorKind()}
               appViewEnabled={appViewEnabled()}
               activeLens={paneCanvasLens()}
-              lenses={app.lensRegistry.list().filter((lens) => lens.id !== 'exposure' || appViewEnabled())}
+              lenses={app.lensRegistry.list().filter((lens) => lens.id !== 'exposure' || exposureEnabled())}
               viewMenuOpen={viewMenu()}
               lensMenuOpen={lensMenu()}
               onToggleViewMenu={() => { setLensMenu(false); setViewMenu((open) => !open) }}
@@ -3209,9 +3214,9 @@ export function App(props: {
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), app.registryForTab(tab()) !== undefined)}
                       blockedReason={(backendsTick(), app.engineOffReason(tab(), message))}
-                      runControl={(runButton) => <Show when={(backendsTick(), tab().execution === undefined ? app.backendForTab(tab()).supervisor.get() : undefined)} fallback={runButton}>
+                      runControl={(runButton) => <Show when={(backendsTick(), tab().execution === undefined ? app.backendForTab(tab()).supervisor.get() : undefined)} fallback={runButton()}>
                         {(status) => <EngineRunControl status={status()} baseUrl={app.backendForTab(tab()).baseUrl}
-                          onRestart={() => app.restartEngine(app.backendForTab(tab()))}>{runButton}</EngineRunControl>}
+                          onRestart={() => app.restartEngine(app.backendForTab(tab()))}>{runButton()}</EngineRunControl>}
                       </Show>}
                       hideRunList={engineGate(tab())?.state === 'failed'}
                       onQueue={tab().execution === undefined ? () => { void app.queue(tab()) } : undefined}
@@ -3935,7 +3940,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
                 onClick={(event) => { event.stopPropagation(); setViewerGrid(false); setViewerIndex(index) }}
               >
                 <span class="output-thumbnail-preview">
-                  <Show when={!failed().has(image.key)} fallback={<span class="output-thumbnail-unavailable">Image unavailable</span>}>
+                  <Show when={!failed().has(image.key)} fallback={<ProductImageUnavailable />}>
                     <ViewerImage image={image} alt="" onLoad={() => markLoaded(image.key)} onError={() => markFailed(image.key)} />
                   </Show>
                   <span class="output-thumbnail-position">Output {index + 1} of {images().length}</span>

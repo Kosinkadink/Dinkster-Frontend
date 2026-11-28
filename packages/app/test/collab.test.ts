@@ -289,6 +289,104 @@ describe('Board workspace collaboration', () => {
     expect(joined.session.doc).toEqual(shared.session.doc)
   })
 
+  it('places saved runs around existing items without shifting them and reuses the freed home', async () => {
+    const app = makeApp(new FakeCollabServer())
+    const entry = app.boards.open(emptyBoard(), 'Results', 'http://collab')
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'card', kind: 'workflow', name: 'Rain', source: { kind: 'library', recordId: 'saved' },
+      values: {}, rect: { x: 17, y: 29, width: 340, height: 188 },
+    }, { id: 'note', kind: 'note', text: 'Keep this here',
+      rect: { x: 685, y: 29, width: 200, height: 240 } }, {
+      id: 'section', kind: 'section', name: 'Background', rect: { x: 0, y: 0, width: 1400, height: 1200 },
+    }] } })
+    const connection = app.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)!.connection
+    vi.spyOn(connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+      digests.map((digest) => ({ digest, status: 'available' })))
+    const assets = Array.from({ length: 4 }, (_, index) => ({ digest: `blake3:${String(index + 1).repeat(64)}`,
+      name: `Saved ${index}`, mediaType: 'image/png', width: 160, height: 320 }))
+    const held = app.boards.reserveResultPlaces(entry.id, 'card', 1)
+    expect(held).toEqual([{ x: 381, y: 29, width: 280, height: 175 }])
+    const note = entry.session.doc.items['note']
+    const source = { project: activeProjectId(), baseUrl: entry.baseUrl, assets,
+      run: { job: 'first', card: 'card', places: held } }
+    const ids = await app.boards.placeMedia(entry.id, source, held[0]!)
+    expect(ids.map((id) => entry.session.doc.items[id]!.rect)).toEqual([
+      { x: 381, y: 29, width: 87.5, height: 175 },
+      { x: 381, y: 293, width: 87.5, height: 175 },
+      { x: 685, y: 293, width: 87.5, height: 175 },
+      { x: 381, y: 492, width: 87.5, height: 175 },
+    ])
+    expect(entry.session.doc.items['note']).toEqual(note)
+    const later = app.boards.reserveResultPlaces(entry.id, 'card', 1)
+    expect(later).toHaveLength(4)
+    expect(later[0]).toEqual({ x: 381, y: 691, width: 87.5, height: 175 })
+    for (const id of ids) entry.session.dispatch({ command: 'board.item.move', params: {
+      moves: [{ id, x: -600, y: entry.session.doc.items[id]!.rect.y }],
+    } })
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1)[0]).toEqual({ x: 381, y: 29, width: 87.5, height: 175 })
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1, [{ x: 381, y: 29, width: 280, height: 175 }])[0]!.y).toBe(228)
+    entry.session.dispatch({ command: 'board.item.remove', params: { ids } })
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1)).toHaveLength(4)
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1)[0]).toEqual({ x: 381, y: 293, width: 280, height: 175 })
+    app.dispose()
+  })
+
+  it('records checked run deliveries once and never restores removed results on reopening', async () => {
+    const app = makeApp(new FakeCollabServer())
+    const entry = app.boards.open(emptyBoard(), 'Results', 'http://collab')
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'card', kind: 'workflow', name: 'Rain', source: { kind: 'library', recordId: 'saved' },
+      values: {}, rect: { x: 17, y: 29, width: 340, height: 240 },
+    }] } })
+    const connection = app.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)!.connection
+    let missing = true
+    vi.spyOn(connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+      digests.map((digest, index) => ({ digest, status: missing && index === 1 ? 'missing' : 'available' })))
+    const source = { project: activeProjectId(), baseUrl: entry.baseUrl,
+      run: { job: 'native-run', card: 'card' }, assets: [
+        { digest: `blake3:${'1'.repeat(64)}`, name: 'Rain', mediaType: 'video/mp4', origin: { job: 'native-run', node: 'save-video' } },
+        { digest: `blake3:${'2'.repeat(64)}`, name: 'Sound', mediaType: 'audio/wav', origin: { job: 'native-run', node: 'save-sound' } },
+      ] }
+    const point = { x: 410, y: 29 }
+    await expect(app.boards.placeMedia(entry.id, source, point)).rejects.toThrow('nothing was placed')
+    expect(entry.session.doc.order).toEqual(['card'])
+    expect(entry.session.doc.runs).toBeUndefined()
+    missing = false
+    const ids = await app.boards.placeMedia(entry.id, source, point)
+    expect(ids.map((id) => entry.session.doc.items[id]!.kind)).toEqual(['video', 'sound'])
+    expect(entry.session.doc.runs).toEqual({ 'native-run': { card: 'card', items: ids } })
+    expect(entry.session.doc.items[ids[1]!]).toMatchObject({ asset: { origin: { job: 'native-run', node: 'save-sound' } } })
+    expect(await app.boards.placeMedia(entry.id, source, point)).toEqual([])
+    expect(await app.boards.placeMedia(entry.id, { ...source, assets: [], run: { job: 'empty-run', card: 'card' } }, point)).toEqual([])
+    expect(entry.session.doc.runs?.['empty-run']).toEqual({ card: 'card', items: [] })
+    expect(entry.session.undo()).toBe(true)
+    expect(entry.session.doc.order).toEqual(['card'])
+    expect(entry.session.redo()).toBe(true)
+    expect(entry.session.doc.order).toEqual(['card', ...ids])
+    entry.session.dispatch({ command: 'board.item.remove', params: { ids } })
+    const snapshot = JSON.parse(JSON.stringify(entry.session.doc))
+    app.boards.close(entry.id)
+    const reopened = app.boards.open(snapshot, 'Reopened', entry.baseUrl)
+    // A replay needs neither availability nor source bytes after delivery was recorded.
+    missing = true
+    expect(await app.boards.placeMedia(reopened.id, source, point)).toEqual([])
+    expect(reopened.session.doc.order).toEqual(['card'])
+    expect(reopened.session.doc.runs?.['native-run']?.items).toEqual(ids)
+    await expect(app.boards.placeMedia(reopened.id, { ...source, baseUrl: 'http://other' }, point)).rejects.toThrow('project and backend')
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(connection.checkAssetAvailability).mockImplementation(async (digests) => {
+      await gate
+      return digests.map((digest) => ({ digest, status: 'available' }))
+    })
+    const late = app.boards.placeMedia(reopened.id, { ...source, run: { job: 'next-run', card: 'card' } }, point)
+    reopened.session.dispatch({ command: 'board.item.remove', params: { ids: ['card'] } })
+    release()
+    await expect(late).rejects.toThrow('no item')
+    expect(reopened.session.doc.order).toEqual([])
+    expect(reopened.session.doc.runs?.['next-run']).toBeUndefined()
+  })
+
   it('owns placed Assets, preserves their recorded origin and proportions, and refuses a mixed missing batch', async () => {
     const app = makeApp(new FakeCollabServer())
     const entry = app.boards.open(emptyBoard(), 'References', 'http://collab')

@@ -1350,7 +1350,7 @@ export function allRowsOf(rows: readonly OptionRow[]): readonly OptionRow[] {
 }
 
 /** An input whose concrete COMBO value is edited by a combo dropdown. */
-export const isComboWidgetInput = (spec: InputSpec): boolean =>
+export const isComboWidgetInput = (spec: Pick<InputSpec, 'widget'>): boolean =>
   spec.widget?.widgetType === 'COMBO'
 
 export const isAssetWidgetInput = (spec: Pick<InputSpec, 'widget'>): boolean =>

@@ -496,7 +496,7 @@ interface DinksterTestBridge {
           status: { get(): string }
           accountStatus(): Promise<unknown>
           ingest(event: Readonly<Record<string, unknown>> & { type: string }): void
-          onLiveCompletion(listener: (execution: DinksterBridgeExecutionRef) => void): () => void
+          onLiveTerminal(listener: (execution: DinksterBridgeExecutionRef) => void): () => void
         }
         schemaState: { get(): { status: string } }
         registry: { get(): {
