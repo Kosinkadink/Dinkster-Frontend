@@ -5,6 +5,7 @@ import type {
   NodeSchema,
   PackInfo,
   SchemaResolver,
+  TypeDisplayNames,
 } from '@dinkster/core'
 
 export interface SchemaRegistry {
@@ -19,6 +20,8 @@ export interface SchemaRegistry {
    * provenance). Keys are the pack ids NodeSchema.pack refers to.
    */
   readonly packs?: ReadonlyMap<string, PackInfo>
+  /** Catalog-scoped names derived from namespace owners, not storage providers. */
+  readonly typeDisplayNames?: TypeDisplayNames
   /**
    * Server identity from the /api/nodes "dinkster" header (Dinkster native
    * only). Feeds environment stamps. `schemaWire` also tells UI

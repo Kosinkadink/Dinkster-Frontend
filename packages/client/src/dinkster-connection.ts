@@ -52,6 +52,8 @@ import {
   sha256Hex,
   graphFeaturesFromDinksterWire,
   mergeableTypesFromDinksterWire,
+  typeOwnersFromDinksterWire,
+  typeDisplayNamesForCatalog,
   serverInfoFromDinksterWire,
   parseOccurrenceKey,
   schemaForEditorRole,
@@ -4852,6 +4854,8 @@ export function buildDinksterRegistry(
   const server = serverInfoFromDinksterWire(raw)
   const graphFeatures = graphFeaturesFromDinksterWire(raw)
   const mergeableTypes = mergeableTypesFromDinksterWire(raw)
+  const packs = packsFromDinksterWire(raw)
+  const typeDisplayNames = typeDisplayNamesForCatalog(typeOwnersFromDinksterWire(raw), new Set(packs.keys()))
   // Additive fields, absent on older backends: epoch is a positive int
   // (surface generation), composing is present-only-when-true.
   const epoch =
@@ -4865,7 +4869,8 @@ export function buildDinksterRegistry(
     schemas,
     diagnostics: parsed.diagnostics,
     resolve,
-    packs: packsFromDinksterWire(raw),
+    packs,
+    typeDisplayNames,
     ...(server !== undefined ? { server } : {}),
     ...(graphFeatures !== undefined ? { graphFeatures } : {}),
     ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
@@ -4894,7 +4899,7 @@ function schemaIdentityWithoutWidgetPresentation(
   const multiComboWidget = record['type'] === 'MULTI_COMBO'
   return Object.fromEntries(
     Object.entries(value).flatMap(([key, entry]) =>
-      key === 'hasDocs' ||
+      key === 'hasDocs' || key === 'typeOwners' ||
       (record['role'] === 'input' && key === 'socketless') ||
       (record['role'] === 'input' &&
         (key === 'acceptsStorage' ||

@@ -281,6 +281,8 @@ export interface DinksterNodesPayload {
   readonly extensionSnapshotDigest?: unknown
   /** packId -> presentation table (additive; absent on older backends). */
   readonly packs?: unknown
+  /** Atom id -> namespace-owning public pack, or null for unowned atoms. */
+  readonly typeOwners?: unknown
   /** Server identity header {version, schemaWire} (additive; absent on older backends). */
   readonly dinkster?: unknown
   /**
@@ -2797,6 +2799,15 @@ export function serverInfoFromDinksterWire(payload: DinksterNodesPayload): {
     ? (h.services as { name?: unknown }).name : undefined
   return { version: h.version, schemaWire: h.schemaWire,
     ...(name === 'production' || name === 'qa' || name === 'custom' ? { services: { name } } : {}) }
+}
+
+/** Namespace ownership is presentation metadata, never a storage-provider fallback. */
+export function typeOwnersFromDinksterWire(payload: DinksterNodesPayload): ReadonlyMap<string, string | null> {
+  const raw = payload.typeOwners
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return new Map()
+  return new Map(Object.entries(raw).filter((entry): entry is [string, string | null] =>
+    entry[1] === null || (typeof entry[1] === 'string' && entry[1].length > 0),
+  ))
 }
 
 /**

@@ -3,7 +3,9 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, typeAtomDisplayLabel, typeDisplayAliases, type NodeRunState, type TypeExpr, type TypeDisplayNames } from '@dinkster/core'
+
+export { typeDisplayAliases } from '@dinkster/core'
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
@@ -807,6 +809,7 @@ export interface RowGeometry {
 }
 
 export interface DesignTokens {
+  readonly typeDisplayNames?: TypeDisplayNames
   readonly rowHeight: number
   readonly headerHeight: number
   readonly padX: number
@@ -1192,34 +1195,16 @@ export function canvasColorsForTheme(theme: 'dark' | 'light'): DesignTokens['col
 }
 
 /**
- * Display aliases for the existing ComfyUI image and mask bridges.
- * Consulted by BOTH the label and the color lookup so name and color
- * can never disagree. Presentation only - never use these for compatibility
- * decisions; type ids in documents, wire payloads, and persistence are
- * unchanged.
- */
-export const typeDisplayAliases: Readonly<Record<string, string>> = Object.freeze(
-  // Null prototype so lookups by arbitrary type names (e.g. 'constructor')
-  // can never resolve to inherited Object.prototype members.
-  Object.assign(Object.create(null) as Record<string, string>, {
-    'comfy.IMAGE': 'IMAGE',
-    'comfy.MASK': 'MASK',
-  }),
-)
-
-const EMPTY_ALIASES: Readonly<Record<string, string>> = Object.freeze(Object.create(null))
-
-/**
  * Display label for a canonical type-id STRING: the base element is aliased
  * through typeDisplayAliases while list/asset wrappers are kept. Presentation
  * only - the input remains the canonical value for matching and persistence.
  */
-export const typeIdDisplayLabel = (typeId: string): string => {
+export const typeIdDisplayLabel = (typeId: string, names?: TypeDisplayNames): string => {
   const listInner = parseListTypeId(typeId)
-  if (listInner !== undefined) return `list<${typeIdDisplayLabel(listInner)}>`
+  if (listInner !== undefined) return `list<${typeIdDisplayLabel(listInner, names)}>`
   const assetInner = parseAssetTypeId(typeId)
-  if (assetInner !== undefined) return `asset<${typeIdDisplayLabel(assetInner)}>`
-  return typeDisplayAliases[typeId] ?? typeId
+  if (assetInner !== undefined) return `asset<${typeIdDisplayLabel(assetInner, names)}>`
+  return typeAtomDisplayLabel(typeId, names)
 }
 
 /** Stable fallback color for unlisted data types. */
@@ -1256,31 +1241,29 @@ export interface PresentedType {
 }
 
 /** Display label for a TypeExpr without changing its semantic identity. */
-const typeExprLabelWith = (type: TypeExpr, aliases: Readonly<Record<string, string>>): string => {
+const typeExprLabelWith = (type: TypeExpr, atom: (id: string) => string): string => {
   switch (type.kind) {
-    case 'concrete': return aliases[type.name] ?? type.name
-    case 'union': return type.names.map((name) => aliases[name] ?? name).join(' | ')
+    case 'concrete': return atom(type.name)
+    case 'union': return type.names.map(atom).join(' | ')
     case 'wildcard': return 'Any'
-    case 'tuple': return `tuple<${type.elements.map((element, index) => `${index}: ${typeExprLabelWith(element, aliases)}`).join(', ')}>`
-    case 'tuple_element': return `${type.element === undefined ? type.input : typeExprLabelWith(type.element, aliases)}[${type.index}]`
+    case 'tuple': return `tuple<${type.elements.map((element, index) => `${index}: ${typeExprLabelWith(element, atom)}`).join(', ')}>`
+    case 'tuple_element': return `${type.element === undefined ? type.input : typeExprLabelWith(type.element, atom)}[${type.index}]`
     case 'variable':
       return type.allowedTypes !== undefined && type.allowedTypes.length > 0
-        ? type.allowedTypes.map((allowed) => typeExprLabelWith(allowed, aliases)).join(' | ')
+        ? type.allowedTypes.map((allowed) => typeExprLabelWith(allowed, atom)).join(' | ')
         : type.templateId
-    case 'list': return `list<${typeExprLabelWith(type.element, aliases)}>`
-    case 'asset': return `asset<${typeExprLabelWith(type.element, aliases)}>`
-    case 'stream': return `stream<${typeExprLabelWith(type.element, aliases)}>`
+    case 'list': return `list<${typeExprLabelWith(type.element, atom)}>`
+    case 'asset': return `asset<${typeExprLabelWith(type.element, atom)}>`
+    case 'stream': return `stream<${typeExprLabelWith(type.element, atom)}>`
   }
 }
-
-const typeExprLabel = (type: TypeExpr): string => typeExprLabelWith(type, typeDisplayAliases)
 
 /**
  * Canonical (unaliased) rendering of a TypeExpr. Use for values that must
  * later match canonical type ids (e.g. search filter tokens), never for
  * user-facing labels.
  */
-export const typeExprCanonicalLabel = (type: TypeExpr): string => typeExprLabelWith(type, EMPTY_ALIASES)
+export const typeExprCanonicalLabel = (type: TypeExpr): string => typeExprLabelWith(type, (id) => id)
 
 /**
  * One presentation boundary for pin labels, colors, and tooltip hints.
@@ -1313,15 +1296,15 @@ export function presentedType(
       tooltip: `Match type ${type.templateId}; every ${type.templateId} port on this node resolves together.`,
     }
   }
-  const label = typeExprLabel(type)
+  const label = typeExprLabelWith(type, (id) => typeAtomDisplayLabel(id, tokens.typeDisplayNames))
   return {
     ...(canonicalName !== undefined ? { canonicalName } : {}),
     label,
     color: canonicalName === undefined ? tokens.colors.linkDefault : typeColor(tokens, canonicalName),
     // An aliased display name keeps the canonical id visible as secondary
     // technical detail so the underlying type is never hidden.
-    tooltip: canonicalName !== undefined && typeDisplayAliases[canonicalName] !== undefined
-      ? `${label} (${canonicalName})`
+    tooltip: (tokens.typeDisplayNames !== undefined && label !== typeExprCanonicalLabel(type)) || (canonicalName !== undefined && typeDisplayAliases[canonicalName] !== undefined)
+      ? `${label} (${canonicalName ?? typeExprCanonicalLabel(type)})`
       : label,
   }
 }
