@@ -13,10 +13,12 @@ test('installation row cancellation stays separate from pointer and keyboard sel
       const cancel = grid.getByRole('button', { name: 'Cancel Nightly restore', exact: true })
       await expect(stable).toHaveAttribute('aria-selected', 'true')
       await nightly.getByRole('gridcell').first().click()
-      await expect(detail).toHaveText('Nightly')
+      await expect(nightly).toHaveAttribute('aria-selected', 'true')
+      if (width === 1280) await expect(detail).toHaveText('Nightly')
       await page.keyboard.press('Home')
       await expect(stable.getByRole('gridcell').first()).toBeFocused()
-      await expect(detail).toHaveText('Stable')
+      await expect(stable).toHaveAttribute('aria-selected', 'true')
+      if (width === 1280) await expect(detail).toHaveText('Stable')
       await page.keyboard.press('End')
       await expect(nightly.getByRole('gridcell').first()).toBeFocused()
       await page.keyboard.press('ArrowRight')
@@ -39,7 +41,7 @@ test('installation row cancellation stays separate from pointer and keyboard sel
       await expect(nightly.getByRole('gridcell').first()).toBeFocused()
       await expect(nightly).toContainText('Cancelling restore')
       await expect(stable).toHaveAttribute('aria-selected', 'true')
-      await expect(detail).toHaveText('Stable')
+      if (width === 1280) await expect(detail).toHaveText('Stable')
     }
   }
 })

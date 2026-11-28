@@ -6,6 +6,8 @@ import {
   createMemo,
   createUniqueId,
   mergeProps,
+  onCleanup,
+  onMount,
   useContext,
   type JSX,
 } from 'solid-js'
@@ -257,6 +259,45 @@ export function ProductProjectRows(props: {
             <For each={projects().map((project) => project.id)}>
               {(id) => {
                 const project = mergeProps(() => entries().get(id)!)
+                let actionCell: HTMLDivElement | undefined
+                onMount(() => {
+                  const cell = actionCell
+                  if (!cell) return
+                  let focusedAction: HTMLButtonElement | undefined
+                  const trackFocus = (event: FocusEvent) => {
+                    const button = (event.target as HTMLElement).closest(
+                      'button',
+                    )
+                    focusedAction =
+                      button && cell.contains(button) ? button : undefined
+                  }
+                  const observer = new MutationObserver(() => {
+                    const button = focusedAction
+                    if (
+                      button &&
+                      cell.isConnected &&
+                      (button.disabled || !button.isConnected) &&
+                      (document.activeElement === button ||
+                        document.activeElement === document.body)
+                    ) {
+                      focusedAction = undefined
+                      cell.parentElement
+                        ?.querySelector<HTMLElement>('[data-project-selection]')
+                        ?.focus()
+                    }
+                  })
+                  document.addEventListener('focusin', trackFocus)
+                  observer.observe(cell, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['disabled'],
+                  })
+                  onCleanup(() => {
+                    observer.disconnect()
+                    document.removeEventListener('focusin', trackFocus)
+                  })
+                })
                 const copy = () => (
                   <>
                     <span class="dinkster-project-row-name">
@@ -311,37 +352,10 @@ export function ProductProjectRows(props: {
                             {copy()}
                           </div>
                           <div
+                            ref={actionCell}
                             class="dinkster-project-row-action"
                             role="gridcell"
                             data-project-action=""
-                            on:click={{
-                              capture: true,
-                              handleEvent: (event) => {
-                                const cell = event.currentTarget
-                                const button = (
-                                  event.target as HTMLElement
-                                ).closest('button')
-                                if (
-                                  !button ||
-                                  document.activeElement !== button
-                                )
-                                  return
-                                queueMicrotask(() => {
-                                  if (
-                                    cell.isConnected &&
-                                    (button.disabled || !button.isConnected) &&
-                                    (document.activeElement === button ||
-                                      document.activeElement === document.body)
-                                  ) {
-                                    cell.parentElement
-                                      ?.querySelector<HTMLElement>(
-                                        '[data-project-selection]',
-                                      )
-                                      ?.focus()
-                                  }
-                                })
-                              },
-                            }}
                           >
                             {action()(project)}
                           </div>
