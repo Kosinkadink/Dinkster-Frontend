@@ -1042,6 +1042,48 @@ const dynDoc = (parts: {
 const dynCompile = (doc: WorkflowDocument, scope: ExecutionScope = { kind: 'full' }) =>
   compile({ ...compileInput(doc, scope), resolve: dynResolve })
 
+it('compiles a record selected from generic list and tuple nodes through a subgraph', () => {
+  const variable = { kind: 'variable', templateId: 'T' } as const
+  const integer = { kind: 'concrete', types: ['INT'] } as const
+  const text = { kind: 'concrete', types: ['STRING'] } as const
+  const record = { kind: 'record', types: ['settings'], fields: [
+    { id: 'seed', name: 'seed', type: integer },
+    { id: 'prompt', name: 'prompt', type: text },
+  ] } as const
+  const bodies = {
+    source: [{ kind: 'output', id: 'record', type: record }],
+    collect: [{ kind: 'input', id: 'value', type: variable, required: true },
+      { kind: 'output', id: 'value', type: { kind: 'list', element: variable } }],
+    pair: [{ kind: 'input', id: 'value', type: { kind: 'list', element: variable }, required: true },
+      { kind: 'output', id: 'value', type: { kind: 'tuple', elements: [text, variable] } }],
+    pick: [{ kind: 'input', id: 'value', type: variable, required: true },
+      { kind: 'input', id: 'index', type: integer, required: true, default: 0 },
+      { kind: 'output', id: 'value', type: { kind: 'tuple_element', input: 'value', index: 'index' } }],
+    sink: [{ kind: 'input', id: 'record', type: record, required: true }],
+  } as const
+  const schemas = new Map(Object.entries(bodies).map(([type, body]) => [type,
+    parseDinksterSchema(type, { schemaVersion: 2, nodeType: type, outputNode: type === 'sink', body }).schema!]))
+  const document = dynDoc({
+    nodes: { source: { type: 'source' }, sub: { type: '#container' }, sink: { type: 'sink' } },
+    links: [[['source', 'record'], ['sub', 'record']], [['sub', 'result'], ['sink', 'record']]],
+    subgraphs: { container: {
+      nodes: { collect: { type: 'collect' }, pair: { type: 'pair' }, pick: { type: 'pick', values: { index: 1 } } },
+      links: [[['collect', 'value'], ['pair', 'value']], [['pair', 'value'], ['pick', 'value']]],
+      boundary: {
+        inputs: [{ id: 'record', binds: { kind: 'port', node: 'collect', port: 'value' } }],
+        outputs: [{ id: 'result', binds: { kind: 'port', node: 'pick', port: 'value' } }],
+      },
+    } },
+  })
+  const result = compile({ ...compileInput(document, { kind: 'full' }, (type) => schemas.get(type)),
+    graphFeatures: ['regions', 'typedLiteral'] })
+  expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+  if (!result.ok) return
+  expect(result.artifact.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')).toEqual([])
+  expect(result.artifact.prompt.sink?.inputs).toEqual({ record: ['sub.pick', 0] })
+  expect(result.artifact.prompt['sub.pick']?.inputs).toEqual({ value: ['sub.pair', 0], index: 1 })
+})
+
 describe('small flow nodes', () => {
   const flowSchemas = new Map(Object.entries(readJson('test/fixtures/flow_schemas.json') as Record<string, DinksterWireSchema>)
     .map(([type, wire]) => [type, parseDinksterSchema(type, wire).schema!]))
