@@ -106,7 +106,7 @@ export function ModelSettings(props: {
   const save = (locations: readonly ModelLocation[], downloadLocation = state()?.settings.downloadLocation ?? null) => {
     const current = state()
     if (!current) return Promise.resolve(false)
-    return perform(() => props.connection.updateModelSettings({ version: 1, locations, downloadLocation }, current.revision))
+    return perform(() => props.connection.updateModelSettings({ ...current.settings, locations, downloadLocation }, current.revision))
   }
   const update = (location: ModelLocation) => {
     const current = state()

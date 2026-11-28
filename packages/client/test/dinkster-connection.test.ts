@@ -690,6 +690,13 @@ describe('shared model management', () => {
     expect(calls.at(-1)?.url).toBe('/engine/api/models/settings?project=work+%2F+client')
     await expect(connection.updateModelSettings(state.settings, state.revision)).resolves.toEqual(state)
     expect(calls.at(-1)?.body).toEqual({ settings: state.settings, revision: 'revision-one' })
+    payload = { ...state, settings: { ...state.settings, readFoldersWhileRunning: true } }
+    const loaded = await connection.fetchModelSettings()
+    expect(loaded.settings.readFoldersWhileRunning).toBe(true)
+    await connection.updateModelSettings({ ...loaded.settings, locations: [] }, loaded.revision)
+    expect(calls.at(-1)?.body).toEqual({
+      settings: { ...state.settings, locations: [], readFoldersWhileRunning: true }, revision: state.revision,
+    })
     payload = { ...state, locations: [{ ...state.locations[0], enabled: true }], restartRequired: true }
     await expect(connection.setModelLocationEnabled('studio / second', true)).resolves.toMatchObject({ restartRequired: true, locations: [{ enabled: true }] })
     expect(calls.at(-1)).toEqual({ url: '/engine/api/models/locations/studio%20%2F%20second/projects/work%20%2F%20client', body: { enabled: true } })
@@ -704,6 +711,7 @@ describe('shared model management', () => {
 
   it.each([
     { ...state, changesAllowed: 'true' },
+    { ...state, settings: { ...state.settings, readFoldersWhileRunning: 'true' } },
     { ...state, locations: [{ ...state.locations[0], enabled: 'false' }] },
     { ...state, locations: [{ ...state.locations[0], path: '/another/folder' }] },
     { ...state, locations: [] },
@@ -908,6 +916,8 @@ describe('mount listing decode', () => {
     }
     const mounts = await connectionWith([
       { id: 'scanning', mode: 'read', state: 'scanning', scanProgress: progress },
+      { id: 'waiting', mode: 'read', state: 'scanning', scanProgress: { ...progress, waitingForRun: true } },
+      { id: 'invalid-wait', mode: 'read', state: 'scanning', scanProgress: { ...progress, waitingForRun: 'true' } },
       {
         id: 'impossible-files',
         mode: 'read',
@@ -929,6 +939,7 @@ describe('mount listing decode', () => {
     ]).listMounts()
     expect(mounts).toEqual([
       { id: 'scanning', mode: 'read', state: 'scanning', scanProgress: progress },
+      { id: 'waiting', mode: 'read', state: 'scanning', scanProgress: { ...progress, waitingForRun: true } },
     ])
   })
 

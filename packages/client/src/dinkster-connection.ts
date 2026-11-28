@@ -1027,6 +1027,7 @@ export interface ModelSettings {
   readonly version: 1
   readonly downloadLocation: string | null
   readonly locations: readonly ModelLocation[]
+  readonly readFoldersWhileRunning?: boolean
 }
 
 export interface ModelSettingsState {
@@ -1052,6 +1053,7 @@ function decodeModelSettingsState(value: unknown): ModelSettingsState {
       ...(typeof raw['kind'] === 'string' ? { kind: raw['kind'] } : {}) }
   }
   if (settings['version'] !== 1 || (settings['downloadLocation'] !== null && !nonemptyString(settings['downloadLocation'])) ||
+    (settings['readFoldersWhileRunning'] !== undefined && typeof settings['readFoldersWhileRunning'] !== 'boolean') ||
     !Array.isArray(settings['locations']) || !Array.isArray(value['locations']) || !nonemptyString(value['revision']) ||
     !nonemptyString(value['project']) || typeof value['changesAllowed'] !== 'boolean' || typeof value['restartRequired'] !== 'boolean' ||
     !Array.isArray(value['pendingRemovals']) || !value['pendingRemovals'].every((id) => typeof id === 'string')) return invalid()
@@ -1085,7 +1087,8 @@ function decodeModelSettingsState(value: unknown): ModelSettingsState {
       !Array.isArray(raw['identities']) || raw['identities'].length === 0 || !raw['identities'].every(nonemptyString)) return invalid()
     return { name: raw['name'], kind: raw['kind'], identities: raw['identities'] as string[] }
   })
-  return { settings: { version: 1, downloadLocation: settings['downloadLocation'], locations }, locations: facts,
+  return { settings: { version: 1, downloadLocation: settings['downloadLocation'], locations,
+    ...(typeof settings['readFoldersWhileRunning'] === 'boolean' ? { readFoldersWhileRunning: settings['readFoldersWhileRunning'] } : {}) }, locations: facts,
     revision: value['revision'], project: value['project'], changesAllowed: value['changesAllowed'],
     restartRequired: value['restartRequired'], pendingRemovals: value['pendingRemovals'], hiddenModels: hidden }
 }
@@ -1096,6 +1099,7 @@ export interface MountScanProgress {
   readonly bytesDone: number
   readonly bytesTotal: number
   readonly elapsedSeconds: number
+  readonly waitingForRun?: boolean
 }
 
 export interface MountEntry {
@@ -3810,6 +3814,7 @@ export class DinksterConnection {
         ? scanProgress as Record<string, unknown>
         : undefined
       const validProgress = scanProgress === undefined || (progress !== undefined &&
+        (progress['waitingForRun'] === undefined || typeof progress['waitingForRun'] === 'boolean') &&
         ['filesDone', 'filesTotal', 'bytesDone', 'bytesTotal'].every((field) => {
           const number = progress[field]
           return typeof number === 'number' && Number.isSafeInteger(number) && number >= 0
