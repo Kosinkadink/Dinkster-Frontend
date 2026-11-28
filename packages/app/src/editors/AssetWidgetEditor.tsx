@@ -37,9 +37,10 @@ import { UploadDestination } from '../UploadDestination.js'
 import { activeProjectId } from '../projects.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
 import { AssetFileLocation } from '../AssetFileLocation.js'
+import { ModalSurface } from '../ModalSurface.js'
 import { useAppMessage } from '../locale.js'
 import { tabDocumentUnchanged } from '../widget-editor-anchor.js'
-import { AssetQuickList, assetQuickListAllowed } from './AssetQuickList.js'
+import { AssetQuickList, assetQuickListAllowed, type AssetQuickListProps } from './AssetQuickList.js'
 import type { Backend } from '../app-state.js'
 import type { WidgetEditorState } from '../WidgetEditorController.js'
 import { rowPlacement, visibleCanvas } from './row-placement.js'
@@ -983,141 +984,132 @@ export const AssetFilePicker: Component<AssetFilePickerProps> = (props) => {
   )
 }
 
-const AssetEditorImplementation: Component<WidgetEditorImplementationProps & Pick<AssetFilePickerProps,
-  'setDismissBlocked' | 'setRequestClose' | 'commitImportedFile'>> = (props) => {
-  const host = props.editor
-  const ed = host.ed
-  const backend = host.app.backendForTab(ed.tab)
-  const openedTab = ed.tab
-  const store = openedTab.store
-  const document = store.doc
-  const revision = store.revision
-  const registry = host.app.registryForTab(openedTab)
-  const current = (): boolean => host.app.backendForTab(ed.tab) === backend
-  const unchanged = (): boolean => openedTab.store === store && store.doc === document && store.revision === revision &&
-    (ed.tab === openedTab || host.app.liveTabContinuing(store) === ed.tab) &&
-    tabDocumentUnchanged(openedTab, revision, ed.tab) && host.app.tabs.get().includes(ed.tab) &&
-    current() && host.app.registryForTab(ed.tab) === registry
-  return <AssetFilePicker state={ed} backend={() => host.app.backendForTab(ed.tab)}
-    {...(registry?.uploadLimits === undefined ? {} : { uploadLimits: registry.uploadLimits })}
-    current={current} unchanged={unchanged} close={props.close} commitValue={props.commitValue}
-    setDismissBlocked={props.setDismissBlocked} setRequestClose={props.setRequestClose}
-    commitImportedFile={props.commitImportedFile} />
+export interface AssetPickerProps extends Omit<AssetFilePickerProps,
+  'state' | 'setDismissBlocked' | 'setRequestClose' | 'commitImportedFile'> {
+  readonly state: AssetFilePickerProps['state'] & Pick<WidgetEditorState, 'label'>
+  readonly quickList?: Omit<AssetQuickListProps,
+    'state' | 'backend' | 'uploadLimits' | 'close' | 'commitValue' | 'commitPending' | 'commitError' | 'browse' | 'add'>
+  readonly commitPending: () => boolean
+  readonly commitError: () => string | undefined
+  readonly sourceAuthority?: () => unknown
+  readonly onFileImport?: (file: File) => void
+  readonly onBackdropPointerDown?: (event: PointerEvent) => void
 }
 
-const AssetPickerWidgetEditor: Component<WidgetEditorProps & { commitImportedFile?: boolean | undefined }> = (props) => {
+/** The shared quick list, Browse all modal, and system-file handoff. */
+export const AssetPicker: Component<AssetPickerProps> = (props) => {
+  const ed = props.state
+  const [picker, setPicker] = createSolidSignal(props.quickList === undefined || ed.stagedFile !== undefined ||
+    !assetQuickListAllowed(ed.spec, ed.declaredType, ed.mergeableTypes))
+  const [file, setFile] = createSolidSignal<File>()
   const accept = (): readonly string[] => {
-    const value = props.ed.spec?.options['accept']
+    const value = ed.spec?.options['accept']
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
   }
-  const kind = () => typeof props.ed.spec?.kind === 'string' && props.ed.spec.kind !== '' ? props.ed.spec.kind : mediaKindForAccept(accept())
+  const kind = () => typeof ed.spec?.kind === 'string' && ed.spec.kind !== '' ? ed.spec.kind : mediaKindForAccept(accept())
   const [dismissBlocked, setDismissBlocked] = createSolidSignal(false)
-  const fileSelectionAllowed = () => kind() === 'model/vae' && props.ed.declaredType?.kind === 'union' &&
-    props.ed.declaredType.names.includes('ASSET')
-  const initialFiles = props.ed.spec?.selection !== true || (fileSelectionAllowed() && isAssetRef(props.ed.initial))
+  const fileSelectionAllowed = () => kind() === 'model/vae' && ed.declaredType?.kind === 'union' &&
+    ed.declaredType.names.includes('ASSET')
+  const initialFiles = ed.spec?.selection !== true || (fileSelectionAllowed() && isAssetRef(ed.initial))
   const [browseFiles, setBrowseFiles] = createSolidSignal(initialFiles)
   const [filesVisited, setFilesVisited] = createSolidSignal(initialFiles)
   const [sourceVisited, setSourceVisited] = createSolidSignal(!initialFiles)
-  const [backendTick, setBackendTick] = createSolidSignal(0)
-  if (props.ed.spec?.selection === true) {
-    setBackendTick(props.app.backendsTick.get())
-    const unsubscribe = props.app.backendsTick.subscribe(setBackendTick)
-    onCleanup(unsubscribe)
-  }
-  const sourceBackend = createMemo(() => {
-    backendTick()
-    return props.app.backendForTab(props.ed.tab)
-  })
-  const sourceAuthority = () => {
-    backendTick()
-    return sourceBackend().scopedClient.remoteChoiceAuthority()
-  }
   let requestClose: (close: () => void) => void = (close) => close()
-  const Implementation: Component<WidgetEditorImplementationProps> = (implementationProps) => {
-    const bindDismissBlocked = (blocked: () => boolean): void => {
-      createEffect(() => setDismissBlocked(blocked()))
-    }
-    return (
-      <>
-      <Show when={filesVisited()}><div class="asset-editor-mode" hidden={!browseFiles()}>
-        <Show when={props.ed.spec?.selection === true}>
-          <ProductButton onClick={() => { setSourceVisited(true); setBrowseFiles(false) }}>Back to source options</ProductButton>
-        </Show>
-        <AssetEditorImplementation
-          {...implementationProps}
-          commitImportedFile={props.commitImportedFile}
-          setDismissBlocked={bindDismissBlocked}
-          setRequestClose={(handler) => { requestClose = handler }}
-        />
-      </div></Show>
-      <Show when={sourceVisited()}><div class="asset-editor-mode" hidden={browseFiles()}>
-        <Show when={sourceBackend().connection} fallback={<ProductNotice tone="error">Source selections require a native Dinkster backend.</ProductNotice>}>
-          {(connection) =>
-          <AssetSelectionEditor
-            connection={connection()}
-            kind={kind()!} initial={props.ed.initial}
-            authority={sourceAuthority} project={activeProjectId()}
-            commit={implementationProps.commitValue} close={implementationProps.close}
-            browseFiles={fileSelectionAllowed() ? () => { setFilesVisited(true); setBrowseFiles(true) } : undefined}
-          />
-          }
-        </Show>
-      </div></Show>
-      </>
-    )
+  const bindDismissBlocked = (blocked: () => boolean): void => {
+    createEffect(() => setDismissBlocked(blocked()))
   }
-  return (
-    <WidgetEditorController
-      {...props}
-      implementation={Implementation}
-      modal={{
-        type: 'ASSET',
-        title: `Choose ${assetPickerNoun(kind())}`,
-        dismissBlocked,
-        onRequestClose: (close) => requestClose(close),
-        help: undefined,
-      }}
-    />
-  )
-}
-
-export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
-  const [picker, setPicker] = createSolidSignal(props.ed.inRow === undefined || props.ed.stagedFile !== undefined ||
-    !assetQuickListAllowed(props.ed.spec, props.ed.declaredType, props.ed.mergeableTypes))
-  const [file, setFile] = createSolidSignal<File>()
-  const QuickList: Component<WidgetEditorImplementationProps> = (implementation) => {
-    const ed = props.ed
-    const inRow = ed.inRow!
-    const backend = props.app.backendForTab(ed.tab)
-    const openedTab = ed.tab
-    const store = openedTab.store
-    const revision = store.revision
-    const registry = props.app.registryForTab(openedTab)
-    const current = (): boolean => openedTab.store === store && store.revision === revision &&
-      tabDocumentUnchanged(openedTab, revision, ed.tab) && props.app.tabs.get().includes(ed.tab) &&
-      props.app.backendForTab(ed.tab) === backend && props.app.registryForTab(ed.tab) === registry
-    const bounds = visibleCanvas(props.boundary)
-    const placement = createMemo(() => rowPlacement({ rect: ed.rect, ...inRow }, props.viewport(), bounds(), { width: 0, height: 0 }))
-    return <AssetQuickList state={ed} backend={backend} current={current} placement={placement} bounds={bounds} look={inRow.look}
-      {...(registry?.uploadLimits === undefined ? {} : { uploadLimits: registry.uploadLimits })}
-      {...(inRow.handOff === undefined ? {} : { handOff: inRow.handOff })}
-      {...(props.bindClickAway === undefined ? {} : { bindClickAway: props.bindClickAway })}
-      focusRow={() => { if (ed.target.kind === 'input') props.focusRow?.(ed.target) }}
-      moveRow={(direction) => { if (ed.target.kind === 'input') props.moveRow?.(ed.target, direction) }}
-      close={implementation.close} commitValue={implementation.commitValue}
-      commitPending={implementation.commitPending} commitError={implementation.commitError}
+  const title = () => `Choose ${assetPickerNoun(kind())}`
+  return <Show when={picker()} fallback={
+    <AssetQuickList {...props.quickList!} state={ed} backend={props.backend()}
+      {...(props.uploadLimits === undefined ? {} : { uploadLimits: props.uploadLimits })}
+      close={props.close} commitValue={props.commitValue} commitPending={props.commitPending} commitError={props.commitError}
       browse={() => setPicker(true)} add={(chosen) => {
-        if (props.onAssetFileImport !== undefined) {
-          props.onAssetFileImport(chosen)
-          implementation.close()
+        if (props.onFileImport !== undefined) {
+          props.onFileImport(chosen)
+          props.close()
         } else {
           setFile(chosen)
           setPicker(true)
         }
       }} />
-  }
-  return <Show when={picker()} fallback={<WidgetEditorController {...props} implementation={QuickList} />}>
-    <AssetPickerWidgetEditor {...props} ed={file() === undefined ? props.ed : { ...props.ed, stagedFile: file()! }}
-      commitImportedFile={file() !== undefined} />
+  }>
+    <ModalSurface title={title()} ariaLabel={title()} modalId="widget-asset" testId="widget-modal-surface"
+      closeLabel={`Close ${title()}`} dismissBlocked={dismissBlocked()}
+      onRequestClose={() => requestClose(props.close)}
+      {...(props.onBackdropPointerDown === undefined ? {} : { onBackdropPointerDown: props.onBackdropPointerDown })}>
+      <Show when={props.commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
+      <div class="widget-commit-content" inert={props.commitPending()} aria-busy={props.commitPending()}>
+      <Show when={filesVisited()}><div class="asset-editor-mode" hidden={!browseFiles()}>
+        <Show when={ed.spec?.selection === true}>
+          <ProductButton onClick={() => { setSourceVisited(true); setBrowseFiles(false) }}>Back to source options</ProductButton>
+        </Show>
+        <AssetFilePicker {...props} state={file() === undefined ? ed : { ...ed, stagedFile: file()! }}
+          commitImportedFile={file() !== undefined}
+          setDismissBlocked={bindDismissBlocked}
+          setRequestClose={(handler) => { requestClose = handler }}
+        />
+      </div></Show>
+      <Show when={sourceVisited()}><div class="asset-editor-mode" hidden={browseFiles()}>
+        <Show when={props.backend().connection} fallback={<ProductNotice tone="error">Source selections require a native Dinkster backend.</ProductNotice>}>
+          {(connection) =>
+          <AssetSelectionEditor
+            connection={connection()}
+            kind={kind()!} initial={ed.initial}
+            authority={props.sourceAuthority} project={activeProjectId()}
+            commit={props.commitValue} close={props.close}
+            browseFiles={fileSelectionAllowed() ? () => { setFilesVisited(true); setBrowseFiles(true) } : undefined}
+          />
+          }
+        </Show>
+      </div></Show>
+      </div>
+    </ModalSurface>
   </Show>
+}
+
+export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
+  const Implementation: Component<WidgetEditorImplementationProps> = (implementation) => {
+    const ed = props.ed
+    const backend = props.app.backendForTab(ed.tab)
+    const openedTab = ed.tab
+    const store = openedTab.store
+    const document = store.doc
+    const revision = store.revision
+    const registry = props.app.registryForTab(openedTab)
+    const current = (): boolean => props.app.backendForTab(ed.tab) === backend
+    const unchanged = (): boolean => openedTab.store === store && store.doc === document && store.revision === revision &&
+      (ed.tab === openedTab || props.app.liveTabContinuing(store) === ed.tab) &&
+      tabDocumentUnchanged(openedTab, revision, ed.tab) && props.app.tabs.get().includes(ed.tab) &&
+      current() && props.app.registryForTab(ed.tab) === registry
+    const [backendTick, setBackendTick] = createSolidSignal(0)
+    if (ed.spec?.selection === true) {
+      setBackendTick(props.app.backendsTick.get())
+      const unsubscribe = props.app.backendsTick.subscribe(setBackendTick)
+      onCleanup(unsubscribe)
+    }
+    const sourceBackend = () => {
+      backendTick()
+      return props.app.backendForTab(ed.tab)
+    }
+    const bounds = visibleCanvas(props.boundary)
+    const inRow = ed.inRow
+    const quickList = inRow === undefined ? undefined : {
+      current: unchanged,
+      placement: () => rowPlacement({ rect: ed.rect, ...inRow }, props.viewport(), bounds(), { width: 0, height: 0 }),
+      bounds, look: inRow.look,
+      ...(inRow.handOff === undefined ? {} : { handOff: inRow.handOff }),
+      ...(props.bindClickAway === undefined ? {} : { bindClickAway: props.bindClickAway }),
+      focusRow: () => { if (ed.target.kind === 'input') props.focusRow?.(ed.target) },
+      moveRow: (direction: 1 | -1) => { if (ed.target.kind === 'input') props.moveRow?.(ed.target, direction) },
+    }
+    return <AssetPicker state={ed} backend={sourceBackend} current={current} unchanged={unchanged}
+      {...(registry?.uploadLimits === undefined ? {} : { uploadLimits: registry.uploadLimits })}
+      {...(quickList === undefined ? {} : { quickList })}
+      sourceAuthority={() => { backendTick(); return sourceBackend().scopedClient.remoteChoiceAuthority() }}
+      {...(props.onAssetFileImport === undefined ? {} : { onFileImport: props.onAssetFileImport })}
+      {...(props.onAssetBackdropPointerDown === undefined ? {} : { onBackdropPointerDown: props.onAssetBackdropPointerDown })}
+      close={implementation.close} commitValue={implementation.commitValue}
+      commitPending={implementation.commitPending} commitError={implementation.commitError} />
+  }
+  return <WidgetEditorController {...props} implementation={Implementation} />
 }
