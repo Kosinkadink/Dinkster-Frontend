@@ -115,6 +115,7 @@ import { EngineStatesGallery } from './engine-states.js'
 import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
 import { BoardGallery } from './board.js'
+import { ResultPicturesGallery } from './result-pictures.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
 import { SettingsSectionGallery } from './settings-section.js'
@@ -551,6 +552,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#board'}>
               <BoardGallery />
+            </Match>
+            <Match when={route() === '#result-pictures'}>
+              <ResultPicturesGallery />
             </Match>
             <Match when={route() === '#node-search'}>
               <NodeSearchGallery />

@@ -120,7 +120,7 @@ export function RunRow(props: {
     >
       <div class="run-row-line">
         <Show when={runIsPending(props.entry)} fallback={
-          <span class="run-row-thumbnail" aria-hidden="true">{props.thumbnail}</span>
+          <span class="run-row-thumbnail">{props.thumbnail}</span>
         }>
           <span class="run-row-mark" data-status={props.entry.status}>
             <Icon icon={props.entry.status === 'running' ? LoaderCircle : Clock} />
