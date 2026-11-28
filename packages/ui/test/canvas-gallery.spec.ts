@@ -599,6 +599,12 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
         line.left >= box.left - 0.1 && line.right <= box.right + 0.1 && line.bottom <= box.bottom + 0.1)
     }, scale)).toBe(true)
     await expect(popup.locator('.dinkster-canvas-field-label')).toHaveText(headingText)
+    await expect.poll(async () => headingInput.evaluate((input) => {
+      const style = getComputedStyle(input)
+      const measure = document.createElement('canvas').getContext('2d')!
+      measure.font = `italic ${style.fontSize} ${style.fontFamily}`
+      return input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) >= measure.measureText(input.placeholder).width
+    })).toBe(true)
     await headingInput.fill('mono')
     await expect(list.getByRole('option')).toHaveCount(1)
     await headingInput.press('Escape')

@@ -326,7 +326,7 @@ export function CanvasRowList(
   const statusBelow = (): boolean => props.status !== undefined && props.options.length > 0
   const listBody = (
     <div ref={(element) => (body = element)} class="dinkster-canvas-list" data-frozen={props.frozen === true}>
-      <span ref={heading} class="dinkster-canvas-list-heading-measure" aria-hidden="true">{props.label}</span>
+      <span ref={heading} class="dinkster-canvas-list-heading-measure" aria-hidden="true"><span>{props.label}</span><span>{props.placeholder ?? 'Filter options'}</span></span>
       <Show when={!statusBelow() && props.status}>{(current) => statusLine(current(), true)}</Show>
       <div
         ref={(element) => (entries = element)}
