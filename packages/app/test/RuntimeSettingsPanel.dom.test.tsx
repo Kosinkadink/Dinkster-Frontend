@@ -17,11 +17,11 @@ const section = (value: unknown, overrides: Partial<RuntimeSettingSection> = {})
 
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
-function mount(response: RuntimeSettings, update = vi.fn()) {
+function mount(response: RuntimeSettings, update = vi.fn(), settingsPage = false) {
   const connection = { fetchRuntimeSettings: vi.fn(async () => response), updateRuntimeSetting: update }
   const root = document.createElement('div')
   document.body.append(root)
-  const unmount = render(() => <RuntimeSettingsPanel connection={connection} />, root)
+  const unmount = render(() => <RuntimeSettingsPanel connection={connection} settingsPage={settingsPage} alwaysOpen={settingsPage} />, root)
   return { root, connection, unmount }
 }
 
@@ -31,6 +31,61 @@ afterEach(() => {
 })
 
 describe('RuntimeSettingsPanel', () => {
+
+  it('saves page controls immediately, preserves sibling values, and restores a refused scalar', async () => {
+    const update = vi.fn(async (category: string, value: unknown) => {
+      if (category === 'jobs') throw new RuntimeSettingsError(400, { error: 'invalid-settings', category, message: 'Only two jobs are allowed' })
+      return section(value, { source: 'runtime', mutability: 'on-worker-restart' })
+    })
+    const categories = ['dtype-policy', 'jobs', 'fp8-matmul']
+    const { root } = mount({ categories: { granted: categories, available: categories }, settings: {
+      'dtype-policy': section({ diffusion: 'auto', textEncoder: 'float16', vae: 'float32' }, { mutability: 'on-worker-restart' }),
+      jobs: section({ maxRunningJobs: 2 }),
+      'fp8-matmul': section(false, { writable: false }),
+    } }, update, true)
+    await flush()
+    root.querySelector<HTMLButtonElement>('[aria-label="Diffusion model precision"]')!.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find((option) => option.textContent === 'BF16')!.click()
+    await flush()
+    expect(update).toHaveBeenCalledWith('dtype-policy', { diffusion: 'bfloat16', textEncoder: 'float16', vae: 'float32' })
+    expect(root.querySelector('[aria-label="Diffusion model precision"]')?.textContent).toContain('BF16')
+    const jobs = root.querySelector<HTMLInputElement>('[aria-label="Maximum running jobs"]')!
+    jobs.value = '4'; jobs.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    jobs.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await flush()
+    expect(jobs.value).toBe('2')
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Only two jobs are allowed')
+    expect(root.querySelector('[role="switch"]')).toBeNull()
+    expect(root.textContent).not.toContain('Reset')
+    expect(root.textContent).not.toContain('Unsaved changes')
+    expect(root.textContent).toContain('Applies to workers started from now on.')
+  })
+
+  it('keeps page list edits until Done succeeds or Cancel discards them', async () => {
+    const update = vi.fn().mockRejectedValueOnce(new RuntimeSettingsError(400, { error: 'invalid-settings', category: 'worker-comfy-args', message: 'Argument refused' })).mockImplementation(async (_category: string, value: unknown) => section(value))
+    const { root } = mount({ categories: { granted: ['worker-comfy-args'], available: ['worker-comfy-args'] }, settings: {
+      'worker-comfy-args': section(['--preview-method', 'auto'], { mutability: 'on-worker-restart' }),
+    } }, update, true)
+    await flush()
+    const button = (label: string) => Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent === label)!
+    button('Edit').click()
+    let input = root.querySelector<HTMLInputElement>('[aria-label="Worker argument 2"]')!
+    input.value = 'latent2rgb'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    expect(update).not.toHaveBeenCalled()
+    button('Cancel').click()
+    button('Edit').click()
+    input = root.querySelector<HTMLInputElement>('[aria-label="Worker argument 2"]')!
+    expect(input.value).toBe('auto')
+    input.value = 'latent2rgb'; input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    button('Done').click(); await flush()
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe('Argument refused')
+    expect(input.value).toBe('latent2rgb')
+    button('Done').click(); await flush()
+    expect(update).toHaveBeenLastCalledWith('worker-comfy-args', ['--preview-method', 'latent2rgb'])
+    expect(root.querySelector('[aria-label="Worker argument 2"]')).toBeNull()
+    button('Edit').click()
+    expect(root.querySelector<HTMLInputElement>('[aria-label="Worker argument 2"]')!.value).toBe('latent2rgb')
+  })
 
   it('updates mounted runtime settings from the active locale catalog', async () => {
     registerCatalog('de-DE', {

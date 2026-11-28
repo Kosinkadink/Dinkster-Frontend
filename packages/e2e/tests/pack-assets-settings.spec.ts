@@ -66,15 +66,12 @@ test('declared pack settings are editable through the native connection', async 
   await page.goto('/')
   await waitForWorkspaceReady(page, 0)
   await page.getByTestId('settings-button').click()
-  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true })
-  await dialog
-    .locator('.settings-categories')
-    .getByRole('button', { name: 'Render Pack', exact: true })
-    .click()
+  const dialog = page.getByRole('region', { name: 'Settings', exact: true })
+  await dialog.getByRole('link', { name: 'Packs', exact: true }).click()
   await expect(
     dialog.getByRole('heading', { name: 'Render Pack' }),
   ).toBeVisible()
-  const enabled = dialog.getByRole('checkbox', { name: 'Enable enhancement' })
+  const enabled = dialog.getByRole('switch', { name: 'Enable enhancement' })
   const quality = dialog.getByRole('spinbutton', { name: 'Quality level' })
   await expect(enabled).toHaveAttribute('aria-checked', 'true')
   await expect(quality).toHaveValue('2')
@@ -83,6 +80,12 @@ test('declared pack settings are editable through the native connection', async 
   await quality.fill('4')
   await quality.press('Enter')
   await expect.poll(() => values).toEqual({ enabled: false, quality: 4 })
+  await page.reload()
+  await waitForWorkspaceReady(page, 0)
+  await page.getByTestId('settings-button').click()
+  await dialog.getByRole('link', { name: 'Packs', exact: true }).click()
+  await expect(enabled).toHaveAttribute('aria-checked', 'false')
+  await expect(quality).toHaveValue('4')
 
   const screenshot =
     proofDir === undefined

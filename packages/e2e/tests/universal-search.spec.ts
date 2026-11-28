@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, waitForWorkspaceReady, type Page } from './fixtures.js'
+import { expect, test, setShellRegion, waitForWorkspaceReady, mockProjectPacks, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_SEARCH_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -11,6 +11,7 @@ async function capture(page: Page, name: string): Promise<void> {
 }
 
 test.beforeEach(async ({ page }) => {
+  await mockProjectPacks(page)
   await page.route('/system_stats', (route) => route.fulfill({ json: { system: { os: 'e2e' }, devices: [] } }))
   await page.route('/object_info', (route) => route.fulfill({ json: {} }))
 })
@@ -62,7 +63,7 @@ test('opens universal search without stale help, restores Tab help and runs a co
   await page.locator('[data-group="core.commands"]').getByRole('option', { name: /Open settings/ }).click()
   await expect(input).toHaveCount(0)
   await expect(tooltip).toHaveCount(0)
-  await expect(page.getByTestId('modal-surface')).toHaveAttribute('data-modal', 'settings')
+  await expect(page.getByRole('region', { name: 'Settings', exact: true })).toBeVisible()
 })
 
 test('Ctrl+K opens from the canvas but remains suppressed while typing', async ({ page }) => {
@@ -73,7 +74,7 @@ test('Ctrl+K opens from the canvas but remains suppressed while typing', async (
   await page.keyboard.press('Escape')
 
   await page.getByTestId('settings-button').click()
-  const settingsSearch = page.locator('.settings-search')
+  const settingsSearch = page.getByRole('region', { name: 'Settings', exact: true }).getByRole('combobox', { name: 'Search settings', exact: true })
   await settingsSearch.focus()
   await page.keyboard.press('Control+K')
   await expect(page.getByTestId('universal-search-input')).toHaveCount(0)
@@ -232,10 +233,10 @@ test('search states, grouped overflow, and long results stay reachable and conta
   await expect(page.locator(`[id="${activeId}"]`)).toBeInViewport()
   await capture(page, '03-after-show-more-tail-1600x950')
   await input.press('Enter')
-  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+  const settings = page.getByRole('region', { name: 'Settings', exact: true })
   await expect(settings).toBeVisible()
   await expect(input).toHaveCount(0)
-  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Close Settings', exact: true }).click()
   await expect(settings).toHaveCount(0)
   await page.getByTestId('topbar-search').click()
   await expect(input).toBeFocused()
@@ -348,7 +349,9 @@ test('manifest-gated extension providers are kinds of their own, show no preview
   await expect(page.locator('[data-group="demo.search.workflows"]')).toBeVisible()
   await expect(page.locator('[data-group="demo.search.actions"]')).toHaveCount(0)
   await page.locator('[data-group="demo.search.workflows"] [aria-selected="true"]').click()
-  await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toBeVisible()
+  for (const region of ['left', 'right', 'bottom'] as const) await setShellRegion(page, region, false)
+  await expect(page.getByRole('region', { name: 'Settings', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Close Settings', exact: true }).click()
   expect(await page.evaluate(() => JSON.stringify(window.__dinksterTest!.app.activeTab()?.store.doc))).toBe(documentBefore)
 })
 

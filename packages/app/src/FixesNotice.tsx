@@ -100,10 +100,7 @@ export function FixesNotice(props: { app: AppState; tab: Tab }) {
             onUndo={() => props.app.undoAdjustments(props.tab.id)}
             onRedo={() => props.app.redoAdjustments(props.tab.id)}
             onDismiss={() => props.app.dismissAdjustmentNotice(props.tab.id)}
-            onSettings={() => {
-              props.app.settingsOpenRequest.set({ category: 'automaticFixes', id: 'execution.reviewUpgrades' })
-              props.app.modalPanel.set('settings')
-            }}
+            onSettings={() => props.app.openSettings({ category: 'automaticFixes', id: 'execution.reviewUpgrades' })}
           />
         </div>
       )}

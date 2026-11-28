@@ -116,6 +116,7 @@ import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
 import { BoardGallery } from './board.js'
 import { NodeSearchGallery } from './node-search.js'
+import { SettingsGallery } from './settings.js'
 import { ModelsGallery } from './models.js'
 import { SettingsSectionGallery } from './settings-section.js'
 import { FieldAlignmentGallery, SelectGallery } from './select.js'
@@ -127,6 +128,7 @@ const navigation = [
   { label: 'Menus and messages', href: '#messages', icon: Bell },
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
+  { label: 'Settings', href: '#settings', icon: Settings },
   { label: 'Board', href: '#board', icon: LayoutList },
   {
     label: 'Canvas',
@@ -188,6 +190,7 @@ function Gallery() {
   const [nameTaken, setNameTaken] = createSignal(false)
   const [activity, setActivity] = createSignal('No action yet')
   const [sizeLimit, setSizeLimit] = createSignal(10000000000)
+  const [memoryBudget, setMemoryBudget] = createSignal<number | string>()
   const [loading, setLoading] = createSignal(false)
   const [quietType, setQuietType] = createSignal('Any type')
   const [formMount, setFormMount] = createSignal('input')
@@ -230,7 +233,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#settings', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -259,7 +262,7 @@ function Gallery() {
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#node-search'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#node-search' || route() === '#settings'}
       >
         <Show
           when={!loading()}
@@ -555,6 +558,9 @@ function Gallery() {
             <Match when={route() === '#node-search'}>
               <NodeSearchGallery />
             </Match>
+            <Match when={route() === '#settings'}>
+              <SettingsGallery />
+            </Match>
             <Match when={route() === '#models'}>
               <ModelsGallery />
             </Match>
@@ -719,6 +725,9 @@ function Gallery() {
                 </ProductField>
                 <ProductField label="Unavailable size limit">
                   {(attributes) => <ProductByteSizeInput {...attributes} value={4097} disabled onCommit={() => {}} />}
+                </ProductField>
+                <ProductField label="Memory budget" description="Enter a size or backend expression. Clear to use Automatic.">
+                  {(attributes) => <ProductByteSizeInput {...attributes} allowExpressions value={memoryBudget()} placeholder="Automatic" onCommit={setMemoryBudget} />}
                 </ProductField>
                 <ProductField
                   label="Email address"
@@ -1800,7 +1809,7 @@ function GalleryRoot() {
   createEffect(() => {
     document.documentElement.dataset.density = route().startsWith('#site-')
       ? 'site'
-      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) &&
+      : !['#canvas', '#canvas-chrome', '#run-controls', '#engine-states', '#window-toolbar', '#editor-bar', '#projects', '#templates', '#model-downloads', '#page-tabs', '#settings', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) &&
           narrow()
         ? 'site'
         : 'app'

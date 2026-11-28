@@ -46,7 +46,6 @@ export function registerLocaleSetting(settings: SettingsRegistry): void {
     category: 'dinkster',
     type: 'combo',
     defaultValue: 'auto',
-    get description() { return t('settings.language.description') },
     get options() {
       return [
         { value: 'auto', label: t('settings.language.option.auto') },

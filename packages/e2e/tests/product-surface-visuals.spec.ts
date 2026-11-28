@@ -963,36 +963,96 @@ test('A reopened workflow draws from the engine\'s recorded node definitions unl
 
 test('Storage settings distinguish accounting policy and permission failures', async ({ page }) => {
   let state: 'ready' | 'unavailable' | 'forbidden' = 'ready'
+  let limit: number | null = 21474836480
+  let cleanupEnabled = false
+  let refusePolicy = false
+  let cleared = 0
   await page.route('**/api/library/storage', (route) => state === 'forbidden'
     ? route.fulfill({ status: 403, body: 'operator required' })
     : route.fulfill({ json: {
       temporaryBytes: state === 'ready' ? 37 : null, vaultBytes: 513, adoptedBytes: 299,
-      reclaimableBytes: null, collectionEnabled: false, blocked: ['owner_completeness_unknown'],
-      policyAvailable: state === 'ready', limitBytes: state === 'ready' ? 21474836480 : null,
+      reclaimableBytes: cleanupEnabled ? 113 : null, collectionEnabled: cleanupEnabled, blocked: cleanupEnabled ? [] : ['owner_completeness_unknown'],
+      policyAvailable: state === 'ready', limitBytes: state === 'ready' ? limit : null,
     } }))
+  await page.route('**/api/library/storage/policy', (route) => {
+    if (refusePolicy) return route.fulfill({ status: 403, body: 'operator required' })
+    limit = route.request().postDataJSON().limitBytes
+    return route.fulfill({ json: { limitBytes: limit, collectionEnabled: false } })
+  })
+  await page.route('**/api/library/storage/clear', (route) => {
+    cleared += 1
+    cleanupEnabled = false
+    return route.fulfill({ json: { collectionEnabled: true, blocked: [], reclaimedBytes: 113, reclaimedFiles: 2 } })
+  })
   await boot(page)
   await closeGallery(page)
-  await openModal(page, 'settings')
-  await page.getByTestId('modal-surface').getByRole('button', { name: 'Storage', exact: true }).click()
+  await page.getByTestId('settings-button').click()
+  await page.getByRole('region', { name: 'Settings', exact: true }).getByRole('link', { name: 'Storage', exact: true }).click()
   const panel = page.getByTestId('library-storage-settings')
-  await expect(panel.getByText('513 bytes', { exact: true })).toBeVisible()
-  await expect(panel.getByRole('button', { name: 'Clear eligible assets', exact: true })).toBeDisabled()
+  await expect(panel.getByText('37 bytes', { exact: true })).toBeVisible()
+  await expect(panel.getByText('513 bytes', { exact: true })).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Clear', exact: true })).toBeDisabled()
   await screenshot(page, 'storage-ready-1440')
-  await panel.getByRole('button', { name: 'Clear eligible assets', exact: true }).scrollIntoViewIfNeeded()
-  await expect(panel.locator('#library-storage-limit')).toHaveValue('21474836480')
+  await expect(panel.locator('#library-storage-limit')).toHaveValue('20 GB')
+  await panel.locator('#library-storage-limit').focus()
   await screenshot(page, 'storage-ready-controls-1440')
+  const amount = panel.getByRole('textbox', { name: 'Keep at most', exact: true })
+  await amount.fill('4097 B')
+  await amount.press('Enter')
+  await expect.poll(() => limit).toBe(4097)
+  await expect(amount).toBeEnabled()
+  refusePolicy = true
+  await amount.fill('8193 B')
+  await amount.press('Enter')
+  await expect(amount).toHaveValue('8193 B')
+  await expect(panel.getByRole('alert')).toHaveText('You do not have access.')
+  await expect(amount).toHaveAttribute('aria-invalid', 'true')
+  expect(limit).toBe(4097)
+  await amount.press('Escape')
+  await expect(amount).toHaveValue('0 GB')
+  await expect(amount).not.toHaveAttribute('aria-invalid', 'true')
+  await expect(panel.getByRole('alert')).toHaveCount(0)
+  refusePolicy = false
+  await panel.getByRole('switch').click()
+  await expect.poll(() => limit).toBeNull()
+  await expect(amount).toHaveCount(0)
+  cleanupEnabled = true
+  const settings = page.getByRole('region', { name: 'Settings', exact: true })
+  await settings.getByRole('link', { name: 'General', exact: true }).click()
+  await settings.getByRole('link', { name: 'Storage', exact: true }).click()
+  await panel.getByRole('button', { name: 'Clear', exact: true }).click()
+  const confirmation = page.getByRole('dialog', { name: 'Clear run files?' })
+  await expect(confirmation).toContainText('Removes 113 bytes of files that no run or project is using. This cannot be undone.')
+  await screenshot(page, 'storage-clear-confirmation-1440')
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
+  expect(cleared).toBe(0)
+  await expect(confirmation).toHaveCount(0)
+  await panel.getByRole('button', { name: 'Clear', exact: true }).click()
+  await confirmation.getByRole('button', { name: 'Clear', exact: true }).click()
+  await expect.poll(() => cleared).toBe(1)
+  await expect(confirmation).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Clear', exact: true })).toBeDisabled()
   await page.setViewportSize({ width: 900, height: 700 })
   state = 'unavailable'
-  await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await settings.getByRole('link', { name: 'General', exact: true }).click()
+  await settings.getByRole('link', { name: 'Storage', exact: true }).click()
   await expect(panel.getByText('The saved policy is unavailable, not unlimited. Editing is disabled.', { exact: true })).toBeVisible()
-  await expect(panel.getByRole('checkbox')).not.toBeChecked()
-  await expect(panel.getByRole('checkbox')).toBeDisabled()
+  await expect(panel.getByRole('switch')).not.toBeChecked()
+  await expect(panel.getByRole('switch')).toBeDisabled()
   await screenshot(page, 'storage-unavailable-900')
   state = 'forbidden'
   await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect(panel.getByRole('alert')).toContainText('Could not load storage sizes')
   await expect(panel.getByRole('alert')).toContainText('You do not have access.')
-  await expect(panel.getByRole('button', { name: 'Apply limit', exact: true })).toBeDisabled()
+  await expect(panel.getByRole('switch')).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Refresh', exact: true })).toHaveCount(0)
+  await expect(panel.getByText('Storage accounting is unavailable. Refresh to retry.', { exact: true })).toHaveCount(0)
+  await expect(panel.getByRole('alert').getByRole('button')).toHaveText('Retry')
   await screenshot(page, 'storage-forbidden-900')
+  state = 'ready'
+  await panel.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(panel.getByText('37 bytes', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('alert')).toHaveCount(0)
 })
 
 test('Settings and subgraph cleanup empty states remain usable', async ({ page }) => {
@@ -1000,17 +1060,19 @@ test('Settings and subgraph cleanup empty states remain usable', async ({ page }
   await closeGallery(page)
   for (const [width, height] of [[1440, 900], [900, 700]] as const) {
     await page.setViewportSize({ width, height })
-    await openModal(page, 'settings')
-    await page.getByRole('searchbox', { name: 'Search settings', exact: true }).fill('unmatched-setting-507')
-    await expect(page.getByText('No matching settings', { exact: true })).toBeVisible()
+    await page.getByTestId('settings-button').click()
+    await page.getByRole('combobox', { name: 'Search settings', exact: true }).fill('unmatched-setting-507')
+    await expect(page.locator('.dinkster-search-empty-title')).toHaveText('No matching settings')
     await page.mouse.move(0, 0)
     await screenshot(page, `settings-no-results-${width}`)
+    await page.getByRole('button', { name: 'Close Settings', exact: true }).click()
     await openModal(page, 'subgraph-definitions')
     await expect(page.getByText('No unused definitions', { exact: true })).toBeVisible()
     await page.getByText('Retained definitions (0)', { exact: true }).click()
     await expect(page.getByText('No reusable subgraph definitions are reachable from the workflow root.', { exact: true })).toBeVisible()
     await page.mouse.move(0, 0)
     await screenshot(page, `subgraph-empty-${width}`)
+    await page.keyboard.press('Escape')
   }
 })
 

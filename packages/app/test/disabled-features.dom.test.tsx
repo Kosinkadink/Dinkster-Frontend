@@ -309,8 +309,7 @@ it('renders backend targeting, review state and live shared-session tooltip hint
   expect(app.tabTargets.get().get(app.activeTab()!.id)).toBe(remote.id)
 
   expect(host.querySelector('[data-testid="review-upgrades-toggle"]')).toBeNull()
-  app.settingsOpenRequest.set({ category: 'automaticFixes', id: 'execution.reviewUpgrades' })
-  app.modalPanel.set('settings')
+  app.openSettings({ category: 'automaticFixes', id: 'execution.reviewUpgrades' })
   const review = host.querySelector<HTMLButtonElement>('#setting-execution\\.reviewUpgrades')!
   expect(review).not.toBeNull()
   expect(review.textContent).toContain('Apply')
@@ -321,7 +320,7 @@ it('renders backend targeting, review state and live shared-session tooltip hint
   review.click()
   ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Apply')!.click()
   expect(app.settings.get('execution.reviewUpgrades')).toBe(false)
-  app.modalPanel.set('')
+  app.pages.close('page:settings')
 
   const backends = host.querySelector<HTMLButtonElement>('[data-testid="backends-sidebar-toggle"]')!
   expect(backends.getAttribute('aria-pressed')).toBe('false')

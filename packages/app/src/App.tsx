@@ -509,6 +509,7 @@ export function App(props: {
   })
   const tabs = useSignal(app.tabs)
   const shellTabs = useSignal(app.pages.changed)
+  const settingsRequest = useSignal(app.settingsOpenRequest)
   const activeTabId = useSignal(app.activeTabId)
   const dirtyTabs = useSignal(app.dirtyTabs)
   const tabResultClears = useSignal(app.clearedTabResults)
@@ -1453,8 +1454,7 @@ export function App(props: {
     app.storageOpenRequest.set(undefined)
   })
   const openBackendSettings = (backend: Backend): void => {
-    app.settingsOpenRequest.set({ category: `backend:${backend.id}`, id: '' })
-    app.modalPanel.set('settings')
+    app.openSettings({ category: `backend:${backend.id}`, id: '' })
   }
   const unregisterStorageCommand = app.frontendDoors.command('storage.open', {
     get label() { return message('storagePanel.title') },
@@ -1972,19 +1972,14 @@ export function App(props: {
         packInferenceUnavailable={() => activeBackend().packInferenceUnavailable.get()}
         selection={selectionContext} />,
     }),
-    // Settings is the modal host's proving resident: the body is
-    // placement-agnostic (SettingsDialog owns content, the host owns
-    // backdrop/title/close/Escape), opened via app.modalPanel ('settings'
-    // button, Ctrl+, command).
-    registerBuiltinPanel({
+    app.pages.register({
       id: 'settings', get title() { return message('shell.panel.settings.title') },
-      get description() { return message('shell.panel.settings.description') }, get ariaLabel() { return message('shell.panel.settings.title') },
-      placement: 'modal', allowedPlacements: ['modal'], order: 10,
+      icon: SlidersHorizontal,
       component: () => <SettingsDialog
         settings={app.settings}
         commands={app.commands}
         keybindings={app.keybindings}
-        request={app.settingsOpenRequest.get()}
+        request={settingsRequest()}
         onRequestConsumed={() => app.settingsOpenRequest.set(undefined)}
         storageConnection={activeBackend().connection}
         backends={backends()}

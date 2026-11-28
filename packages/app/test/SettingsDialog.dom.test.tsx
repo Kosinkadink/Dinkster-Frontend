@@ -27,6 +27,7 @@ const mountDialog = () => {
   const root = document.createElement('div')
   document.body.append(root)
   const unmount = render(() => <SettingsDialog settings={settings} commands={commands} keybindings={keybindings} />, root)
+  root.querySelector<HTMLAnchorElement>('a[href="#canvas"]')!.click()
   return { root, settings, keybindings, unregisterShell, unmount }
 }
 
@@ -49,7 +50,7 @@ const mountRequestedDialog = (onConsumed: () => void) => {
 }
 
 const searchFor = (root: HTMLElement, query: string): void => {
-  const search = root.querySelector<HTMLInputElement>('.settings-search')!
+  const search = root.querySelector<HTMLInputElement>('.dinkster-search-input')!
   search.value = query
   search.dispatchEvent(new InputEvent('input', { bubbles: true }))
 }
@@ -71,30 +72,90 @@ describe('SettingsDialog search', () => {
       keybindings={new KeybindingRegistry(settings)} request={{ category: 'automaticFixes', id: 'automaticFixes.numberOutsideLimits' }} />, root)
     const row = (id: string) => root.querySelector<HTMLElement>(`[data-setting-id="${id}"]`)!
     const choose = async (id: string, text: string, wire = false) => {
-      row(id).querySelectorAll<HTMLButtonElement>('[role="combobox"]')[wire ? 1 : 0]!.click()
+      root.querySelector<HTMLButtonElement>(`[id="setting-${id}${wire ? '-wire' : ''}"]`)!.click()
       await Promise.resolve()
       const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) => item.textContent === text)!
       expect(option).toBeDefined()
       option.click()
     }
+    const reset = (id: string) => [...row(id).querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Reset')
     expect(row('execution.reviewUpgrades').textContent).toContain('Ask me')
-    expect(row('execution.reviewUpgrades').querySelector('[aria-label="Reset Node replacement to default"]')).not.toBeNull()
-    expect(row('automaticFixes.numberOutsideLimits').querySelector('[aria-label="Reset Number outside limits to default"]')).toBeNull()
-    expect(row('automaticFixes.numberOutsideLimits').querySelectorAll('[role="combobox"]')).toHaveLength(1)
+    expect(reset('execution.reviewUpgrades')).toBeDefined()
+    expect(reset('automaticFixes.numberOutsideLimits')).toBeUndefined()
     await choose('automaticFixes.numberOutsideLimits', 'Ask me')
     await choose('automaticFixes.subgraphRowRemoved', 'Remove the wire', true)
     await choose('automaticFixes.subgraphRowRemoved', 'Ask me')
-    expect(row('automaticFixes.numberOutsideLimits').querySelector('[aria-label="Reset Number outside limits to default"]')).not.toBeNull()
-    expect(row('automaticFixes.listGrows').querySelector('[aria-label="Reset List grows to default"]')).toBeNull()
+    expect(reset('automaticFixes.numberOutsideLimits')).toBeDefined()
+    expect(reset('automaticFixes.listGrows')).toBeUndefined()
     const restored = new SettingsRegistry(storage, 'another-project')
     registerAutomaticFixSettings(restored)
     expect(restored.get('automaticFixes.numberOutsideLimits')).toBe('ask')
     expect(restored.get('automaticFixes.subgraphRowRemoved')).toBe('ask-remove-wire')
     expect(restored.get('automaticFixes.listGrows')).toBe('apply')
     expect(restored.get('execution.reviewUpgrades')).toBe(true)
-    row('automaticFixes.numberOutsideLimits').querySelector<HTMLButtonElement>('[aria-label="Reset Number outside limits to default"]')!.click()
-    expect(row('automaticFixes.numberOutsideLimits').querySelector('[aria-label="Reset Number outside limits to default"]')).toBeNull()
+    searchFor(root, 'Number outside limits')
+    expect(root.querySelector('.dinkster-search-row')?.textContent).toContain('Automatic fixes - Values')
+    reset('automaticFixes.numberOutsideLimits')!.click()
+    expect(reset('automaticFixes.numberOutsideLimits')).toBeUndefined()
     expect(settings.get('automaticFixes.subgraphRowRemoved')).toBe('ask-remove-wire')
+    searchFor(root, 'Subgraph row removed')
+    expect(root.querySelector('label[for="setting-automaticFixes.subgraphRowRemoved"] mark')?.textContent).toBe('Subgraph')
+    expect(root.querySelector('label[for="setting-automaticFixes.subgraphRowRemoved-wire"]')?.textContent).toBe('Wire into a removed row')
+    await choose('automaticFixes.subgraphRowRemoved', 'Keep the wire', true)
+    expect(settings.get('automaticFixes.subgraphRowRemoved')).toBe('ask')
+    reset('automaticFixes.subgraphRowRemoved')!.click()
+    expect(settings.get('automaticFixes.subgraphRowRemoved')).toBe('apply')
+    unmount()
+  })
+
+  it('keeps the fixed zoom saved but uneditable in Automatic, including search', () => {
+    const settings = isolatedSettings()
+    settings.register({ id: 'canvas.detailMode', name: 'Hide node details', type: 'combo', defaultValue: 'automatic', options: [{ value: 'automatic', label: 'Automatic' }, { value: 'fixed', label: 'Fixed zoom' }] })
+    settings.register({ id: 'canvas.detailMinPercent', name: 'Fixed zoom (%)', type: 'number', defaultValue: 30, min: 10, max: 75 })
+    settings.set('canvas.detailMinPercent', 42)
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} />, root)
+    root.querySelector<HTMLAnchorElement>('a[href="#canvas"]')!.click()
+    const field = () => root.querySelector<HTMLInputElement>('[role="spinbutton"]')!
+    expect(field().disabled).toBe(true)
+    expect(field().value).toBe('42')
+    root.querySelector<HTMLButtonElement>('[role="combobox"][id="setting-canvas.detailMode"]')!.click()
+    ;[...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((option) => option.textContent?.includes('Fixed zoom'))!.click()
+    expect(field().disabled).toBe(false)
+    field().value = '37'
+    field().dispatchEvent(new InputEvent('input', { bubbles: true }))
+    field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(settings.get('canvas.detailMinPercent')).toBe(37)
+    settings.set('canvas.detailMode', 'automatic')
+    expect(field().disabled).toBe(true)
+    expect(field().value).toBe('37')
+    searchFor(root, 'Fixed zoom')
+    expect(field().disabled).toBe(true)
+    expect(field().value).toBe('37')
+    expect([...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Reset')!.disabled).toBe(true)
+    expect(settings.get('canvas.detailMinPercent')).toBe(37)
+    unmount()
+  })
+
+  it('groups shortcuts by area and searches their translated group names', () => {
+    const settings = isolatedSettings()
+    const commands = new CommandRegistry()
+    const keybindings = new KeybindingRegistry(settings)
+    for (const [id, label] of [['view.fit', 'Fit selection'], ['edit.undo', 'Undo'], ['workflow.save', 'Save workflow']]) {
+      commands.register({ id: id!, label: label!, run: () => {} })
+      keybindings.register({ command: id!, combo: 'Ctrl+S' })
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={commands} keybindings={keybindings} />, root)
+    root.querySelector<HTMLAnchorElement>('a[href="#shortcuts"]')!.click()
+    expect([...root.querySelectorAll('h2')].map((heading) => heading.textContent)).toEqual(['Workflow', 'Edit', 'View'])
+    expect(root.querySelector('[data-command-id="edit.undo"] [role="status"]')?.textContent).toBe('Also used by Fit selection, Save workflow.')
+    setLocale('zh')
+    searchFor(root, '\u89c6\u56fe')
+    expect([...root.querySelectorAll('[data-command-id]')].map((row) => row.getAttribute('data-command-id'))).toEqual(['view.fit'])
+    expect(root.querySelector('.dinkster-search-row')?.textContent).toContain('\u5feb\u6377\u952e - \u89c6\u56fe')
     unmount()
   })
 
@@ -108,6 +169,7 @@ describe('SettingsDialog search', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} />, root)
+    root.querySelector<HTMLAnchorElement>('a[href="#canvas"]')!.click()
     const description = root.querySelector('#setting-canvas\\.scrollBehavior-description')!
     expect([...description.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual([`Ctrl+${wheel}`])
     expect(description.textContent).toBe(t('settings.canvas.scrollBehavior.description').replace(/`/g, '').replace('Ctrl+wheel', 'Ctrl+Wheel'))
@@ -129,20 +191,21 @@ describe('SettingsDialog search', () => {
     const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()}
       keybindings={new KeybindingRegistry(settings)} storageConnection={connection()}
       request={{ category: 'storage', id: 'library-storage-limit' }} />, root)
-    expect(root.textContent).toContain('Loading storage accounting')
+    expect(root.textContent).toContain('Loading storage sizes')
     setConnection({ fetchLibraryStorage: async () => status, updateLibraryStorageLimit: async () => {},
       clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') } })
-    await vi.waitFor(() => expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('313 bytes'))
-    resolve({ ...status, vaultBytes: 999 })
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-temporaryBytes')?.textContent).toBe('37 bytes'))
+    resolve({ ...status, temporaryBytes: 999 })
     await Promise.resolve()
-    expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('313 bytes')
+    expect(root.querySelector('#library-storage-temporaryBytes')?.textContent).toBe('37 bytes')
+    expect(root.querySelector('#library-storage-vaultBytes')).toBeNull()
     unmount()
   })
 
   it('distinguishes unknown storage from zero and saves a limit without enabling Clear', async () => {
     let limit: number | null = 8193
     const connection = {
-      fetchLibraryStorage: async () => ({ temporaryBytes: 37, vaultBytes: 0, adoptedBytes: 211,
+      fetchLibraryStorage: async () => ({ temporaryBytes: 8193, vaultBytes: 8193, adoptedBytes: 0,
         reclaimableBytes: null, blocked: ['owner_completeness_unknown'], collectionEnabled: false,
         policyAvailable: true, limitBytes: limit }),
       updateLibraryStorageLimit: async (next: number | null) => { limit = next },
@@ -151,24 +214,37 @@ describe('SettingsDialog search', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <LibraryStorageSettings connection={connection} />, root)
-    await vi.waitFor(() => expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('0 bytes'))
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-adoptedBytes')?.textContent).toBe('0 bytes'))
     expect(root.querySelector('#library-storage-reclaimableBytes')?.textContent).toBe('Unknown')
-    const clear = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Clear eligible assets')!
+    const clear = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Clear')!
     expect(clear.disabled).toBe(true)
-    root.querySelector<HTMLButtonElement>('#library-storage-unlimited')!.click()
-    const apply = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Apply limit')!
-    apply.click()
+    const overLimit = 'Files in use are kept, so the total can stay above the limit.'
+    expect(root.textContent).not.toContain(overLimit)
+    const input = root.querySelector<HTMLInputElement>('#library-storage-limit')!
+    for (const [raw, above] of [['4097', true], ['8193', false]] as const) {
+      await vi.waitFor(() => expect(input.disabled).toBe(false))
+      input.value = `${raw} B`
+      input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await vi.waitFor(() => expect(limit).toBe(Number(raw)))
+      expect(root.textContent?.includes(overLimit)).toBe(above)
+    }
+    await vi.waitFor(() => expect(input.disabled).toBe(false))
+    root.querySelector<HTMLButtonElement>('#library-storage-limited')!.click()
     await vi.waitFor(() => expect(limit).toBeNull())
-    await vi.waitFor(() => expect(apply.disabled).toBe(true))
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-limit')).toBeNull())
     expect(clear.disabled).toBe(true)
-    expect(root.textContent).toContain('Saving a limit does not enable cleanup')
+    expect(root.textContent).toContain('The backend cannot confirm which files are in use.')
+    expect(root.querySelector('dialog')).toBeNull()
+    expect(root.textContent).not.toContain('Apply limit')
     unmount()
   })
 
-  it('shows cleanup progress, server byte totals, explicit retry and backend refusal', async () => {
+  it('shows cleanup progress, inline failure, explicit retry and backend refusal', async () => {
     let enabled = true
     let finish!: () => void
     let fail = true
+    let clearRequests = 0
     let pending = new Promise<void>((resolve) => { finish = resolve })
     const connection = {
       fetchLibraryStorage: async () => ({ temporaryBytes: 37, vaultBytes: 513, adoptedBytes: 299,
@@ -176,6 +252,7 @@ describe('SettingsDialog search', () => {
         collectionEnabled: enabled, policyAvailable: true, limitBytes: 21474836480 }),
       updateLibraryStorageLimit: async () => {},
       clearLibraryStorage: async () => {
+        clearRequests += 1
         await pending
         if (fail) throw new RequestFailure('POST', '/api/library/storage/clear', 503, 'Cleanup unavailable')
         return { collectionEnabled: enabled, blocked: enabled ? [] : ['owner_completeness_unknown'],
@@ -185,24 +262,38 @@ describe('SettingsDialog search', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <LibraryStorageSettings connection={connection} />, root)
-    const clear = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Clear eligible assets')!
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-reclaimableBytes')?.textContent).toBe('113 bytes'))
+    const clear = [...root.querySelectorAll('button')].find((button) => button.textContent === 'Clear')!
     await vi.waitFor(() => expect(clear.disabled).toBe(false))
     clear.click()
-    expect(clear.disabled).toBe(true)
-    expect(root.textContent).toContain('Clearing eligible assets...')
+    expect(root.querySelector('dialog')?.textContent).toContain('Removes 113 bytes of files that no run or project is using. This cannot be undone.')
+    ;[...root.querySelectorAll<HTMLButtonElement>('dialog button')].find((button) => button.textContent === 'Cancel')!.click()
+    expect(clearRequests).toBe(0)
+    expect(root.querySelector('dialog')).toBeNull()
+    const confirm = () => [...root.querySelectorAll<HTMLButtonElement>('dialog button')].find((button) => button.textContent === 'Clear')!
+    clear.click()
+    confirm().click()
+    expect(confirm().getAttribute('aria-disabled')).toBe('true')
+    confirm().click()
+    expect(clearRequests).toBe(1)
     finish()
     await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('The action could not be completed. Cleanup unavailable'))
+    expect(root.querySelector('[role="alert"]')?.closest('.dinkster-settings-section')).not.toBeNull()
     expect(clear.disabled).toBe(false)
     fail = false
     pending = Promise.resolve()
     clear.click()
-    await vi.waitFor(() => expect(root.textContent).toContain('113 bytes freed across 2 files'))
+    confirm().click()
+    await vi.waitFor(() => expect(root.querySelector('dialog')).toBeNull())
+    expect(root.querySelector('[role="alert"]')).toBeNull()
+    expect(root.querySelector('[role="status"]')).toBeNull()
     await vi.waitFor(() => expect(clear.disabled).toBe(false))
     enabled = false
     clear.click()
+    confirm().click()
     await vi.waitFor(() => expect(root.textContent).toContain('The backend cannot confirm which files are in use.'))
     expect(clear.disabled).toBe(true)
-    expect(root.textContent).not.toContain('Clearing eligible assets...')
+    expect(root.querySelector('dialog')).toBeNull()
     expect(root.textContent).not.toContain('owner_completeness_unknown')
     unmount()
   })
@@ -220,16 +311,22 @@ describe('SettingsDialog search', () => {
     document.body.append(root)
     const unmount = render(() => <LibraryStorageSettings connection={connection} />, root)
     await vi.waitFor(() => expect(root.textContent).toContain('The saved policy is unavailable'))
-    const unlimited = root.querySelector<HTMLButtonElement>('#library-storage-unlimited')!
-    expect(unlimited.getAttribute('aria-checked')).toBe('false')
-    expect(unlimited.disabled).toBe(true)
+    const limited = root.querySelector<HTMLButtonElement>('#library-storage-limited')!
+    expect(limited.getAttribute('aria-checked')).toBe('false')
+    expect(limited.disabled).toBe(true)
     available = true
     ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Refresh')!.click()
-    await vi.waitFor(() => expect(unlimited.disabled).toBe(false))
-    unlimited.click()
-    ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Apply limit')!.click()
-    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('The action could not be completed. Operator permission denied'))
-    expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('Unknown')
+    await vi.waitFor(() => expect(limited.disabled).toBe(false))
+    limited.click()
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Operator permission denied'))
+    expect(limited.getAttribute('aria-checked')).toBe('true')
+    expect(root.querySelector('#library-storage-temporaryBytes')?.textContent).toBe('Unknown')
+    const input = root.querySelector<HTMLInputElement>('#library-storage-limit')!
+    input.value = '4097 B'
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await vi.waitFor(() => expect(root.querySelector(`[id="${input.getAttribute('aria-describedby')}"]`)?.textContent).toBe('Operator permission denied'))
+    expect(input.value).toBe('4097 B')
     unmount()
   })
 
@@ -264,6 +361,7 @@ describe('SettingsDialog search', () => {
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={commands} keybindings={keybindings} />, root)
 
+    root.querySelector<HTMLAnchorElement>('a[href="#canvas"]')!.click()
     expect(root.textContent).toContain('Canvas scroll behavior')
     expect(root.textContent).toContain('Zoom')
     setLocale('de-DE')
@@ -272,21 +370,21 @@ describe('SettingsDialog search', () => {
     expect(row.textContent).toContain('[Leinwandlauf Wellenflug]')
     expect(row.textContent).toContain('[Mausradverhalten auswahlen]')
     expect(row.textContent).toContain('[Vergrossern]')
-    expect(row.querySelector('button[aria-label="Reset [Leinwandlauf Wellenflug] to default"]')).not.toBeNull()
+    expect(row.querySelector('button')?.textContent).toBe('Reset')
     row.querySelector<HTMLButtonElement>('[role="combobox"]')!.click()
-    expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual(['[Verschieben]', '[Vergrossern]'])
+    expect([...document.querySelectorAll('[role="listbox"] [role="option"]')].map((option) => option.textContent)).toEqual(['[Verschieben]', '[Vergrossern]'])
+    row.querySelector<HTMLButtonElement>('[role="combobox"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
 
     searchFor(root, 'Wellenflug')
     expect(root.querySelector('[data-setting-id="canvas.scrollBehavior"]')).not.toBeNull()
     searchFor(root, 'Arbeitsablaufbibliothek')
     const command = root.querySelector<HTMLElement>('[data-command-id="workflow.open"]')!
-    expect(command.textContent).toContain('[Arbeitsablaufbibliothek offnen]')
-    expect(command.querySelector('button[aria-label="Clear [Arbeitsablaufbibliothek offnen] shortcut"]')).not.toBeNull()
-    expect(command.querySelector('.binding-capture')?.getAttribute('aria-label')).toContain('Shortcut for [Arbeitsablaufbibliothek offnen]')
+    expect(command.closest('.dinkster-search-row')?.textContent).toContain('[Arbeitsablaufbibliothek offnen]')
+    expect(command.querySelector('button')?.getAttribute('aria-label')).toContain('Shortcut for [Arbeitsablaufbibliothek offnen]')
     unmount()
   })
 
-  it('opens on the first populated derived category instead of an empty canvas parent', () => {
+  it('opens General and exposes derived canvas settings under Canvas', () => {
     const settings = isolatedSettings()
     const commands = new CommandRegistry()
     const keybindings = new KeybindingRegistry(settings)
@@ -295,18 +393,17 @@ describe('SettingsDialog search', () => {
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={commands} keybindings={keybindings} />, root)
 
-    expect(root.querySelector('.settings-categories button.active')?.textContent).toBe('Canvas grid')
+    expect(root.querySelector('a[aria-current="page"]')?.textContent).toBe('General')
+    root.querySelector<HTMLAnchorElement>('a[href="#canvas"]')!.click()
     expect(root.querySelector('[data-setting-id]')?.textContent).toContain('Show grid')
     unmount()
   })
 
-  it('keeps empty-query browsing scoped to the active category', () => {
+  it('clears search when choosing a group and keeps browsing there', () => {
     const { root, unmount } = mountDialog()
     expect(root.querySelectorAll('[data-setting-id]')).toHaveLength(2)
     expect(root.querySelector('[data-setting-id]')?.textContent).toContain('Show grid')
-    expect(root.querySelector('.settings-result-group')).toBeNull()
-
-    const shellNav = root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Shell"]')!
+    const shellNav = root.querySelector<HTMLAnchorElement>('a[href="#general"]')!
     shellNav.click()
     expect(root.querySelector('[data-setting-id]')?.textContent).toContain('Grid guide')
     searchFor(root, 'open')
@@ -315,43 +412,46 @@ describe('SettingsDialog search', () => {
     unmount()
   })
 
-  it('renders ranked groups across settings categories and keybindings', () => {
+  it('finds settings and shortcuts across groups without marking a group', () => {
     const { root, unmount } = mountDialog()
     searchFor(root, 'open')
-    expect(root.querySelector('[data-category="keybindings"] [data-command-id]')?.textContent).toContain('Open workflow library')
+    expect(root.querySelector('.dinkster-search-row')?.textContent).toContain('Open workflow library')
 
     searchFor(root, 'grid')
-    expect([...root.querySelectorAll('.settings-result-group')].map((group) => group.getAttribute('data-category'))).toEqual(['shell', 'canvas'])
     expect(root.querySelectorAll('[data-setting-id]')).toHaveLength(2)
-    expect(root.querySelector('.settings-categories button.active')?.textContent).toContain('All results')
-    unmount()
-  })
+    expect(root.querySelector('.dinkster-search-list')?.textContent).toContain('General - Workspace')
+    expect(root.querySelector('.dinkster-search-list')?.textContent).toContain('Canvas - View')
+    expect(root.querySelector('a[aria-current]')).toBeNull()
 
-  it('narrows search results from category headers and counted navigation', () => {
-    const { root, unmount } = mountDialog()
-    searchFor(root, 'grid')
-    const shellHeading = root.querySelector<HTMLButtonElement>('[data-category="shell"] .settings-result-heading')!
-    shellHeading.focus()
-    shellHeading.click()
-    expect([...root.querySelectorAll('.settings-result-group')].map((group) => group.getAttribute('data-category'))).toEqual(['shell'])
-    expect(document.activeElement).toBe(shellHeading)
+    searchFor(root, 'show')
+    const descriptionMatch = root.querySelector('[data-setting-id="shell.gridGuide"]')!.closest('.dinkster-search-row')!
+    expect(descriptionMatch.querySelector('.dinkster-search-row-note')?.textContent).toContain('Show layout guides')
+    expect(descriptionMatch.querySelector('.dinkster-search-row-note mark')?.textContent).toBe('Show')
+    expect([...root.querySelectorAll('.dinkster-search-row')].every((row) => row.querySelector('mark') !== null)).toBe(true)
 
-    const canvasNav = root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Canvas, 1 results"]')!
-    expect(canvasNav.textContent).toContain('1')
-    canvasNav.click()
-    expect([...root.querySelectorAll('.settings-result-group')].map((group) => group.getAttribute('data-category'))).toEqual(['canvas'])
+    searchFor(root, 'canvas.quality')
+    expect(root.querySelector('.dinkster-search-row-detail mark')?.textContent).toBe('canvas.quality')
+    searchFor(root, 'workspace')
+    expect(root.querySelectorAll('.dinkster-search-row')).toHaveLength(1)
+    expect(root.querySelector('.dinkster-search-row')?.textContent).toContain('Grid guide')
+    expect(root.querySelector('.dinkster-search-row-detail mark')?.textContent).toBe('Workspace')
+    setLocale('zh')
+    searchFor(root, '\u5de5\u4f5c\u533a')
+    expect(root.querySelectorAll('.dinkster-search-row')).toHaveLength(1)
+    expect(root.querySelector('.dinkster-search-row')?.textContent).toContain('Grid guide')
+    expect(root.querySelector('.dinkster-search-row-detail mark')?.textContent).toBe('\u5de5\u4f5c\u533a')
+    searchFor(root, 'keybinding')
+    expect(root.querySelectorAll('.dinkster-search-row')).toHaveLength(0)
     unmount()
   })
 
   it('presents an authoritative empty result and lets Escape clear search without leaving the editor', () => {
     const { root, unmount } = mountDialog()
     searchFor(root, 'no such setting')
-    const search = root.querySelector<HTMLInputElement>('.settings-search')!
-
-    expect(root.querySelector('[role="status"]')?.textContent).toBe('0 results for "no such setting"')
+    const search = root.querySelector<HTMLInputElement>('.dinkster-search-input')!
     expect(root.textContent).toContain('No matching settings')
-    expect(root.querySelectorAll('.settings-result-group')).toHaveLength(0)
-    expect([...root.querySelectorAll<HTMLButtonElement>('.settings-categories button')].slice(1).every((button) => button.disabled)).toBe(true)
+    expect(root.querySelectorAll('.dinkster-search-row')).toHaveLength(0)
+    expect(root.querySelectorAll('a[aria-current]')).toHaveLength(0)
 
     const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
     search.dispatchEvent(escape)
@@ -362,26 +462,10 @@ describe('SettingsDialog search', () => {
     unmount()
   })
 
-  it('lets an expanded control consume Escape before the search fallback', () => {
-    const { root, unmount } = mountDialog()
-    searchFor(root, 'quality')
-    const search = root.querySelector<HTMLInputElement>('.settings-search')!
-    const select = root.querySelector<HTMLButtonElement>('[role="combobox"]')!
-    select.click()
-
-    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
-    select.dispatchEvent(escape)
-    expect(escape.defaultPrevented).toBe(true)
-    expect(select.getAttribute('aria-expanded')).toBe('false')
-    expect(search.value).toBe('quality')
-    expect(document.activeElement).toBe(select)
-    unmount()
-  })
-
   it('preserves focused controls when a searched setting changes', () => {
     const { root, unmount } = mountDialog()
     searchFor(root, 'grid')
-    const checkbox = root.querySelector<HTMLButtonElement>('[data-category="canvas"] [role="checkbox"]')!
+    const checkbox = root.querySelector<HTMLButtonElement>('[data-setting-id="canvas.grid.visible"] [role="switch"]')!
     checkbox.focus()
     checkbox.click()
     expect(document.activeElement).toBe(checkbox)
@@ -395,7 +479,7 @@ describe('SettingsDialog search', () => {
     expect(trigger.getAttribute('aria-describedby')).toBe('setting-canvas.quality-description')
     trigger.focus()
     trigger.click()
-    document.querySelector<HTMLElement>('[role="option"][data-option-id="quality"]')!.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find((option) => option.textContent === 'Quality')!.click()
     expect(settings.get('canvas.quality')).toBe('quality')
     expect(document.activeElement).toBe(trigger)
     expect(root.querySelector('[data-setting-id="canvas.quality"] [role="combobox"]')).toBe(trigger)
@@ -411,6 +495,7 @@ describe('SettingsDialog search', () => {
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={commands} keybindings={keybindings} />, root)
 
+    root.querySelector<HTMLAnchorElement>('a[href="#packs"]')!.click()
     const control = root.querySelector<HTMLInputElement>('[role="spinbutton"]')!
     expect(control.getAttribute('aria-labelledby')).toBe('setting-proof.count-label')
     expect(control.getAttribute('aria-describedby')).toBe('setting-proof.count-description')
@@ -433,6 +518,7 @@ describe('SettingsDialog search', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={commands} keybindings={keybindings} />, root)
+    root.querySelector<HTMLAnchorElement>('a[href="#packs"]')!.click()
     const control = root.querySelector<HTMLInputElement>('[role="spinbutton"]')!
 
     control.value = '7'
@@ -457,6 +543,7 @@ describe('SettingsDialog search', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={commands} keybindings={keybindings} />, root)
+    root.querySelector<HTMLAnchorElement>('a[href="#packs"]')!.click()
     const control = root.querySelector<HTMLInputElement>('[data-setting-id="proof.label"] input')!
 
     control.value = 'local draft'
@@ -486,6 +573,7 @@ describe('SettingsDialog search', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={commands} keybindings={keybindings} />, root)
+    root.querySelector<HTMLAnchorElement>('a[href="#packs"]')!.click()
     const control = root.querySelector<HTMLInputElement>('[role="spinbutton"]')!
 
     control.value = 'invalid'
@@ -495,7 +583,7 @@ describe('SettingsDialog search', () => {
     expect(write).not.toHaveBeenCalled()
     expect(settings.get('proof.count')).toBe(2)
     expect(control.getAttribute('aria-invalid')).toBe('true')
-    expect(control.getAttribute('aria-describedby')).toBe('setting-proof.count-message')
+    expect(control.getAttribute('aria-describedby')).toBe('setting-proof.count-error')
     expect(root.querySelector('[role="alert"]')?.textContent).toBe('Enter a finite number.')
     setLocale('zh')
     expect(root.querySelector('[role="alert"]')?.textContent).toBe('\u8bf7\u8f93\u5165\u6709\u9650\u6570\u5b57\u3002')
@@ -519,27 +607,27 @@ describe('SettingsDialog search', () => {
   it('shows reset only for an override and commits the default through the settings registry', () => {
     const { root, settings, unmount } = mountDialog()
     const row = root.querySelector<HTMLElement>('[data-setting-id="canvas.grid.visible"]')!
-    expect(row.querySelector('[aria-label="Reset Show grid to default"]')).toBeNull()
+    expect(row.querySelector('.dinkster-text-button')).toBeNull()
 
-    const checkbox = row.querySelector<HTMLButtonElement>('[role="checkbox"]')!
-    expect(checkbox.getAttribute('aria-labelledby')).toBe('setting-canvas.grid.visible-label')
+    const checkbox = row.querySelector<HTMLButtonElement>('[role="switch"]')!
+    expect(checkbox.getAttribute('aria-label')).toBe('Show grid')
     checkbox.click()
-    const reset = row.querySelector<HTMLButtonElement>('[aria-label="Reset Show grid to default"]')!
-    expect(reset.getAttribute('aria-label')).toBe('Reset Show grid to default')
+    const reset = row.querySelector<HTMLButtonElement>('.dinkster-text-button')!
+    expect(reset.textContent).toBe('Reset')
     reset.click()
 
     expect(settings.get('canvas.grid.visible')).toBe(true)
-    expect(row.querySelector('[role="checkbox"]')?.getAttribute('aria-checked')).toBe('true')
-    expect(row.querySelector('[aria-label="Reset Show grid to default"]')).toBeNull()
+    expect(row.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true')
+    expect(row.querySelector('.dinkster-text-button')).toBeNull()
     unmount()
   })
 
   it('captures a complete chord, reports its conflict, and resets to the command default', () => {
     const { root, keybindings, unmount } = mountDialog()
-    const keybindingsNav = root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Keybindings"]')!
+    const keybindingsNav = root.querySelector<HTMLAnchorElement>('a[href="#shortcuts"]')!
     keybindingsNav.click()
     const saveRow = root.querySelector<HTMLElement>('[data-command-id="workflow.save"]')!
-    const capture = saveRow.querySelector<HTMLButtonElement>('.binding-capture')!
+    const capture = saveRow.querySelector<HTMLButtonElement>('[id="keybinding-workflow.save"]')!
     capture.click()
 
     capture.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true, bubbles: true }))
@@ -549,14 +637,13 @@ describe('SettingsDialog search', () => {
 
     expect(keybindings.combo('workflow.save')).toBe('ctrl+o')
     expect([...capture.querySelectorAll('kbd')].map((key) => key.textContent)).toEqual(['Ctrl+O'])
-    expect(saveRow.classList.contains('product-field-invalid')).toBe(true)
-    expect(capture.getAttribute('aria-invalid')).toBe('true')
-    expect(capture.getAttribute('aria-describedby')).toBe('keybinding-workflow.save-message')
-    expect(saveRow.querySelector('.product-field-message')?.textContent).toContain('workflow.open')
+    expect(capture.getAttribute('aria-invalid')).toBeNull()
+    expect(capture.getAttribute('aria-describedby')).toBe('keybinding-workflow.save-warning')
+    expect(saveRow.querySelector('[role="status"]')?.textContent).toContain('Open workflow library')
     const reset = [...saveRow.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Reset')!
     reset.click()
     expect(keybindings.combo('workflow.save')).toBe('ctrl+s')
-    expect(saveRow.classList.contains('product-field-invalid')).toBe(false)
+    expect(saveRow.querySelector('[role="status"]')).toBeNull()
     unmount()
   })
 
@@ -565,8 +652,42 @@ describe('SettingsDialog search', () => {
     const { root, unmount } = mountRequestedDialog(() => { consumed++ })
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(root.querySelector('[data-setting-id]')?.textContent).toContain('Grid guide')
-    expect(document.activeElement).toBe(root.querySelector('[data-setting-id="shell.gridGuide"] [role="checkbox"]'))
+    expect(document.activeElement).toBe(root.querySelector('[data-setting-id="shell.gridGuide"] [role="switch"]'))
     expect(consumed).toBe(1)
+    unmount()
+  })
+
+  it('resets project layout without resetting bar visibility or another project', () => {
+    const data = new Map<string, string>()
+    const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => void data.set(key, value) }
+    const settings = new SettingsRegistry(storage, 'project.one')
+    const other = new SettingsRegistry(storage, 'project.two')
+    for (const registry of [settings, other]) {
+      registry.register({ id: 'shell.layout.left.width', name: 'Left panel size', type: 'number', defaultValue: 380, projectScoped: true })
+      registry.register({ id: 'shell.layout.activityBar.visible', name: 'Activity bar visible', type: 'boolean', defaultValue: true, projectScoped: true })
+      registry.register({ id: 'shell.dock.layout', name: 'Dock layout', type: 'string', defaultValue: '', projectScoped: true })
+    }
+    settings.set('shell.layout.left.width', 512)
+    settings.set('shell.layout.activityBar.visible', false)
+    settings.set('shell.dock.layout', 'stored layout')
+    other.set('shell.layout.left.width', 417)
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} />, root)
+    expect(root.querySelector('[data-setting-id="shell.dock.layout"]')).toBeNull()
+    const search = root.querySelector<HTMLInputElement>('[role="combobox"]')!
+    search.value = 'shell.dock.layout'
+    search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    expect(root.querySelector('[data-setting-id="shell.dock.layout"]')).toBeNull()
+    expect(root.querySelector('.dinkster-search-empty-title')?.textContent).toBe('No matching settings')
+    search.value = ''
+    search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Reset layout')!.click()
+    expect(settings.get('shell.layout.left.width')).toBe(380)
+    expect(settings.get('shell.dock.layout')).toBe('')
+    expect(settings.get('shell.layout.activityBar.visible')).toBe(false)
+    expect(other.get('shell.layout.left.width')).toBe(417)
+    expect(JSON.parse(data.get('project.one')!).values).toEqual({ 'shell.layout.activityBar.visible': false })
     unmount()
   })
 
@@ -590,9 +711,9 @@ describe('SettingsDialog search', () => {
     document.body.append(root)
     const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()} keybindings={new KeybindingRegistry(settings)} packSettings={{ client: { fetchPackSettings, updatePackSettings }, packs: () => [{ id: 'render.pack', displayName: 'Render Pack' }] }} />, root)
 
-    root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Render Pack"]')!.click()
+    root.querySelector<HTMLAnchorElement>('a[href="#packs"]')!.click()
     await vi.waitFor(() => expect(root.querySelector('[data-pack-id="render.pack"]')).not.toBeNull())
-    const enabled = root.querySelector<HTMLButtonElement>('[data-pack-setting-id="enabled"] [role="checkbox"]')!
+    const enabled = root.querySelector<HTMLButtonElement>('[data-pack-setting-id="enabled"] [role="switch"]')!
     expect(enabled.getAttribute('aria-describedby')).toBe('pack-setting-render.pack-enabled-description')
     enabled.click()
     await vi.waitFor(() => expect(updatePackSettings).toHaveBeenCalledWith('render.pack', { enabled: false, quality: 2 }))
@@ -616,8 +737,8 @@ describe('SettingsDialog search', () => {
       },
       packs: () => [{ id: 'broken', displayName: 'Broken Pack' }],
     }} />, root)
-    root.querySelector<HTMLButtonElement>('.settings-categories button[aria-label="Broken Pack"]')!.click()
-    await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toBe('The action could not be completed. pack is unavailable'))
+    root.querySelector<HTMLAnchorElement>('a[href="#packs"]')!.click()
+    await vi.waitFor(() => expect(root.querySelector('.pack-settings-status')?.textContent).toBe('The action could not be completed. pack is unavailable'))
     expect(root.querySelector('[data-pack-setting-id]')).toBeNull()
     unmount()
   })

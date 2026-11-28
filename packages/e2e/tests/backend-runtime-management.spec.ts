@@ -36,8 +36,8 @@ async function installRoutes(page: Page): Promise<void> {
     nodes: {},
   } }))
   await page.route('/api/diagnostics*', (route) => route.fulfill({ json: { diagnostics: [] } }))
-  await page.route('**/api/settings*', async (route) => {
-    if (route.request().method() === 'PATCH') {
+  await page.route(/\/api\/settings(?:\/[^?]+)?(?:\?.*)?$/, async (route) => {
+    if (route.request().method() === 'PUT') {
       const category = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop()!)
       const value = route.request().postDataJSON() as unknown
       return route.fulfill({ json: { ...runtimeSettings.settings[category as keyof typeof runtimeSettings.settings], value, source: 'runtime' } })
@@ -108,24 +108,31 @@ test('backend and runtime management remains truthful and usable across wide, na
 
   const local = page.getByTestId('backend-row').filter({ hasText: 'Local' })
   await local.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.locator('.settings-editor')
-  await expect(settings.getByText('Component precision', { exact: true })).toBeVisible()
-  await expect(settings.getByText('Grant required').first()).toBeVisible()
-  await expect(settings.getByText('Read-only').first()).toBeVisible()
-  await expect(settings.locator('[data-category="memory-budgets"]')).toHaveCount(0)
-  const jobs = settings.locator('details[data-category="jobs"]')
+  const settings = page.getByRole('region', { name: 'Settings', exact: true }).getByRole('region', { name: 'Local runtime settings', exact: true })
+  await expect(settings.getByText('Diffusion model precision', { exact: true })).toBeVisible()
+  await expect(settings.locator('[data-setting-id="worker-comfy-args"] output')).toHaveText('2 items')
+  await expect(settings.locator('[data-setting-id="logging.level"] output')).toHaveText('info')
+  await expect(settings.locator('[data-setting-id="memory-budgets"]')).toHaveCount(0)
+  const jobs = settings.locator('[data-setting-id="jobs"]')
   const jobsInput = jobs.getByRole('spinbutton', { name: 'Maximum running jobs' })
+  await page.route('/api/settings/jobs', (route) => route.request().postDataJSON().maxRunningJobs === 4
+    ? route.fulfill({ status: 400, json: { error: 'invalid-settings', category: 'jobs', message: 'Only three jobs are allowed' } })
+    : route.fulfill({ json: { ...runtimeSettings.settings.jobs, value: route.request().postDataJSON(), source: 'runtime' } }))
   await jobsInput.fill('4')
-  await expect(jobs.getByText('Unsaved changes')).toBeVisible()
-  await expect(jobs.getByRole('button', { name: 'Apply' })).toBeEnabled()
-  await jobs.getByRole('button', { name: 'Reset' }).click()
+  await jobsInput.press('Enter')
   await expect(jobsInput).toHaveValue('2')
-  await expect(jobs.getByText('No unsaved changes')).toBeVisible()
-  await settings.locator('[data-category="future-category"]').scrollIntoViewIfNeeded()
-  await expect(settings.getByText('A long additive value remains visible')).toBeVisible()
-  expect(await auditLayout(page, '.settings-editor')).toEqual([])
-  await settings.locator('[data-category="future-category"]').screenshot({ path: evidencePath('issue-37', 'after-runtime-wide.png') })
-  await page.keyboard.press('Escape')
+  await expect(jobs.getByRole('alert')).toContainText('Only three jobs are allowed')
+  await settings.screenshot({ path: evidencePath('issue-1345', 'engine-refused-wide.png') })
+  await jobsInput.fill('3')
+  await jobsInput.press('Enter')
+  await expect(jobsInput).toHaveValue('3')
+  await expect(jobs.getByRole('alert')).toHaveCount(0)
+  await expect(settings.getByRole('button', { name: /^(Apply|Reset)$/ })).toHaveCount(0)
+  await settings.locator('[data-setting-id="future-category"]').scrollIntoViewIfNeeded()
+  await expect(settings.locator('[data-setting-id="future-category"] output')).toHaveText('Not available')
+  expect(await auditLayout(page, '.dinkster-settings')).toEqual([])
+  await settings.screenshot({ path: evidencePath('issue-1345', 'engine-wide.png') })
+  await page.getByRole('button', { name: 'Close Settings', exact: true }).click()
 
   await page.setViewportSize({ width: 390, height: 844 })
   await setShellRegion(page, 'right', false)
@@ -174,12 +181,71 @@ test('backend and runtime management remains truthful and usable across wide, na
   await page.screenshot({ path: evidencePath('issue-37', 'after-backends-200-percent-top.png') })
 })
 
+test('engine list editing keeps refused drafts and only Cancel discards changes', async ({ page }) => {
+  await openFixture(page)
+  const response = structuredClone(runtimeSettings)
+  response.categories.granted.push('worker-comfy-args')
+  response.settings['worker-comfy-args'].writable = true
+  response.settings.logging.writable = true
+  let refused = false
+  await page.route('/api/settings', (route) => route.fulfill({ json: response }))
+  await page.route('/api/settings/worker-comfy-args', (route) => {
+    if (!refused) {
+      refused = true
+      return route.fulfill({ status: 400, json: { error: 'invalid-settings', category: 'worker-comfy-args', message: 'Preview method refused' } })
+    }
+    response.settings['worker-comfy-args'].value = route.request().postDataJSON()
+    return route.fulfill({ json: response.settings['worker-comfy-args'] })
+  })
+  await page.getByTestId('backend-row').filter({ hasText: 'Local' }).getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('region', { name: 'Local runtime settings', exact: true })
+  const row = settings.locator('[data-setting-id="worker-comfy-args"]')
+  await row.getByRole('button', { name: 'Edit Worker arguments', exact: true }).click()
+  const argument = row.getByRole('textbox', { name: 'Worker argument 2', exact: true })
+  await argument.fill('auto')
+  await row.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await row.getByRole('button', { name: 'Edit Worker arguments', exact: true }).click()
+  await expect(argument).toHaveValue('latent2rgb')
+  await argument.fill('auto')
+  await row.getByRole('button', { name: 'Done', exact: true }).click()
+  await expect(row.getByRole('alert')).toHaveText('Preview method refused')
+  await expect(argument).toHaveValue('auto')
+  await settings.screenshot({ path: evidencePath('issue-1345', 'engine-list-refused-wide.png') })
+  for (const side of ['left', 'right', 'bottom'] as const) await setShellRegion(page, side, false)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await row.scrollIntoViewIfNeeded()
+  expect(await auditLayout(page, '.dinkster-settings-main')).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await page.screenshot({ path: evidencePath('issue-1345', 'engine-list-refused-narrow.png') })
+  await row.getByRole('button', { name: 'Done', exact: true }).click()
+  await expect(argument).toHaveCount(0)
+  await row.getByRole('button', { name: 'Edit Worker arguments', exact: true }).click()
+  await expect(argument).toHaveValue('auto')
+  await row.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.route('/api/settings/logging', (route) => {
+    response.settings.logging.value = route.request().postDataJSON()
+    return route.fulfill({ json: response.settings.logging })
+  })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const level = settings.getByRole('combobox', { name: 'Default log level', exact: true })
+  await level.click()
+  await page.getByRole('option', { name: 'warning', exact: true }).click()
+  await expect(level).toHaveText('warning')
+  const loggers = settings.locator('[data-setting-id="logging.overrides"]')
+  await loggers.getByRole('button', { name: 'Edit Logger overrides', exact: true }).click()
+  await loggers.getByRole('textbox', { name: 'Logger name', exact: true }).fill('dinkster.preview')
+  await settings.screenshot({ path: evidencePath('issue-1345', 'engine-logger-edit-wide.png') })
+  await loggers.getByRole('button', { name: 'Done', exact: true }).click()
+  await expect(loggers.getByRole('textbox')).toHaveCount(0)
+  expect(response.settings.logging.value).toEqual({ level: 'warning', overrides: { 'dinkster.preview': 'debug' } })
+})
+
 test('mounted agent permission chrome relabels without refetching or changing authority', async ({ page, request }) => {
   await page.setViewportSize({ width: 1600, height: 950 })
   await openFixture(page)
   let principalRequests = 0
   let permissionUpdates = 0
-  await page.route('**/api/principals', (route) => {
+  await page.route('http://permissions.example.test:9000/api/principals', (route) => {
     principalRequests += 1
     return route.fulfill({ json: [{
       principalId: 'raw.agent-one',
@@ -187,7 +253,7 @@ test('mounted agent permission chrome relabels without refetching or changing au
       categories: { edit: true, execute: false, future: true },
     }] })
   })
-  await page.route('**/api/principals/*/permissions', (route) => {
+  await page.route('http://permissions.example.test:9000/api/principals/*/permissions', (route) => {
     permissionUpdates += 1
     expect(route.request().postDataJSON()).toEqual({ execute: true })
     return route.fulfill({ json: { edit: true, execute: true, future: true } })
@@ -202,7 +268,7 @@ test('mounted agent permission chrome relabels without refetching or changing au
   const backend = page.getByTestId('backend-row').filter({ hasText: 'Raw permissions backend' })
   await backend.locator('button[aria-controls]').click()
   await backend.getByRole('button', { name: 'Settings', exact: true }).click()
-  const panel = page.locator('.settings-editor').getByTestId('agent-permissions')
+  const panel = page.getByRole('region', { name: 'Settings', exact: true }).getByRole('region', { name: 'Raw permissions backend', exact: true }).getByTestId('agent-permissions')
   const row = panel.getByTestId('agent-permissions-row')
   const edit = row.locator('[data-category="edit"]')
   const execute = row.locator('[data-category="execute"]')
@@ -248,7 +314,7 @@ test('mounted agent permission chrome relabels without refetching or changing au
   await expect(execute).toBeFocused()
   expect(principalRequests).toBe(1)
   expect(permissionUpdates).toBe(0)
-  expect(await auditLayout(page, '.settings-editor')).toEqual([])
+  expect(await auditLayout(page, '.dinkster-settings')).toEqual([])
 
   await execute.click()
   await expect.poll(() => permissionUpdates).toBe(1)

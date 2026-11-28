@@ -79,6 +79,7 @@ interface MenuIdentity {
 function Menu(props: {
   triggerName: string
   menuName: string
+  contextMenu?: boolean
   items: readonly MenuEntry[]
   identity: MenuIdentity | undefined
   account?: boolean
@@ -111,10 +112,12 @@ function Menu(props: {
   let root!: HTMLDivElement
   let trigger!: HTMLButtonElement
   let menu!: HTMLDivElement
+  let contextPoint: DOMRect | undefined
+  let returnFocus: HTMLElement | undefined
   let filterInput: HTMLInputElement | undefined
   const close = (restoreFocus = false) => {
     setOpen(false)
-    if (restoreFocus) trigger.focus()
+    if (restoreFocus) (props.contextMenu ? returnFocus : trigger)?.focus()
   }
   createEffect(() => {
     props.busy
@@ -161,7 +164,7 @@ function Menu(props: {
       if (!open()) return
       // Measure in the top layer so dock stacking and clipping cannot hide actions.
       menu.showPopover()
-      const anchor = trigger.getBoundingClientRect()
+      const anchor = contextPoint ?? trigger.getBoundingClientRect()
       const surface = menu.getBoundingClientRect()
       const margin = tokens.space[8]
       const bounds = {
@@ -215,6 +218,11 @@ function Menu(props: {
       focusInitialItem(last)
     })
   }
+  const showContext = (x: number, y: number) => {
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
+    contextPoint = new DOMRect(x, y, 0, 0)
+    show()
+  }
   // Dismissal listeners exist only while the menu is open, so a page with
   // many menus does not run one handler per menu on every press.
   createEffect(() => {
@@ -238,13 +246,27 @@ function Menu(props: {
   return (
     <div
       class={props.windowAction ? 'dinkster-menu-anchor dinkster-window-action' : 'dinkster-menu-anchor'}
+      data-context-menu={props.contextMenu || undefined}
       data-project={props.project ? '' : undefined}
       ref={root}
+      onContextMenu={(event) => {
+        if (!props.contextMenu) return
+        event.preventDefault()
+        event.stopPropagation()
+        showContext(event.clientX, event.clientY)
+      }}
+      onKeyDown={(event) => {
+        if (!props.contextMenu || (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))) return
+        event.preventDefault()
+        event.stopPropagation()
+        const anchor = (event.target as HTMLElement).getBoundingClientRect()
+        showContext(anchor.left, anchor.bottom)
+      }}
       onFocusOut={(event) => {
         if (!root.contains(event.relatedTarget as Node | null)) close()
       }}
     >
-      <button
+      <Show when={!props.contextMenu} fallback={props.children}><button
         ref={trigger}
         class="dinkster-button dinkster-menu-trigger"
         data-fill={props.fill}
@@ -281,7 +303,7 @@ function Menu(props: {
         <Show when={props.attention}>
           {(attention) => <Attention attention={attention()} />}
         </Show>
-      </button>
+      </button></Show>
       <Show when={open()}>
         <div
           ref={menu}
@@ -484,6 +506,14 @@ function Menu(props: {
       </Show>
     </div>
   )
+}
+
+export function ProductContextMenu(props: {
+  label: string
+  items: readonly (ProductMenuItem | 'separator')[]
+  children: JSX.Element
+}) {
+  return <Menu triggerName={props.label} menuName={props.label} items={props.items} identity={undefined} contextMenu>{props.children}</Menu>
 }
 
 export function ProductMenu(props: {

@@ -9,6 +9,7 @@ import * as boardMedia from '../src/board-media.js'
 import { setPanelOpen } from '../src/panel-location.js'
 import { BOARD_MEDIA_TYPE, emptyBoard } from '@dinkster/core'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
+import { runSearchAction } from '../src/universal-search.js'
 import {
   layoutGroups,
   repairEditorLayout,
@@ -143,6 +144,49 @@ describe('page tab host', () => {
 })
 
 describe('app page tabs', () => {
+  it('opens Settings once and applies later search requests to the existing page without changing workflow tabs', async () => {
+    const app = createWorkflowApp()
+    const workflows = app.tabs.get()
+    const root = document.createElement('div')
+    document.body.append(root)
+    const dispose = render(() => <App app={app} />, root)
+    try {
+      app.commands.get('settings.open')!.run()
+      await vi.waitFor(() => expect(root.querySelector('.dinkster-settings-host')).not.toBeNull())
+      expect(app.pages.tabs().filter((tab) => tab.id === 'page:settings')).toHaveLength(1)
+      expect(root.querySelector('[aria-modal="true"]')).toBeNull()
+      app.commands.get('settings.open')!.run()
+      expect(app.pages.tabs().filter((tab) => tab.id === 'page:settings')).toHaveLength(1)
+      runSearchAction(app, { kind: 'host', action: 'settings.open', params: { category: 'canvas.grid', id: 'canvas.grid.visible' } })
+      await vi.waitFor(() => expect(document.activeElement?.id).toBe('setting-canvas.grid.visible'))
+      runSearchAction(app, { kind: 'host', action: 'settings.open', params: { category: 'search', id: 'search.registryUrl' } })
+      await vi.waitFor(() => expect(document.activeElement?.id).toBe('setting-search.registryUrl'))
+      expect(app.pages.tabs().filter((tab) => tab.id === 'page:settings')).toHaveLength(1)
+      expect(app.tabs.get()).toBe(workflows)
+      expect(app.activeTabId.get()).toBe('page:settings')
+      const search = root.querySelector<HTMLInputElement>('.dinkster-search-input')!
+      for (const definition of app.settings.list()) {
+        if (['keybindings.overrides', 'search.recentActivations', 'shell.dock.layout'].includes(definition.id)) continue
+        search.value = definition.id
+        search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+        expect(root.querySelector(`[data-setting-id="${definition.id}"]`), definition.id).not.toBeNull()
+      }
+      for (const command of app.commands.list()) {
+        search.value = command.id
+        search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+        expect(root.querySelector(`[data-command-id="${command.id}"]`), command.id).not.toBeNull()
+      }
+      app.pages.close('page:settings')
+      await vi.waitFor(() => expect(root.querySelector('.dinkster-settings-host')).toBeNull())
+      expect(app.activeTab()).toBeDefined()
+    } finally {
+      dispose()
+      app.dispose()
+      root.remove()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('clears a receiving section when a dragged Board item is removed by another edit', () => {
     const app = createWorkflowApp()
     const root = document.createElement('div')

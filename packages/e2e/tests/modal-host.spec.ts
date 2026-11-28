@@ -3,7 +3,7 @@
  * ONE host - a native <dialog> opened via showModal() - owning backdrop,
  * dialog chrome, title, close button, Escape, and the modal focus contract
  * (initial focus inside, inert background, restoration to the opener).
- * Settings is the proving resident: its body is placement-agnostic and the
+ * Projects is the proving resident: its body is placement-agnostic and the
  * host provides everything around it. These specs pin the host's contract;
  * settings CONTENT behavior stays pinned by settings-keybindings.spec.ts.
  */
@@ -11,14 +11,14 @@ import { expect, test } from './fixtures.js'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('settings-button')).toBeVisible()
+  await expect(page.getByTestId('projects-button')).toBeVisible()
 })
 
-test('settings renders through the modal host and closes via button, backdrop, and Escape', async ({ page }) => {
-  await page.getByTestId('settings-button').click()
+test('projects renders through the modal host and closes via button, backdrop, and Escape', async ({ page }) => {
+  await page.getByTestId('projects-button').click()
   const surface = page.getByTestId('modal-surface')
-  await expect(surface).toHaveAttribute('data-modal', 'settings')
-  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  await expect(surface).toHaveAttribute('data-modal', 'projects')
+  await expect(page.getByRole('dialog', { name: 'Projects' })).toBeVisible()
 
   // Host chrome close button (accessible name derives from the panel title).
   await page.getByTestId('modal-close').click()
@@ -26,22 +26,17 @@ test('settings renders through the modal host and closes via button, backdrop, a
 
   // A press on ::backdrop closes (the native dialog receives it with
   // coordinates outside its box); a press INSIDE the dialog does not.
-  await page.getByTestId('settings-button').click()
+  await page.getByTestId('projects-button').click()
   await surface.click({ position: { x: 20, y: 60 } })
   await expect(surface).toBeVisible()
   await page.mouse.click(5, 5)
   await expect(surface).not.toBeVisible()
 
   // Escape closes: the native dialog handles it wherever focus sits.
-  await page.getByTestId('settings-button').click()
+  await page.getByTestId('projects-button').click()
   await expect(surface).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(surface).not.toBeVisible()
-})
-
-test('the settings.open command (Ctrl+,) opens the modal panel', async ({ page }) => {
-  await page.keyboard.press('Control+Comma')
-  await expect(page.getByTestId('modal-surface')).toHaveAttribute('data-modal', 'settings')
 })
 
 test('a native modal owns Escape while a Canvas view menu remains open behind it', async ({ page }) => {
@@ -49,7 +44,7 @@ test('a native modal owns Escape while a Canvas view menu remains open behind it
   await lensSwitcher.click()
   await expect(lensSwitcher).toHaveAttribute('aria-expanded', 'true')
 
-  await page.keyboard.press('Control+Comma')
+  await page.evaluate(() => document.querySelector<HTMLButtonElement>('[data-testid="projects-button"]')!.click())
   const surface = page.getByTestId('modal-surface')
   await expect(surface).toBeVisible()
   await expect(lensSwitcher).toHaveAttribute('aria-expanded', 'true')
@@ -64,7 +59,7 @@ test('a native modal owns Escape while a Canvas view menu remains open behind it
 })
 
 test('a modal owns focus: initial focus moves inside, the background is inert, closing restores the opener', async ({ page }) => {
-  await page.getByTestId('settings-button').click()
+  await page.getByTestId('projects-button').click()
   const surface = page.getByTestId('modal-surface')
   await expect(surface).toBeVisible()
 
@@ -92,24 +87,5 @@ test('a modal owns focus: initial focus moves inside, the background is inert, c
   // Closing restores focus to the opener button.
   await page.keyboard.press('Escape')
   await expect(surface).not.toBeVisible()
-  await expect(page.getByTestId('settings-button')).toBeFocused()
-})
-
-test('Escape during a keybinding capture cancels the capture, not the dialog', async ({ page }) => {
-  await page.getByTestId('settings-button').click()
-  const dialog = page.getByRole('dialog', { name: 'Settings' })
-  await dialog.locator('.settings-categories').getByRole('button', { name: 'Keybindings' }).click()
-  const capture = dialog.locator('[data-command-id]', { hasText: 'Open workflow library' }).locator('.binding-capture')
-  const originalBinding = await capture.innerText()
-  await capture.click()
-  await expect(capture).toHaveText('Press keys...')
-  await page.keyboard.press('Escape')
-  // The capture is cancelled (binding text restored)...
-  await expect(capture).toHaveText(originalBinding)
-  // ...and the dialog survived: the body's preventDefault suppressed the
-  // native Escape close request.
-  await expect(dialog).toBeVisible()
-  // A second Escape (no capture active) reaches the dialog and closes.
-  await page.keyboard.press('Escape')
-  await expect(dialog).not.toBeVisible()
+  await expect(page.getByTestId('projects-button')).toBeFocused()
 })

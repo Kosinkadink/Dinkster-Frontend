@@ -4,6 +4,7 @@ import {
   createEffect,
   createSignal,
   createUniqueId,
+  on,
   splitProps,
   type ComponentProps,
 } from 'solid-js'
@@ -15,15 +16,26 @@ export function ProductByteSizeInput(
   props: Omit<
     ComponentProps<typeof ProductTextInput>,
     'value' | 'onInput' | 'onChange' | 'onBlur' | 'onKeyDown' | 'ref'
-  > & {
-    readonly value: number
-    readonly onCommit: (bytes: number) => void
-    readonly minimum?: number | undefined
-    readonly error?: string | undefined
-  },
+  > &
+    (
+      | {
+          readonly allowExpressions?: false
+          readonly value: number
+          readonly onCommit: (bytes: number) => void
+        }
+      | {
+          readonly allowExpressions: true
+          readonly value: number | string | undefined
+          readonly onCommit: (value: number | string | undefined) => void
+        }
+    ) & {
+      readonly minimum?: number | undefined
+      readonly error?: string | undefined
+    },
 ) {
   const [local, input] = splitProps(props, [
     'value',
+    'allowExpressions',
     'onCommit',
     'minimum',
     'error',
@@ -36,21 +48,50 @@ export function ProductByteSizeInput(
   const [draft, setDraft] = createSignal('')
   const [invalid, setInvalid] = createSignal<string>()
   let unchanged = ''
+  let submitted: string | undefined
   const restore = () => {
-    unchanged = formatByteSize(local.value, 'GB')
+    submitted = undefined
+    unchanged =
+      typeof local.value === 'number'
+        ? formatByteSize(local.value, 'GB')
+        : (local.value ?? '')
     setDraft(unchanged)
     setInvalid(undefined)
   }
-  createEffect(() => {
-    local.value
-    local.disabled
-    local.error
-    restore()
-  })
+  createEffect(
+    on(
+      () => [local.value, local.disabled],
+      () => {
+        if (submitted !== undefined && (local.disabled || local.error)) return
+        restore()
+      },
+    ),
+  )
+  createEffect(
+    on(
+      () => local.error,
+      (error) => {
+        if (error && submitted !== undefined) {
+          unchanged = submitted
+          setDraft(submitted)
+        }
+        setInvalid(error)
+      },
+    ),
+  )
   const commit = () => {
     if (local.disabled || draft() === unchanged) return
     const bytes = parseByteSize(draft())
     if (bytes === undefined) {
+      if (props.allowExpressions) {
+        const expression = draft().trim() || undefined
+        submitted = draft()
+        unchanged = expression ?? ''
+        setDraft(unchanged)
+        setInvalid(undefined)
+        if (expression !== props.value) props.onCommit(expression)
+        return
+      }
       setInvalid(strings.byteSizeInvalid)
       return
     }
@@ -63,12 +104,13 @@ export function ProductByteSizeInput(
       )
       return
     }
+    submitted = draft()
     unchanged = formatByteSize(bytes, 'GB')
     setDraft(unchanged)
     setInvalid(undefined)
     if (bytes !== local.value) local.onCommit(bytes)
   }
-  const error = () => invalid() || local.error
+  const error = () => invalid()
   return (
     <div class="dinkster-stack">
       <ProductTextInput

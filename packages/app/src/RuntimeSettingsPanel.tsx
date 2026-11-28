@@ -1,4 +1,6 @@
-import { createEffect, createSignal, createUniqueId, For, Index, onMount, Show } from 'solid-js'
+import { createEffect, createSignal, createUniqueId, For, Index, onCleanup, onMount, Show } from 'solid-js'
+import { LockKeyhole } from 'lucide-solid'
+import { ProductIcon, ProductSelect as SharedProductSelect, ProductSettingsSection, ProductSettingRow, ProductSwitch, ProductTextButton } from '@dinkster/ui'
 import {
   RuntimeSettingsError,
   type DinksterConnection,
@@ -10,7 +12,7 @@ import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } fro
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { useAppMessage } from './locale.js'
-import { failureMessage } from './request-failure.js'
+import { failureMessage, failureReason } from './request-failure.js'
 
 type SettingsConnection = Pick<DinksterConnection, 'fetchRuntimeSettings' | 'updateRuntimeSetting'>
 
@@ -36,6 +38,110 @@ interface LoggingRow { readonly id: number; readonly name: string; readonly leve
 let loggingRowId = 0
 interface ComfyArgRow { readonly id: number; readonly value: string }
 let comfyArgRowId = 0
+
+function EngineSettingRows(props: {
+  readonly category: string
+  readonly section: RuntimeSettingSection
+  readonly editable: boolean
+  readonly connection: SettingsConnection
+  readonly onSaveStart: () => void
+  readonly onSaved: (section: RuntimeSettingSection) => void
+  readonly onCopyId: (id: string) => void
+}) {
+  const message = useAppMessage()
+  const [value, setValue] = createSignal<unknown>(props.section.value)
+  const [saving, setSaving] = createSignal(false)
+  const [error, setError] = createSignal<{ id: string; text: string }>()
+  const [editing, setEditing] = createSignal(false)
+  const [argumentsDraft, setArgumentsDraft] = createSignal<readonly ComfyArgRow[]>([])
+  const [loggersDraft, setLoggersDraft] = createSignal<readonly LoggingRow[]>([])
+  let live = true
+  onCleanup(() => { live = false })
+  createEffect(() => setValue(() => props.section.value))
+  const save = async (id: string, next: unknown): Promise<boolean> => {
+    if (saving() || !props.editable) return false
+    setError(undefined)
+    if (sameValue(next, props.section.value)) return true
+    props.onSaveStart()
+    setSaving(true)
+    setValue(() => next)
+    try {
+      const updated = await props.connection.updateRuntimeSetting(props.category, next)
+      if (!live) return false
+      props.onSaved(updated)
+      return true
+    } catch (cause) {
+      if (live) {
+        setValue(() => props.section.value)
+        setError({ id, text: failureReason(cause) ?? message('request.settingsSaveFailed') })
+      }
+      return false
+    } finally {
+      if (live) setSaving(false)
+    }
+  }
+  const beginList = (): void => {
+    setArgumentsDraft((Array.isArray(value()) ? value() as unknown[] : []).filter((item): item is string => typeof item === 'string').map((item) => ({ id: ++comfyArgRowId, value: item })))
+    setLoggersDraft(Object.entries(asRecord(asRecord(value())['overrides'])).map(([name, level]) => ({ id: ++loggingRowId, name, level: String(level) })))
+    setEditing(true)
+  }
+  const definitions = props.category === 'dtype-policy'
+    ? [
+        { part: 'diffusion', label: 'runtimeSettings.page.diffusion', kind: 'precision' },
+        { part: 'textEncoder', label: 'runtimeSettings.page.textEncoder', kind: 'precision' },
+        { part: 'vae', label: 'runtimeSettings.page.vae', kind: 'precision' },
+      ]
+    : props.category === 'logging'
+      ? [{ part: 'level', label: 'runtimeSettings.logging.defaultLogLevel', kind: 'level' }, { part: 'overrides', label: 'runtimeSettings.page.loggerOverrides', kind: 'list' }]
+      : [{ part: '', label: props.category === 'fp8-matmul' ? 'runtimeSettings.fp8.native' : props.category === 'jobs' ? 'runtimeSettings.jobs.maximumRunning' : props.category === 'worker-comfy-args' ? 'runtimeSettings.category.workerComfyArgs' : CATEGORY_LABELS[props.category] ?? props.category,
+          kind: props.category === 'fp8-matmul' ? 'switch' : props.category === 'jobs' ? 'number' : props.category === 'worker-comfy-args' ? 'list' : 'locked' }]
+  const prefix = createUniqueId()
+  return <For each={definitions}>{(definition) => {
+    const id = `${props.category}${definition.part ? `.${definition.part}` : ''}`
+    const controlId = `${prefix}-${id}`
+    const current = (): unknown => props.category === 'jobs' ? asRecord(value())['maxRunningJobs'] : definition.part ? asRecord(value())[definition.part] : value()
+    const next = (item: unknown): unknown => props.category === 'jobs' ? { ...asRecord(value()), maxRunningJobs: item } : definition.part ? { ...asRecord(value()), [definition.part]: item } : item
+    const count = (): number => Array.isArray(current()) ? (current() as unknown[]).length : Object.keys(asRecord(current())).length
+    const shown = (): string => definition.kind === 'list' ? count() === 0 ? message('settingsPage.noneShortcut') : message(count() === 1 ? 'runtimeSettings.page.oneItem' : 'runtimeSettings.page.itemCount', { count: count() })
+      : typeof current() === 'boolean' ? message(current() ? 'runtimeSettings.page.on' : 'runtimeSettings.page.off') : typeof current() === 'string' || typeof current() === 'number' ? String(current()) : message('runtimeSettings.page.unavailable')
+    const description = (): string => props.section.source === 'runtime' && (!props.section.persistence.available || !props.section.persistence.persisted) ? message('runtimeSettings.page.memoryOnly') : ''
+    const finishList = async (): Promise<void> => {
+      const submitted = props.category === 'worker-comfy-args'
+        ? argumentsDraft().map((row) => row.value).filter((item) => item.trim() !== '')
+        : { ...asRecord(value()), overrides: Object.fromEntries(loggersDraft().map((row) => [row.name, row.level])) }
+      if (await save(id, submitted)) setEditing(false)
+    }
+    return <ProductSettingRow id={id} controlId={controlId} label={message(definition.label)} description={description() || undefined}
+      error={error()?.id === id ? error()?.text : undefined} fullWidth={definition.kind === 'list' && editing()}
+      modified={false} resetLabel="" menuLabel={message('settingsPage.actions', { name: message(definition.label) })} copyIdLabel={message('runtimeSettings.page.copyId')}
+      onReset={() => {}} onCopyId={() => props.onCopyId(id)} menuItems={[{ label: message('runtimeSettings.page.copyId'), description: id, onSelect: () => props.onCopyId(id) }]}>
+      <Show when={props.editable && definition.kind !== 'locked'} fallback={<output id={controlId} class="dinkster-setting-locked">{shown()}</output>}>
+        <Show when={definition.kind === 'precision' || definition.kind === 'level'}><SharedProductSelect id={controlId} aria-label={message(definition.label)} aria-describedby={error()?.id === id ? `${controlId}-error` : undefined} disabled={saving()} value={String(current())}
+          options={(definition.kind === 'precision' ? ['auto', 'float16', 'bfloat16', 'float32'] : ['debug', 'info', 'warning', 'error', 'critical']).map((item) => ({ value: item, label: definition.kind === 'precision' ? ({ auto: message('runtimeSettings.dtype.auto'), float16: 'FP16', bfloat16: 'BF16', float32: 'FP32' }[item] ?? item) : item }))}
+          onChange={(value) => { void save(id, next(value)) }} /></Show>
+        <Show when={definition.kind === 'switch'}><ProductSwitch id={controlId} label={message(definition.label)} checked={current() === true} disabled={saving()} onChange={(item) => { void save(id, next(item)) }} /></Show>
+        <Show when={definition.kind === 'number'}><ProductNumberInput id={controlId} ariaLabel={message(definition.label)} ariaDescribedBy={error()?.id === id ? `${controlId}-error` : undefined} value={Number(current())} min={1} integer disabled={saving()} onCommit={(raw) => { void save(id, next(Number(raw))) }} /></Show>
+        <Show when={definition.kind === 'list'}><Show when={editing()} fallback={<><span class="dinkster-setting-none">{shown()}</span><ProductTextButton id={controlId} label={message('runtimeSettings.page.edit')} aria-label={message('runtimeSettings.page.editList', { name: message(definition.label) })} disabled={saving()} onClick={beginList} /></>}>
+          <div class="dinkster-stack">
+          <Show when={props.category === 'worker-comfy-args'} fallback={<>
+            <Index each={loggersDraft()}>{(row) => <div class="dinkster-actions">
+              <ProductTextInput aria-label={message('runtimeSettings.logging.loggerName')} value={row().name} disabled={saving()} onInput={(event) => setLoggersDraft((rows) => rows.map((item) => item.id === row().id ? { ...item, name: event.currentTarget.value } : item))} />
+              <ProductTextInput aria-label={message('runtimeSettings.logging.logLevel', { logger: row().name || message('runtimeSettings.logging.newLogger') })} value={row().level} disabled={saving()} onInput={(event) => setLoggersDraft((rows) => rows.map((item) => item.id === row().id ? { ...item, level: event.currentTarget.value } : item))} />
+              <ProductTextButton label={message('runtimeSettings.action.remove')} disabled={saving()} onClick={() => setLoggersDraft((rows) => rows.filter((item) => item.id !== row().id))} />
+            </div>}</Index>
+            <ProductTextButton label={message('runtimeSettings.logging.addOverride')} disabled={saving()} onClick={() => setLoggersDraft((rows) => [...rows, { id: ++loggingRowId, name: '', level: 'info' }])} />
+          </>}>
+            <Index each={argumentsDraft()}>{(row, index) => <div class="dinkster-actions"><ProductTextInput aria-label={message('runtimeSettings.worker.input', { number: index + 1 })} value={row().value} disabled={saving()} onInput={(event) => setArgumentsDraft((rows) => rows.map((item) => item.id === row().id ? { ...item, value: event.currentTarget.value } : item))} /><ProductTextButton label={message('runtimeSettings.action.remove')} disabled={saving()} onClick={() => setArgumentsDraft((rows) => rows.filter((item) => item.id !== row().id))} /></div>}</Index>
+            <ProductTextButton label={message('runtimeSettings.worker.addArgument')} disabled={saving()} onClick={() => setArgumentsDraft((rows) => [...rows, { id: ++comfyArgRowId, value: '' }])} />
+          </Show>
+          <div class="dinkster-actions"><ProductTextButton label={message('runtimeSettings.page.done')} disabled={saving()} onClick={() => { void finishList() }} />
+          <ProductTextButton label={message('runtimeSettings.page.cancel')} disabled={saving()} onClick={() => { setEditing(false); setError(undefined) }} />
+          </div></div>
+        </Show></Show>
+      </Show>
+    </ProductSettingRow>
+  }}</For>
+}
 
 function CategoryEditor(props: {
   readonly category: string
@@ -208,7 +314,7 @@ function CategoryEditor(props: {
   )
 }
 
-export function RuntimeSettingsPanel(props: { readonly connection: SettingsConnection; readonly backendLabel?: string; readonly categories?: readonly string[] | ((category: string) => boolean); readonly alwaysOpen?: boolean }) {
+export function RuntimeSettingsPanel(props: { readonly connection: SettingsConnection; readonly backendLabel?: string; readonly categories?: readonly string[] | ((category: string) => boolean); readonly alwaysOpen?: boolean; readonly settingsPage?: boolean; readonly onCopyId?: (id: string) => void }) {
   const message = useAppMessage()
   const [open, setOpen] = createSignal(props.alwaysOpen === true)
   const [loading, setLoading] = createSignal(false)
@@ -262,9 +368,13 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
     const current = data()
     if (current) setData({ ...current, settings: { ...current.settings, [category]: section } })
   }
+  const changeable = (): readonly string[] => categories().filter((category) => {
+    const section = data()?.settings[category]
+    return section !== undefined && editable(category, section) && knownEditor(category)
+  })
 
   return (
-    <section class="runtime-settings" data-testid="runtime-settings" aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })}>
+    <Show when={props.settingsPage} fallback={<section class="runtime-settings" data-testid="runtime-settings" aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })}>
       <Show when={props.alwaysOpen !== true}><ProductButton size="compact" class="runtime-settings-toggle" aria-expanded={open()} onClick={toggle}><span>{message('runtimeSettings.panel.title')}</span>{' '}<span>{message(open() ? 'runtimeSettings.action.hide' : 'runtimeSettings.action.show')}</span></ProductButton></Show>
       <Show when={open()}>
         <div class="runtime-settings-body">
@@ -305,6 +415,22 @@ export function RuntimeSettingsPanel(props: { readonly connection: SettingsConne
           )}</Show>
         </div>
       </Show>
-    </section>
+    </section>}>
+      <section class="dinkster-stack" data-testid="runtime-settings" aria-label={message('runtimeSettings.panel.ariaLabel', { backend: props.backendLabel ?? message('runtimeSettings.backend') })}>
+        <Show when={loading()}><p class="dinkster-settings-note" role="status">{message('runtimeSettings.status.loading')}</p></Show>
+        <Show when={error()}><p class="dinkster-field-error" role="alert">{error()}</p></Show>
+        <Show when={data()}>
+          <Show when={categories().length === 0}><p class="dinkster-settings-note">{message('runtimeSettings.state.empty')}</p></Show>
+          <For each={changeable().length === 0 ? [null] : [true, false]}>{(workers) => <Show when={categories().some((category) => workers === null || (data()?.settings[category]?.mutability === 'on-worker-restart') === workers)}>
+            <ProductSettingsSection title={<><Show when={workers === null}><ProductIcon icon={LockKeyhole} /></Show>{props.backendLabel ?? message('runtimeSettings.backend')}<Show when={workers !== null}>{` - ${message(workers ? 'runtimeSettings.page.workerNotice' : 'runtimeSettings.page.immediate')}`}</Show></>}>
+          <Show when={workers === null}><p class="dinkster-settings-note">{message('runtimeSettings.page.locked')}</p></Show>
+          <For each={categories().filter((category) => workers === null || (data()?.settings[category]?.mutability === 'on-worker-restart') === workers)}>{(category) => <Show when={data()?.settings[category]}>{(section) => <EngineSettingRows category={category} section={section()}
+            editable={editable(category, section()) && knownEditor(category)}
+            connection={props.connection} onSaveStart={invalidateLoad} onSaved={(updated) => replace(category, updated)} onCopyId={(id) => props.onCopyId?.(id)} />}</Show>}</For>
+            </ProductSettingsSection>
+          </Show>}</For>
+        </Show>
+      </section>
+    </Show>
   )
 }

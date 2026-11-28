@@ -192,8 +192,7 @@ export function runSearchAction(app: AppState, action: SearchAction): boolean | 
     return true
   }
   else if (decoded.action === 'settings.open') {
-    app.settingsOpenRequest.set({ category: decoded.params.category, id: decoded.params.id ?? '' })
-    app.modalPanel.set('settings')
+    app.openSettings({ category: decoded.params.category, id: decoded.params.id ?? '' })
     return true
   }
   else if (decoded.action === 'tab.activate') {

@@ -20,8 +20,8 @@
 .product-text-area:focus { border-color: var(--dinkster-border-subtle); }
 :where(:root[data-field-focus='pointer']) :is(.product-text-input, .product-text-area):focus { border-color: var(--dinkster-border-focus); }
 :root[data-field-focus='pointer'] :is(.product-text-input, .product-text-area, .product-color-popover input):focus-visible { outline: 0; }
-.product-text-input:not(:where(.settings-editor *)):focus,
-.product-text-area:not(:where(.settings-editor *)):focus { border-color: var(--dinkster-text-secondary); outline: 0; }
+.product-text-input:focus,
+.product-text-area:focus { border-color: var(--dinkster-text-secondary); outline: 0; }
 .product-text-input[aria-invalid='true'],
 .product-text-area[aria-invalid='true'] { border-color: var(--dinkster-danger-border); }
 .product-text-input:disabled,

@@ -2730,6 +2730,12 @@ export class AppState {
   readonly transientStatus = createSignal<string | undefined>(undefined)
   private transientStatusTimer: ReturnType<typeof setTimeout> | undefined
   readonly settingsOpenRequest = createSignal<{ readonly category: string; readonly id: string } | undefined>(undefined)
+
+  openSettings(request?: { readonly category: string; readonly id: string }): void {
+    this.settingsOpenRequest.set(request)
+    this.pages.open('settings')
+  }
+
   /**
    * Shell panels are descriptors (identity, placement, component), and the
    * shell renders from them. The built-in shell registers panel descriptors
@@ -3380,6 +3386,7 @@ export class AppState {
         ]
       },
     })
+    this.settings.register({ id: 'canvas.minimap.visible', get name() { return t('settings.canvas.minimap.visible') }, type: 'boolean', defaultValue: true })
     this.settings.register({
       id: 'canvas.minimap.size',
       get name() { return t('settings.canvas.minimap.size') },
@@ -3393,12 +3400,11 @@ export class AppState {
         ]
       },
     })
-    this.settings.register({ id: 'canvas.minimap.bookmarks', get name() { return t('settings.canvas.minimap.bookmarks') }, type: 'boolean', defaultValue: true })
-    this.settings.register({ id: 'canvas.minimap.visible', get name() { return t('settings.canvas.minimap.visible') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.nodes', get name() { return t('settings.canvas.minimap.nodes') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.noodles', get name() { return t('settings.canvas.minimap.noodles') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.groups', get name() { return t('settings.canvas.minimap.groups') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'canvas.minimap.errors', get name() { return t('settings.canvas.minimap.errors') }, type: 'boolean', defaultValue: true })
+    this.settings.register({ id: 'canvas.minimap.bookmarks', get name() { return t('settings.canvas.minimap.bookmarks') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.namedNets.enabled', get name() { return t('settings.features.namedNets') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.seedController.enabled', get name() { return t('settings.features.seedController') }, type: 'boolean', defaultValue: true })
     this.settings.register({ id: 'features.appView.enabled', get name() { return t('settings.features.appView') }, type: 'boolean', defaultValue: false })
@@ -3570,8 +3576,7 @@ export class AppState {
       run: () => { setPanelOpen(this.panels, this.dock, 'backends', 'left', true) },
     })
     register('settings.open', 'command.settings.open', 'Ctrl+,', () => {
-      this.settingsOpenRequest.set(undefined)
-      this.modalPanel.set('settings')
+      this.openSettings()
     })
     register('search.open', 'command.search.open', 'Ctrl+K', () => this.searchOpen.set(true))
     this.settings.register({ id: 'search.recentActivations', get name() { return t('settings.search.recentActivations') }, category: 'search', type: 'string', defaultValue: '[]' })

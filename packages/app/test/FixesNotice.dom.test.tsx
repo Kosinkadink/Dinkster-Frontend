@@ -198,7 +198,7 @@ describe('the notice of the editor\'s own fixes', () => {
     await Promise.resolve()
     expect(root.querySelector('.dinkster-fixes-review')).not.toBeNull()
     button(root, 'Open Automatic fixes settings')!.click()
-    expect(app.modalPanel.get()).toBe('settings')
+    expect(app.modalPanel.get()).toBe('')
     expect(app.settingsOpenRequest.get()).toEqual({ category: 'automaticFixes', id: 'execution.reviewUpgrades' })
     app.clearAdjustmentNotice(tab.id)
     await Promise.resolve()

@@ -27,6 +27,18 @@ export interface SettingsSearchGroup {
   readonly matches: readonly SettingsSearchMatch[]
 }
 
+/** Core command areas have a stable order; extension areas follow by ID. */
+export function settingsCommandGroups<Command extends Pick<AppCommand, 'id'>>(commands: readonly Command[]): readonly { id: string; commands: readonly Command[] }[] {
+  const areas = new Map<string, Command[]>()
+  for (const command of commands) {
+    const area = command.id.split('.')[0]!
+    areas.set(area, [...(areas.get(area) ?? []), command])
+  }
+  const order = ['workflow', 'edit', 'node', 'subgraph', 'view', 'layout', 'backend', 'settings', 'search']
+  return [...order, ...[...areas.keys()].filter((id) => !order.includes(id)).sort()]
+    .flatMap((id) => areas.has(id) ? [{ id, commands: areas.get(id)! }] : [])
+}
+
 /** A settings group's name: its translation, or its category id spelled as words. */
 export function settingsCategoryLabel(category: string, translate: (key: string) => string): string {
   const key = `settingsDialog.category.${category.replaceAll('.', '_')}`
@@ -41,7 +53,7 @@ export function settingsCategoryLabel(category: string, translate: (key: string)
     .join(' ')
 }
 
-const INTERNAL_SETTING_IDS = new Set(['keybindings.overrides', 'search.recentActivations'])
+const INTERNAL_SETTING_IDS = new Set(['keybindings.overrides', 'search.recentActivations', 'shell.dock.layout'])
 
 /** Settings represented by user-facing rows in SettingsDialog and search. */
 export function searchableSettingsDefinitions(definitions: readonly SettingDefinition[]): readonly SettingDefinition[] {
