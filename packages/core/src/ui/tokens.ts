@@ -31,6 +31,9 @@ export interface MeaningToken {
  */
 export const DIM_FILL_SHARE = 0.16
 
+/** Screen-pixel width shared by menus and refusal messages attached to nodes. */
+export const CANVAS_ATTACHED_MAX_WIDTH = 340
+
 /** `top` laid over `bottom` at `amount` (0 to 1), both #RRGGBB. */
 const mixHex = (top: string, bottom: string, amount: number): string =>
   '#' +
@@ -325,6 +328,7 @@ export const semanticCssVariablesForTheme = (
     '--dinkster-action-primary-text': semanticDesignTokens.action.primaryText,
     '--dinkster-action-remove-text': semanticDesignTokens.action.removeText,
     '--dinkster-border-width': px(components.layout.borderWidth),
+    '--dinkster-canvas-attached-max-width': px(CANVAS_ATTACHED_MAX_WIDTH),
     '--dinkster-field-value-padding-start': px(
       components.layout.fieldValuePaddingStart,
     ),

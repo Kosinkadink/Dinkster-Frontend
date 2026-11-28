@@ -3,12 +3,12 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { CANVAS_ATTACHED_MAX_WIDTH, canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
   detailMinScale: 0.3,
-  attachedMaxWidth: 340,
+  attachedMaxWidth: CANVAS_ATTACHED_MAX_WIDTH,
   imageOpacityScale: IMAGE_OPACITY_MAX,
   editor: {
     imageCompare: { initialSplit: 50, percentScale: 100, dividerColor: '#ffffff', dividerWidth: 2 },

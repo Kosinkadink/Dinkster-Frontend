@@ -19,7 +19,6 @@ const geometry = Object.fromEntries(
 )
 geometry['search-pin-size'] = `${defaultTokens.pinRadius * 2}px`
 geometry['search-list-pin-size'] = `${defaultTokens.pinRadius * 2 * canvasPaintTokens.pin.diamondScale}px`
-geometry['canvas-attached-max-width'] = `${canvasPaintTokens.attachedMaxWidth}px`
 const siteGeometry = Object.fromEntries(
   Object.entries(components.siteLayout).map(([key, value]) => [
     `site-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`,
