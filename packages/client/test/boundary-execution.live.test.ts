@@ -38,6 +38,173 @@ const types: Record<string, string> = {
 }
 
 describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
+  for (const depth of [1, 2]) {
+    it(`boundary/one-member/native-depth-${depth}`, async () => {
+      const connection = new DinksterConnection({ id: asConnectionId('member-live'), baseUrl: LIVE_URL!, clientId: `member-${process.pid}` })
+      const registry = await connection.fetchSchemas()
+      const primitive: NodeSchema = {
+        type: 'dinkster.utilities.primitive_float', displayName: 'Float', category: 'utilities', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+            widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
+          { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, knownValue: { input: 'value' } },
+        ],
+      }
+      const resolve = (type: string) => type === primitive.type ? primitive : registry.resolve(type)
+      const document = JSON.parse(readFileSync(new URL('./fixtures/boundary-sample.json', import.meta.url), 'utf8')) as WorkflowDocument
+      if (depth === 1) {
+        delete (document.graphs as Record<string, unknown>).portrait
+        for (const id of ['first', 'second']) Object.assign(document.graphs.root!.nodes[id]!, { type: '#detail' })
+      }
+      for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+        if (types[node.type]) Object.assign(node, { type: types[node.type] })
+      }
+      const expose = (graphId: string, id: string, node: string, port: string) => {
+        const graph = document.graphs[graphId]!
+        Object.assign(graph, { boundary: { body: [
+          ...graph.boundary!.body.filter((row) => !('id' in row && row.id === 'layers')),
+          { kind: 'input', id, promoted: true, binds: { kind: 'port', node, port } },
+        ] } })
+      }
+      expose('detail', 'memberStrength', 'sample', 'layers.layer1.strength')
+      if (depth === 2) expose('portrait', 'selectedStrength', 'detail', 'memberStrength')
+      const key = depth === 1 ? 'memberStrength' : 'selectedStrength'
+      Object.assign(document.graphs.root!.nodes.first!.values, { [key]: 0.2 })
+      Object.assign(document.graphs.root!.nodes.second!.values, { [key]: 0.8 })
+      Object.assign(document.graphs.root!.nodes, {
+        literal: { id: 'literal', type: primitive.type, values: { value: 0.65 } },
+        runtime: { id: 'runtime', type: 'boundary-sample.float', values: {} },
+      })
+      const storeFor = (doc: WorkflowDocument) => new DocumentStore(doc, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve) }))
+      const edit = (store: DocumentStore, command: string, params: Record<string, Json>) => {
+        const before = store.doc, result = store.dispatch({ command, params })
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+        const after = store.doc
+        expect(store.undo()).toBe(true)
+        const undone = structuredClone(store.doc)
+        for (const [id, graph] of Object.entries(undone.graphs)) {
+          expect(graph.nextOrdinal).toBe(after.graphs[id]!.nextOrdinal)
+          Object.assign(graph, { nextOrdinal: before.graphs[id]!.nextOrdinal })
+        }
+        expect(undone).toEqual(before)
+        expect(store.redo()).toBe(true)
+        expect(store.doc).toEqual(after)
+      }
+      const first = depth === 1 ? 'first.sample' : 'first.detail.sample'
+      const second = depth === 1 ? 'second.sample' : 'second.detail.sample'
+      const expected = (value: number, sibling = false, reordered = false, extra = false) => ({
+        description: {}, image: null, mask: null, source: null, strength: extra ? 0.3 : sibling ? 0.8 : 0.2,
+        layers: (reordered ? ['layer1', 'layer0'] : ['layer0', 'layer1']).map((key) => ({
+          key, strength: key === 'layer0' ? 0.1 : value, image: null,
+        })),
+        mode: { key: sibling ? 'text' : 'image', mix: 0.3, picture: null, text: sibling ? 'second text' : null },
+        nested: [{ key: 'n0', weights: [{ key: 'w0', value: 0.3 }] },
+          { key: 'n1', weights: [{ key: 'w0', value: 0.3 }, { key: 'w1', value: 0.3 }] }],
+      })
+      const run = async (phase: string, doc: WorkflowDocument, receivers: Record<string, ReturnType<typeof expected>>, absent: string[] = []) => {
+        const loaded = loadDocument(JSON.parse(JSON.stringify(doc))).document!
+        expect(loaded).toEqual(doc)
+        expect(loaded.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
+        const compiled = compile({ document: loaded, revision: 1, resolve, scope: { kind: 'full' },
+          connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Scalar member did not compile')
+        for (const [id, receipt] of Object.entries(receivers)) {
+          expect(compiled.artifact.prompt[id]!.inputs['layers.layer0.strength']).toBe(0.1)
+          const delivered = compiled.artifact.prompt[id]!.inputs['layers.layer1.strength']
+          expect(delivered).toEqual(id !== second && (phase === 'runtime' || phase.includes('flatten'))
+            ? ['runtime', 0] : receipt.layers.find((row) => row.key === 'layer1')!.strength)
+        }
+        const submitted = await connection.submit(compiled.artifact)
+        expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
+        if (!submitted.ok) throw new Error('Scalar member was refused')
+        console.info('Boundary scalar member submission', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt }))
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline) {
+          const job = await connection.fetchJob(submitted.execution.prompt)
+          if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
+          if (job?.state === 'completed') {
+            const outputs = job.outputs as unknown as Record<string, unknown>
+            for (const id of absent) expect(outputs[id]).toBeUndefined()
+            for (const [nodeId, wanted] of Object.entries(receivers)) {
+              const query = { jobId: submitted.execution.prompt, nodeId, outputId: 'receipt' }
+              const peek = await connection.values().peek(query)
+              expect(peek.available, JSON.stringify(peek)).toBe(true)
+              if (!peek.available) throw new Error('Scalar member receipt unavailable')
+              const text = await connection.values().rendition(query, 'text', { descriptor: peek.descriptor })
+              expect(text.available, JSON.stringify(text)).toBe(true)
+              if (!text.available) throw new Error('Scalar member text unavailable')
+              const actual = JSON.parse(new TextDecoder().decode(text.bytes))
+              console.info('Boundary scalar member receipt', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt, nodeId, expected: wanted, actual }))
+              expect(actual, nodeId).toEqual(wanted)
+            }
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        throw new Error('Scalar member did not complete')
+      }
+      const pair = (value: number, reordered = false) => ({ [first]: expected(value, false, reordered), [second]: expected(0.8, true, reordered) })
+      await run('baseline', document, pair(0.2))
+      const store = storeFor(document)
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: key, value: 0.55 })
+      await run('edited', store.doc, pair(0.55))
+      edit(store, 'dynamic.moveMember', { graphId: 'detail', nodeId: 'sample', construct: 'layers', member: 'layer1', index: 0 })
+      await run('reordered', store.doc, pair(0.55, true))
+      const fallback = storeFor(document)
+      edit(fallback, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: [key] })
+      await run('leaf-fallback', fallback.doc, pair(0.4))
+      if (depth === 2) {
+        edit(fallback, 'node.setValue', { graphId: 'portrait', nodeId: 'detail', inputId: 'memberStrength', value: 0.6 })
+        await run('middle-fallback', fallback.doc, pair(0.6))
+      }
+      const linked = storeFor(document)
+      for (const source of ['literal', 'runtime']) {
+        edit(linked, 'link.connect', { graphId: 'root', from: { node: source, port: source === 'literal' ? 'value' : 'number' }, to: { node: 'first', port: key } })
+        await run(source, linked.doc, pair(source === 'literal' ? 0.65 : 0.9))
+        const wire = Object.values(linked.doc.graphs.root!.links).find((link) => 'node' in link.to && link.to.node === 'first')!
+        edit(linked, 'link.disconnect', { graphId: 'root', linkId: wire.id })
+      }
+      await run('disconnected', linked.doc, pair(0.2))
+      const fanDoc = structuredClone(document)
+      Object.assign(fanDoc.graphs.detail!.nodes, { other: { ...structuredClone(fanDoc.graphs.detail!.nodes.sample!), id: 'other' } })
+      const fan = storeFor(fanDoc)
+      edit(fan, 'boundary.addBinding', { graphId: 'detail', itemId: 'memberStrength', node: 'other', port: 'layers.layer1.strength' })
+      const other = depth === 1 ? 'other' : 'detail.other'
+      await run('fan-out', fan.doc, { ...pair(0.2), [`first.${other}`]: expected(0.2, false, false, true),
+        [`second.${other}`]: expected(0.8, false, false, true) })
+      const detached = storeFor(document)
+      edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
+      edit(detached, 'node.setValues', { graphId: 'root', nodeId: 'first', values: {}, unset: [key] })
+      const privateId = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+      edit(detached, 'node.setValue', { graphId: privateId, nodeId: depth === 1 ? 'sample' : 'detail',
+        inputId: depth === 1 ? 'layers.layer1.strength' : 'memberStrength', value: 0.79 })
+      await run('detached-fallback', detached.doc, pair(0.79))
+      for (const mode of ['active', 'muted'] as const) {
+        const flat = storeFor(document)
+        edit(flat, 'link.connect', { graphId: 'root', from: { node: 'runtime', port: 'number' }, to: { node: 'first', port: key } })
+        if (mode === 'muted') edit(flat, 'node.setMode', { graphId: 'root', nodeIds: ['first'], mode })
+        const before = flat.doc, root = before.graphs.root!, node = root.nodes.first!, body = before.graphs[node.type.slice(1)]!
+        const resolver = documentResolver(before, resolve), plan = planFlattenBoundaryRoutes(body, resolver, node, root)
+        const topology = planFlattenOccurrenceTopology(before, resolver, { instancePath: [], node: node.id })
+        const topologyParams = topology.plan === undefined ? {} : { occurrenceTopologyPlan: topology.plan, occurrenceTopologyPlanDigest: lifecycleCanonicalHash(topology.plan) }
+        const result = flat.dispatch({ command: 'subgraph.flatten', params: {
+          graphId: 'root', instancePath: [], nodeId: 'first', placementCenter: { x: 100, y: 100 },
+          resolvedGeometry: { occurrence: { id: 'first', kind: 'node', x: 0, y: 0, width: 200, height: 200 },
+            body: Object.keys(body.nodes).map((id) => ({ id, kind: 'node', x: 0, y: 0, width: 200, height: 200 })) },
+          boundaryPlan: plan.boundaryPlan, statePlan: plan.statePlan, schemaSnapshot: plan.schemaSnapshot, schemaPlanDigest: plan.schemaPlanDigest,
+          selectionFingerprint: lifecycleFlattenFingerprint(before, 'root', 'first', { boundaryPlan: plan.boundaryPlan,
+            statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest, ...topologyParams }), ...topologyParams,
+        } } as unknown as CommandInvocation)
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+        const replacement = Object.values(flat.doc.graphs.root!.nodes).find((entry) => root.nodes[entry.id] === undefined)!
+        const path = depth === 1 ? replacement.id : `${replacement.id}.sample`
+        await run(`${mode}-flatten`, flat.doc, { [second]: expected(0.8, true), ...(mode === 'active' ? { [path]: expected(0.9) } : {}) }, mode === 'muted' ? [path] : [])
+      }
+    }, 120_000)
+  }
+
   for (const depth of [0, 1, 2]) {
     it(`boundary/asset-field/native-depth-${depth}`, async () => {
       const connection = new DinksterConnection({ id: asConnectionId('asset-field-live'),
