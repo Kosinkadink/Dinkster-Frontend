@@ -7,6 +7,7 @@ import { asConnectionId, createSignal as createCoreSignal, registerCatalog, setL
 import { DinksterConnection, RequestFailure, type ModelDownloadJob } from '@dinkster/client'
 import { LibraryPanel } from '../src/LibraryPanel.js'
 import { LibraryModels } from '../src/LibraryModels.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 import '../src/locale.js'
 
 const source = (id: string, label: string, entries: readonly CollectionEntry[]): CollectionSource => ({
@@ -129,22 +130,48 @@ describe('LibraryPanel', () => {
 
   it('replaces account-owned models and cancels an unanswered hide when the principal changes', async () => {
     let principal = 'previous'
-    const connection = new DinksterConnection({ id: asConnectionId('principal'), baseUrl: '', clientId: 'human', project: 'default', fetchFn: async (input) => {
+    let jobsUnavailable = false
+    let currentReads = 0
+    let holdPrevious = false
+    let finishPrevious: ((response: Response) => void) | undefined
+    const job = (name: string): ModelDownloadJob => ({ name: `${name}-private.safetensors`, kind: 'model/checkpoint', project: 'default',
+      provider: 'huggingface', source: `https://huggingface.co/example/model/resolve/main/${name}-private.safetensors`,
+      repo: 'example/model', revision: 'c'.repeat(40), file: `${name}-private.safetensors`, sha256: 'd'.repeat(64),
+      size: 8192, license: 'apache-2.0', destination: `/${name}/${name}-private.safetensors`, mount: name,
+      jobId: `${name}-job`, status: 'failed', received: 317 })
+    vi.stubGlobal('fetch', async (input: unknown) => {
       const path = new URL(String(input), 'http://example.test').pathname
       if (path === '/api/account') return Response.json({ available: true, canStartSignIn: true, signInUnavailableReason: null, signedIn: false, profile: null, signIn: { state: 'idle' }, principalRevision: principal })
+      if (path === '/api/models/downloads') {
+        if (principal === 'current') currentReads++
+        if (holdPrevious && principal === 'previous') return new Promise<Response>((resolve) => { finishPrevious = resolve })
+        return jobsUnavailable ? new Response('Unavailable', { status: 503 }) : Response.json({ instance: 'engine', jobs: [job(principal)] })
+      }
       const locations = [{ id: principal, path: `/${principal}`, mode: 'read', visibility: 'default-on', mounts: [principal], enabled: true, active: true }]
       if (path === '/api/models/settings') return Response.json({ settings: { version: 1, downloadLocation: null, locations }, locations, revision: principal, project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
       if (path === '/api/mounts') return Response.json({ mounts: [{ id: principal, mode: 'read', state: 'ready', kind: 'model/checkpoint' }] })
       if (path.endsWith('/entries')) return Response.json({ entries: [{ name: `${principal}.safetensors`, virtualPath: `folder/${principal}.safetensors`, digest: `blake3:${'a'.repeat(64)}`, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] })
-      throw new Error(`Unexpected route ${path}`)
-    } })
+      return Response.json({})
+    })
+    const app = createWorkflowApp(null)
+    const backend = app.backends.get()[0]!
+    if (backend.protocol !== 'dinkster') throw new Error('Expected native backend')
+    const connection = backend.connection
     await connection.accountStatus()
     const root = document.createElement('div')
     document.body.append(root)
-    const dispose = render(() => <LibraryModels connection={connection} onOpenStorage={() => {}} onAddModelFolder={() => {}} />, root)
+    const dispose = render(() => <LibraryModels connection={connection} downloadJobs={app.modelDownloadJobsFor(backend)} onOpenStorage={() => {}} onAddModelFolder={() => {}} />, root)
     try {
       await vi.waitFor(() => expect(root.textContent).toContain('previous.safetensors'))
-      root.querySelector<HTMLButtonElement>('.dinkster-row-main')!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('previous-private.safetensors'))
+      const previousController = app.modelDownloadsFor(backend)
+      jobsUnavailable = true
+      await previousController.refresh()
+      expect(root.textContent).toContain('previous-private.safetensors')
+      holdPrevious = true
+      const latePrevious = previousController.refresh()
+      await vi.waitFor(() => expect(finishPrevious).toBeDefined())
+      ;[...root.querySelectorAll<HTMLButtonElement>('.dinkster-row-main')].find((row) => row.textContent?.includes('previous.safetensors'))!.click()
       ;[...root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Hide in this project')!.click()
       expect(root.textContent).toContain('Hide "previous.safetensors" from this project?')
       principal = 'current'
@@ -152,10 +179,19 @@ describe('LibraryPanel', () => {
       await vi.waitFor(() => expect(root.textContent).toContain('current.safetensors'))
       expect(root.textContent).not.toContain('previous')
       expect(root.textContent).not.toContain('from this project?')
+      expect(currentReads).toBeGreaterThan(0)
+      finishPrevious!(Response.json({ instance: 'engine', jobs: [job('previous')] }))
+      await latePrevious
+      expect(root.textContent).not.toContain('previous')
       root.querySelector<HTMLButtonElement>('.dinkster-row-main')!.click()
       expect(root.querySelector('code')?.title).toBe('folder/current.safetensors')
       expect(root.textContent).toContain('Model foldercurrent')
-    } finally { dispose(); root.remove() }
+      jobsUnavailable = false
+      await app.modelDownloadsFor(backend).refresh()
+      expect(root.textContent).toContain('current-private.safetensors')
+      expect(root.textContent).toContain('2 models in 1 folder')
+      expect(root.textContent).not.toContain('previous')
+    } finally { dispose(); app.dispose(); root.remove(); vi.unstubAllGlobals() }
   })
 
   it('cancels hide questions on selection and backend changes and ignores obsolete hide completions', async () => {
