@@ -60,6 +60,8 @@ describe('controllerAdvancement', () => {
       body: schema.body.map((row) => row.kind === 'input' ? { ...row, [access]: true } : row),
     }
     const app = createWorkflowApp([blocked])
+    // Preserve the off-step starting values to test advancement rather than open-time fixes.
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
     expect(await app.openDocument(fixture(true), 'Blocked controllers')).toEqual([])
     const tab = app.activeTab()!
     const result = compile({ document: tab.store.doc, revision: 0,
@@ -608,6 +610,8 @@ describe('completion integration', () => {
 
   beforeEach(async () => {
     app = createWorkflowApp()
+    // Preserve the off-step starting values to test advancement rather than open-time fixes.
+    app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
     expect(app.settings.get('features.seedController.enabled')).toBe(true)
     ;(app.registry as any).set({ schemas: new Map(), resolve: () => undefined, hash: 'test' })
     app.registerSchemas([schema])

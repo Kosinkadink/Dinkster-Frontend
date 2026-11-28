@@ -341,12 +341,30 @@ describe('Assets dock body', () => {
     } finally { dispose() }
   })
 
-  it('reports a mount listing failure rather than displaying an empty collection', async () => {
-    const connection = stubConnection({ listMounts: async () => [{ id: 'broken', mode: 'read', state: 'ready' }], listMountEntries: async () => { throw new RequestFailure('GET', '/api/mounts/broken/entries', 503, 'index unavailable') }, assetUrl: () => '' })
+  it('keeps mount recovery without row controls after a first-load failure', async () => {
+    let failed = true
+    const connection = stubConnection({ listMounts: async () => [{ id: 'broken', mode: 'read', state: 'ready' }], listMountEntries: async () => {
+      if (failed) throw new RequestFailure('GET', '/api/mounts/broken/entries', 503, 'index unavailable')
+      return { entries: [] }
+    }, assetUrl: () => '' })
     const root = document.createElement('div'); document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
-    try { await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('index unavailable')) }
-    finally { dispose() }
+    try {
+      await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('Could not load All mounts.'))
+      expect(root.querySelectorAll('[data-testid="asset-source-select"]')).toHaveLength(1)
+      expect(root.querySelector('[data-testid="collection-source"]')).toBeNull()
+      expect(root.querySelector('.asset-view-switch')).toBeNull()
+      expect(root.querySelector('[data-testid="asset-sort-select"]')).toBeNull()
+      root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!.click()
+      document.querySelector<HTMLButtonElement>('[data-option-id="mount:broken"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('Could not load broken.'))
+      expect(root.textContent).toContain('With subfolders')
+      failed = false
+      root.querySelector<HTMLButtonElement>('[data-testid="collection-retry"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')).toBeNull())
+      expect(root.querySelector('.asset-view-switch')).not.toBeNull()
+      expect(root.querySelector('[data-testid="asset-sort-select"]')).not.toBeNull()
+    } finally { dispose() }
   })
 })
 

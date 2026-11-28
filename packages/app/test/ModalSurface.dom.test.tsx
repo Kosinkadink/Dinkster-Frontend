@@ -131,7 +131,7 @@ function mountWidget(ed: WidgetEditorState) {
         }),
       },
     }),
-    dispatchTo,
+    dispatchEditTo: dispatchTo,
     widgetRegistry: { kind: () => undefined },
     widgetRegistryForTab: () => app.widgetRegistry,
   } as unknown as AppState
@@ -183,7 +183,7 @@ describe('ModalSurface', () => {
       const dispatchTo = vi.fn()
       const app = { backendForTab: () => ({ protocol: 'dinkster', connection }), registryForTab: () => undefined,
         workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
-        dispatchTo } as unknown as AppState
+        dispatchEditTo: dispatchTo } as unknown as AppState
       const root = document.createElement('div'); document.body.append(root)
       const [open, setOpen] = createSignal(true)
       const unmount = render(() => <Show when={open()}><WidgetEditor app={app} ed={ed}
@@ -321,7 +321,7 @@ describe('ASSET widget modal integration', () => {
     })
     const dispatchTo = vi.fn()
     const backend = { protocol: 'dinkster', id: 'native', connection }
-    const app = { backendForTab: () => backend, retainPickerAssets: vi.fn().mockResolvedValue(undefined), dispatchTo, widgetRegistry: { kind: () => undefined } } as unknown as AppState
+    const app = { backendForTab: () => backend, retainPickerAssets: vi.fn().mockResolvedValue(undefined), dispatchEditTo: dispatchTo, widgetRegistry: { kind: () => undefined } } as unknown as AppState
     const ed: WidgetEditorState = {
       ...widgetState('ASSET', { accept: ['image/png'] }, null),
       spec: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] } },
@@ -423,7 +423,7 @@ describe('ASSET widget modal integration', () => {
     const app = {
       backendForTab: () => backend,
       retainPickerAssets,
-      dispatchTo,
+      dispatchEditTo: dispatchTo,
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = mountEditor
@@ -543,7 +543,7 @@ describe('ASSET widget modal integration', () => {
       mediaType: 'application/x-safetensors', virtualPath: 'mounts/input/saved.safetensors' }
     const imported = { ...initial, digest: `blake3:${'a'.repeat(64)}`, name: 'chosen.safetensors', size: 3,
       virtualPath: 'mounts/input/chosen.safetensors' }
-    expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
+    expect((await app.dispatchEditTo(tab, { command: 'node.setValue', params: {
       graphId: 'g0', nodeId: 'n1', inputId: 'asset', value: initial,
     } })).ok).toBe(true)
     vi.spyOn(app.connection, 'listMounts').mockResolvedValue([])
@@ -791,7 +791,7 @@ describe('ASSET widget modal integration', () => {
       vi.spyOn(app.connection, 'listMounts').mockResolvedValue([{ id: 'models', mode: 'read', state: 'ready', kind: 'model/checkpoint' }])
       vi.spyOn(app.connection, 'listMountEntries').mockResolvedValue({ entries: [{ ...ref, kind: 'model/checkpoint' }] })
       vi.spyOn(app.connection, 'fetchAssetLocations').mockResolvedValue([])
-      const dispatch = vi.spyOn(app, 'dispatchTo')
+      const dispatch = vi.spyOn(app, 'dispatchEditTo')
       const root = document.createElement('div'); document.body.append(root)
       const mountPicker = () => render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
         target: { kind: 'input', nodeId: 'n1', valueKey: 'asset' }, label: 'Model',
@@ -805,8 +805,9 @@ describe('ASSET widget modal integration', () => {
         if (!stored) choices[0]!.click()
         await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name))
         await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
-        if (scenario === 'edited') expect((await app.dispatchTo(tab, { command: 'node.setValue', params: {
-          graphId: 'g0', nodeId: 'n1', inputId: 'asset', value: null,
+        if (scenario === 'edited') expect((await app.dispatchEditTo(tab, { command: 'node.setValue', params: {
+          graphId: 'g0', nodeId: 'n1', inputId: 'asset',
+          value: { ...ref, digest: `blake3:${'d'.repeat(64)}`, name: 'edited.safetensors' },
         } })).ok).toBe(true)
         if (scenario === 'closed') app.closeTab(tab.id)
         if (scenario === 'disconnected') {
@@ -981,7 +982,7 @@ describe('ASSET widget modal integration', () => {
       backendsTick: createCoreSignal(0),
       backendForTab: () => backend,
       retainPickerAssets: vi.fn().mockResolvedValue(undefined),
-      dispatchTo,
+      dispatchEditTo: dispatchTo,
       widgetRegistry: { kind: () => undefined },
       widgetRegistryForTab: () => app.widgetRegistry,
       ...overrides,
@@ -1036,7 +1037,7 @@ describe('ASSET widget modal integration', () => {
       backendsTick: createCoreSignal(0),
       backendForTab: () => backend,
       retainPickerAssets: mounted.retainPickerAssets,
-      dispatchTo: mounted.dispatchTo, widgetRegistry: { kind: () => undefined },
+      dispatchEditTo: mounted.dispatchTo, widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const ed: WidgetEditorState = { ...mounted.ed, spec: { ...mounted.ed.spec!, selection: true } }
     const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
@@ -1168,7 +1169,7 @@ describe('ASSET widget modal integration', () => {
     const app = {
       backendForTab: () => backend,
       retainPickerAssets: vi.fn().mockResolvedValue(undefined),
-      dispatchTo,
+      dispatchEditTo: dispatchTo,
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = render(() => (
@@ -1299,7 +1300,7 @@ describe('ASSET widget modal integration', () => {
           uploadLatentAsset,
         },
       }),
-      dispatchTo,
+      dispatchEditTo: dispatchTo,
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = render(() => (
@@ -1383,7 +1384,7 @@ describe('ASSET widget modal integration', () => {
     const app = {
       backendForTab: () => backend,
       retainPickerAssets: vi.fn().mockResolvedValue({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
-      dispatchTo: vi.fn(),
+      dispatchEditTo: vi.fn(),
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -1446,7 +1447,7 @@ describe('ASSET widget modal integration', () => {
     const app = {
       backendForTab: () => backend,
       retainPickerAssets: vi.fn().mockResolvedValue({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
-      dispatchTo: vi.fn(),
+      dispatchEditTo: vi.fn(),
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
@@ -1526,7 +1527,7 @@ describe('ASSET widget modal integration', () => {
         uploadMediaAsset,
         listMounts: vi.fn().mockResolvedValue([]),
       } }),
-      dispatchTo,
+      dispatchEditTo: dispatchTo,
       widgetRegistry: { kind: () => undefined },
       registryForTab: () => registry,
     } as unknown as AppState
@@ -1617,7 +1618,7 @@ describe('registered interactive widget expanded-editor integration', () => {
       assetUrl: (digest: string) => `/api/assets/${encodeURIComponent(digest)}`,
       listMounts: async () => [{ id: 'input', mode: 'read', state: 'ready', kind: 'media/image' }],
     } }
-    const app = { backendForTab: () => backend, dispatchTo: vi.fn(),
+    const app = { backendForTab: () => backend, dispatchEditTo: vi.fn(),
       workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
       retainPickerAssets: vi.fn().mockResolvedValue({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
       widgetRegistry: { kind: () => undefined } } as unknown as AppState
@@ -1651,7 +1652,7 @@ describe('registered interactive widget expanded-editor integration', () => {
         await vi.waitFor(() => expect(root.querySelector('img[alt="Asset preview"]')?.getAttribute('src')).toBe('blob:late-preview'))
         expect(createObjectUrl).toHaveBeenCalledOnce()
       }
-      expect(app.dispatchTo).not.toHaveBeenCalled()
+      expect(app.dispatchEditTo).not.toHaveBeenCalled()
     } finally { unmount() }
   })
 

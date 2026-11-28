@@ -15,6 +15,7 @@ export function AssetBrowserNavigation(props: {
   readonly setRecursive: (value: boolean) => void
   readonly mode: CollectionViewMode
   readonly setMode: (mode: CollectionViewMode) => void
+  readonly firstLoadFailed: boolean
 }) {
   const message = useAppMessage()
   const segments = () => props.folder.split('/').filter(Boolean)
@@ -38,10 +39,10 @@ export function AssetBrowserNavigation(props: {
         <ProductSegmented label={message('assets.depth.label')} value={String(props.recursive)} onChange={(value) => props.setRecursive(value === 'true')}
           options={[{ value: 'false', label: message('assets.depth.this') }, { value: 'true', label: message('assets.depth.subfolders') }]} />
       </Show>
-      <div class="asset-view-switch">
+      <Show when={!props.firstLoadFailed}><div class="asset-view-switch">
         <ProductSegmented label={message('assets.view.label')} value={props.mode} onChange={(value) => props.setMode(value as CollectionViewMode)}
           options={[{ value: 'list', label: message('assets.view.names') }, { value: 'grid', label: message('assets.view.pictures') }]} />
-      </div>
+      </div></Show>
     </div>
     <p class="asset-scope" data-testid="asset-scope">{message(props.recursive ? 'assets.scope.subfolders' : 'assets.scope.this', {
       path: `${props.selectedId === 'all-mounts' ? message('assets.mounts.all') : props.selectedId.slice('mount:'.length)}${props.folder ? `/${props.folder}` : ''}`,

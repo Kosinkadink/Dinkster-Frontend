@@ -25,7 +25,7 @@ import type { CommandDefinition, CommandExecutionContext, CommandInvocation } fr
 import { predictAllocatedId } from '../commands/alloc.js'
 import { coreCommandRegistry } from '../commands/core-commands.js'
 import type { DocumentSession } from '../commands/session.js'
-import { DocumentStore } from '../commands/store.js'
+import { DocumentStore, type HistorySnapshotRecord } from '../commands/store.js'
 import { planOccurrenceLinkCommand } from '../commands/occurrence-link-commands.js'
 import { planOccurrenceLinkMutation } from '../commands/occurrence-planner.js'
 import { documentNodeResolver } from '../compile/compile.js'
@@ -54,15 +54,17 @@ import {
   type Connectivity,
   type ElaboratedInput,
   type ElaboratedInterface,
+  type ElaborateOptions,
   type FormulaContext,
   type MaterializeFrame,
 } from '../schema/elaborate.js'
 import type { ButtonSpec, DescribedSpec, GroupSpec, InputSpec, NodeSchema, OptionRow } from '../schema/model.js'
 import { canonicalTypeIdOf, typeExprFromTypeId } from '../schema/model.js'
-import { integerWidgetValue, numericStepConstraints } from '../schema/numeric-step.js'
+import { correctNumericValue, integerWidgetValue, isIntegerWidgetValue, numericStepConstraints, type IntegerWidgetValue } from '../schema/numeric-step.js'
 import { solveGraphTypes } from '../schema/solve.js'
 import { typesCompatible } from '../schema/type-relations.js'
 import { effectiveWidgetDefault, readWhenUnset } from '../schema/widget-defaults.js'
+import { isProjectDefaultTarget, isSaveTarget, type SaveTarget } from '../schema/save-target.js'
 import { decodeSteps, isOutsideStep, type Argument, type Step, type StepValue } from './steps.js'
 
 // ---------------------------------------------------------------------------
@@ -132,6 +134,8 @@ export interface AskRequest {
 export interface ActionHost {
   readonly commands: ReadonlyMap<string, CommandDefinition>
   readonly schemaResolverFor?: (doc: WorkflowDocument) => SchemaResolver
+  /** Held field answers, read without starting a lookup. */
+  readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
   /** The schema of a node of `graphId` as the canvas resolves it; also asked for a node AddNode creates. */
   schemaOf(doc: WorkflowDocument, graphId: string, node: NodeData): NodeSchema | undefined
   /** A renderer host places additions using its measured node and wire geometry. */
@@ -204,6 +208,9 @@ export interface PressOptions {
   readonly noWait?: boolean
   /** Commands staged first and stored with the run as its one undo step, such as the user's own edit that led to it. */
   readonly lead?: readonly CommandInvocation[]
+  readonly numericCorrections?: CommandInvocation['numericCorrections']
+  /** The exact stored batch and its document, before any outside steps run; absent for no change or refusal. */
+  readonly onStored?: (record: HistorySnapshotRecord, document: WorkflowDocument) => void
 }
 
 export interface PressOutcome {
@@ -256,9 +263,10 @@ class AutomaticNeeded extends Error {
 }
 
 /** A literal from the wire: a whole number is an int, `{"float": n}` a decimal. */
-function literalOf(raw: unknown): Value {
+function literalOf(raw: unknown): unknown {
   if (typeof raw === 'number') return Number.isInteger(raw) ? BigInt(raw) : raw
-  if (Array.isArray(raw)) return raw.map((item) => literalOf(item) as Exclude<Value, readonly unknown[]>)
+  if (Array.isArray(raw)) return raw.map(literalOf)
+  if (isSaveTarget(raw) || isProjectDefaultTarget(raw)) return { ...raw }
   if (typeof raw === 'object' && raw !== null && typeof (raw as Record<string, unknown>)['float'] === 'number') {
     return (raw as Record<string, number>)['float']!
   }
@@ -335,6 +343,9 @@ export function fieldValue(field: ElaboratedInput, value: unknown, name: string)
       }
       return choice
     }
+    case 'SAVE_TARGET':
+      if (value === null || isSaveTarget(value) || isProjectDefaultTarget(value)) return value
+      return refuse(`${name} takes a save target; the button gave ${display(value)}.`)
     case 'MULTI_COMBO': {
       if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) return refuse(`${name} takes a list of options.`)
       const fixed = widget.remote === undefined ? normalizedComboOptions(widget) : []
@@ -516,8 +527,164 @@ function viewOf(doc: WorkflowDocument, target: StepPlace, host: ActionHost, read
     return field.automatic?.value ?? (readWhenUnset(field.spec) as Json | undefined)
   }
   const contexts = new Map<string, FormulaContext>()
-  const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue, incomingType })
+  const elaborated = elaborateInterface(schema, node, connectivity, { nodeId: node.id, formulaContexts: contexts, incomingValue, incomingType,
+    ...(host.lookupAnswers === undefined ? {} : { lookupAnswers: host.lookupAnswers }),
+  })
   return { doc, graph, node, schema, elaborated, contexts, connectivity, incomingValue, incomingType, valueOwners: occurrence?.valueOwners.get(node.id) ?? new Map() }
+}
+
+/** One stored-number correction, expressed as the same steps a declared button runs. */
+export interface StoredNumberFix {
+  readonly kind: 'number'
+  readonly part: StepPart
+  readonly valueKey: string
+  readonly owner: ValueOwner
+  readonly label: string
+  readonly before: IntegerWidgetValue
+  readonly after: IntegerWidgetValue
+  /** The effective field declaration and storage owner when the fix was offered. */
+  readonly stamp: string
+}
+
+/** Wired, derived, unstored and not-yet-known values are never correction targets. */
+export function storedNumberFixes(doc: WorkflowDocument, target: StepPlace, host: ActionHost): readonly StoredNumberFix[] {
+  const view = viewOf(doc, target, host)
+  if (view === undefined) return []
+  return elabInputsOf(view.elaborated).flatMap((field): StoredNumberFix[] => {
+    const widget = field.spec.widget
+    const path = valueKeyOf(field)
+    if (widget === undefined || !['INT', 'FLOAT'].includes(widget.widgetType) || field.derivedValue !== undefined || field.kept !== undefined ||
+      field.numericConstraintsPending === true || view.connectivity.isInputConnected(path) || !Object.hasOwn(view.node.values, path)) return []
+    const before = view.node.values[path]
+    if (!isIntegerWidgetValue(before)) return []
+    const limits = numericStepConstraints(widget)
+    const after = correctNumericValue(before, limits)
+    if (after === undefined || after === before) return []
+    // Flattened fields keep their declaration scope; a repeated row's local
+    // name is not necessarily its stored value key.
+    for (const [prefix, context] of view.contexts) {
+      const name = [...context.paths].find(([, key]) => key === path)?.[0]
+      if (name === undefined) continue
+      const value = limits.integer ? BigInt(after) : after
+      const owner = view.valueOwners.get(path) ?? { graphId: target.graphId, nodeId: target.nodeId, valueKey: path }
+      if (doc.graphs[owner.graphId]?.nodes[owner.nodeId]?.values[owner.valueKey] !== before) return []
+      return [{ kind: 'number', valueKey: path, owner, label: field.spec.displayName ?? field.spec.id, before, after,
+        stamp: JSON.stringify([view.node.type, widget, owner]),
+        part: { ...target, prefix, steps: [{ step: 'set', field: name, value: { kind: 'literal', value } }] } }]
+    }
+    return []
+  })
+}
+
+/** A stored save target whose named mount is not available on this machine. */
+export interface StoredSaveTargetFix {
+  readonly part: StepPart
+  readonly valueKey: string
+  readonly owner: ValueOwner
+  readonly before: SaveTarget
+  readonly stamp: string
+}
+
+/** Only stored, unwired targets are offered; Project default and derived values stay as they are. */
+export function storedSaveTargetFixes(
+  doc: WorkflowDocument, target: StepPlace, host: ActionHost, readyMounts: ReadonlySet<string>,
+): readonly StoredSaveTargetFix[] {
+  const view = viewOf(doc, target, host)
+  if (view === undefined) return []
+  return elabInputsOf(view.elaborated).flatMap((field): StoredSaveTargetFix[] => {
+    const widget = field.spec.widget
+    const path = valueKeyOf(field)
+    const before = view.node.values[path]
+    if (widget?.widgetType !== 'SAVE_TARGET' || field.derivedValue !== undefined || field.kept !== undefined ||
+      view.connectivity.isInputConnected(path) || !Object.hasOwn(view.node.values, path) ||
+      !isSaveTarget(before) || readyMounts.has(before.mount)) return []
+    for (const [prefix, context] of view.contexts) {
+      const name = [...context.paths].find(([, key]) => key === path)?.[0]
+      if (name === undefined) continue
+      const owner = view.valueOwners.get(path) ?? { graphId: target.graphId, nodeId: target.nodeId, valueKey: path }
+      if (JSON.stringify(doc.graphs[owner.graphId]?.nodes[owner.nodeId]?.values[owner.valueKey]) !== JSON.stringify(before)) return []
+      return [{ valueKey: path, owner, before,
+        stamp: JSON.stringify([view.node.type, widget, owner, before]),
+        part: { ...target, prefix, steps: [{ step: 'set', field: name, value: { kind: 'literal', value: { prefix: before.prefix } } }] } }]
+    }
+    return []
+  })
+}
+
+/** A failed declared rule, with its offered workflow and effective declaration. */
+export interface StoredRuleFix {
+  readonly kind: 'rule'
+  readonly part: StepPart
+  readonly rule: number
+  readonly label: string
+  readonly message: string
+  readonly fields: readonly string[]
+  readonly stamp: string
+}
+
+export type StoredProblemFix = StoredNumberFix | StoredRuleFix
+
+/** Rules are always offered, never applied merely because their check failed. */
+export function storedRuleFixes(doc: WorkflowDocument, target: StepPlace, host: ActionHost): readonly StoredRuleFix[] {
+  const view = viewOf(doc, target, host)
+  if (view === undefined) return []
+  const failed = new Set(view.elaborated.diagnostics.filter((diagnostic) => diagnostic.code === 'node.rule.failed')
+    .map((diagnostic) => diagnostic.data?.['rule']))
+  if (failed.size === 0) return []
+  const incoming = elabInputsOf(view.elaborated).filter((field) => view.connectivity.isInputConnected(valueKeyOf(field)))
+    .map((field) => {
+      const path = valueKeyOf(field)
+      return { path, value: view.incomingValue(path), type: view.incomingType(path) }
+    })
+  const stamp = JSON.stringify([doc.root, doc.graphs, view.schema, incoming])
+  return (view.schema.validate ?? []).flatMap((rule, index): StoredRuleFix[] => {
+    if (!failed.has(index) || rule.fix.length === 0 || !rule.fixLabel?.trim()) return []
+    const diagnostic = view.elaborated.diagnostics.find((candidate) => candidate.code === 'node.rule.failed' && candidate.data?.['rule'] === index)!
+    const fields = diagnostic.data?.['fields'] as readonly string[]
+    let steps: readonly Step[]
+    try { steps = decodeSteps(rule.fix) } catch { return [] }
+    return [{ kind: 'rule', rule: index, label: rule.fixLabel, message: rule.message, fields, stamp,
+      part: { ...target, prefix: '', steps } }]
+  })
+}
+
+/** Recheck every offered correction, then store all of them as one strict step run. */
+export function applyStoredProblemFixes(
+  session: DocumentSession,
+  fixes: readonly StoredProblemFix[],
+  host: ActionHost,
+  options: PressOptions & {
+    readonly saveTargets?: {
+      readonly fixes: readonly StoredSaveTargetFix[]
+      readonly readyMounts: () => ReadonlySet<string> | undefined
+    }
+  } = {},
+): Promise<PressOutcome> {
+  const targets = options.saveTargets
+  return runSteps(session, [...fixes, ...(targets?.fixes ?? [])].map((fix) => fix.part), host, {
+    ...options,
+    strict: true,
+    noWait: options.noWait ?? true,
+    unchanged: (doc) => {
+      if (options.unchanged?.(doc) === false) return false
+      let candidate = doc
+      if (options.lead?.length) {
+        const staged = scratchOf(doc, host)
+        const outcome = staged.dispatch({ ...batch(options.lead), ...(session.allocationActor === undefined ? {} : { actor: session.allocationActor }) })
+        if (!outcome.ok) return false
+        candidate = outcome.doc
+      }
+      if (targets !== undefined) {
+        const mounts = targets.readyMounts()
+        if (mounts === undefined || !targets.fixes.every((fix) =>
+          storedSaveTargetFixes(candidate, fix.part, host, mounts).some((now) => now.valueKey === fix.valueKey && now.stamp === fix.stamp))) return false
+      }
+      return fixes.every((fix) => fix.kind === 'rule'
+        ? storedRuleFixes(candidate, fix.part, host).some((now) => now.rule === fix.rule && now.stamp === fix.stamp)
+        : storedNumberFixes(candidate, fix.part, host).some((now) =>
+          now.valueKey === fix.valueKey && now.before === fix.before && now.after === fix.after && now.stamp === fix.stamp))
+    },
+  })
 }
 
 /** The declaration and scope prefix of the pressed button. */
@@ -1673,6 +1840,7 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
   const actor = session.allocationActor
   const lead = options.lead ?? []
   const presses: Press[] = []
+  let stored: { readonly record: HistorySnapshotRecord; readonly document: WorkflowDocument } | undefined
   let changed = 0
   try {
     const scratch = scratchOf(session.doc, host)
@@ -1710,8 +1878,11 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
       changed += rebuilt.written
     }
     if (invocations.length > 0) {
-      const outcome = session.dispatch(batch(invocations))
+      const outcome = session.dispatch({ ...batch(invocations),
+        ...(options.numericCorrections === undefined ? {} : { numericCorrections: options.numericCorrections }),
+      })
       if (!outcome.ok) refuse(outcome.diagnostics.find((item) => item.severity === 'error')?.message ?? 'The change could not be made.')
+      else if (outcome.forward.length > 0) stored = { record: { forward: outcome.forward, inverse: outcome.inverse }, document: outcome.doc }
     }
   } catch (error) {
     stop()
@@ -1721,6 +1892,8 @@ async function run(session: DocumentSession, parts: readonly StepPart[], host: A
     if (error instanceof Refusal) return failedOutcome(error.message, notes, error.own)
     return failedOutcome(error instanceof Error && error.message !== '' ? error.message : 'The button could not finish.', notes)
   }
+
+  if (stored !== undefined) options.onStored?.(stored.record, stored.document)
 
   // The outside steps read the committed document.
   const outsideFailures: string[] = []
@@ -1868,7 +2041,7 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
     checkRead(scope, name)
     return scope.values.values?.get(name)
   }
-  const valueOf = (value: StepValue, scope: FormulaContext): Value | typeof UNKNOWN => {
+  const valueOf = (value: StepValue, scope: FormulaContext): unknown => {
     if (value.kind === 'literal') return literalOf(value.value)
     if (value.kind === 'lookup') return UNKNOWN
     const outcome = evaluateIn(scope, locals, value.text, (name) => read(scope, name), (name) => checkRead(scope, name))
@@ -1952,7 +2125,7 @@ export function buttonAvailability(doc: WorkflowDocument, target: PressTarget, h
     // Only deterministic values are staged here. No host effect runs during a repaint.
     try {
       const actions: Action[] = []
-      const write = (name: string, value: Value | typeof UNKNOWN, scope = context): void => {
+      const write = (name: string, value: unknown, scope = context): void => {
         const path = scope.paths.get(name)
         const field = path === undefined ? undefined : inputAt(view, path)
         if (path === undefined || field === undefined || view.connectivity.isInputConnected(path)) return

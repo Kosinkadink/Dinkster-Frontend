@@ -25,6 +25,8 @@ export interface CollectionEntry {
   readonly id: string
   readonly title: string
   readonly subtitle?: string
+  /** Kind label shown only when the visible list contains different kinds. */
+  readonly kind?: string
   /** Small status/type chips ('running', 'registry', '24 nodes'). */
   readonly badges?: readonly string[]
   /**

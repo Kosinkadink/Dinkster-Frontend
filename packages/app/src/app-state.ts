@@ -40,6 +40,7 @@ import {
   effectiveTopologyDrivesPort,
   effectiveWidgetDefault,
   elaborateInterface,
+  type ElaborateOptions,
   elabInputsOf,
   elabOutputsOf,
   buildGraphConnectivity,
@@ -59,6 +60,8 @@ import {
   type SharedDocumentSession,
   type CollabSessionDescriptor,
   type SessionConflict,
+  type SessionOp,
+  type NumericCorrection,
   emptyGates,
   environmentDrift,
   executionKey,
@@ -95,6 +98,15 @@ import {
   replacementInvocation,
   scanReplacements,
   stepNumericValue,
+  storedNumberFixes,
+  storedSaveTargetFixes,
+  type StoredSaveTargetFix,
+  storedRuleFixes,
+  applyStoredProblemFixes,
+  type StoredNumberFix,
+  type StoredProblemFix,
+  type PressOutcome,
+  type PressOptions,
   subgraphDefIdOf,
   resetMenuContributions,
   schemaForEditorRole,
@@ -249,6 +261,9 @@ import { resolveNodeOccurrence } from './problem-display.js'
 import { ShellLayout } from './shell-layout.js'
 import { pollSupervisor } from './supervisor-poll.js'
 import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE_KEY, type AppCommand } from './settings.js'
+import { registerAutomaticFixSettings } from './automatic-fixes.js'
+import { createActionHost, type ButtonPlace } from './button-presses.js'
+import { ProblemFixes, problemFixKey } from './problem-fixes.js'
 import { RemoteTemplateCatalog, type RemoteTemplateDescriptor } from './template-catalog.js'
 import type { CatalogNode } from './node-catalog.js'
 import { activeProjectId, migrateBrowserProjects, scopedSharedName, scopedStorageKey } from './projects.js'
@@ -1399,8 +1414,9 @@ export type OwnedDiagnostic = Diagnostic & { readonly owner: ProblemOwner }
 
 /** A change the editor made by itself, reported in its tab's notice. */
 export interface Adjustment {
-  /** `replaced`: a node replaced by a newer one; `removedChoice`: a choice its pack removed, replaced. */
-  readonly kind: 'replaced' | 'removedChoice'
+  readonly kind: 'replaced' | 'removedChoice' | 'numberOutsideLimits'
+  /** Restoring this value keeps the same numeric cause from being corrected again. */
+  readonly numberCauses?: readonly Pick<StoredNumberFix, 'before' | 'stamp' | 'owner'>[]
   readonly graphId: string
   readonly nodeId: string
   /** Where choosing the change in Review takes the canvas. */
@@ -1495,9 +1511,11 @@ const splitDynamicOps = (ops: readonly PatchOp[]): readonly PatchOp[] => ops.fla
   })
 })
 
-/** One removed choice replaced is put back on its own; anything else goes with its nodes. */
+/** Corrected numbers and removed choices are restored per field; replaced nodes stay whole. */
 const adjustmentKeys = (op: PatchOp, kind: Adjustment['kind']): readonly string[] => {
   const path = op.path
+  if (kind === 'numberOutsideLimits' && path[0] === 'graphs' && path[2] === 'nodes' && path[4] === 'values' && path.length === 6)
+    return [`${path[1]}/${path[3]}#values.${path[5]}`]
   if (kind === 'removedChoice' && path[0] === 'graphs' && path[2] === 'nodes' && path[4] === 'dynamic' && path.length >= 6)
     return [`${path[1]}/${path[3]}#${path[5]}`]
   return opNodeKeys(op)
@@ -3312,8 +3330,19 @@ export class AppState {
     this.workspaceEvents?.addEventListener('message', this.receiveWorkspaceEvent)
     this.settings.register({ id: 'canvas.grid.visible', get name() { return t('settings.canvas.grid.visible') }, type: 'boolean', defaultValue: true })
     this.settings.register({
-      id: 'canvas.detailMinPercent',
+      id: 'canvas.detailMode',
       get name() { return t('settings.canvas.detailMinPercent.name') },
+      get description() { return t('settings.canvas.detailMode.description') },
+      type: 'combo',
+      defaultValue: 'automatic',
+      get options() { return [
+        { value: 'automatic', label: t('settings.canvas.detailMode.automatic') },
+        { value: 'fixed', label: t('settings.canvas.detailMode.fixed') },
+      ] },
+    })
+    this.settings.register({
+      id: 'canvas.detailMinPercent',
+      get name() { return t('settings.canvas.detailMinPercent.fixedName') },
       get description() { return t('settings.canvas.detailMinPercent.description') },
       type: 'number',
       defaultValue: defaultTokens.detailMinScale * 100,
@@ -3330,13 +3359,7 @@ export class AppState {
       type: 'boolean',
       defaultValue: false,
     })
-    this.settings.register({
-      id: 'execution.reviewUpgrades',
-      get name() { return t('shell.reviewUpgrades.label') },
-      get description() { return t('settings.execution.reviewUpgrades.description') },
-      type: 'boolean',
-      defaultValue: false,
-    })
+    registerAutomaticFixSettings(this.settings)
     this.settings.register({ id: 'canvas.bookmarkTransitions', get name() { return t('settings.canvas.bookmarkTransitions') }, type: 'boolean', defaultValue: true })
     this.settings.register({
       id: 'canvas.smoothWheelZoom',
@@ -4330,7 +4353,11 @@ export class AppState {
       // undo record at the swap. A differing shared document (another window
       // established the workspace first) invalidates the records, so they
       // stay behind.
-      if (sameDocument) session.adoptHistory(tab.store.historySnapshot())
+      if (sameDocument) {
+        session.adoptHistory(tab.store.historySnapshot())
+        const kept = this.keptNumberFixes.get(tab.store)
+        if (kept !== undefined) this.keptNumberFixes.set(session, new Map(kept))
+      }
       const current = live
       const backend = this.backendForTab(current)
       const replacement: Tab = { ...current, store: session }
@@ -4701,23 +4728,44 @@ export class AppState {
     }
     for (const [id, tab] of live) {
       if (this.persistWatchers.has(id)) continue
-      const watcher = {
-        tab,
-        unsubscribe: tab.store.document.subscribe(() => {
-          // Signal notification snapshots its listeners, so an unsubscribe
-          // cannot cancel a callback already in flight: re-check ownership
-          // rather than trusting teardown ordering.
-          if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
-          const latest = this.lastEndedExecutionForTab(tab)
-          if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(id, latest.key))
-          this.documentPersistenceDirty.add(id)
-          reconcileGraphNavigation(tab)
-          this.markTabDirty(id)
-          this.schedulePersistTabs()
-          this.refreshWorkflowAssets(tab)
-        }),
-      }
-      this.persistWatchers.set(id, watcher)
+      const stopNoticeEdits = tab.store.onOp((op) => {
+        if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
+        if (op.actorId !== tab.store.actorId) {
+          // Returning a confirmed correction to its old value is an intentional
+          // edit, even when this peer learns the limit only afterwards.
+          const kept = this.keptNumberFixes.get(tab.store) ?? new Map()
+          for (const cause of this.adjustmentNotices.get().get(id)?.adjustments.flatMap((item) => item.numberCauses ?? []) ?? []) {
+            const { graphId, nodeId, valueKey } = cause.owner
+            if (op.patch.some((patch) => pathsOverlap(patch.path, ['graphs', graphId, 'nodes', nodeId, 'values', valueKey])) &&
+              tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[valueKey] === cause.before)
+              kept.set(JSON.stringify([graphId, nodeId, valueKey, cause.stamp]), cause)
+          }
+          this.keptNumberFixes.set(tab.store, kept)
+          this.reportSharedNumberCorrections(tab, op)
+        }
+        if (op.actorId === tab.store.actorId && !op.origin.startsWith('session.') && op.origin !== 'history.replay' &&
+          this.tabs.get().find((candidate) => candidate.id === id) === tab)
+          this.removeEditedNumberAdjustments(id, op.patch.map((patch) => patch.path))
+      })
+      const stopDocument = tab.store.document.subscribe(() => {
+        // Signal notification snapshots its listeners, so an unsubscribe
+        // cannot cancel a callback already in flight: re-check ownership
+        // rather than trusting teardown ordering.
+        if (this.tabs.get().find((candidate) => candidate.id === id) !== tab) return
+        const latest = this.lastEndedExecutionForTab(tab)
+        if (latest !== undefined) this.clearedTabResults.update((results) => new Map(results).set(id, latest.key))
+        for (const [key, cause] of this.keptNumberFixes.get(tab.store) ?? []) {
+          const { graphId, nodeId, valueKey } = cause.owner
+          if (tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[valueKey] !== cause.before)
+            this.keptNumberFixes.get(tab.store)!.delete(key)
+        }
+        this.documentPersistenceDirty.add(id)
+        reconcileGraphNavigation(tab)
+        this.markTabDirty(id)
+        this.schedulePersistTabs()
+        this.refreshWorkflowAssets(tab)
+      })
+      this.persistWatchers.set(id, { tab, unsubscribe: () => { stopDocument(); stopNoticeEdits() } })
       this.refreshWorkflowAssets(tab)
     }
   }
@@ -4936,15 +4984,25 @@ export class AppState {
     const lookupGeneration = createSignal(0)
     // Answers often settle together: one rebuild for each turn of the event loop.
     let lookupBump = false
+    let previousAnswers = lookupAnswersOf({ entry: lookups.snapshot() })
     lookups.subscribe(() => {
       if (lookupBump) return
       lookupBump = true
       queueMicrotask(() => {
         lookupBump = false
         lookupGeneration.update((value) => value + 1)
+        const currentAnswers = lookupAnswersOf({ entry: lookups.snapshot() })
         for (const tab of this.tabs.get()) {
-          if (this.backendForTab(tab).id === id) this.refreshWorkflowAssets(tab)
+          if (this.backendForTab(tab).id !== id) continue
+          this.refreshWorkflowAssets(tab)
+          if (tab.execution) continue
+          const before = this.scanTabProblemFixes(tab, tab.store.doc, { lookupAnswers: previousAnswers })
+          const fixes = this.scanTabProblemFixes(tab, tab.store.doc, { lookupAnswers: currentAnswers }).filter((fix) => fix.kind === 'number' &&
+            !before.some((old) => problemFixKey(old) === problemFixKey(fix) && old.stamp === fix.stamp))
+          // Only a new external cause follows Apply; existing personal Ask me problems stay offered.
+          void this.applyProblemFixes(tab, fixes, true)
         }
+        previousAnswers = currentAnswers
       })
     })
     const schemaProblemsOwner = Symbol(`schema-problems:${id}`)
@@ -5008,6 +5066,7 @@ export class AppState {
           ])
         })
       }
+      let previousRegistry = registry.get()
       const unsubs = [
         connection.onStreamResumed(() => {
           refreshAfterGap()
@@ -5066,6 +5125,8 @@ export class AppState {
           reconcileConnected()
         }),
         registry.subscribe(() => {
+          const beforeRegistry = previousRegistry
+          previousRegistry = registry.get()
           this.replaceProblems(schemaProblemsOwner, (registry.get()?.diagnostics ?? []).map((problem) => ({
             ...problem, message: `[${label}] ${problem.message}`,
           })))
@@ -5073,6 +5134,12 @@ export class AppState {
             if (tab.execution || this.backendForTab(tab).id !== id || this.schemaDiagnosticsPending.has(tab.id)) continue
             this.reportEnvironmentDrift(tab)
             this.reportUnresolvedTypes(tab)
+            if (beforeRegistry !== undefined) {
+              const before = this.scanTabProblemFixes(tab, tab.store.doc, { resolve: beforeRegistry.resolve })
+              const fixes = this.scanTabProblemFixes(tab).filter((fix) => fix.kind === 'number' &&
+                !before.some((old) => problemFixKey(old) === problemFixKey(fix) && old.stamp === fix.stamp))
+              void this.applyProblemFixes(tab, fixes, true)
+            }
           }
           this.backendsTick.update((v) => v + 1)
           this.flushWorkspaceRegistrations(id)
@@ -5292,6 +5359,7 @@ export class AppState {
         startRefresh('reconnect')
       }
       const handleStatusChange = (status: ConnectionStatus): void => {
+        this.problemFixes.invalidateMounts(nativeBackend)
         this.assetConnectionGenerations.set(connection, (this.assetConnectionGenerations.get(connection) ?? 0) + 1)
         if (status === 'connected') {
           refreshOnConnect()
@@ -5334,6 +5402,7 @@ export class AppState {
       const disposeLookupChanges = connection.onLookupsChanged((functions) => lookups.invalidate(functions))
       // A mount's scan commits as a mount ping; a local file a lookup waited on may be checked now.
       const disposeLookupFiles = connection.onMountsChanged(() => {
+        this.problemFixes.invalidateMounts(nativeBackend)
         lookups.filesChanged()
         for (const tab of this.tabs.get()) {
           if (tab.execution || this.backendForTab(tab) !== nativeBackend) continue
@@ -5737,16 +5806,161 @@ export class AppState {
     return invocation !== undefined && (await this.dispatchTo(tab, invocation)).ok
   }
 
+  readonly problemFixes = new ProblemFixes(this)
+  private readonly keptNumberFixes = new WeakMap<DocumentSession, Map<string, Pick<StoredNumberFix, 'before' | 'stamp' | 'owner'>>>()
+
+  scanTabNumberFixes(tab: Tab, document = tab.store.doc): readonly StoredNumberFix[] {
+    return this.scanTabProblemFixes(tab, document).filter((fix): fix is StoredNumberFix => fix.kind === 'number')
+  }
+
+  private *tabNodePlaces(tab: Tab, document: WorkflowDocument): Generator<ButtonPlace> {
+    function *visit(graphId: string, instancePath: readonly string[], ancestors: ReadonlySet<string>): Generator<ButtonPlace> {
+      if (ancestors.has(graphId)) return
+      for (const node of Object.values(document.graphs[graphId]?.nodes ?? {})) {
+        yield { tab, graphId, nodeId: node.id, button: '', instancePath }
+        const child = subgraphDefIdOf(node.type)
+        if (child !== undefined) yield *visit(child, [...instancePath, node.id], new Set([...ancestors, graphId]))
+      }
+    }
+    yield *visit(document.root, [], new Set())
+    for (const graphId of Object.keys(document.graphs)) if (graphId !== document.root) yield *visit(graphId, [], new Set())
+  }
+
+  /** Every occurrence is checked: siblings can store different promoted values. */
+  scanTabProblemFixes(tab: Tab, document = tab.store.doc, options: {
+    readonly lookupAnswers?: ElaborateOptions['lookupAnswers']
+    readonly resolve?: SchemaResolver
+    readonly keptOnly?: boolean
+  } = {}): readonly StoredProblemFix[] {
+    if (tab.execution || this.registryForTab(tab) === undefined || options.keptOnly && !this.keptNumberFixes.get(tab.store)?.size) return []
+    const { lookupAnswers, resolve } = options
+    const fixes = new Map<string, StoredProblemFix>()
+    for (const place of this.tabNodePlaces(tab, document)) {
+      const host = { ...createActionHost(this, undefined, place, resolve), ...(lookupAnswers === undefined ? {} : { lookupAnswers }) }
+      for (const fix of [...storedNumberFixes(document, place, host), ...storedRuleFixes(document, place, host)]) {
+        const key = problemFixKey(fix)
+        if (!fixes.has(key)) fixes.set(key, fix)
+      }
+    }
+    const kept = this.keptNumberFixes.get(tab.store)
+    return [...fixes.values()].filter((fix) => {
+      if (fix.kind === 'rule') return !options.keptOnly
+      const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey, fix.stamp])
+      const cause = kept?.get(key)
+      const isKept = fix.before === cause?.before && fix.stamp === cause.stamp
+      if (!isKept && document === tab.store.doc) kept?.delete(key)
+      return options.keptOnly ? isKept : !isKept
+    })
+  }
+
+  scanTabSaveTargetFixes(tab: Tab, readyMounts: ReadonlySet<string>, document = tab.store.doc): readonly StoredSaveTargetFix[] {
+    if (tab.execution || this.registryForTab(tab) === undefined) return []
+    const fixes = new Map<string, StoredSaveTargetFix>()
+    for (const place of this.tabNodePlaces(tab, document)) {
+      for (const fix of storedSaveTargetFixes(document, place, createActionHost(this, undefined, place), readyMounts)) {
+        const key = JSON.stringify([place.graphId, place.instancePath, place.nodeId, fix.valueKey])
+        if (!fixes.has(key)) fixes.set(key, fix)
+      }
+    }
+    return [...fixes.values()]
+  }
+
+  /** Offered corrections are rechecked and stored as one operation. */
+  applyProblemFixes(tab: Tab, fixes: readonly StoredProblemFix[], automatic = false,
+    options: Parameters<typeof applyStoredProblemFixes>[3] = {}): Promise<PressOutcome> {
+    const store = tab.store
+    const first = fixes[0] ?? options.saveTargets?.fixes[0]
+    if (tab.execution || first === undefined || !this.tabs.get().includes(tab))
+      return Promise.resolve({ kind: 'cancelled', skipped: [], notes: [] })
+    const place = { tab, ...first.part, button: '' }
+    const numericCorrections = new Map<string, NumericCorrection>()
+    if (automatic && !options.lead?.length) for (const fix of fixes) {
+      if (fix.kind !== 'number') continue
+      const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey])
+      const previous = numericCorrections.get(key)
+      numericCorrections.set(key, { owner: fix.owner, causes: [...previous?.causes ?? [], {
+        graphId: fix.part.graphId, nodeId: fix.part.nodeId, instancePath: fix.part.instancePath ?? [],
+        valueKey: fix.valueKey, stamp: fix.stamp,
+      }] })
+    }
+    return applyStoredProblemFixes(store, fixes, createActionHost(this, undefined, place), {
+      noWait: automatic,
+      ...options,
+      ...(numericCorrections.size === 0 ? {} : { numericCorrections: [...numericCorrections.values()] }),
+      stillCurrent: () => this.tabs.get().includes(tab) && tab.store === store && options.stillCurrent?.() !== false,
+      staleMessage: t('problemFix.workflowChanged'),
+      onStored: (record, document) => {
+        options.onStored?.(record, document)
+        if (!automatic || tab.store !== store) return
+        const byOwner = new Map<string, StoredNumberFix[]>()
+        for (const fix of fixes) {
+          if (fix.kind !== 'number') continue
+          const key = JSON.stringify([fix.owner.graphId, fix.owner.nodeId, fix.owner.valueKey])
+          byOwner.set(key, [...byOwner.get(key) ?? [], fix])
+        }
+        // Notice Undo takes back corrections, not the user's leading edit.
+        if (options.lead?.length) {
+          const forward: PatchOp[] = [...byOwner.values()].map(([fix]) => ({
+            op: 'replace', path: ['graphs', fix!.owner.graphId, 'nodes', fix!.owner.nodeId, 'values', fix!.owner.valueKey],
+            oldValue: fix!.before, value: document.graphs[fix!.owner.graphId]!.nodes[fix!.owner.nodeId]!.values[fix!.owner.valueKey]!,
+          }))
+          record = { forward, inverse: invertOps(forward) }
+        }
+        const paths = firstOccurrencePaths(document)
+        this.reportAdjustments(tab, record, [...byOwner.values()].map((causes): Adjustment => {
+          const fix = causes[0]!
+          const node = document.graphs[fix.part.graphId]!.nodes[fix.part.nodeId]!
+          const instancePath = fix.part.instancePath?.length ? fix.part.instancePath.map(asNodeId) : paths.get(fix.part.graphId) ?? []
+          return {
+            kind: 'numberOutsideLimits', graphId: fix.part.graphId, nodeId: fix.part.nodeId,
+            rowValueKey: fix.valueKey, numberCauses: causes.map(({ before, stamp, owner }) => ({ before, stamp, owner })),
+            node: node.title ?? this.registryForTab(tab)?.resolve(node.type)?.displayName ?? node.type,
+            details: [t('fixesNotice.change.numberOutsideLimits', { row: fix.label, before: String(fix.before), after: String(fix.after) })],
+            count: 1,
+            anchor: { occurrence: { instancePath, node: asNodeId(fix.part.nodeId) } },
+          }
+        }), document)
+      },
+    })
+  }
+
+  private reportSharedNumberCorrections(tab: Tab, op: SessionOp): void {
+    const forward: PatchOp[] = []
+    const adjustments: Adjustment[] = []
+    for (const correction of op.numericCorrections ?? []) {
+      const cause = correction.causes[0]!
+      const { graphId, nodeId, valueKey } = correction.owner
+      const graph = tab.store.doc.graphs[cause.graphId]
+      const node = graph?.nodes[cause.nodeId]
+      if (node === undefined) continue
+      const schema = this.registryForTab(tab)?.resolve(node.type)
+      const row = schema === undefined ? undefined : elabInputsOf(elaborateInterface(schema, node, buildGraphConnectivity(graph!)(node.id)))
+        .find((row) => row.address.port === cause.valueKey)
+      forward.push({ op: 'replace', path: ['graphs', graphId, 'nodes', nodeId, 'values', valueKey],
+        oldValue: correction.before, value: correction.after })
+      adjustments.push({
+        kind: 'numberOutsideLimits', graphId: cause.graphId, nodeId: cause.nodeId, rowValueKey: cause.valueKey,
+        numberCauses: correction.causes.map(({ stamp }) => ({ before: correction.before, stamp, owner: correction.owner })),
+        node: node.title ?? schema?.displayName ?? node.type,
+        details: [t('fixesNotice.change.numberOutsideLimits', { row: row?.spec.displayName ?? cause.valueKey,
+          before: String(correction.before), after: String(correction.after) })], count: 1,
+        anchor: { occurrence: { instancePath: cause.instancePath.map(asNodeId), node: asNodeId(cause.nodeId) } },
+      })
+    }
+    this.reportAdjustments(tab, { forward, inverse: invertOps(forward) }, adjustments)
+  }
+
   /**
    * Adds the changes the editor made by itself in one stored batch to the
    * tab's notice; an open Review keeps its place and selection. `record` is
    * the batch's own patches, which the notice's Undo and Redo replay.
    */
-  reportAdjustments(tab: Tab, record: HistorySnapshotRecord, adjustments: readonly Adjustment[]): void {
+  reportAdjustments(tab: Tab, record: HistorySnapshotRecord, adjustments: readonly Adjustment[], document = tab.store.doc): void {
     if (adjustments.length === 0 || !this.tabs.get().includes(tab)) return
-    const before = replayHistoryOps(tab.store.doc, record.inverse).doc
+    const before = replayHistoryOps(document, record.inverse).doc
     this.adjustmentNotices.update((current) => {
-      const notice = current.get(tab.id)
+      const previous = current.get(tab.id)
+      const notice = previous?.undone === undefined ? previous : undefined
       return new Map(current).set(tab.id, {
         owner: tab.id,
         adjustments: [...notice?.adjustments ?? [], ...adjustments],
@@ -5755,6 +5969,50 @@ export class AppState {
         dismissed: notice?.dismissed ?? false,
       })
     })
+  }
+
+  private removeEditedNumberAdjustments(tabId: string, paths: readonly (readonly (string | number)[])[]): void {
+    const notice = this.adjustmentNotices.get().get(tabId)
+    if (notice === undefined) return
+    const document = this.tabs.get().find((tab) => tab.id === tabId)?.store.doc
+    const affected = notice.adjustments.filter((adjustment) => adjustment.numberCauses?.some(({ owner }) => {
+      if (!paths.some((path) => pathsOverlap(path, ['graphs', owner.graphId, 'nodes', owner.nodeId, 'values', owner.valueKey]))) return false
+      const key = `${owner.graphId}/${owner.nodeId}#values.${owner.valueKey}`
+      const recorded = notice.records.flatMap((record) => record.forward)
+        .filter((patch) => adjustmentKeys(patch, 'numberOutsideLimits').includes(key)).at(-1)
+      // A shared acknowledgement confirms the optimistic correction, not a later edit.
+      return notice.undone !== undefined || recorded === undefined || recorded.op === 'remove' ||
+        !jsonSameValue(document?.graphs[owner.graphId]?.nodes[owner.nodeId]?.values[owner.valueKey], recorded.value)
+    }))
+    if (affected.length === 0) return
+    // The runner publishes its automatic batch's record after the operation.
+    // Wait for it so a successive correction is not mistaken for a personal edit.
+    queueMicrotask(() => this.adjustmentNotices.update((current) => {
+      const latest = current.get(tabId)
+      if (latest === undefined) return current
+      const removed = affected.filter((adjustment) => latest.adjustments.includes(adjustment) &&
+        !adjustment.numberCauses!.some(({ owner }) => {
+          const key = `${owner.graphId}/${owner.nodeId}#values.${owner.valueKey}`
+          const previous = notice.records.flatMap((record) => record.forward)
+            .filter((patch) => adjustmentKeys(patch, 'numberOutsideLimits').includes(key)).at(-1)
+          return previous !== undefined && previous.op !== 'remove' && latest.records.some((record, index) =>
+            index >= notice.records.length && latest.recordKinds[index] === 'numberOutsideLimits' && record.forward.some((patch) =>
+              patch.op !== 'add' && adjustmentKeys(patch, 'numberOutsideLimits').includes(key) && jsonSameValue(patch.oldValue, previous.value)))
+        }))
+      if (removed.length === 0) return current
+      const keys = new Set(removed.flatMap((adjustment) => adjustment.numberCauses!.map(({ owner }) =>
+        `${owner.graphId}/${owner.nodeId}#values.${owner.valueKey}`)))
+      const keep = (patch: PatchOp): boolean => !adjustmentKeys(patch, 'numberOutsideLimits').some((key) => keys.has(key))
+      const adjustments = latest.adjustments.filter((adjustment) => !removed.includes(adjustment))
+      const next = new Map(current)
+      if (adjustments.length === 0) next.delete(tabId)
+      else next.set(tabId, { ...latest, adjustments,
+        records: latest.records.map((record, index) => index < notice.records.length && latest.recordKinds[index] === 'numberOutsideLimits'
+          ? { ...record, forward: record.forward.filter(keep), inverse: record.inverse.filter(keep) } : record),
+        ...(latest.undone === undefined ? {} : { undone: { ...latest.undone, redo: latest.undone.redo.filter(keep) } }),
+      })
+      return next
+    }))
   }
 
   /** Whether the document still holds the notice's changes, holds what they replaced, or neither. */
@@ -5781,13 +6039,16 @@ export class AppState {
   private adjustmentUndoPlan(tab: Tab, notice: AdjustmentNotice): { readonly ops: readonly PatchOp[]; readonly kept: number } | undefined {
     // Each op with the adjustments it belongs to: a replaced node with its values and wires, or one removed choice.
     const split = (ops: readonly PatchOp[], index: number) => notice.recordKinds[index] === 'removedChoice' ? splitDynamicOps(ops) : ops
-    const inverse = notice.records.map((record, index) => split(record.inverse, index).map((op) => ({ op, keys: adjustmentKeys(op, notice.recordKinds[index]!) })))
-      .reverse().flat()
+    const inverse = notice.records.map((record, index) => split(record.inverse, index).map((op) => ({ op,
+      keys: adjustmentKeys(op, notice.recordKinds[index]!).map((key) => notice.recordKinds[index] === 'numberOutsideLimits' ? `${index}:${key}` : key),
+    }))).reverse().flat()
+    // Compare whole forward records: a user's edit can equal a later correction's inverse.
+    const numericOwn = tab.store.historySnapshot().undo.filter((record) => !notice.records.some((candidate) =>
+      jsonSameValue(record.forward as unknown as Json, candidate.forward as unknown as Json)))
+      .flatMap((record) => record.forward)
     const recorded = notice.records.flatMap((record, index) =>
       [...record.forward, ...record.inverse, ...split(record.forward, index), ...split(record.inverse, index)])
-    // The user's own edits: their undo history without the notice's batches or its own Undo and Redo.
-    const own = tab.store.historySnapshot().undo.flatMap((record) => record.forward)
-      .filter((op) => !recorded.some((candidate) => jsonSameValue(op as unknown as Json, candidate as unknown as Json)))
+    const own = numericOwn.filter((op) => !recorded.some((candidate) => jsonSameValue(op as unknown as Json, candidate as unknown as Json)))
     const kept = new Set<string>()
     for (;;) {
       const ops = inverse.filter((entry) => !entry.keys.some((key) => kept.has(key))).map((entry) => entry.op)
@@ -5800,9 +6061,12 @@ export class AppState {
         return undefined
       }
       if (stale === undefined) return ops.length === 0 && kept.size === 0 ? undefined : { ops, kept: [...kept].filter((key) => notice.adjustments.some((adjustment) =>
-        key === `${adjustment.graphId}/${adjustment.nodeId}` ? adjustment.kind === 'replaced' : key.startsWith(`${adjustment.graphId}/${adjustment.nodeId}#`))).length }
+        adjustment.kind === 'numberOutsideLimits'
+          ? key.endsWith(`:${adjustment.numberCauses![0]!.owner.graphId}/${adjustment.numberCauses![0]!.owner.nodeId}#values.${adjustment.numberCauses![0]!.owner.valueKey}`)
+          : key === `${adjustment.graphId}/${adjustment.nodeId}` ? adjustment.kind === 'replaced' : key.startsWith(`${adjustment.graphId}/${adjustment.nodeId}#`))).length }
       const keys = inverse.find((entry) => entry.op === stale)?.keys ?? []
-      if (keys.length === 0 || keys.every((key) => kept.has(key)) || !own.some((op) => pathsOverlap(op.path, stale.path))) return undefined
+      const edits = keys.some((key) => key.includes('#values.')) ? numericOwn : own
+      if (keys.length === 0 || keys.every((key) => kept.has(key)) || !edits.some((op) => pathsOverlap(op.path, stale.path))) return undefined
       for (const key of keys) kept.add(key)
     }
   }
@@ -5911,6 +6175,13 @@ export class AppState {
     const plan = this.adjustmentUndoPlan(tab, notice)!
     // When the user changed every adjustment since, nothing is put back and all are reported kept.
     if (plan.ops.length > 0 && !this.replayAdjustments(tab, notice, plan.ops)) return false
+    const keptNumbers = this.keptNumberFixes.get(tab.store) ?? new Map()
+    for (const cause of notice.adjustments.flatMap((adjustment) => adjustment.numberCauses ?? [])) {
+      const { graphId, nodeId, valueKey } = cause.owner
+      const key = JSON.stringify([graphId, nodeId, valueKey, cause.stamp])
+      if (tab.store.doc.graphs[graphId]?.nodes[nodeId]?.values[valueKey] === cause.before) keptNumbers.set(key, cause)
+    }
+    this.keptNumberFixes.set(tab.store, keptNumbers)
     const undone = { redo: invertOps(plan.ops), kept: plan.kept }
     this.adjustmentNotices.update((current) => new Map(current).set(tabId, { ...notice, undone }))
     return true
@@ -6190,10 +6461,14 @@ export class AppState {
         : adjustment.then(() => {
           if (this.tabs.get().includes(tab) && tab.store === store) return this.upgradeOnOpen(tab)
         })
-      if (upgrade === undefined) this.reportUnresolvedTypes(tab)
-      else void upgrade.then(() => {
-        if (this.tabs.get().includes(tab) && tab.store === store) this.reportUnresolvedTypes(tab)
-      })
+      const finish = (): void => {
+        if (!this.tabs.get().includes(tab) || tab.store !== store) return
+        this.reportUnresolvedTypes(tab)
+        if (this.settings.get<string>('automaticFixes.numberOutsideLimits') === 'apply')
+          void this.applyProblemFixes(tab, this.scanTabNumberFixes(tab), true)
+      }
+      if (upgrade === undefined) finish()
+      else void upgrade.then(finish)
     }
   }
 
@@ -6729,6 +7004,41 @@ export class AppState {
     return outcome
   }
 
+  /** A person's edit and its newly caused numeric corrections share one undo step. */
+  dispatchEditTo(tab: Tab, invocation: CommandInvocation): CommandOutcome | Promise<CommandOutcome> {
+    if (tab.execution || this.settings.get<string>('automaticFixes.numberOutsideLimits') !== 'apply') return this.dispatchTo(tab, invocation)
+    const store = tab.store
+    const prepared = store.prepareDispatch?.(invocation)
+    if (prepared === undefined) return this.dispatchTo(tab, invocation)
+    if (!prepared.ok) {
+      this.reportProblems(tab.id, prepared.diagnostics)
+      return prepared
+    }
+    if (prepared.forward.length === 0) return prepared.commit()
+    const existing = this.scanTabNumberFixes(tab)
+    const fixes = this.scanTabNumberFixes(tab, prepared.document).filter((fix) => !existing.some((before) =>
+      before.stamp === fix.stamp && before.before === fix.before && before.after === fix.after &&
+      before.part.graphId === fix.part.graphId && before.part.nodeId === fix.part.nodeId &&
+      JSON.stringify(before.part.instancePath) === JSON.stringify(fix.part.instancePath) && before.valueKey === fix.valueKey))
+    if (fixes.length === 0) {
+      const outcome = prepared.commit()
+      if (!outcome.ok) this.reportProblems(tab.id, outcome.diagnostics)
+      return outcome
+    }
+    let stored: Extract<CommandOutcome, { ok: true }> | undefined
+    return this.applyProblemFixes(tab, fixes, true, {
+      lead: invocation.command === 'batch'
+        ? (invocation.params as JsonObject).invocations as unknown as readonly CommandInvocation[] : [invocation],
+      unchanged: (document) => tab.store === store && document === prepared.currentDocument,
+      onStored: (record, document) => { stored = { ok: true, doc: document, ...record, diagnostics: [] } },
+    }).then((outcome): CommandOutcome => {
+      if (stored !== undefined) return stored
+      const diagnostics = [diag('error', 'command', 'problemFix.editRefused', outcome.message ?? t('problemFix.workflowChanged'))]
+      this.reportProblems(tab.id, diagnostics)
+      return { ok: false, diagnostics }
+    })
+  }
+
   /** Plan, commit, then drill into one fresh empty definition. */
   async createEmptySubgraph(tab: Tab, graphId: string, position: Vec2): Promise<CommandOutcome> {
     if (tab.execution) return { ok: false, diagnostics: [] }
@@ -7152,6 +7462,8 @@ export class AppState {
     const preservesHistory = expect !== undefined && JSON.stringify(session.doc) === JSON.stringify(expect.store.doc)
     if (preservesHistory) {
       session.adoptHistory(expect.store.historySnapshot())
+      const kept = this.keptNumberFixes.get(expect.store)
+      if (kept !== undefined) this.keptNumberFixes.set(session, new Map(kept))
     }
     const backend = this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')
     if (backend === undefined || this.disposed) {

@@ -21,7 +21,6 @@ type AssetMessage = (key: string, params?: MessageParams) => string
 
 function assetState(state: CollectionPanelState, message: AssetMessage, widen?: () => void, widerLabel?: string) {
   if (state.kind === 'loading') return <ProductEmptyState tone="loading" title={message('assets.state.loading.title')} />
-  if (state.kind === 'error') return <ProductNotice tone="error">{message('assets.state.error.title')}{state.message ? `: ${state.message}` : ''}</ProductNotice>
   if (state.kind === 'no-match') return <ProductEmptyState title={message('assets.state.noMatch.title')} hint={message('assets.state.noMatch.detail')}
     action={widen && widerLabel ? <ProductTextButton label={widerLabel} onClick={widen} /> : undefined} />
   return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source: state.sourceLabel })} />
@@ -138,7 +137,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
         toolbarActions={<ProductSelect testId="asset-sort-select" ariaLabel={message('assets.order.label')} selectedId={sort()}
           options={(['newest', 'name', 'path'] as const).map((value) => ({ id: value, label: message(`assets.order.${value}`), value }))}
           onSelect={(option) => setSort(option.value)} />}
-        navigation={({ selectedId, select, folder, navigate, mode, setMode }) => {
+        navigation={({ selectedId, select, folder, navigate, mode, setMode, firstLoadFailed }) => {
           let appliedFocus: { readonly mountId: string } | undefined
           createEffect(() => {
             const request = props.mountFocus
@@ -155,7 +154,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
           })
           return <AssetBrowserNavigation sources={sources()} selectedId={selectedId()} select={select}
             folder={folder()} navigate={navigate} recursive={recursive()} setRecursive={setRecursive}
-            mode={mode()} setMode={setMode} />
+            mode={mode()} setMode={setMode} firstLoadFailed={firstLoadFailed()} />
         }}
         renderState={(state) => assetState(loading() ? { ...state, kind: 'loading' } : state, message, widenSearch(), widerLabel())} entryContent={(entry) => <AssetEntryContent entry={entry()} />}
         detailPlacement="inline" detailRail={(entry) => <Show when={entry}>{(selected) => <AssetEntrySelection entry={selected()} adapters={adapters()}

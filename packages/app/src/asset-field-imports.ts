@@ -151,7 +151,7 @@ export function createAssetFieldImports(app: AppState, targetCurrent: (editor: W
         clearWaiting()
         update(key, { ...base, phase: 'checking' })
         committing = true
-        const outcome = await app.dispatchTo(tab, widgetInputValueCommand(editor.graphId, target, result.asset))
+        const outcome = await app.dispatchEditTo(tab, widgetInputValueCommand(editor.graphId, target, result.asset))
         committing = false
         if (abort.signal.aborted) return
         if (!outcome.ok) {

@@ -128,7 +128,7 @@ it.each(['apply', 'local', 'failure', 'cancel', 'retarget', 'closed'] as const)(
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
     backendForTab: () => backend,
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+    dispatchEditTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   let closed = false

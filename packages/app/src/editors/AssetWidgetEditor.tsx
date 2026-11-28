@@ -101,7 +101,6 @@ export { mediaAcceptsFile } from '../asset-browser/helpers.js'
 
 function assetPickerState(state: CollectionPanelState, vocabulary: AssetPickerVocabulary, noun: string) {
   if (state.kind === 'loading') return <SearchState kind="loading" title={`Loading ${vocabulary.plural}`} detail={`Searching ${state.sourceLabel}.`} />
-  if (state.kind === 'error') return <SearchState kind="error" title={`${vocabulary.titlePlural} unavailable`} detail={state.message ?? `Unable to load ${state.sourceLabel}.`} />
   const plural = noun === 'audio' ? noun : `${noun}s`
   return <ProductEmptyState title={state.query ? `No ${plural} match "${state.query}".` : `No ${plural} found.`} />
 }
@@ -802,10 +801,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                     pagination="scroll"
                     recursive={recursive()}
                     sort={sort()}
-                    navigation={({ selectedId, select, folder, navigate, mode, setMode }) =>
+                    navigation={({ selectedId, select, folder, navigate, mode, setMode, firstLoadFailed }) =>
                         <AssetBrowserNavigation sources={assetPanelSources()} selectedId={selectedId()} select={select}
                           folder={folder()} navigate={navigate} recursive={recursive()} setRecursive={setRecursive}
-                          mode={mode()} setMode={setMode} />}
+                          mode={mode()} setMode={setMode} firstLoadFailed={firstLoadFailed()} />}
                     entryContent={(entry) => <AssetEntryContent entry={entry()} />}
                     toolbarActions={<ProductSelect testId="asset-sort-select"
                       ariaLabel={message('assets.order.label')} selectedId={sort()}
