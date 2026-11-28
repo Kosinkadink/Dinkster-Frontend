@@ -898,6 +898,12 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-project-row-detail { display: flex; align-items: center; gap: var(--dinkster-space-4); min-width: 0; overflow: hidden; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: nowrap; }
 .dinkster-project-row[data-state='failed'] .dinkster-project-row-detail { color: var(--dinkster-warning-foreground); }
 .dinkster-project-row-detail > .dinkster-icon { width: var(--dinkster-type-metadata-size); height: var(--dinkster-type-metadata-size); }
+.dinkster-project-row[data-actions] { grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--dinkster-space-8); }
+.dinkster-project-row-copy { display: grid; min-width: 0; border-radius: var(--dinkster-radius-small); }
+.dinkster-root .dinkster-project-row-copy:focus-visible { outline: none; }
+.dinkster-project-row:has(> .dinkster-project-row-copy:focus-visible) { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
+.dinkster-project-row-action { display: flex; align-items: center; cursor: default; }
+.dinkster-project-row > .dinkster-product-progress, .dinkster-project-row-copy > .dinkster-product-progress { position: absolute; inset-inline: var(--dinkster-space-12); bottom: var(--dinkster-space-4); height: var(--dinkster-indicator-width); }
 .dinkster-projects-row-group > .dinkster-disclosure { padding-inline: var(--dinkster-space-12); }
 .dinkster-projects-row-group > .dinkster-disclosure > .dinkster-stack { margin-inline: calc(-1 * var(--dinkster-space-12)); }
 .dinkster-project-row[data-state='deleted'] { grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--dinkster-space-8); cursor: default; }

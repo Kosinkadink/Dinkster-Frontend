@@ -390,6 +390,8 @@ export function ProjectsGallery() {
   // "Template" is offered only while the engine's templates are on.
   const [templates, setTemplates] = createSignal(false)
   const [place, setPlace] = createSignal<Place>('projects')
+  const [installation, setInstallation] = createSignal('stable')
+  const [cancelling, setCancelling] = createSignal(false)
   const [selected, setSelected] = createSignal('film-grain-tests')
   const [narrowDetail, setNarrowDetail] = createSignal(false)
   const [hidden, setHidden] = createSignal<ReadonlySet<string>>(new Set())
@@ -976,7 +978,22 @@ export function ProjectsGallery() {
                 />
               </Match>
               <Match when={place() === 'installations'}>
-                {otherPlace('Installations')}
+                <ProductProjectsView narrowPanel="list" list={
+                  <ProductProjectList title="Installations" newLabel="Set up" onNew={() => setActivity('Set up opened')}
+                    selected={installation()} onSelect={setInstallation} loadingLabel="Loading installations"
+                    projects={[
+                      { id: 'stable', name: 'Stable', detail: 'Stopped' },
+                      { id: 'nightly', name: 'Nightly', detail: cancelling() ? 'Cancelling restore' : 'Restoring software', state: 'opening',
+                        progress: { label: 'Nightly restore', value: 0.42 } },
+                    ]}
+                    action={(row) => <Show when={row.id === 'nightly'}>
+                      <ProductTextButton label="Cancel" aria-label="Cancel Nightly restore" disabled={cancelling()}
+                        onClick={() => { setCancelling(true); setActivity('Nightly restore cancellation requested') }} />
+                    </Show>} />
+                }>
+                  <ProductProjectHeader title={installation() === 'stable' ? 'Stable' : 'Nightly'}
+                    subtitle={installation() === 'stable' ? 'Stopped' : cancelling() ? 'Cancelling restore' : 'Restoring software'} />
+                </ProductProjectsView>
               </Match>
               <Match when={place() === 'models'}>{otherPlace('Models')}</Match>
               <Match when={place() === 'docs'}>{otherPlace('Docs')}</Match>

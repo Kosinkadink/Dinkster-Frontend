@@ -1,4 +1,61 @@
 import { expect, test } from '@playwright/test'
+import axe from 'axe-core'
+
+test('installation row cancellation stays separate from pointer and keyboard selection', async ({ page }) => {
+  for (const width of [1280, 390]) {
+    for (const activation of ['Enter', 'Space', 'pointer']) {
+      await page.setViewportSize({ width, height: 1000 })
+      await page.goto('about:blank')
+      await page.goto('/#projects')
+      await page.getByRole('button', { name: 'Installations', exact: true }).click()
+      const grid = page.getByRole('grid', { name: 'Installations', exact: true })
+      const stable = grid.getByRole('row').filter({ hasText: 'Stable' })
+      const nightly = grid.getByRole('row').filter({ hasText: 'Nightly' })
+      const detail = page.getByRole('heading', { level: 2 })
+      const cancel = grid.getByRole('button', { name: 'Cancel Nightly restore', exact: true })
+      await expect(nightly.getByRole('progressbar', { name: 'Nightly restore' })).toHaveAttribute('aria-valuenow', '0.42')
+      if (activation === 'Enter') {
+        await page.addScriptTag({ content: axe.source })
+        expect(await page.evaluate(async () =>
+          (await (window as unknown as { axe: typeof axe }).axe.run(document.querySelector('[role="grid"]')!, {
+            runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] },
+          })).violations.map(({ id }) => id),
+        )).toEqual([])
+      }
+      await expect(stable).toHaveAttribute('aria-selected', 'true')
+      await nightly.getByRole('gridcell').first().click()
+      await expect(nightly).toHaveAttribute('aria-selected', 'true')
+      if (width === 1280) await expect(detail).toHaveText('Nightly')
+      await page.keyboard.press('Home')
+      await expect(stable.getByRole('gridcell').first()).toBeFocused()
+      await expect(stable).toHaveAttribute('aria-selected', 'true')
+      if (width === 1280) await expect(detail).toHaveText('Stable')
+      await page.keyboard.press('End')
+      await expect(nightly.getByRole('gridcell').first()).toBeFocused()
+      await page.keyboard.press('ArrowRight')
+      await expect(cancel).toBeFocused()
+      await page.keyboard.press('ArrowUp')
+      await expect(stable.getByRole('gridcell').first()).toBeFocused()
+      await expect(nightly).toHaveAttribute('aria-selected', 'true')
+      await page.keyboard.press('ArrowDown')
+      await page.keyboard.press('ArrowRight')
+      await expect(cancel).toBeFocused()
+      await page.keyboard.press('ArrowLeft')
+      await expect(nightly.getByRole('gridcell').first()).toBeFocused()
+      await page.keyboard.press('ArrowUp')
+      await expect(stable.getByRole('gridcell').first()).toBeFocused()
+      await page.keyboard.press('Tab')
+      await expect(cancel).toBeFocused()
+      if (activation === 'pointer') await cancel.click()
+      else await page.keyboard.press(activation)
+      await expect(cancel).toBeDisabled()
+      await expect(nightly.getByRole('gridcell').first()).toBeFocused()
+      await expect(nightly).toContainText('Cancelling restore')
+      await expect(stable).toHaveAttribute('aria-selected', 'true')
+      if (width === 1280) await expect(detail).toHaveText('Stable')
+    }
+  }
+})
 
 test('Start with keeps its choice across measured-width row and shared dropdown modes', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
