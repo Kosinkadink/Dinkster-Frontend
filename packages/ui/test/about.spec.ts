@@ -661,7 +661,7 @@ test('Rich toolbar labels preserve branding, compact geometry and pending focus'
         name: 'Dinkster menu',
         exact: true,
       })
-      await expect(action).toHaveAttribute('title', 'Dinkster menu')
+      await expect(action).not.toHaveAttribute('title')
       const image = action.locator('.dinkster-window-action-label img')
       await expect(image).toHaveAttribute('src', /symbol-color/)
       expect(
@@ -1042,7 +1042,12 @@ for (const state of ['idle', 'running', 'pending'])
     await expect(search.locator('kbd').first()).toBeVisible()
     await chooseToolbar(page, 'Search shortcut', '')
     await expect(search.locator('kbd')).toHaveCount(0)
-    await expect(search).toHaveAttribute('title', 'Search')
+    await expect(search).not.toHaveAttribute('title')
+    await page.setViewportSize({ width: 512, height: 900 })
+    await page.clock.install()
+    await search.hover()
+    await page.clock.fastForward(1000)
+    await expect(page.getByRole('tooltip')).toHaveText('Search')
     await search.click()
     await expect(page.getByRole('status')).toHaveText('Search opened')
     await first.getByRole('button', { name: 'Cancel Long run' }).click()

@@ -659,7 +659,7 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await page.goto('/#controls')
   await expect(
     page.getByRole('button', { name: 'Add item', exact: true }),
-  ).toHaveAttribute('title', 'Add item')
+  ).not.toHaveAttribute('title')
   const samples = page.getByRole('region', {
     name: 'Button roles and fills',
     exact: true,
