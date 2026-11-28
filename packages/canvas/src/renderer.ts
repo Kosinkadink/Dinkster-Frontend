@@ -2818,7 +2818,7 @@ export class CanvasRenderer {
         this.scopeHighlight === undefined) {
       const batches = new Map<string | undefined, Array<readonly [number, number]>>()
       for (const reroute of this.scene.reroutes) {
-        if (this.overlay.rerouteSelection?.has(reroute.id) === true ||
+        if (reroute.dimmed === true || this.overlay.rerouteSelection?.has(reroute.id) === true ||
             this.overlay.dropTargets?.has(rerouteTargetKey(reroute.id)) === true ||
             this.overlay.hoveredReroute === reroute.id) continue
         const pad = Math.max(rerouteRadius + canvasPaintTokens.reroute.cullPadding, statusRingCullPad(rerouteRadius, scale))
@@ -2859,6 +2859,7 @@ export class CanvasRenderer {
         : Math.max(rerouteRadius + canvasPaintTokens.reroute.cullPadding, statusRingCullPad(rerouteRadius, scale))
       if (rx + pad < view.x || rx - pad > view.x + view.w || ry + pad < view.y || ry - pad > view.y + view.h) continue
       if (this.scopeHighlight && !this.scopeHighlight.reroutes.has(r.id)) ctx.globalAlpha = SCOPE_DIM
+      if (r.dimmed) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
       if (this.overlay.dropTargets?.has(rerouteTargetKey(r.id))) {
         ctx.beginPath()
         ctx.arc(rx, ry, rerouteRadius + STATUS_RING_GAP, 0, Math.PI * 2)
@@ -4307,12 +4308,17 @@ export class CanvasRenderer {
           const paint = canvasPaintTokens.widget
           ctx.fillRect(node.x + t.padX, rowY + t.rowGeometry.fieldInsetY, l.width - t.padX * 2, row.height - t.rowGeometry.fieldInsetY * 2)
           ctx.globalAlpha = rowAlpha * paint.fallback.opacity
+          const usable = Math.max(0, l.width - t.padX * 2 - paint.fallback.textInset * 2)
+          const labelZone = shareRowWidth(usable, measureWidth(ctx, row.label) + paint.labelWidthPadding,
+            measureWidth(ctx, row.text) + paint.fallbackValueWidthPadding, true)
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
-          ctx.fillText(row.label, node.x + t.padX + paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.labelRatio)
+          ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - paint.labelClipPadding)),
+            node.x + t.padX + paint.fallback.textInset, rowY + row.height / 2)
           ctx.fillStyle = t.colors.value
           ctx.textAlign = 'right'
-          ctx.fillText(row.text, node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.valueRatio)
+          ctx.fillText(fitText(ctx, row.text, Math.max(0, usable - labelZone)),
+            node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2)
           ctx.textAlign = 'left'
           ctx.globalAlpha = rowAlpha
           // A problem on this stored value outlines its row.

@@ -450,6 +450,8 @@ export interface SceneReroute {
   readonly y: number
   /** Concrete type traced from the driving output, when statically known. */
   readonly typeName?: string
+  /** The driving field or output is kept only for its existing wire. */
+  readonly dimmed?: true
 }
 
 /** Reroute dot radius (world units). A deliberately large junction: easy to grab, reads as a station on the noodle. */
@@ -1514,11 +1516,20 @@ export function buildScene(input: BuildSceneInput): Scene {
   for (const reroute of Object.values(def.reroutes)) {
     const pos = viewReroutes[reroute.id]?.position ?? { x: 0, y: (rerouteFallbackY += canvasPaintTokens.scene.rerouteFallbackStepY) }
     const typeName = tracedTypeName({ reroute: reroute.id })
+    const sources = traceEndpointAll(def, { reroute: reroute.id }, rerouteIndex)
+    const dimmed = sources.length > 0 && sources.every((source) => {
+      if (source.kind === 'tapValue') return byId.get(source.node)?.layout.pins.some((pin) =>
+        pin.widgetTap === true && pin.address.port === source.input && pin.kept !== undefined) === true
+      if (source.kind === 'output') return byId.get(source.ref.node)?.layout.pins.some((pin) =>
+        pin.direction === 'out' && pin.widgetTap !== true && pin.portId === source.ref.port && pin.kept !== undefined) === true
+      return false
+    })
     const sceneReroute: SceneReroute = {
       id: reroute.id,
       x: pos.x,
       y: pos.y,
       ...(typeName !== undefined ? { typeName } : {}),
+      ...(dimmed ? { dimmed: true as const } : {}),
     }
     reroutes.push(sceneReroute)
     rerouteById.set(reroute.id, sceneReroute)
@@ -1528,7 +1539,8 @@ export function buildScene(input: BuildSceneInput): Scene {
   const endPoint = (end: LinkEndpoint, direction: 'in' | 'out'): { x: number; y: number; end: SceneLinkEnd; type?: TypeExpr; kept?: true } | undefined => {
     if (isRerouteRef(end)) {
       const r = rerouteById.get(end.reroute)
-      return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id }, ...(r.typeName ? { type: typeExprFromTypeId(r.typeName) } : {}) } : undefined
+      return r ? { x: r.x, y: r.y, end: { kind: 'reroute', reroute: r.id },
+        ...(r.typeName ? { type: typeExprFromTypeId(r.typeName) } : {}), ...(r.dimmed ? { kept: true as const } : {}) } : undefined
     }
     if (isWidgetTapRef(end)) {
       const node = byId.get(end.node)
@@ -2289,7 +2301,9 @@ function missingLayout(
     rows.push({ kind: 'fallback', y, height: tokens.rowHeight, label: key, text })
     contentWidth = Math.max(
       contentWidth,
-      tokens.padX * 2 + measure(key, 'label') + canvasPaintTokens.node.widgetLabelPadding + measure(text, 'value'),
+      tokens.padX * 2 + canvasPaintTokens.widget.fallback.textInset * 2 +
+        measure(key, 'label') + canvasPaintTokens.widget.labelWidthPadding +
+        measure(text, 'value') + canvasPaintTokens.widget.fallbackValueWidthPadding,
     )
     y += tokens.rowHeight
   }
