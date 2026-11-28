@@ -125,6 +125,7 @@ documentTest('20 rapid INT increments follow the declared step grid and undo ind
 }, async ({ page }) => {
   await page.evaluate(async () => {
     const test = window.__dinksterTest!
+    test.app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
     test.app.registerSchemas([{
       type: 'RapidSeedE2E', displayName: 'Rapid Seed', category: 'test', source: 'v3', isOutputNode: false,
       body: [{
@@ -281,13 +282,14 @@ documentTest('promoted fan-out advancement follows primary binding order', {
       },
     }
     const boundary = {
-      inputs: [{
-        id: 'seed', displayName: 'Primary seed',
+      body: [{
+        kind: 'input', id: 'seed', displayName: 'Primary seed',
         binds: { kind: 'port', node: 'primary', port: 'seed' },
         alsoBinds: [{ kind: 'port', node: 'secondary', port: 'seed' }],
         promoted: true,
+      }, {
+        kind: 'output', id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' },
       }],
-      outputs: [{ id: 'out', binds: { kind: 'port', node: 'primary', port: 'out' } }],
     }
     await test.app.openDocument({
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'controller-fanout-order-e2e', root: 'root',
