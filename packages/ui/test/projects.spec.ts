@@ -193,8 +193,9 @@ test('the project list selects by pointer and arrow keys and the detail follows'
   await page.keyboard.press('ArrowDown')
   const selected = page
     .getByRole('listbox', { name: 'Projects', includeHidden: true })
-    .getByRole('option', { name: /Valley matte paintings/, includeHidden: true })
+    .getByRole('option', { name: /Teapot product shots/, includeHidden: true })
   const back = page.locator('.dinkster-projects-back button')
+  await expect(detail).toHaveText('Teapot product shots')
   await expect(selected).toHaveAttribute('aria-selected', 'true')
   await expect(back).toBeFocused()
   await page.keyboard.press('Escape')
