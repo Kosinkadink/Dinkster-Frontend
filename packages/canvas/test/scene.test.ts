@@ -546,6 +546,10 @@ describe('buildScene', () => {
     expect(emptyRow.spec.options['placeholder']).toBe('No fields')
     expect(normalizedComboOptions(emptyRow.spec)).toEqual([])
     expect(scene().diagnostics).toEqual([])
+    const emptyOutput = scene().nodes[0]!.layout.pins.find((pin) => pin.direction === 'out' && pin.portId === 'value')
+    expect(emptyOutput).toBeDefined()
+    expect(emptyOutput!.type).toEqual({ kind: 'wildcard' })
+    expect(emptyOutput!.kept).toBeUndefined()
     schema = { ...schema, body: [...emptyBody, { kind: 'input', id: 'replacement', optional: false,
       type: { kind: 'record_field', input: 'record', index: 'field' } }] }
     const replacement = scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'input' && item.spec.id === 'replacement')!

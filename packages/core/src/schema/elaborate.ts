@@ -2645,7 +2645,7 @@ function elaboratePass(
     })
   }
 
-  const projectRecord = (inputId: string, source: TypeExpr | undefined, onRemoved?: (message: string) => void): TypeExpr | undefined => {
+  const projectRecord = (inputId: string, source: TypeExpr | undefined, onRemoved?: (message?: string) => void): TypeExpr | undefined => {
     let selector = items.find((item) => item.kind === 'input' && item.spec.id === inputId)
     if (source?.kind === 'record' && selector?.kind === 'input') {
       const index = items.indexOf(selector)
@@ -2670,7 +2670,7 @@ function elaboratePass(
             ...selector.spec, widget: { ...selector.spec.widget, options: { ...options, placeholder: t('canvas.record.noFields') } },
           } }
         }
-        onRemoved?.('')
+        onRemoved?.()
         return { kind: 'wildcard' }
       }
       if (!Array.isArray(path) || path.length === 0 || !path.every((key) => typeof key === 'string' && key !== '')) throw new Error('Record selection requires a nonempty path of stable field IDs.')
@@ -2766,7 +2766,7 @@ function elaboratePass(
       return undefined
     }
   }
-  const project = (type: TypeExpr, onRemoved?: (message: string) => void): TypeExpr => {
+  const project = (type: TypeExpr, onRemoved?: (message?: string) => void): TypeExpr => {
     if (type.kind === 'record_field') {
       const source = items.find((item) => item.kind === 'input' && item.spec.id === type.input)
       return projectRecord(type.index, source?.kind === 'input' ? source.spec.type : undefined, onRemoved) ?? type
