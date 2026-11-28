@@ -94,11 +94,27 @@ function SelectedInstallationHistory(props: { readonly root: string; readonly re
   </ProductProjectSection>
 }
 
-function SelectedInstallationFacts(props: { readonly root: string; readonly revision?: number | undefined }) {
+function SelectedInstallationFacts(props: { readonly root: string; readonly revision?: number | undefined; readonly openFolder: boolean }) {
   const message = useAppMessage()
   const page = createPageLoad<InstallationFacts>()
   const space = createPageLoad<InstallationSpace>()
   const [dismissedSpace, setDismissedSpace] = createSignal<Error>()
+  const [folderError, setFolderError] = createSignal<string>()
+  const [openingFolder, setOpeningFolder] = createSignal(false)
+  const openFolder = async () => {
+    setOpeningFolder(true)
+    try {
+      const response = await fetchRequest('/supervisor/installations/folder', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ root: props.root }),
+      })
+      if (!response.ok) throw await requestFailure(response)
+      setFolderError(undefined)
+    } catch (failure) {
+      setFolderError(failureMessage(failure))
+    } finally {
+      setOpeningFolder(false)
+    }
+  }
   const read = async () => {
     try {
       const response = await fetchRequest(`/supervisor/installations/facts?${new URLSearchParams({ root: props.root })}`, { cache: 'no-store' })
@@ -125,12 +141,15 @@ function SelectedInstallationFacts(props: { readonly root: string; readonly revi
   })
 
   return <>
+    <Show when={folderError()}>{(error) => <ProductErrorBanner onDismiss={() => setFolderError(undefined)}>{error()}</ProductErrorBanner>}</Show>
     <Show when={space.error() !== dismissedSpace() && space.error()}>{(error) =>
       <ProductErrorBanner onDismiss={() => setDismissedSpace(error())}>{error().message}</ProductErrorBanner>}</Show>
     <ProductPageLoad page={page} read={read} loadingLabel={message('installations.factsLoading')}>
     {(facts) => <ProductProjectFacts label={message('installations.facts')} columns={[
       [
-        { label: message('setup.folder'), value: <ProductPath value={props.root} /> },
+        { label: message('setup.folder'), value: <ProductPath value={props.root} />, action: <Show when={props.openFolder}>
+          <ProductTextButton label={message('projects.facts.showInFolder')} disabled={openingFolder()} onClick={() => { void openFolder() }} />
+        </Show> },
         { label: message('installations.host'), value: facts.host.kind === 'wsl' ? 'WSL2' : message('resources.thisComputer'), detail: facts.host.distribution },
         { label: message('setup.build'), value: facts.build?.label ?? message('installations.noSelectedBuild') },
       ],
@@ -249,7 +268,7 @@ export function InstallationsView(props: {
             {(installation) => <div class="projects-page-detail">
               <ProductProjectHeader title={installation().name} subtitle={stateLabel(installation())} />
               <Show when={installation().root} keyed>{(root) => <>
-                <SelectedInstallationFacts root={root} revision={revisions().get(root)} />
+                <SelectedInstallationFacts root={root} revision={revisions().get(root)} openFolder={page.value()?.openFolder === true} />
                 <InstallationSandbox root={root} engine={installation().engine} />
                 <SelectedInstallationHistory root={root} revision={revisions().get(root)} disabled={jobs.blocked()}
                   onRestore={(entry) => setRestoring({ root, entry })} />

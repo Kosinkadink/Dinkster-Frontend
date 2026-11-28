@@ -176,6 +176,54 @@ it('shows recorded history newest first and keeps current generations, imports a
   dispose()
 })
 
+it('opens only the selected installation folder when supported and keeps failures dismissible until success', async () => {
+  let supported = false
+  const opened: string[] = []
+  let finish: (response: Response) => void = () => {}
+  vi.stubGlobal('fetch', vi.fn(async (input, init) => {
+    if (String(input) === '/supervisor/installations/folder') {
+      if (init?.method !== 'POST') throw new Error('Folder opening requires POST')
+      const body = JSON.parse(String(init.body))
+      expect(Object.keys(body)).toEqual(['root'])
+      opened.push(body.root)
+      return new Promise<Response>((resolve) => { finish = resolve })
+    }
+    return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable, nightly], openFolder: supported }) }} />, document.body)
+  const action = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Show in folder')
+  await settle()
+  expect(action()).toBeUndefined()
+  supported = true
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  action()!.click()
+  expect(action()!.disabled).toBe(true)
+  expect(opened).toEqual([stable.root])
+  finish(Response.json({ error: 'folder-unavailable', message: 'File manager cannot open this folder' }, { status: 503 }))
+  await settle()
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain('File manager cannot open this folder')
+  expect(action()!.disabled).toBe(false)
+  action()!.click()
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain('File manager cannot open this folder')
+  finish(Response.json({ folder: stable.root }))
+  await settle()
+  expect(document.querySelector('[role="alert"]')).toBeNull()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
+  await settle()
+  action()!.click()
+  expect(opened).toEqual([stable.root, stable.root, nightly.root])
+  finish(Response.json({ error: 'folder-unavailable', message: 'Selected folder disappeared' }, { status: 404 }))
+  await settle()
+  document.querySelector<HTMLButtonElement>('[role="alert"] button')!.click()
+  expect(document.querySelector('[role="alert"]')).toBeNull()
+  supported = false
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(action()).toBeUndefined()
+  dispose()
+})
+
 it('keeps recorded facts with their selected installation through late replies, failures and retry', async () => {
   let finishStable: (response: Response) => void = () => {}
   let stableRead = new Promise<Response>((resolve) => { finishStable = resolve })
