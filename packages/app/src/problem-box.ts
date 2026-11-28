@@ -61,11 +61,12 @@ export function runtimeProblemBoxLines(
   })
 }
 
-/** The node's rows as problem rows, top to bottom. */
+/** Visible rows top to bottom, followed by fields hidden by presentation state. */
 export function problemBoxRows(node: SceneNode): readonly ProblemBoxRow[] {
   const rows: ProblemBoxRow[] = []
-  for (const row of node.layout.rows) {
+  for (const row of [...node.layout.rows, ...(node.fieldRows ?? [])]) {
     if (row.kind === 'widget') {
+      if (rows.some((candidate) => candidate.key === row.valueKey)) continue
       rows.push({ key: row.valueKey, name: row.name ?? row.label, field: true, ...(row.secret === true ? { secret: true } : {}) })
       if (row.inputId !== row.valueKey) rows.push({ key: row.inputId, name: row.name ?? row.label, field: true, ...(row.secret === true ? { secret: true } : {}) })
     } else if (row.kind === 'ports') {

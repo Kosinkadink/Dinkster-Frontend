@@ -2883,7 +2883,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const node = boundaryFieldNode(boundary)
         return node === undefined ? [] : [node]
       })]
-      return [...new Set(nodes.flatMap((node) => node.layout.rows.flatMap((row) => {
+      return [...new Set(nodes.flatMap((node) => (node.fieldRows ?? node.layout.rows).flatMap((row) => {
         if (row.kind !== 'widget' || row.secret !== true) return []
         const value = row.derivedValue ?? node.node.values[row.valueKey] ?? effectiveWidgetDefault(row.spec)
         return typeof value === 'string' && value !== '' ? [value] : []
