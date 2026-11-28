@@ -940,7 +940,8 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-tile-caption { display: flex; align-items: baseline; justify-content: space-between; gap: var(--dinkster-space-8); min-width: 0; padding: var(--dinkster-space-8) var(--dinkster-space-12); }
 .dinkster-tile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dinkster-tile-detail { flex: none; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); white-space: nowrap; }
-.dinkster-text-button { display: inline-flex; align-items: center; gap: var(--dinkster-space-4); flex: none; padding: 0; border: 0; background: transparent; color: var(--dinkster-text-secondary); text-decoration: underline dotted; text-underline-offset: var(--dinkster-space-4); white-space: nowrap; cursor: pointer; }
+.dinkster-text-button { display: inline-flex; align-items: center; gap: var(--dinkster-space-4); flex: none; padding: 0; border: 0; border-radius: var(--dinkster-radius-control); background: transparent; color: var(--dinkster-text-secondary); text-decoration: underline dotted; text-underline-offset: var(--dinkster-space-4); white-space: nowrap; cursor: pointer; }
+.dinkster-root .dinkster-text-button:focus-visible { outline-offset: var(--dinkster-space-4); }
 .dinkster-text-button:hover { color: var(--dinkster-text-primary); }
 .dinkster-text-button[data-role='add'] { color: var(--dinkster-accent-foreground); }
 .dinkster-text-button[data-role='remove'] { color: var(--dinkster-danger-foreground); }
@@ -997,7 +998,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-skeleton[data-shape='title'] { width: 40%; height: var(--dinkster-type-title-line); }
 .dinkster-skeleton[data-shape='line'] { width: 60%; height: var(--dinkster-type-body-line); }
 .dinkster-skeleton[data-shape='tile'] { aspect-ratio: 2 / 1; border-radius: var(--dinkster-radius-card); }
-@media (prefers-reduced-motion: reduce) { .dinkster-progress::before { animation: none !important; width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .dinkster-progress::before { animation: none !important; width: 100%; opacity: var(--dinkster-interaction-disabled-opacity); } }
 @keyframes dinkster-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .dinkster-root *, .dinkster-root *::before, .dinkster-root *::after { transition-duration: var(--dinkster-motion-reduced) !important; animation-duration: var(--dinkster-motion-reduced) !important; animation-iteration-count: 1 !important; }
