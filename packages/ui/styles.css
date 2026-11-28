@@ -88,7 +88,8 @@
 .storage-folder-path { display: flex; min-width: 0; font-family: var(--dinkster-font-mono); font-size: var(--dinkster-type-metadata-size); white-space: nowrap; }
 .storage-folder-path > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .storage-folder-path > span:not(:first-child):not(:last-child) { flex: none; }
-.storage-folder-path > span:last-child { flex: 0 0 auto; max-width: 75%; overflow: hidden; text-overflow: ellipsis; }
+.storage-folder-path > span:last-child { flex: 0 0 auto; max-width: 75%; overflow: hidden; direction: rtl; }
+.storage-folder-path > span:last-child > span { display: inline-block; }
 .storage-folders .dinkster-row-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--dinkster-space-4) var(--dinkster-space-8); }
 .storage-folders .dinkster-row-copy { display: contents; }
 .storage-folders .dinkster-row-copy > span:first-child { overflow-wrap: anywhere; }

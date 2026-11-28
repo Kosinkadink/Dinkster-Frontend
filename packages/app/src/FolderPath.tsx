@@ -20,6 +20,6 @@ export function FolderPath(props: { readonly value: string }) {
   return <code ref={path} class="storage-folder-path" title={props.value}>
     <span ref={prefix}>{props.value.slice(0, split())}</span>
     <Show when={shortened()}><span>...</span></Show>
-    <span ref={suffix}>{props.value.slice(split())}</span>
+    <span ref={suffix}><span dir="ltr">{props.value.slice(split())}</span></span>
   </code>
 }
