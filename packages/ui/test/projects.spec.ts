@@ -191,7 +191,9 @@ test('the project list selects by pointer and arrow keys and the detail follows'
   await page.goto('/#projects')
   await list.getByRole('option', { name: /Film grain tests/ }).focus()
   await page.keyboard.press('ArrowDown')
-  const selected = list.getByRole('option', { name: /Valley matte paintings/ })
+  const selected = page
+    .getByRole('listbox', { name: 'Projects', includeHidden: true })
+    .getByRole('option', { name: /Valley matte paintings/, includeHidden: true })
   const back = page.locator('.dinkster-projects-back button')
   await expect(selected).toHaveAttribute('aria-selected', 'true')
   await expect(back).toBeFocused()
