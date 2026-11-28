@@ -4730,10 +4730,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           if (node.layout.minimized === true) {
             await props.app.dispatchTo(tab, { command: 'view.setNodeCollapsed', params: { graphId, nodeIds: [nodeId], collapsed: false } })
           }
+          const input = node.elaborated === undefined ? undefined : elabInputsOf(node.elaborated)
+            .find((candidate) => candidate.spec.id === row || candidate.address.port === row)
           const folded = renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.pins
             .find((pin) => pin.portId === row && pin.collapsedSection !== undefined)?.collapsedSection
-          if (folded !== undefined) {
-            await props.app.dispatchTo(tab, { command: 'view.setSectionCollapsed', params: { graphId, nodeId, sectionId: folded, collapsed: false } })
+          for (const sectionId of input?.boxes ?? (folded === undefined ? [] : [folded])) {
+            await props.app.dispatchTo(tab, { command: 'view.setSectionCollapsed', params: { graphId, nodeId, sectionId, collapsed: false } })
           }
           queueMicrotask(() => {
             if (activeTab() !== tab || tab.store !== store || currentGraphId(tab) !== graphId) return

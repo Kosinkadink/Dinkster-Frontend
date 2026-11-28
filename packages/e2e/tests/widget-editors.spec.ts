@@ -51,9 +51,11 @@ catalogTest('secret rows save and remove through the selected connection without
     await app.backends.get()[0]!.connection.accountStatus()
     app.registerSchemas([{
       type: 'SecretCaption', displayName: 'Caption image', source: 'v3', category: 'test', isOutputNode: false,
-      body: [{ kind: 'input', id: 'credential', displayName: 'Caption service', type: { kind: 'concrete', name: 'STRING' },
-        secret: true, socketless: true, optional: false,
-        widget: { widgetType: 'SECRET', options: {}, default: 'caption-service' } }],
+      body: [{ kind: 'section', id: 'access', displayName: 'Access', rows: [
+        { kind: 'input', id: 'credential', displayName: 'Caption service', type: { kind: 'concrete', name: 'STRING' },
+          secret: true, socketless: true, optional: false,
+          widget: { widgetType: 'SECRET', options: {}, default: 'caption-service' } },
+      ] }],
     }])
     await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'secret-editor', root: 'g0',
       graphs: { g0: { id: 'g0', name: 'Caption', nextOrdinal: 2,
@@ -136,6 +138,28 @@ catalogTest('secret rows save and remove through the selected connection without
   await expect(dialog.getByRole('combobox', { name: 'Name', exact: true })).toHaveValue('caption-service')
   await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
   await expect(dialog.getByRole('button', { name: 'Remove secret', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  const section = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const viewport = renderer.getViewport()
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'caption')!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'section')!
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return {
+      x: canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+      y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
+    }
+  })
+  await page.mouse.click(section.x, section.y)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
+    .find((node) => node.id === 'caption')!.layout.rows.some((row) => row.kind === 'widget'))).toBe(false)
+  await expect(missing).toHaveCount(0)
+  await rejected.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+  await expect(box.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('secret-refused-folded.png') })
+  await box.getByRole('button', { name: 'Replace secret', exact: true }).click()
+  await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
+  await expect(dialog.getByRole('combobox', { name: 'Name', exact: true })).toHaveValue('caption-service')
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   await rejected.getByRole('button', { name: 'Replace secret', exact: true }).click()
   await expect(dialog).toBeVisible()
