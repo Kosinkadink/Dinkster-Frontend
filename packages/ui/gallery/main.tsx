@@ -980,7 +980,7 @@ function Gallery() {
                   <div class="storage-group-heading"><h3>Model folders</h3><ProductTextButton icon={Plus} onClick={() => complete('Add models folder chosen')} label="Add" /></div>
                   <ProductList label="Storage model folders" variant="grouped">
                     <ProductListRow title={<strong>Studio models folder with a long descriptive name</strong>} trailing="60 models" expanded={storageOpen()} onToggle={setStorageOpen}
-                      description={<span class="storage-folder-description"><code class="storage-folder-path"><span>/home/name/Dinkster</span><span>/Models</span></code><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Download} />Downloads land here</span></span>}
+                      description={<span class="storage-folder-description"><code class="storage-folder-path">/home/name/Dinkster/Models</code><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Download} />Downloads land here</span></span>}
                       action={<ProductMenu label="Folder actions" fill="quiet" icon={Ellipsis} iconOnly items={[{ label: 'Edit', onSelect: () => complete('Edit folder chosen') }]} />}>
                       <ProductFacts label="Model kinds" items={[{ label: 'Checkpoints', value: 12 }, { label: 'LoRAs', value: 48 }]} />
                       <ProductTextButton label="Show these models" onClick={() => complete('Models chosen')} />
@@ -989,7 +989,7 @@ function Gallery() {
                   <div class="storage-group-heading"><h3>Mounts</h3><ProductTextButton icon={Plus} onClick={() => complete('Add mount chosen')} label="Add" /></div>
                   <ProductList label="Storage mounts" variant="grouped">
                     <ProductListRow title={<strong>Renders</strong>} trailing="24 files" onActivate={() => complete('Assets chosen')}
-                      description={<span class="storage-folder-description"><code class="storage-folder-path"><span>/home/name/Portraits</span><span>/renders</span></code><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Star} />New saves go here</span></span>} />
+                      description={<span class="storage-folder-description"><code class="storage-folder-path">/home/name/Portraits/renders</code><span class="storage-folder-role storage-folder-mark"><ProductIcon icon={Star} />New saves go here</span></span>} />
                   </ProductList>
                 </div>
               </Section>

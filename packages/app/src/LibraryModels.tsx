@@ -229,7 +229,7 @@ export function LibraryModels(props: {
           : formatByteSize(job.received) } : {}),
         facts: [
           { label: message('library.models.file'), value: <FolderPath value={file} /> },
-          { label: message('library.models.folder'), value: providersFor(variant).map((location) => location.id).join(', '), monospace: true },
+          { label: message('library.models.folder'), value: providersFor(variant).map((location) => location.id).join(', ') },
           ...(aliases.length ? [{ label: message('library.models.aliases'), value: <For each={aliases}>{(alias) => <FolderPath value={alias} />}</For> }] : []),
         ],
       }
