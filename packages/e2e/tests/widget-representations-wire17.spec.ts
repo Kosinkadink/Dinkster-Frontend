@@ -63,7 +63,7 @@ test.beforeEach(async ({ page, request }) => {
       format: 'dinkster-workflow', formatVersion: 1, lineage: 'wire17-representations', root: 'g0',
       graphs: { g0: {
         id: 'g0', name: 'root',
-        nodes: { clip: { id: 'clip', type: 'dinkster.utilities.primitive_string_multiline', values: { value: 'canonical text' } } },
+        nodes: { clip: { id: 'clip', type: 'dinkster.utilities.primitive_string', values: { value: 'canonical text' } } },
         links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
       } },
       view: { graphs: { g0: { nodes: { clip: { position: { x: 100, y: 100 } } } } } },
@@ -74,23 +74,23 @@ test.beforeEach(async ({ page, request }) => {
 
 test('schema default and user switch persist as view state without changing the value', async ({ page }) => {
   const initial = await textRow(page)
-  expect(initial.representationId).toBe('multiline')
+  expect(initial.representationId).toBe('single_line')
 
   await page.mouse.click(initial.x, initial.y, { button: 'right' })
   const representation = page.locator('[data-item-id="core.widget.representation"]')
   await expect(representation).toBeVisible()
   await representation.hover()
-  const singleLine = page.locator('[data-item-id="core.widget.representation.single-line"]')
+  const singleLine = page.locator('[data-item-id="core.widget.representation.single_line"]')
   const multiline = page.locator('[data-item-id="core.widget.representation.multiline"]')
-  await expect(singleLine).toBeVisible()
-  await expect(multiline).toHaveClass(/checked/)
-  await singleLine.click()
+  await expect(multiline).toBeVisible()
+  await expect(singleLine).toHaveClass(/checked/)
+  await multiline.click()
 
-  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
-  const singlePoint = await textRow(page)
-  await page.mouse.click(singlePoint.x, singlePoint.y)
-  await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
-  await expect(page.getByTestId('widget-editor').locator('textarea')).toHaveCount(0)
+  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('multiline')
+  const multilinePoint = await textRow(page)
+  await page.mouse.click(multilinePoint.x, multilinePoint.y)
+  await expect(page.getByTestId('widget-editor').locator('textarea')).toBeVisible()
+  await expect(page.getByTestId('widget-editor').locator('input')).toHaveCount(0)
   await page.keyboard.press('Escape')
   let state = await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
@@ -100,23 +100,23 @@ test('schema default and user switch persist as view state without changing the 
       views: view.views,
     }
   })
-  expect(state).toEqual({ value: 'canonical text', views: { value: 'single-line' } })
+  expect(state).toEqual({ value: 'canonical text', views: { value: 'multiline' } })
 
   await page.keyboard.press('Control+z')
-  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('multiline')
-  const multilinePoint = await textRow(page)
-  await page.mouse.click(multilinePoint.x, multilinePoint.y)
-  await expect(page.getByTestId('widget-editor').locator('textarea')).toBeVisible()
-  await expect(page.getByTestId('widget-editor').locator('input')).toHaveCount(0)
+  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single_line')
+  const singlePoint = await textRow(page)
+  await page.mouse.click(singlePoint.x, singlePoint.y)
+  await expect(page.getByTestId('widget-editor').locator('input')).toBeVisible()
+  await expect(page.getByTestId('widget-editor').locator('textarea')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await page.keyboard.press('Control+y')
-  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
+  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('multiline')
 
   await page.evaluate(async () => {
     const current = structuredClone(window.__dinksterTest!.app.activeTab()!.store.doc)
     await window.__dinksterTest!.app.openDocument(current, 'Wire 17 Reopened')
   })
-  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
+  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('multiline')
   state = await page.evaluate(() => {
     const tab = window.__dinksterTest!.app.activeTab()!
     const view = tab.store.doc.view.graphs.g0!.nodes.clip as { views?: Record<string, string> }
@@ -125,7 +125,7 @@ test('schema default and user switch persist as view state without changing the 
       views: view.views,
     }
   })
-  expect(state).toEqual({ value: 'canonical text', views: { value: 'single-line' } })
+  expect(state).toEqual({ value: 'canonical text', views: { value: 'multiline' } })
 
   await page.evaluate(() => {
     const app = window.__dinksterTest!.app
@@ -144,7 +144,7 @@ test('schema default and user switch persist as view state without changing the 
         }[]
       } | undefined
     }
-    const original = registry.resolve('dinkster.utilities.primitive_string_multiline')!
+    const original = registry.resolve('dinkster.utilities.primitive_string')!
     ;(window as typeof window & { __wire17OriginalSchema?: typeof original }).__wire17OriginalSchema = original
     app.registerSchemas([{
       ...original,
@@ -154,14 +154,14 @@ test('schema default and user switch persist as view state without changing the 
             widget: {
               ...item.widget!,
               representations: {
-                default: 'multiline',
+                default: 'single_line',
                 userSwitchable: true,
                 representations: [{
-                  id: 'multiline',
-                  displayName: 'Multiline',
+                  id: 'single_line',
+                  displayName: 'Single line',
                   widget: {
                     ...item.widget!,
-                    options: { ...item.widget!.options, multiline: true },
+                    options: { ...item.widget!.options, multiline: false },
                   },
                 }],
               },
@@ -170,16 +170,16 @@ test('schema default and user switch persist as view state without changing the 
         : item),
     }])
   })
-  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('multiline')
+  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single_line')
   expect(await page.evaluate(() => {
     const view = window.__dinksterTest!.app.activeTab()!.store.doc.view.graphs.g0!.nodes.clip as { views?: Record<string, string> }
     return view.views
-  })).toEqual({ value: 'single-line' })
+  })).toEqual({ value: 'multiline' })
   await page.evaluate(() => {
     const original = (window as typeof window & { __wire17OriginalSchema?: unknown }).__wire17OriginalSchema
     window.__dinksterTest!.app.registerSchemas([original])
   })
-  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
+  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('multiline')
 
   let submitted: Record<string, unknown> | undefined
   await page.route('**/api/jobs', async (route) => {
@@ -201,18 +201,19 @@ test('schema default and user switch persist as view state without changing the 
   const graph = submitted!['graph'] as {
     nodes: Record<string, { nodeType: string; inputs: Record<string, unknown> }>
   }
-  expect(graph.nodes['clip']).toEqual({
-    nodeType: 'dinkster.utilities.primitive_string_multiline',
-    inputs: { value: 'canonical text' },
-  })
-  expect(graph.nodes['sink']?.inputs['source']).toEqual({ $link: { node: 'clip', output: 'STRING' } })
-  expect(JSON.stringify(graph)).not.toContain('single-line')
+  expect(graph.nodes['clip']).toBeUndefined()
+  expect(graph.nodes['sink']?.inputs['source']).toEqual({ $typed: { type: 'STRING', value: 'canonical text' } })
+  expect(JSON.stringify(graph)).not.toContain('multiline')
 })
 
 test('multiline preview expands with node height while representation, editor, and job keep one value', async ({ page }) => {
   const value = 'first line\nsecond line\n\nfourth line\nfifth line\nsixth line'
   await page.evaluate((text) => {
     const tab = window.__dinksterTest!.app.activeTab()!
+    tab.store.dispatch({
+      command: 'view.setWidgetRepresentation',
+      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'value', representation: 'multiline' },
+    })
     tab.store.dispatch({
       command: 'node.setValue',
       params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'value', value: text },
@@ -296,8 +297,8 @@ test('multiline preview expands with node height while representation, editor, a
   const point = await textRow(page)
   await page.mouse.click(point.x, point.y, { button: 'right' })
   await page.locator('[data-item-id="core.widget.representation"]').hover()
-  await page.locator('[data-item-id="core.widget.representation.single-line"]').click()
-  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single-line')
+  await page.locator('[data-item-id="core.widget.representation.single_line"]').click()
+  await expect.poll(() => textRow(page).then((row) => row.representationId)).toBe('single_line')
   // A single-line representation takes exactly one row.
   expect((await textRow(page)).height).toBe(await page.evaluate(() =>
     (window.__dinksterTest!.renderer! as unknown as { getDesignTokens(): { rowHeight: number } }).getDesignTokens().rowHeight))
@@ -337,9 +338,10 @@ test('multiline preview expands with node height while representation, editor, a
   })
   expect(exportedValue).toBe(value)
   const graph = submitted?.['graph'] as { nodes?: Record<string, { inputs?: Record<string, unknown> }> } | undefined
-  expect(graph?.nodes?.['clip']?.inputs?.['value']).toBe(value)
-  expect(JSON.stringify(graph?.nodes?.['clip'])).not.toContain('representation')
-  expect(JSON.stringify(graph?.nodes?.['clip'])).not.toContain('single-line')
+  expect(graph?.nodes?.['clip']).toBeUndefined()
+  expect(graph?.nodes?.['sink']?.inputs?.['source']).toEqual({ $typed: { type: 'STRING', value } })
+  expect(JSON.stringify(graph)).not.toContain('representation')
+  expect(JSON.stringify(graph)).not.toContain('multiline')
 })
 
 test('in-node multiline editor tracks camera and keeps commit, cancel, and blur semantics exact', async ({ page }) => {
@@ -347,6 +349,10 @@ test('in-node multiline editor tracks camera and keeps commit, cancel, and blur 
   await page.evaluate((text) => {
     const test = window.__dinksterTest!
     const tab = test.app.activeTab()!
+    tab.store.dispatch({
+      command: 'view.setWidgetRepresentation',
+      params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'value', representation: 'multiline' },
+    })
     tab.store.dispatch({
       command: 'node.setValue',
       params: { graphId: tab.store.doc.root, nodeId: 'clip', inputId: 'value', value: text },
