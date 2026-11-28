@@ -123,7 +123,10 @@ function matchesTypeToken(t: TypeExpr, token: string, discoverWrapped: boolean):
     case 'tuple':
       return t.elements.some((element) => matchesTypeToken(element, token, discoverWrapped))
     case 'tuple_element':
+    case 'record_field':
       return false
+    case 'record':
+      return nameMatchesToken(t.name, token)
     case 'concrete':
       return listInner === undefined && assetInner === undefined && streamInner === undefined && nameMatchesToken(t.name, token)
     case 'union':
@@ -206,6 +209,10 @@ export function hintsMatchPortFilters(
 /** Whether a link-drop anchor can narrow the search by type rather than side. */
 export const hasKnownLinkDropAnchorType = (type: TypeExpr): boolean => {
   switch (type.kind) {
+    case 'record':
+      return true
+    case 'record_field':
+      return false
     case 'tuple':
       return type.elements.every(hasKnownLinkDropAnchorType)
     case 'tuple_element':

@@ -177,7 +177,8 @@ function planChain(
       })
       break
     }
-    const sameTypeMigration = isSameTypeMigration(hop.rule) && hop.plan.to === currentType
+    const sameTypeMigration = hop.plan.to === currentType &&
+      (isSameTypeMigration(hop.rule) || hop.plan.targetSignature !== undefined)
     if (seen.has(hop.plan.to) && !sameTypeMigration) {
       // The looping hop is dropped, not applied: migrating back to a
       // visited type is churn, never progress.

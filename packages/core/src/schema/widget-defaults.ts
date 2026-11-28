@@ -32,9 +32,15 @@ import type { AssetRef, Json } from '../format/document.js'
 import { EMPTY_COMPOSITOR_RECIPE, isCompositorRecipe } from '../compositor.js'
 import { isComboValue, normalizeComboOption } from './combo-options.js'
 import { isIntegerWidgetValue } from './numeric-step.js'
-import type { InputSpec, WidgetSpec } from './model.js'
+import type { InputSpec, TypeExpr, WidgetSpec } from './model.js'
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+
+/** The same primitive editor for declared and document-resolved input types. */
+export function primitiveWidgetFor(type: TypeExpr, dflt?: unknown): WidgetSpec | undefined {
+  if (type.kind !== 'concrete' || !['INT', 'FLOAT', 'STRING', 'BOOLEAN'].includes(type.name)) return undefined
+  return { widgetType: type.name, options: {}, ...(dflt !== undefined ? { default: dflt } : {}) }
+}
 
 export function isPrimitiveListWidgetValue(value: unknown, widget: WidgetSpec): value is Json[] {
   if (!Array.isArray(value)) return false

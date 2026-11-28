@@ -11,7 +11,7 @@ import {
   type LucideIcon,
 } from 'lucide-solid'
 import { CanvasClosedRow, CanvasRowField, CanvasSideLink, CanvasSidePart } from './canvas-field.js'
-import { CanvasRowList, canvasListLayout } from './canvas-list.js'
+import { CanvasRowList, canvasListBox, canvasListLayout } from './canvas-list.js'
 import { ProductButton, ProductIcon, ProductIconButton, ProductSpinner } from './controls.js'
 
 /**
@@ -417,6 +417,9 @@ export function CanvasEditorChoiceList(props: Omit<ComponentProps<typeof CanvasR
 }) {
   const [local, list] = splitProps(props, ['anchor', 'onClose', 'onPick', 'onKeyDown'])
   const [height, setHeight] = createSignal(0)
+  const [headingSize, setHeadingSize] = createSignal({ width: 0, height: 0 }, {
+    equals: (a, b) => a.width === b.width && a.height === b.height,
+  })
   const [position, setPosition] = createSignal({ x: 0, y: 0, width: 0, scale: 1, listPlace: 'below' as 'above' | 'below', listMaxHeight: 0 })
   let popup!: HTMLDivElement
   const close = (restore = true): void => {
@@ -436,16 +439,18 @@ export function CanvasEditorChoiceList(props: Omit<ComponentProps<typeof CanvasR
     const top = Math.max(box?.top ?? 0, view?.offsetTop ?? 0)
     const right = Math.min(box?.right ?? window.innerWidth, (view?.offsetLeft ?? 0) + (view?.width ?? window.innerWidth))
     const bottom = Math.min(box?.bottom ?? window.innerHeight, (view?.offsetTop ?? 0) + (view?.height ?? window.innerHeight))
-    const width = Math.min(row.width, right - left)
+    const bounds = { x: left, y: top, width: right - left, height: bottom - top }
+    const menu = canvasListBox(row, bounds, headingSize(), scale)
+    const width = menu.width
     const filterHeight = (popup?.querySelector<HTMLElement>('.dinkster-canvas-field-row')?.offsetHeight ?? anchor.offsetHeight) * scale
     const y = Math.max(top, Math.min(row.y, bottom - filterHeight))
     const layout = canvasListLayout({ x: row.x, y, width, height: filterHeight },
       { x: left, y: top, width: right - left, height: bottom - top }, height() * scale, { width: 0, height: 0 }, 1, 0, 0)
-    const next = { x: Math.max(left, Math.min(row.x, right - width)), y, width: width / scale, scale,
+    const next = { x: menu.x, y, width: width / scale, scale,
       listPlace: layout.listPlace, listMaxHeight: (layout.listMaxHeight ?? height() * scale) / scale }
     setPosition((previous) => Object.keys(next).every((key) => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next)
   }
-  createEffect(() => { height(); queueMicrotask(place) })
+  createEffect(() => { height(); headingSize(); queueMicrotask(place) })
   createEffect(() => {
     const current = position()
     if (popup) {
@@ -481,6 +486,7 @@ export function CanvasEditorChoiceList(props: Omit<ComponentProps<typeof CanvasR
   })
   return <Portal><div ref={popup} class="dinkster-canvas-editor-choice-list">
     <CanvasRowList {...list} rowWidth={position().width} place="right"
+      onHeadingSize={setHeadingSize}
       listPlace={position().listPlace} listMaxHeight={position().listMaxHeight} onListSize={setHeight}
       onPick={(index) => { close(); local.onPick?.(index) }}
       onKeyDown={(event) => {

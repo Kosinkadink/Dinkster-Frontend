@@ -2393,7 +2393,7 @@ describe('node chrome paint on the live renderer', () => {
               missingSchema: true,
               layout: {
                 ...n.layout,
-                rows: [{ kind: 'fallback' as const, y: n.layout.headerHeight, height: 24, label: 'steps', text: '20' }],
+                rows: [{ kind: 'fallback' as const, y: n.layout.headerHeight, height: 24, valueKey: 'steps', label: 'steps', text: '20' }],
                 pins: [],
               },
             }

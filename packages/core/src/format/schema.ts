@@ -255,6 +255,7 @@ export const WORKFLOW_SCHEMA = {
             properties: {
               pack: { type: 'string', minLength: 1 },
               signature: { type: 'string', minLength: 1 },
+              inputLabels: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
             },
           },
         },
@@ -436,6 +437,8 @@ export const WORKFLOW_SCHEMA = {
         { type: 'object', required: ['kind', 'templateId'], properties: { kind: { const: 'variable' }, templateId: { type: 'string', minLength: 1 }, allowedTypes: { type: 'array', items: { $ref: '#/$defs/typeExpr' } } } },
         { type: 'object', required: ['kind', 'element'], properties: { kind: { enum: ['list', 'asset', 'stream'] }, element: { $ref: '#/$defs/typeExpr' } } },
         { type: 'object', required: ['kind', 'elements'], properties: { kind: { const: 'tuple' }, elements: { type: 'array', items: { $ref: '#/$defs/typeExpr' } } } },
+        { type: 'object', required: ['kind', 'name', 'fields'], properties: { kind: { const: 'record' }, name: { type: 'string', minLength: 1 }, fields: { type: 'array', items: { type: 'object', required: ['id', 'name', 'type', 'optional'], properties: { id: { type: 'string', minLength: 1 }, name: { type: 'string', minLength: 1 }, type: { $ref: '#/$defs/typeExpr' }, optional: { type: 'boolean' } } } } } },
+        { type: 'object', required: ['kind', 'input', 'index'], properties: { kind: { const: 'record_field' }, input: { type: 'string', minLength: 1 }, index: { type: 'string', minLength: 1 } } },
         { type: 'object', required: ['kind', 'index'], properties: { kind: { const: 'tuple_element' }, input: { type: 'string' }, element: { $ref: '#/$defs/typeExpr' }, index: { type: ['string', 'number'] } } },
       ],
     },

@@ -4323,7 +4323,7 @@ export class CanvasRenderer {
           ctx.textAlign = 'left'
           ctx.globalAlpha = rowAlpha
           // A problem on this stored value outlines its row.
-          this.paintRowProblem(ctx, sceneNode.id, row.label, {
+          this.paintRowProblem(ctx, sceneNode.id, row.valueKey, {
             x: node.x + t.padX, y: rowY + t.rowGeometry.fieldInsetY,
             width: l.width - t.padX * 2, height: row.height - t.rowGeometry.fieldInsetY * 2, radius: 0,
           })

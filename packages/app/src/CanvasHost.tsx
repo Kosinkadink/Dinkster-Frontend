@@ -456,6 +456,7 @@ export function storedValueProblems(
   // explicit null IS stored (ASSET and MOUNT use it as "no value") and must
   // reach the validator.
   if (value === undefined) return []
+  if (row.derivedValue !== undefined) value = row.derivedValue
   if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
     // Model names are valid bindings; the backend presence read owns their availability.
     if (row.spec.kind?.startsWith('model/')) return []
@@ -4968,7 +4969,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const target = ed.target
           const node = fieldNodes.find((item) => item.id === target.nodeId)
           const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === target.valueKey)
-          if (node !== undefined && row?.kind === 'widget' && (row.readOnly || row.disabled || editorDriven)) {
+          if (node !== undefined && row?.kind === 'widget' && !row.inert && (row.readOnly || row.disabled || editorDriven)) {
             setRowFocus({ ...rowFocusAt(tab, node, row), ...(editorDriven ? {
               cancellation: 'A wire now feeds this field. Your edit was not kept.',
             } : {}) })
@@ -4988,7 +4989,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             ? undefined : buttonFocusAt(tab, node, row))
         } else {
           const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
-          setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
+          setRowFocus(node === undefined || row?.kind !== 'widget' || row.inert || focus.tabId !== tab.id || focus.graphId !== graphId
             ? undefined
             : { ...rowFocusAt(tab, node, row), ...(focus.markOnly ? { markOnly: true } : {}), ...(focus.tooltipOnly ? { tooltipOnly: true } : {}), ...(focus.note === undefined ? {} : { note: focus.note }),
               ...(focus.cancellation === undefined || !rowIsDriven(node.id, row) ? {} : { cancellation: focus.cancellation }) })
@@ -5130,7 +5131,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           } else {
             out.push(...storedValueProblems(widgetRegistry(), scene.graphId,
               { nodeId: node.id, nodeTitle: node.layout.title, label: row.label,
-                inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey]))
+                inputId: row.inputId, valueKey: row.valueKey, spec: row.spec,
+                ...(row.derivedValue === undefined ? {} : { derivedValue: row.derivedValue }) }, node.node.values[row.valueKey]))
           }
         }
       }
@@ -5733,6 +5735,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
       if (!tab) return
+      if (hit.row.inert) return
       if (hit.row.readOnly || hit.row.disabled) {
         focusEditorRow({ nodeId: hit.node.id, valueKey: hit.row.valueKey })
         return
@@ -5884,6 +5887,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             ...(renderer.getLensCapabilities().widgetRowAffordance?.(hit.node, hit.row) === undefined ? {} : { right: false }),
           },
           storedAtOpen: stored ?? null,
+          ...(hit.row.recordSelection === undefined ? {} : { recordSelectionDepth: hit.row.recordSelection.depth }),
           handOff: () => setRowHandedOff(untrack(editor)),
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
@@ -5967,7 +5971,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (row.viewId === 'core.text' || row.viewId === 'core.line') &&
         widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi === undefined
       const stops = node.layout.rows.filter((row): row is WidgetLayoutRow | Extract<LayoutRow, { kind: 'button' }> =>
-        row.kind === 'button' || (row.kind === 'widget' && !rowIsDriven(node.id, row)))
+        row.kind === 'button' || (row.kind === 'widget' && !row.inert && !rowIsDriven(node.id, row)))
       const index = stops.findIndex((row) => row.kind === 'button'
         ? 'buttonId' in from && row.buttonId === from.buttonId
         : 'valueKey' in from && row.valueKey === from.valueKey)
@@ -6053,7 +6057,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...(row.disabled ? [row.disabledReason || 'Disabled'] : []),
         ...(!driven && item?.kind === 'input' && item.tooltip ? [item.tooltip] : []),
       ].join('. ') || undefined
-      const declared = effectiveWidgetDefault(row.spec)
+      const declared = row.recordSelection !== undefined && row.recordSelection.depth > 0
+        ? undefined : effectiveWidgetDefault(row.spec)
       const panelWire = rowNodeOf(node.id)?.wired?.[row.valueKey]
       const companion = renderer.fieldCompanion(node.id, row.valueKey) ?? (panelWire === undefined ? undefined
         : panelWire.value === undefined ? { value: null, state: 'unknown' as const } : { value: panelWire.value })
@@ -6109,7 +6114,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       const node = rowNodeOf(from.nodeId)?.node
       const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === from.valueKey)
-      if (tab === undefined || node === undefined || row?.kind !== 'widget' || !editsRowsInPlace()) {
+      if (tab === undefined || node === undefined || row?.kind !== 'widget' || row.inert || !editsRowsInPlace()) {
         setRowFocus(undefined)
         return
       }

@@ -3,11 +3,12 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { CANVAS_ATTACHED_MAX_WIDTH, canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, type NodeRunState, type TypeExpr } from '@dinkster/core'
 
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
   detailMinScale: 0.3,
+  attachedMaxWidth: CANVAS_ATTACHED_MAX_WIDTH,
   imageOpacityScale: IMAGE_OPACITY_MAX,
   editor: {
     imageCompare: { initialSplit: 50, percentScale: 100, dividerColor: '#ffffff', dividerWidth: 2 },
@@ -1259,6 +1260,8 @@ export interface PresentedType {
 const typeExprLabelWith = (type: TypeExpr, aliases: Readonly<Record<string, string>>): string => {
   switch (type.kind) {
     case 'concrete': return aliases[type.name] ?? type.name
+    case 'record': return type.name
+    case 'record_field': return 'Record field'
     case 'union': return type.names.map((name) => aliases[name] ?? name).join(' | ')
     case 'wildcard': return 'Any'
     case 'tuple': return `tuple<${type.elements.map((element, index) => `${index}: ${typeExprLabelWith(element, aliases)}`).join(', ')}>`

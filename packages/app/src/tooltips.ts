@@ -179,6 +179,13 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
         diagnostic.message),
     }
   }
+  if (t.kind === 'link' && t.hit.link.fromType?.kind === 'record') {
+    const record = t.hit.link.fromType as Extract<TypeExpr, { kind: 'record' }>
+    return {
+      title: record.name,
+      lines: record.fields.map((field) => `${field.name}: ${presentedType(defaultTokens, field.type).label}`),
+    }
+  }
   if (t.kind === 'pin') {
     const schema = context.resolveSchema?.(t.hit.node.node.type)
     const port = portSpecOf(schema, t.hit.node.node, t.hit.direction === 'in' ? 'input' : 'output', t.hit.portId)
@@ -219,6 +226,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       lines: [type.tooltip],
     }
   }
+  if (t.kind === 'widget' && t.hit.row.inert) return undefined
   if (t.kind === 'widget' && t.hit.row.kept !== undefined) return { title: t.hit.row.name ?? t.hit.row.label, lines: [t.hit.row.kept] }
   if (t.kind === 'widget') {
     const row = t.hit.row
