@@ -16,6 +16,12 @@ assert.equal(transfer.refused, false)
 assert.equal(transfer.surfaces.length, 1)
 const surface = process.env.DINKSTER_PREVIEW_SURFACE ?? transfer.surfaces[0]
 assert.ok(['field', 'canvas'].includes(surface))
+const requestedWidth = process.env.DINKSTER_PREVIEW_WIDTH
+assert.ok(!requestedWidth || ['1440', '390'].includes(requestedWidth))
+const viewports = [
+  [1440, 950],
+  [390, 844],
+].filter(([width]) => !requestedWidth || width === Number(requestedWidth))
 const document = transfer.attempts.at(-1).browser.document
 assert.equal(document.lineage, `video-transfer-${transfer.surfaces[0]}`)
 const nodes = Object.values(document.graphs[document.root].nodes)
@@ -107,25 +113,50 @@ try {
           .getByRole('group', { name: 'Video preview controls', exact: true })
   await expect(controls).toHaveCount(1)
   const video = controls.locator('video')
-  for (const [width, height] of [
-    [1440, 950],
-    [390, 844],
-  ]) {
+  for (const [width, height] of viewports) {
+    const state = { width, height, completed: false }
+    result.states.push(state)
     await page.setViewportSize({ width, height })
     if (surface === 'canvas')
       await page.evaluate(() => window.__dinksterTest.renderer.fitToScene())
     await expect(controls).toBeVisible()
+    state.geometry = await controls.evaluate((element) => {
+      const picture = element.querySelector('.video-preview-picture')
+      const ancestors = []
+      for (let current = picture; current; current = current.parentElement) {
+        const style = getComputedStyle(current)
+        ancestors.push({
+          className: current.className,
+          bounds: current.getBoundingClientRect().toJSON(),
+          display: style.display,
+          height: style.height,
+          minHeight: style.minHeight,
+          flex: style.flex,
+          overflow: style.overflow,
+        })
+      }
+      return { bounds: element.getBoundingClientRect().toJSON(), ancestors }
+    })
     await expect
       .poll(() => video.evaluate((element) => element.readyState))
       .toBeGreaterThanOrEqual(2)
+    state.initiallyPaused = await video.evaluate((element) => element.paused)
+    if (!state.initiallyPaused) {
+      await controls
+        .getByRole('button', { name: 'Pause video', exact: true })
+        .click()
+      await expect(video).toHaveJSProperty('paused', true)
+    }
     const before = await video.evaluate((element) => ({
       time: element.currentTime,
+      decodedFrames: element.getVideoPlaybackQuality().totalVideoFrames,
       width: element.videoWidth,
       height: element.videoHeight,
       duration: element.duration,
       source: element.currentSrc,
       error: element.error?.message ?? null,
     }))
+    state.before = before
     assert.equal(before.width, 640)
     assert.equal(before.height, 360)
     assert.ok(Number.isFinite(before.duration) && before.duration > 0)
@@ -141,9 +172,23 @@ try {
     await expect(play).toBeVisible()
     await expect(play).toBeEnabled()
     await play.click()
+    await expect(video).toHaveJSProperty('paused', false)
     await expect
-      .poll(() => video.evaluate((element) => element.currentTime))
-      .toBeGreaterThan(before.time + 0.1)
+      .poll(() =>
+        video.evaluate(
+          (element, time) =>
+            (element.currentTime - time + element.duration) % element.duration,
+          before.time,
+        ),
+      )
+      .toBeGreaterThan(0.1)
+    await expect
+      .poll(() =>
+        video.evaluate(
+          (element) => element.getVideoPlaybackQuality().totalVideoFrames,
+        ),
+      )
+      .toBeGreaterThan(before.decodedFrames)
     await controls
       .getByRole('button', { name: 'Pause video', exact: true })
       .click()
@@ -155,9 +200,15 @@ try {
       decodedFrames: element.getVideoPlaybackQuality().totalVideoFrames,
       error: element.error?.message ?? null,
     }))
-    assert.ok(after.decodedFrames > 0)
+    state.after = after
+    assert.ok(after.decodedFrames > before.decodedFrames)
     assert.equal(after.error, null)
     const bounds = await controls.boundingBox()
+    state.bounds = bounds
+    state.readout = await controls.getByTestId('video-timing').innerText()
+    state.graphs = await page.evaluate(
+      () => window.__dinksterTest.app.activeTab().store.doc.graphs,
+    )
     assert.ok(
       bounds &&
         bounds.x >= 0 &&
@@ -166,21 +217,9 @@ try {
         bounds.y + bounds.height <= height,
       'Preview controls must fit in the viewport',
     )
-    assert.deepEqual(
-      await page.evaluate(
-        () => window.__dinksterTest.app.activeTab().store.doc.graphs,
-      ),
-      document.graphs,
-    )
+    assert.deepEqual(state.graphs, document.graphs)
     assert.deepEqual(result.uploads, [], 'Preview must not repeat asset upload')
-    result.states.push({
-      width,
-      height,
-      before,
-      after,
-      bounds,
-      readout: await controls.getByTestId('video-timing').innerText(),
-    })
+    state.completed = true
     await page.screenshot({
       path: join(artifacts, `${surface}-preview-${width}.png`),
     })
