@@ -195,6 +195,9 @@ export function ProductColorInput(
                   if (event.key === 'Enter' && !event.isComposing) {
                     event.preventDefault()
                     choose(text())
+                  } else if (event.key === 'Tab' && event.shiftKey) {
+                    event.preventDefault()
+                    close(true)
                   }
                 }}
               />
@@ -211,6 +214,10 @@ export function ProductColorInput(
               swatches={[]}
               onPick={pick}
               disabled={local.disabled === true}
+              onKeyDown={(event, control) => {
+                if (event.key === 'Tab' && !event.shiftKey && control === 'hue')
+                  close(true)
+              }}
               controls={(controls) => {
                 if (controls.square) controls.square.tabIndex = 0
                 if (controls.hue) controls.hue.tabIndex = 0
