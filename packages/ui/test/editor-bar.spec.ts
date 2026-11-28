@@ -12,6 +12,8 @@ test('project menu lists the current project, at most eight others, and its acti
   })
   const menu = page.getByRole('menu', { name: 'Projects', exact: true })
   const status = page.getByRole('status')
+  const tooltip = page.getByRole('tooltip')
+  await page.clock.install()
 
   await chooseOption(page.getByLabel('Other projects'), 'More than 8 projects')
   await trigger.click()
@@ -41,11 +43,17 @@ test('project menu lists the current project, at most eight others, and its acti
     .getByRole('menuitem', { name: 'Valley matte paintings', exact: true })
     .hover()
   await expect(open).toHaveCSS('opacity', '1')
+  await open.hover()
+  await page.clock.fastForward(1000)
+  await expect(open).not.toHaveAttribute('title')
+  await expect(tooltip).toHaveText('Open in a new window')
   await open.click()
   await expect(menu).toBeHidden()
+  await expect(tooltip).toHaveCount(0)
   await expect(status).toHaveText('Opened p-1 in a window')
 
   // The row's action is reached with the arrow keys and shows while focused.
+  await page.mouse.move(0, 0)
   await trigger.focus()
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('ArrowDown')
@@ -63,7 +71,9 @@ test('project menu lists the current project, at most eight others, and its acti
       name: 'Open in a new window: Teapot product shots',
     }),
   ).toHaveCSS('opacity', '1')
+  await expect(tooltip).toHaveText('Open in a new window')
   await page.keyboard.press('ArrowUp')
+  await expect(tooltip).toHaveCount(0)
   await page.keyboard.press('Enter')
   await expect(status).toHaveText('Switched to p-0')
 
@@ -86,15 +96,32 @@ test('a long project name ends in an ellipsis at 160 px and keeps its full name'
   page,
 }) => {
   await page.goto('/#editor-bar')
+  await page.clock.install()
+  const tooltip = page.getByRole('tooltip')
+  const short = page.getByRole('region', { name: 'Editor' }).getByRole('button', { name: 'Film grain tests', exact: true })
+  await short.hover()
+  await page.clock.fastForward(1000)
+  await expect(tooltip).toHaveCount(0)
   const name = 'An exceptionally long project name beyond the visible limit'
   await page.getByLabel('Project name').fill(name)
   const trigger = page
     .getByRole('region', { name: 'Editor' })
     .getByRole('button', { name, exact: true })
-  await expect(trigger).toHaveAttribute('title', name)
+  await expect(trigger).not.toHaveAttribute('title')
   const text = trigger.locator('.dinkster-project-name')
   await expect(text).toHaveCSS('text-overflow', 'ellipsis')
   expect((await text.boundingBox())!.width).toBe(160)
+  await page.mouse.move(0, 0)
+  await trigger.hover()
+  await page.clock.fastForward(1000)
+  await expect(tooltip).toHaveText(name)
+  await page.keyboard.press('Escape')
+  await expect(tooltip).toHaveCount(0)
+  await trigger.click()
+  await trigger.hover()
+  await page.clock.fastForward(1000)
+  await expect(tooltip).toHaveCount(0)
+  await page.keyboard.press('Escape')
 })
 
 test('the left bar account menu opens beside the bar, upward from its trigger', async ({

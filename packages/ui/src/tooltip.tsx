@@ -18,8 +18,8 @@ export function ProductTooltip(props: { readonly tip: VisibleTooltip; readonly l
     const rightEdge = Math.min(window.innerWidth, boundary?.right ?? window.innerWidth)
     const bottomEdge = Math.min(window.innerHeight, boundary?.bottom ?? window.innerHeight)
     // A menu row's tooltip below it would cover the next row.
-    const beside = rect !== undefined && (tip.paintedRect !== undefined || Boolean(tip.element?.closest('.left-sidebar, .context-menu')))
-    const before = tip.paintedRect !== undefined && rect !== undefined && rect.left - leftEdge > rightEdge - rect.right
+    const beside = rect !== undefined && (tip.paintedRect !== undefined || Boolean(tip.element?.closest('.left-sidebar, .context-menu, .dinkster-menu')))
+    const before = (tip.paintedRect !== undefined || Boolean(tip.element?.closest('.dinkster-menu'))) && rect !== undefined && rect.left - leftEdge > rightEdge - rect.right
     element.style.maxWidth = `${Math.min(360, Math.max(1, beside ? before ? rect.left - leftEdge - 16 : rightEdge - rect.right - 16 : rightEdge - leftEdge - 16))}px`
     content.style.webkitLineClamp = ''
     const naturalHeight = element.getBoundingClientRect().height

@@ -814,7 +814,8 @@ for (const state of ['running', 'pending'])
               )
           }
         }
-        await expect(project).toHaveAttribute('title', name)
+        await expect(project).not.toHaveAttribute('title')
+        await expect(project).toHaveAttribute('data-tooltip-label', name)
         // The project keeps its folder and name in both rows.
         const text = project.locator('.dinkster-project-name')
         await expect(project.locator('svg').first()).toBeVisible()
