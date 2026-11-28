@@ -12,7 +12,7 @@ import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } fro
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect } from './ProductSelect.js'
 import { useAppMessage } from './locale.js'
-import { failureMessage } from './request-failure.js'
+import { failureMessage, failureReason } from './request-failure.js'
 
 type SettingsConnection = Pick<DinksterConnection, 'fetchRuntimeSettings' | 'updateRuntimeSetting'>
 
@@ -73,7 +73,7 @@ function EngineSettingRows(props: {
     } catch (cause) {
       if (live) {
         setValue(() => props.section.value)
-        setError({ id, text: failureMessage(cause, message('request.settingsSaveFailed')) })
+        setError({ id, text: failureReason(cause) ?? message('request.settingsSaveFailed') })
       }
       return false
     } finally {

@@ -318,15 +318,15 @@ describe('SettingsDialog search', () => {
     ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Refresh')!.click()
     await vi.waitFor(() => expect(limited.disabled).toBe(false))
     limited.click()
-    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('The action could not be completed. Operator permission denied'))
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('Operator permission denied'))
     expect(limited.getAttribute('aria-checked')).toBe('true')
     expect(root.querySelector('#library-storage-temporaryBytes')?.textContent).toBe('Unknown')
     const input = root.querySelector<HTMLInputElement>('#library-storage-limit')!
     input.value = '4097 B'
     input.dispatchEvent(new InputEvent('input', { bubbles: true }))
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('#library-storage-limit-error')?.textContent).toBe('The action could not be completed. Operator permission denied'))
-    expect(input.value).toBe('0 GB')
+    await vi.waitFor(() => expect(root.querySelector(`[id="${input.getAttribute('aria-describedby')}"]`)?.textContent).toBe('Operator permission denied'))
+    expect(input.value).toBe('4097 B')
     unmount()
   })
 

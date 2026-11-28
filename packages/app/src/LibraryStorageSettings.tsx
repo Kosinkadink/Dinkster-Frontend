@@ -2,7 +2,7 @@ import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { requestFailureReason, type DinksterConnection, type LibraryStorage } from '@dinkster/client'
 import { ProductButton, ProductByteSizeInput, ProductConfirmation, ProductDialog, ProductSettingsSection, ProductSettingRow, ProductSwitch, ProductTextButton } from '@dinkster/ui'
 import { useAppMessage } from './locale.js'
-import { failureMessage } from './request-failure.js'
+import { failureMessage, failureReason } from './request-failure.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
 
 export function LibraryStorageSettings(props: {
@@ -60,7 +60,7 @@ export function LibraryStorageSettings(props: {
       setStatus({ ...previous, limitBytes: next })
     } catch (cause) {
       if (current) {
-        setSaveError({ id, text: failureMessage(cause) })
+        setSaveError({ id, text: failureReason(cause) ?? message('request.failure') })
       }
       return
     } finally {

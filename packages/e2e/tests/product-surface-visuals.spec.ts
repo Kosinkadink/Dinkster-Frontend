@@ -1002,7 +1002,7 @@ test('Storage settings distinguish accounting policy and permission failures', a
   await amount.fill('8193 B')
   await amount.press('Enter')
   await expect(amount).toHaveValue('8193 B')
-  await expect(panel.getByRole('alert')).toHaveText('The action could not be completed. You do not have access.')
+  await expect(panel.getByRole('alert')).toHaveText('You do not have access.')
   await expect(amount).toHaveAttribute('aria-invalid', 'true')
   expect(limit).toBe(4097)
   await amount.press('Escape')

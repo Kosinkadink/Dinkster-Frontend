@@ -103,12 +103,12 @@ export function ProductSettingRow(props: {
     <div class="dinkster-setting-copy">
       <label for={controlId()} id={`${controlId()}-label`}><span><ProductSearchText text={props.label} query={props.markQuery ?? ''} /></span></label>
       <Show when={props.description}><p id={`${controlId()}-description`}>{props.description}</p></Show>
-      <Show when={props.error}><p id={`${controlId()}-error`} class="dinkster-field-error" role="alert">{props.error}</p></Show>
       <Show when={props.warning}><p id={`${controlId()}-warning`} class="dinkster-setting-warning" role="status">{props.warning}</p></Show>
     </div>
     <div class="dinkster-setting-control">
       <Show when={props.modified}><ProductTextButton label={props.resetLabel} disabled={props.disabled} onClick={props.onReset} /></Show>
       {props.children}
     </div>
+    <Show when={props.error}><p id={`${controlId()}-error`} class="dinkster-field-error" role="alert">{props.error}</p></Show>
   </div></ProductContextMenu>
 }
