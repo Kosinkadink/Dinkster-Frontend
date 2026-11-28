@@ -1334,9 +1334,9 @@ export function App(props: {
       { label: message('runs.chosen.state'), text: executionStatusLabel(execution.status) },
       ...(execution.startedAt === undefined ? [] : [{ label: message('runs.chosen.started'), text: formatCollectionDate(execution.startedAt) }]),
       ...(execution.startedAt === undefined || execution.endedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText((execution.endedAt - execution.startedAt) / 1000) }]),
-      { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', {
+      ...(nodes.some((node) => node.state === 'done' || node.state === 'cached') ? [{ label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', {
         ran: nodes.filter((node) => node.state === 'done').length, cached: nodes.filter((node) => node.state === 'cached').length,
-      }) },
+      }) }] : []),
     ]
   }
   const ExecutionRow = (p: { exec: ExecutionState; all: readonly ExecutionState[] }) => {
