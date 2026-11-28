@@ -39,6 +39,174 @@ const types: Record<string, string> = {
 
 describe.skipIf(!LIVE_URL)('live Boundary sample execution', () => {
   for (const depth of [1, 2]) {
+    it(`boundary/nested-group/native-depth-${depth}`, async () => {
+      const connection = new DinksterConnection({ id: asConnectionId('nested-live'), baseUrl: LIVE_URL!, clientId: `nested-${process.pid}` })
+      const registry = await connection.fetchSchemas()
+      const primitive: NodeSchema = {
+        type: 'dinkster.utilities.primitive_float', displayName: 'Float', category: 'utilities', source: 'v3', isOutputNode: false,
+        body: [
+          { kind: 'input', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, optional: false,
+            widget: { widgetType: 'FLOAT', options: {}, default: 0 } },
+          { kind: 'output', id: 'value', type: { kind: 'concrete', name: 'FLOAT' }, knownValue: { input: 'value' } },
+        ],
+      }
+      const resolve = (type: string) => type === primitive.type ? primitive : registry.resolve(type)
+      const document = JSON.parse(readFileSync(new URL('./fixtures/boundary-sample.json', import.meta.url), 'utf8')) as WorkflowDocument
+      if (depth === 1) {
+        delete (document.graphs as Record<string, unknown>).portrait
+        for (const id of ['first', 'second']) Object.assign(document.graphs.root!.nodes[id]!, { type: '#detail' })
+      }
+      for (const graph of Object.values(document.graphs)) for (const node of Object.values(graph.nodes)) {
+        if (types[node.type]) Object.assign(node, { type: types[node.type] })
+      }
+      Object.assign(document.graphs.detail!.nodes.sample!.values, {
+        'nested.n0.weights.w0': 0.2, 'nested.n1.weights.w0': 0.8, 'nested.n1.weights.w1': 0.9,
+      })
+      const group = depth === 1 ? 'families' : 'bundles', key = `${group}.n0.weights.w0`
+      Object.assign(document.graphs.detail!, { boundary: { body: document.graphs.detail!.boundary!.body.map((row) =>
+        'id' in row && row.id === 'nested' ? { ...row, id: 'families' } : row) } })
+      if (depth === 2) Object.assign(document.graphs.portrait!, { boundary: { body: document.graphs.portrait!.boundary!.body.map((row) =>
+        'id' in row && row.id === 'nested' ? { ...row, id: 'bundles', binds: { kind: 'construct', node: 'detail', port: 'families' } } : row) } })
+      for (const [id, value, parents] of [['first', 0.2, ['n0', 'n1']], ['second', 0.8, ['n0']]] as const) {
+        const node = document.graphs.root!.nodes[id]!
+        Object.assign(node, { dynamic: { ...node.dynamic, [group]: { members: [...parents] },
+          [`${group}.n0.weights`]: { members: ['w0', 'w1'] },
+          ...(id === 'first' ? { [`${group}.n1.weights`]: { members: ['w0'] } } : {}) } })
+        Object.assign(node.values, { [key]: value, [`${group}.n0.weights.w1`]: 0.85,
+          ...(id === 'first' ? { [`${group}.n1.weights.w0`]: 0.65 } : {}) })
+      }
+      Object.assign(document.graphs.root!.nodes, {
+        literal: { id: 'literal', type: primitive.type, values: { value: 0.57 } },
+        runtime: { id: 'runtime', type: 'boundary-sample.float', values: {} },
+      })
+      const storeFor = (doc: WorkflowDocument) => new DocumentStore(doc, coreCommandRegistry(), 200, undefined,
+        () => ({ kind: 'initial', schemaResolverFor: (current) => documentResolver(current, resolve) }))
+      const edit = (store: DocumentStore, command: string, params: Record<string, Json>) => {
+        const before = store.doc, result = store.dispatch({ command, params })
+        expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true)
+        const after = store.doc; expect(store.undo()).toBe(true)
+        const undone = structuredClone(store.doc)
+        for (const [id, graph] of Object.entries(undone.graphs)) Object.assign(graph, { nextOrdinal: before.graphs[id]!.nextOrdinal })
+        expect(undone).toEqual(before); expect(store.redo()).toBe(true); expect(store.doc).toEqual(after)
+      }
+      const first = depth === 1 ? 'first.sample' : 'first.detail.sample', second = depth === 1 ? 'second.sample' : 'second.detail.sample'
+      const expected = (value: number, sibling = false, removed = false, prefix = 0.2, extra = false) => ({
+        description: {}, image: null, mask: null, source: null, strength: extra ? 0.3 : sibling ? 0.8 : 0.2,
+        layers: [{ key: 'layer0', strength: 0.1, image: null }, { key: 'layer1', strength: 0.4, image: null }],
+        mode: { key: sibling && !extra ? 'text' : 'image', mix: 0.3, picture: null, text: sibling && !extra ? 'second text' : null },
+        nested: [
+          { key: 'n0', weights: [{ key: 'w0', value: prefix }] },
+          { key: 'n1', weights: [{ key: 'w0', value: 0.8 }, { key: 'w1', value: 0.9 }] },
+          ...(removed ? [] : [{ key: 'n2', weights: [{ key: 'w0', value }, { key: 'w1', value: 0.85 }] }]),
+          ...(sibling ? [] : [{ key: 'n3', weights: [{ key: 'w0', value: 0.65 }] }]),
+        ],
+      })
+      const run = async (phase: string, doc: WorkflowDocument, receivers: Record<string, ReturnType<typeof expected>>, absent: string[] = [], definitions = document) => {
+        const loaded = loadDocument(JSON.parse(JSON.stringify(doc))).document!
+        expect(loaded).toEqual(doc); expect(loaded.graphs.root!.nodes.second).toEqual(document.graphs.root!.nodes.second)
+        expect(loaded.graphs.detail).toEqual(definitions.graphs.detail); expect(loaded.graphs.portrait).toEqual(definitions.graphs.portrait)
+        const compiled = compile({ document: loaded, revision: 1, resolve, scope: { kind: 'full' },
+          connection: registry.connection, schemaHash: registry.hash, graphFeatures: registry.graphFeatures ?? [] })
+        expect(compiled.ok, JSON.stringify(!compiled.ok && compiled.diagnostics)).toBe(true)
+        if (!compiled.ok) throw new Error('Nested group did not compile')
+        for (const [id, wanted] of Object.entries(receivers)) {
+          const node = compiled.artifact.prompt[id]!, nestedInputs = Object.fromEntries(Object.entries(node.inputs).filter(([key]) => key.startsWith('nested.')))
+          const runtime = !id.startsWith('second.') && (phase === 'runtime' || phase === 'active-flatten' || phase === 'fan-out-runtime')
+          expect(nestedInputs).toEqual(Object.fromEntries(wanted.nested.flatMap((parent) => parent.weights.map((child) => [
+            `nested.${parent.key}.weights.${child.key}`, runtime && parent.key === 'n2' && child.key === 'w0' ? ['runtime', 0] : child.value,
+          ]))))
+          expect(node.outputMembers!.nested).toEqual(wanted.nested.map((parent) => parent.key))
+          for (const parent of wanted.nested) expect(node.outputMembers![`nested.${parent.key}.weights`]).toEqual(parent.weights.map((child) => child.key))
+        }
+        const submitted = await connection.submit(compiled.artifact)
+        expect(submitted.ok, JSON.stringify(!submitted.ok && submitted.diagnostics)).toBe(true)
+        if (!submitted.ok) throw new Error('Nested group was refused')
+        console.info('Boundary nested submission', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt }))
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline) {
+          const job = await connection.fetchJob(submitted.execution.prompt)
+          if (job?.state === 'failed' || job?.state === 'cancelled') throw new Error(JSON.stringify(job))
+          if (job?.state === 'completed') {
+            const outputs = job.outputs as unknown as Record<string, unknown>
+            for (const id of absent) expect(outputs[id]).toBeUndefined()
+            for (const [nodeId, wanted] of Object.entries(receivers)) {
+              const query = { jobId: submitted.execution.prompt, nodeId, outputId: 'receipt' }
+              const peek = await connection.values().peek(query)
+              expect(peek.available, JSON.stringify(peek)).toBe(true)
+              if (!peek.available) throw new Error('Nested receipt unavailable')
+              const rendition = await connection.values().rendition(query, 'text', { descriptor: peek.descriptor })
+              expect(rendition.available, JSON.stringify(rendition)).toBe(true)
+              if (!rendition.available) throw new Error('Nested text unavailable')
+              const actual = JSON.parse(new TextDecoder().decode(rendition.bytes))
+              console.info('Boundary nested receipt', JSON.stringify({ depth, phase, jobId: submitted.execution.prompt, nodeId, expected: wanted, actual }))
+              expect(actual, nodeId).toEqual(wanted)
+            }
+            return
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        throw new Error('Nested group did not complete')
+      }
+      const pair = (value: number, removed = false, prefix = 0.2) => ({ [first]: expected(value, false, removed, prefix), [second]: expected(0.8, true) })
+      await run('baseline', document, pair(0.2))
+      const store = storeFor(document)
+      edit(store, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: key, value: 0.45 })
+      await run('edited', store.doc, pair(0.45))
+      edit(store, 'dynamic.removeMember', { graphId: 'root', nodeId: 'first', construct: group, member: 'n0' })
+      await run('removed-parent', store.doc, pair(0.45, true))
+      const linked = storeFor(document)
+      for (const producer of ['literal', 'runtime']) {
+        edit(linked, 'link.connect', { graphId: 'root', from: { node: producer, port: producer === 'literal' ? 'value' : 'number' }, to: { node: 'first', port: key } })
+        await run(producer, linked.doc, pair(producer === 'literal' ? 0.57 : 0.9))
+        const wire = Object.values(linked.doc.graphs.root!.links).find((link) => 'node' in link.to && link.to.node === 'first')!
+        edit(linked, 'link.disconnect', { graphId: 'root', linkId: wire.id })
+      }
+      await run('disconnected', linked.doc, pair(0.2))
+      const fanDoc = structuredClone(document)
+      Object.assign(fanDoc.graphs.detail!.nodes, { extra: { ...structuredClone(fanDoc.graphs.detail!.nodes.sample!), id: 'extra',
+        values: { ...fanDoc.graphs.detail!.nodes.sample!.values, 'nested.n0.weights.w0': 0.55 } } })
+      const fan = storeFor(fanDoc)
+      edit(fan, 'boundary.addBinding', { graphId: 'detail', itemId: 'families', node: 'extra', port: 'nested' })
+      const fanDefinitions = fan.doc, extra = depth === 1 ? 'first.extra' : 'first.detail.extra'
+      const siblingExtra = depth === 1 ? 'second.extra' : 'second.detail.extra'
+      edit(fan, 'node.setValue', { graphId: 'root', nodeId: 'first', inputId: key, value: 0.45 })
+      await run('fan-out-edited', fan.doc, { ...pair(0.45), [extra]: expected(0.45, false, false, 0.55, true),
+        [siblingExtra]: expected(0.8, true, false, 0.55, true) }, [], fanDefinitions)
+      edit(fan, 'link.connect', { graphId: 'root', from: { node: 'runtime', port: 'number' }, to: { node: 'first', port: key } })
+      await run('fan-out-runtime', fan.doc, { ...pair(0.9), [extra]: expected(0.9, false, false, 0.55, true),
+        [siblingExtra]: expected(0.8, true, false, 0.55, true) }, [], fanDefinitions)
+      const detached = storeFor(document)
+      edit(detached, 'occurrence.localize', { graphId: 'root', nodeId: 'first' })
+      const privateId = detached.doc.graphs.root!.nodes.first!.type.slice(1)
+      if (depth === 2) edit(detached, 'occurrence.localize', { graphId: privateId, nodeId: 'detail' })
+      const leaf = depth === 1 ? privateId : detached.doc.graphs[privateId]!.nodes.detail!.type.slice(1)
+      edit(detached, 'node.setValue', { graphId: leaf, nodeId: 'sample', inputId: 'nested.n0.weights.w0', value: 0.79 })
+      await run('detached-private', detached.doc, pair(0.2, false, 0.79))
+      for (const mode of ['active', 'muted'] as const) {
+        const flat = storeFor(document)
+        edit(flat, 'link.connect', { graphId: 'root', from: { node: 'runtime', port: 'number' }, to: { node: 'first', port: key } })
+        if (mode === 'muted') edit(flat, 'node.setMode', { graphId: 'root', nodeIds: ['first'], mode })
+        const before = flat.doc, root = before.graphs.root!, node = root.nodes.first!, body = before.graphs[node.type.slice(1)]!
+        const resolver = documentResolver(before, resolve), plan = planFlattenBoundaryRoutes(body, resolver, node, root)
+        const topology = planFlattenOccurrenceTopology(before, resolver, { instancePath: [], node: node.id })
+        const extra = topology.plan === undefined ? {} : { occurrenceTopologyPlan: topology.plan, occurrenceTopologyPlanDigest: lifecycleCanonicalHash(topology.plan) }
+        edit(flat, 'subgraph.flatten', {
+          graphId: 'root', instancePath: [], nodeId: 'first', placementCenter: { x: 100, y: 100 },
+          resolvedGeometry: { occurrence: { id: 'first', kind: 'node', x: 0, y: 0, width: 200, height: 200 },
+            body: Object.keys(body.nodes).map((id) => ({ id, kind: 'node', x: 0, y: 0, width: 200, height: 200 })) },
+          boundaryPlan: plan.boundaryPlan as unknown as Json, statePlan: plan.statePlan as unknown as Json,
+          schemaSnapshot: plan.schemaSnapshot as unknown as Json, schemaPlanDigest: plan.schemaPlanDigest,
+          selectionFingerprint: lifecycleFlattenFingerprint(before, 'root', 'first', { boundaryPlan: plan.boundaryPlan,
+            statePlan: plan.statePlan, schemaPlanDigest: plan.schemaPlanDigest, ...extra }), ...extra,
+        } as Record<string, Json>)
+        const replacement = Object.values(flat.doc.graphs.root!.nodes).find((entry) => root.nodes[entry.id] === undefined)!
+        const path = depth === 1 ? replacement.id : `${replacement.id}.sample`
+        await run(`${mode}-flatten`, flat.doc, { [second]: expected(0.8, true), ...(mode === 'active' ? { [path]: expected(0.9) } : {}) }, mode === 'muted' ? [path] : [])
+      }
+    }, 120_000)
+  }
+
+  for (const depth of [1, 2]) {
     it(`boundary/one-member/native-depth-${depth}`, async () => {
       const connection = new DinksterConnection({ id: asConnectionId('member-live'), baseUrl: LIVE_URL!, clientId: `member-${process.pid}` })
       const registry = await connection.fetchSchemas()
