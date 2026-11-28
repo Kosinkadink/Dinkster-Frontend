@@ -3454,7 +3454,7 @@ describe('construct paint on the live renderer', () => {
     expect(paintedAfter(calls, dotIdx, 'fill')?.fillStyle).toBe(LATENT)
   })
 
-  it('dims a kept wire through chained reroutes without changing ordinary wires or type colors', () => {
+  it('dims kept and muted wires through chained reroutes without changing ordinary wires or type colors', () => {
     const int = { kind: 'concrete', name: 'INT' } as const
     const source: NodeSchema = {
       type: 'Choice', displayName: 'Choice', category: 'test', source: 'v3', isOutputNode: false,
@@ -3463,19 +3463,21 @@ describe('construct paint on the live renderer', () => {
         { key: 'fine', label: 'Fine', rows: [
           { kind: 'input', id: 'passes', type: int, optional: false, widget: { widgetType: 'INT', options: {}, default: 7 } },
         ] },
-      ] }],
+      ] }, { kind: 'output', id: 'out', type: int }],
     }
     const sink: NodeSchema = { ...source, type: 'Sink', body: [
       { kind: 'input', id: 'in', type: int, optional: false },
     ] }
-    for (const selected of ['fast', 'fine']) {
+    for (const state of ['kept', 'ordinary', 'muted']) {
+      const selected = state === 'kept' ? 'fast' : 'fine'
       const document = loadDocument({
         format: 'dinkster-workflow', formatVersion: 1, lineage: 'kept-route', root: 'g0',
         graphs: { g0: { id: 'g0', name: 'Kept', nextOrdinal: 2, nodes: {
-          source: { id: 'source', type: 'Choice', values: {}, dynamic: { mode: { selected } } },
+          source: { id: 'source', type: 'Choice', values: {}, dynamic: { mode: { selected } },
+            ...(state === 'muted' ? { mode: 'muted' } : {}) },
           sink: { id: 'sink', type: 'Sink', values: {} },
         }, links: {
-          first: { id: 'first', from: { node: 'source', tap: 'mode.passes' }, to: { reroute: 'a' } },
+          first: { id: 'first', from: state === 'muted' ? { node: 'source', port: 'out' } : { node: 'source', tap: 'mode.passes' }, to: { reroute: 'a' } },
           middle: { id: 'middle', from: { reroute: 'a' }, to: { reroute: 'b' } },
           last: { id: 'last', from: { reroute: 'b' }, to: { node: 'sink', port: 'in' } },
         }, nets: {}, reroutes: { a: { id: 'a' }, b: { id: 'b' } } } },
@@ -3487,8 +3489,15 @@ describe('construct paint on the live renderer', () => {
         tokens: defaultTokens, measure, widgetMeasure })
       for (const scale of [1, 0.25]) {
         const reroutes = [...scene.reroutes, ...Array.from({ length: 256 }, (_, i) => ({ id: `extra${i}`, x: 5000 + i * 30, y: 5000 }))]
-        const calls = paintWith({ ...scene, reroutes }, (renderer) => renderer.setViewport({ x: 0, y: 0, scale }))
-        const alpha = selected === 'fast' ? canvasPaintTokens.widget.inactiveOpacity : 1
+        const links = [...scene.links, ...Array.from({ length: 256 }, (_, i) => ({
+          ...scene.links[0]!, id: `extraLink${i}`, x1: 5000 + i * 30, y1: 5000, x2: 5020 + i * 30, y2: 5000,
+        }))]
+        const calls = paintWith({ ...scene, reroutes, links }, (renderer) => {
+          renderer.setDetailMode('fixed')
+          renderer.setDetailMinScale(0.3)
+          renderer.setViewport({ x: 0, y: 0, scale })
+        })
+        const alpha = state === 'kept' ? canvasPaintTokens.widget.inactiveOpacity : state === 'muted' ? canvasPaintTokens.node.modeOpacity : 1
         for (const dot of scene.reroutes) {
           const arc = calls.findIndex((call) => call.method === 'arc' && call.args[0] === dot.x && call.args[1] === dot.y)
           expect(arc).toBeGreaterThanOrEqual(0)

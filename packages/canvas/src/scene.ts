@@ -8,6 +8,7 @@
 import {
   asNodeId,
   asPortId,
+  asRerouteId,
   belongsToGroup,
   initialGroupMembership,
   type GroupMembership,
@@ -452,6 +453,8 @@ export interface SceneReroute {
   readonly typeName?: string
   /** The driving field or output is kept only for its existing wire. */
   readonly dimmed?: true
+  /** Every effective producer is muted, using the same trace as the wire. */
+  readonly sourceMuted?: true
 }
 
 /** Reroute dot radius (world units). A deliberately large junction: easy to grab, reads as a station on the noodle. */
@@ -1668,6 +1671,16 @@ export function buildScene(input: BuildSceneInput): Scene {
       return (successors.get(endpointKey(ref)) ?? []).flatMap((to) =>
         consumerTypes(to, nextPath).filter((type) => bypassInput(ref, type)?.input.address.port === end.port))
     })
+  }
+  for (const [index, reroute] of reroutes.entries()) {
+    const end = { reroute: asRerouteId(reroute.id) }
+    const types = consumerTypes(end)
+    if (types.length === 0) types.push(undefined)
+    if (types.every((type) => tracedSourceMuted(end, type))) {
+      const muted: SceneReroute = { ...reroute, sourceMuted: true }
+      reroutes[index] = muted
+      rerouteById.set(reroute.id, muted)
+    }
   }
   for (const c of connections) {
     const from = endPoint(c.from, 'out')

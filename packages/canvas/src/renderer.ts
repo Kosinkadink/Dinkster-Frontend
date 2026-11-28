@@ -2689,7 +2689,7 @@ export class CanvasRenderer {
       const batches = new Map<string | undefined, Array<readonly [number, number, number, number]>>()
       for (const link of scene.links) {
         if (link.hidden === true || this.overlay.hiddenLinkIds?.has(link.id) === true ||
-            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || this.nothingLinks.has(link.id) || link.dimmed === true || link.mismatch === true) continue
+            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || this.nothingLinks.has(link.id) || link.dimmed === true || link.sourceMuted === true || link.mismatch === true) continue
         const bounds = linkBounds(link.x1, link.y1, link.x2, link.y2)
         if (bounds.maxX + paintPad < view.x || bounds.minX - paintPad > view.x + view.w ||
             bounds.maxY + paintPad < view.y || bounds.minY - paintPad > view.y + view.h) continue
@@ -2818,7 +2818,7 @@ export class CanvasRenderer {
         this.scopeHighlight === undefined) {
       const batches = new Map<string | undefined, Array<readonly [number, number]>>()
       for (const reroute of this.scene.reroutes) {
-        if (reroute.dimmed === true || this.overlay.rerouteSelection?.has(reroute.id) === true ||
+        if (reroute.dimmed === true || reroute.sourceMuted === true || this.overlay.rerouteSelection?.has(reroute.id) === true ||
             this.overlay.dropTargets?.has(rerouteTargetKey(reroute.id)) === true ||
             this.overlay.hoveredReroute === reroute.id) continue
         const pad = Math.max(rerouteRadius + canvasPaintTokens.reroute.cullPadding, statusRingCullPad(rerouteRadius, scale))
@@ -2860,6 +2860,7 @@ export class CanvasRenderer {
       if (rx + pad < view.x || rx - pad > view.x + view.w || ry + pad < view.y || ry - pad > view.y + view.h) continue
       if (this.scopeHighlight && !this.scopeHighlight.reroutes.has(r.id)) ctx.globalAlpha = SCOPE_DIM
       if (r.dimmed) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+      if (r.sourceMuted) ctx.globalAlpha *= canvasPaintTokens.node.modeOpacity
       if (this.overlay.dropTargets?.has(rerouteTargetKey(r.id))) {
         ctx.beginPath()
         ctx.arc(rx, ry, rerouteRadius + STATUS_RING_GAP, 0, Math.PI * 2)
