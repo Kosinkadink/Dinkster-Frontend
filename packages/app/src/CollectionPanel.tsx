@@ -431,7 +431,8 @@ export function CollectionPanel(props: {
 
   const focusEntry = (id: string | undefined, focus = true): void => {
     if (id === undefined) return
-    const entry = rootEl?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(id)}"]`)
+    const entry = [...rootEl?.querySelectorAll<HTMLElement>('[data-entry]') ?? []]
+      .find((element) => element.dataset.entry === id)
     if (entry == null) return
     if (focus) entry.focus({ preventScroll: true })
     const viewport = entry.closest<HTMLElement>('.collection-items')

@@ -394,6 +394,8 @@ describe('app page tabs', () => {
       expect(entry.session.doc.order).toEqual([])
       await choose()
       root.querySelector<HTMLElement>('[data-entry="saved-card"]')!.click()
+      expect(entry.session.doc.order).toEqual([])
+      root.querySelector<HTMLButtonElement>('.library-detail-rail button')!.click()
       await vi.waitFor(() => expect(release).toBeDefined())
       root.querySelector<HTMLButtonElement>('[data-testid="board-card-picker"] [data-testid="modal-close"]')!.click()
       release(bytes)
@@ -404,6 +406,8 @@ describe('app page tabs', () => {
       for (let i = 0; i < 2; i++) {
         await choose()
         root.querySelector<HTMLElement>('[data-entry="saved-card"]')!.click()
+        expect(entry.session.doc.order).toHaveLength(i)
+        root.querySelector<HTMLButtonElement>('.library-detail-rail button')!.click()
         await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(i + 1))
         const id = entry.session.doc.order[i]!
         await vi.waitFor(() => expect(root.querySelector(`[data-board-item="${id}"]`)?.getAttribute('data-selected')).toBe('true'))
@@ -427,12 +431,16 @@ describe('app page tabs', () => {
       vi.spyOn(backend.connection, 'fetchBlueprintBody').mockResolvedValue(loadDocument(blueprint).document)
       await choose('Blueprint', 'saved:saved-card')
       root.querySelector<HTMLElement>('[data-entry="saved:saved-card"]')!.click()
+      expect(entry.session.doc.order).toHaveLength(1)
+      root.querySelector<HTMLButtonElement>('.library-detail-rail button')!.click()
       await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(2))
       const saved = entry.session.doc.items[entry.session.doc.order[1]!]!
       expect(saved).toMatchObject({ kind: 'blueprint', source: { kind: 'library', recordId: 'saved-card' } })
       await choose('Blueprint', 'saved:saved-card')
       const packed = [...root.querySelectorAll<HTMLElement>('[data-entry]')].find((item) => item.textContent?.includes('Pack card'))!
       packed.click()
+      expect(entry.session.doc.order).toHaveLength(2)
+      root.querySelector<HTMLButtonElement>('.library-detail-rail button')!.click()
       await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(3))
       expect(entry.session.doc.items[entry.session.doc.order[2]!]).toMatchObject({ kind: 'blueprint',
         source: { kind: 'pack', packId: 'pack', blueprintId: 'saved-card', digest } })
