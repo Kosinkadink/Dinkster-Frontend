@@ -66,7 +66,7 @@ import { isTextTarget } from './settings.js'
 import { parseNumericCommit, parsePrimitiveListCommit, widgetCommitError } from './widget-commit.js'
 import { Icon } from './Icon.js'
 import { ProductButton, ProductCheckbox, ProductTextArea, ProductTextInput } from './ProductControls.js'
-import { ProductButton as SharedProductButton, ProductIcon } from '@dinkster/ui'
+import { ProductButton as SharedProductButton, ProductIcon, ProductTextArea as SharedProductTextArea } from '@dinkster/ui'
 import { CancelExecutionButton } from './CancelExecutionButton.js'
 import { ProductNumberInput } from './ProductNumberInput.js'
 import { ProductSelect, type ProductSelectOption } from './ProductSelect.js'
@@ -165,8 +165,7 @@ function AppViewStringInput(props: {
     }
   }
   return props.multiline
-    ? <ProductTextArea
-        class="app-view-control multiline"
+    ? <SharedProductTextArea
         data-testid="app-view-text"
         aria-labelledby={props.ariaLabelledBy}
         value={draft()}
