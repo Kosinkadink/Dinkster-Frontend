@@ -19,6 +19,8 @@ import ArrowUp from 'lucide/dist/esm/icons/arrow-up.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import ArrowDown from 'lucide/dist/esm/icons/arrow-down.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
+import ArrowRight from 'lucide/dist/esm/icons/arrow-right.mjs'
+// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import FolderOpen from 'lucide/dist/esm/icons/folder-open.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Group from 'lucide/dist/esm/icons/group.mjs'
@@ -183,6 +185,7 @@ const ICONS: Record<NonNullable<ToolboxButton['icon']>, IconNode> = {
   'list-tree': ListTree,
   'scroll-text': ScrollText,
   forward: Forward,
+  'arrow-right': ArrowRight,
   archive: Archive,
   unplug: Unplug,
   repeat: Repeat,

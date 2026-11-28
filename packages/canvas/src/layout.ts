@@ -31,6 +31,7 @@ import {
   groupBoxKey,
   lineKeyOf,
   materializeFramesOf,
+  normalizedComboOptions,
   resettableWidgetsOf,
   resolveWidgetRepresentation,
   selectorBranchDisplay,
@@ -272,6 +273,8 @@ export type LayoutRow =
        * option key). Renderers/editors read this instead of values.
        */
       readonly derivedValue?: Json
+      /** Distinct picker row editing one persisted record-field selector. */
+      readonly recordSelection?: { readonly inputId: string; readonly depth: number }
       /**
        * A field that declares `automatic` with nothing stored and no wire:
        * the value it has in use, drawn after the word "auto", dimmed.
@@ -294,7 +297,7 @@ export type LayoutRow =
       }
       /** A choice's dropdown: it reaches the outline of the box its option rows hang in, and has its own outline. */
       readonly lead?: true
-      /** Instance whose promoted boundary input owns this row's stored value. */
+      /** Node/input owning the value of this projected row or promoted boundary field. */
       readonly familyOwner?: {
         readonly graphId: string
         readonly nodeId: string
@@ -1718,6 +1721,21 @@ export function layoutNode(
         ...annotate(item),
       },
     })
+    if (item.recordSelectionRows !== undefined) {
+      const first = pending.pop()!
+      for (const [depth, choice] of item.recordSelectionRows.entries()) {
+        const id = depth === 0 ? spec.id : `$record/${spec.id}/${depth}`
+        pending.push({ ...first, widget: {
+          ...first.widget!, inputId: id, valueKey: depth === 0 ? valueKey : id,
+          label: depth === 0 ? rowLabels(item).label : '',
+          name: translate('canvas.record.fieldOf', { record: choice.record }),
+          recordSelection: { inputId: spec.id, depth },
+          derivedValue: choice.value,
+          spec: { ...representation.spec, options: { ...representation.spec.options, options: choice.options } },
+          ...(depth === 0 ? {} : { socketless: true as const, unsent: true as const }),
+        } })
+      }
+    }
   }
   for (const [id, counts] of portsHeld) held.set(id, (held.get(id) ?? 0) + Math.max(counts.inputs, counts.outputs))
 
@@ -2259,6 +2277,11 @@ export function layoutNode(
       // Label + a value area floor; widget content depth lives in the
       // expanded editor, so rows never force extreme widths.
       content = measure(row.label, 'label') + canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.widgetValueMinWidth + extra
+      if (row.kind === 'widget' && row.recordSelection !== undefined) {
+        const shown = normalizedComboOptions(row.spec).find((option) => option.value === row.derivedValue)?.label ?? ''
+        content = Math.max(content, measure(row.label, 'label') + measure(shown, 'value') +
+          canvasPaintTokens.node.widgetLabelPadding + canvasPaintTokens.node.portLabelPadding * 2 + tokens.rowHeight + extra)
+      }
       if (row.kind === 'widget' && row.viewId === 'core.curve' && !row.unfolded && tokens.widgetRowLook === 'raised-editors') {
         // Reserve the picture beside the count as well as the header's icon
         // and name; the interpolation shares the name's column below it.

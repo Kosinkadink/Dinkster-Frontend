@@ -21,6 +21,8 @@ import {
   coreCommandRegistry,
   occurrenceDynamicView,
   loadDocument,
+  normalizedComboOptions,
+  parseDinksterSchema,
   type Json,
   type NodeProgress,
   type NodeSchema,
@@ -434,6 +436,91 @@ describe('buildScene', () => {
     expect(output(reselected)?.kept).toBeUndefined()
     expect(reselected.links.find((link) => link.id === 'read')?.dimmed).toBeUndefined()
     expect(document.graphs.g0!.nodes.read!.values.field).toBe(saved)
+  })
+
+  it('selects nested record fields one level at a time through one saved value and undo', () => {
+    const atom = { kind: 'concrete', types: ['INT'] }
+    const inner = { kind: 'record', types: ['pack.settings'], fields: [
+      { id: 'seed-id', name: 'seed', type: atom, optional: false },
+      { id: 'other-id', name: 'other', type: atom, optional: false },
+    ] }
+    const selected = (path: string[], name: string, type: unknown) => JSON.stringify({ path, name, type })
+    const whole = selected(['settings-id'], 'settings', inner)
+    const seed = selected(['settings-id', 'seed-id'], 'settings / seed', atom)
+    const other = selected(['settings-id', 'other-id'], 'settings / other', atom)
+    const parsed = parseDinksterSchema('Read', { body: [
+      { kind: 'input', id: 'record', required: true, type: { kind: 'record', types: ['pack.bundle'], fields: [
+        { id: 'settings-id', name: 'settings', type: inner, optional: false },
+        { id: 'number-id', name: 'number', type: atom, optional: false },
+      ] } },
+      { kind: 'input', id: 'field', pin: false, type: { kind: 'concrete', types: ['COMBO'] }, default: whole,
+        widget: { type: 'COMBO', options: [
+          { value: whole, label: 'settings' }, { value: seed, label: 'settings / seed' },
+          { value: other, label: 'settings / other' },
+          { value: selected(['number-id'], 'number', atom), label: 'number' },
+        ] } },
+      { kind: 'output', id: 'value', type: { kind: 'record_field', input: 'record', index: 'field' } },
+    ] } as never)
+    expect(parsed.diagnostics).toEqual([])
+    const document = loadDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'nested-picker', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {},
+        nodes: { read: { id: 'read', type: 'Read', values: { field: whole } } } } }, view: { graphs: {} },
+    }).document!
+    const session = createLocalSession(document, coreCommandRegistry())
+    let schema = parsed.schema!
+    const scene = () => buildScene({ document: session.doc, graphId: 'g0', resolve: () => schema,
+      tokens: defaultTokens, measure, widgetMeasure: () => ({ viewId: 'core.select', rows: 1 }) })
+    const rows = () => scene().nodes[0]!.layout.rows.filter((row) => row.kind === 'widget')
+    const start = rows()
+    expect(start).toHaveLength(2)
+    expect(start.map((row) => row.label)).toEqual(['field', ''])
+    expect(new Set(start.map((row) => row.valueKey)).size).toBe(2)
+    expect(start.map((row) => row.familyOwner?.valueKey)).toEqual(['field', 'field'])
+    expect(normalizedComboOptions(start[0]!.spec).map((option) => option.label)).toEqual(['settings', 'number'])
+    expect(normalizedComboOptions(start[1]!.spec).map((option) => option.label).slice(1)).toEqual(['seed', 'other'])
+    expect(start[1]!.derivedValue).toBe(whole)
+    const choose = (value: Json) => session.dispatch({ command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'read', inputId: 'field', value,
+    } })
+    expect(choose(other).ok).toBe(true)
+    expect(rows()[1]!.derivedValue).toBe(other)
+    expect(scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'output')!.spec.type)
+      .toEqual({ kind: 'concrete', name: 'INT' })
+    expect(session.doc.graphs.g0!.nodes.read!.values).toEqual({ field: other })
+    expect(session.undo()).toBe(true)
+    expect(rows()[1]!.derivedValue).toBe(whole)
+    expect(session.redo()).toBe(true)
+    expect(rows()[1]!.derivedValue).toBe(other)
+    expect(choose(whole).ok).toBe(true)
+    expect(scene().nodes[0]!.elaborated!.items.find((item) => item.kind === 'output')!.spec.type.kind).toBe('record')
+    expect(choose(selected(['number-id'], 'number', atom)).ok).toBe(true)
+    expect(rows()).toHaveLength(1)
+    expect(choose(seed).ok).toBe(true)
+    const changeField = (depth: 'parent' | 'child', remove: boolean) => {
+      schema = { ...parsed.schema!, body: parsed.schema!.body.map((item) => {
+        if (item.kind !== 'input' || item.id !== 'record' || item.type.kind !== 'record') return item
+        return { ...item, type: { ...item.type, fields: item.type.fields.flatMap((field) => {
+          if (field.id !== 'settings-id') return [field]
+          if (depth === 'parent') return remove ? [] : [{ ...field, type: { kind: 'concrete', name: 'STRING' } }]
+          if (field.type.kind !== 'record') return [field]
+          return [{ ...field, type: { ...field.type, fields: field.type.fields.flatMap((child) =>
+            child.id !== 'seed-id' ? [child] : remove ? [] : [{ ...child, type: { kind: 'concrete', name: 'STRING' } }]) } }]
+        }) } }
+      }) }
+    }
+    for (const depth of ['child', 'parent'] as const) {
+      for (const remove of [true, false]) {
+        changeField(depth, remove)
+        const row = rows().at(-1)!
+        expect(rows()).toHaveLength(depth === 'parent' ? 1 : 2)
+        expect(row.derivedValue).toBe(seed)
+        expect(normalizedComboOptions(row.spec).find((option) => option.value === seed)?.label)
+          .toBe(depth === 'parent' ? 'settings / seed (removed)' : 'seed (removed)')
+        expect(scene().diagnostics.filter((diagnostic) => diagnostic.code === 'record-field-removed')).toHaveLength(1)
+        expect(session.doc.graphs.g0!.nodes.read!.values).toEqual({ field: seed })
+      }
+    }
   })
 
   it('keeps numeric edit scenes equal to a fresh build and declines value-dependent presentation', () => {

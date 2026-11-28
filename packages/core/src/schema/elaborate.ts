@@ -25,6 +25,7 @@
  */
 
 import { diag, type Diagnostic, type DiagnosticRef } from '../diagnostics.js'
+import { t } from '../i18n/index.js'
 import type { DynamicPortState, GraphDef, Json, NodeData } from '../format/document.js'
 import { boundaryItems } from '../format/document.js'
 import { asPortId, isExactWidgetTapRef, isPortEndpoint, portAddressKey, type DynamicMemberId, type NodeId } from '../ids.js'
@@ -234,6 +235,12 @@ export interface ElaboratedInput {
   readonly ancestry?: readonly DynamicAncestor[]
   /** Value not stored in node.values (a choice's dropdown: the chosen key). */
   readonly derivedValue?: Json
+  /** Per-level views of one saved record-field selection, never extra inputs. */
+  readonly recordSelectionRows?: readonly {
+    readonly record: string
+    readonly value: Json
+    readonly options: readonly { readonly value: Json; readonly label: string }[]
+  }[]
   /** Member state to persist before writing or wiring this row. */
   readonly materialize?: readonly MaterializeFrame[]
   /** A field that declares `automatic` with nothing stored and no wire: the value in use. */
@@ -2680,8 +2687,46 @@ function elaboratePass(
             const presented = fits && matching !== undefined
               ? choices.map((option) => option === matching ? shown : option)
               : [...choices.filter((option) => option.value !== stored), shown]
+            const candidates = choices.flatMap((option) => {
+              if (typeof option.value !== 'string') return []
+              try {
+                const candidate = JSON.parse(option.value)
+                return Array.isArray(candidate.path) && typeof candidate.name === 'string'
+                  ? [{ ...option, path: candidate.path as string[] }] : []
+              } catch { return [] }
+            })
+            const rows: NonNullable<ElaboratedInput['recordSelectionRows']>[number][] = []
+            let record: TypeExpr = source.spec.type
+            let parent: Json = stored
+            for (let depth = 0; record.kind === 'record'; depth++) {
+              const prefix = path.slice(0, depth)
+              const options: { value: Json; label: string }[] = candidates.filter((candidate) => candidate.path.length === depth + 1 &&
+                prefix.every((key, index) => key === candidate.path[index]))
+                .map((candidate) => ({ value: candidate.value, label: record.kind === 'record'
+                  ? record.fields.find((field) => field.id === candidate.path[depth])?.name ?? candidate.label : candidate.label }))
+              if (depth > 0) options.unshift({ value: parent, label: t('canvas.record.wholeRecord') })
+              const field: RecordField | undefined = record.fields.find((field) => field.id === path[depth])
+              const selected = options.find((option) => {
+                if (typeof option.value !== 'string') return false
+                try { return JSON.parse(option.value).path[depth] === path[depth] } catch { return false }
+              })
+              let value: Json = selected?.value ?? parent
+              if (depth < path.length && (field === undefined || field.type.kind !== 'record' || depth === path.length - 1)) {
+                const oldName = String(saved?.['name'] ?? names.join(' / ')).split(' / ').slice(depth).join(' / ')
+                const final = { value: stored, label: fits ? field!.name : `${oldName} (removed)` }
+                const at = options.findIndex((option) => fits ? option === selected : option.value === stored)
+                if (at >= 0) options[at] = final
+                else options.push(final)
+                value = stored
+              }
+              rows.push({ record: record.name, value, options })
+              if (field === undefined || depth >= path.length || field.type.kind !== 'record' || !fits && depth === path.length - 1) break
+              parent = value
+              record = field.type
+            }
             const index = items.indexOf(selector)
-            items[index] = { ...selector, spec: { ...selector.spec, widget: { ...widget, options: { ...widget.options, options: presented } } } }
+            items[index] = { ...selector, ...(widget.widgetType === 'COMBO' ? { recordSelectionRows: rows } : {}),
+              spec: { ...selector.spec, widget: { ...widget, options: { ...widget.options, options: presented } } } }
           }
         }
         if (fits) return current!

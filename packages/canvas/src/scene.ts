@@ -1340,13 +1340,13 @@ export function buildScene(input: BuildSceneInput): Scene {
             const menuRow = optionsOwner === undefined ? row : {
               ...row, optionsTarget: { ...row.optionsTarget!, ...optionsOwner },
             }
-            const valueOwner = input.occurrenceView!.valueOwners?.get(node.id)?.get(row.valueKey)
+            const valueOwner = input.occurrenceView!.valueOwners?.get(node.id)?.get(row.recordSelection?.inputId ?? row.valueKey)
             return valueOwner === undefined ? menuRow : {
               ...menuRow,
               familyOwner: {
                 graphId: valueOwner.graphId,
                 nodeId: valueOwner.nodeId,
-                construct: row.valueKey,
+                construct: row.recordSelection?.inputId ?? row.valueKey,
                 valueKey: valueOwner.valueKey,
               },
             }
@@ -1356,6 +1356,9 @@ export function buildScene(input: BuildSceneInput): Scene {
     const layoutWithPorts = schema
       ? {
           ...rawLayout,
+          rows: rawLayout.rows.map((row) => row.kind !== 'widget' || row.recordSelection === undefined || row.familyOwner !== undefined
+            ? row : { ...row, familyOwner: { graphId: def.id, nodeId: node.id,
+              construct: row.recordSelection.inputId, valueKey: row.recordSelection.inputId } }),
           pins: rawLayout.pins.map((pin) => {
             const type = pin.widgetTap === true ? pin.type : solvedTypes.portTypeOf(
               asNodeId(node.id),
