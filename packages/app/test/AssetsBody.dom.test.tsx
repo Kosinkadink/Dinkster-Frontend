@@ -516,7 +516,7 @@ describe('Assets dock body', () => {
     dispose()
   })
 
-  it('renders a ready mount listing failure as a source-specific reason', async () => {
+  it('keeps source-specific failure details separate from the collection recovery banner', async () => {
     const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([{ id: 'broken', mode: 'read', state: 'ready' }]),
       listMountEntries: vi.fn().mockRejectedValue(new RequestFailure('GET', '/api/mounts/ready/entries', 503, 'index unavailable')),
@@ -527,8 +527,9 @@ describe('Assets dock body', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
-    await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('Assets unavailable'))
-    expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('local catalog unavailable')
+    await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('Could not load All assets.'))
+    expect(root.querySelector('[data-collection-state="error"]')?.textContent).not.toContain('local catalog unavailable')
+    expect(root.querySelector('[role="alert"] [data-testid="collection-retry"]')).not.toBeNull()
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
     expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('Broken')
     expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('index unavailable')

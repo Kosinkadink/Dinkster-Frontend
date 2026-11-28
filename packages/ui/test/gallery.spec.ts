@@ -768,7 +768,7 @@ test('quiet text menus keep shared focus, checked selection and dismissal withou
     await expect(any).toBeFocused()
     await any.hover()
     await expect(any).toHaveCSS('background-color', await token(page, '--dinkster-surface-raised'))
-    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-hover'))
+    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-pressed'))
     await expect(page).toHaveScreenshot(`quiet-menu-${theme}-open.png`)
     await page.keyboard.press('Escape')
     await expect(section.getByRole('menu')).toHaveCount(0)
@@ -782,7 +782,7 @@ test('quiet text menus keep shared focus, checked selection and dismissal withou
     await expect(page).toHaveScreenshot(`quiet-menu-${theme}-focus.png`)
     await page.keyboard.press('ArrowDown')
     await expect(any).toBeFocused()
-    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-hover'))
+    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-pressed'))
     await expect(page).toHaveScreenshot(`quiet-menu-${theme}-keyboard-open.png`)
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Enter')
@@ -1465,12 +1465,18 @@ test('the canvas corner bar keeps one width right-justified under the minimap, i
     return {
       bar: style('[data-testid="canvas-chrome-corner-small"] .canvas-corner-bar').borderTopColor,
       menu: style('[data-testid="canvas-chrome-corner-settings"] .minimap-menu').borderTopColor,
+      minimapBackground: style('[data-testid="canvas-chrome-corner-settings"] [data-testid="minimap-settings"]').backgroundColor,
+      minimapGroupBackground: style('[data-testid="canvas-chrome-corner-settings"] .canvas-corner-split').backgroundColor,
+      zoomBackground: style('[data-testid="canvas-chrome-corner-zoom"] [data-testid="canvas-zoom-level"]').backgroundColor,
       fitColor: style('[data-testid="canvas-chrome-corner-small"] [data-testid="canvas-fit-view"]').color,
       listColor: style('[data-testid="canvas-chrome-run-ready"] .workflow-queue-toggle').color,
       ready: run('ready'),
       off: run('off'),
     }
   })
+  expect(outlines.minimapBackground).toBe('rgba(0, 0, 0, 0)')
+  expect(outlines.minimapGroupBackground).not.toBe(outlines.minimapBackground)
+  expect(outlines.zoomBackground).toBe(outlines.minimapGroupBackground)
   expect(outlines.ready.list).toBe(outlines.bar)
   expect(outlines.menu).toBe(outlines.bar)
   expect(outlines.listColor).toBe(outlines.fitColor)

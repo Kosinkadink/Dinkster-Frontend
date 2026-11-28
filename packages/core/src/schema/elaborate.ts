@@ -261,6 +261,8 @@ export interface ElaboratedInput {
    * each. The answers in use are already in `spec.widget`.
    */
   readonly looked?: Readonly<Partial<Record<LookedWidgetField, LookedState>>>
+  /** A declared numeric constraint has no usable answer yet; stored corrections must wait. */
+  readonly numericConstraintsPending?: true
   /**
    * Not drawn because of where it sits: its `visible` is false, or a hidden
    * choice or group holds it. Its `spec.hidden` is set, but the run is sent
@@ -1560,8 +1562,10 @@ function elaboratePass(
   const lookedWidget = (widget: WidgetSpec & { readonly looked: NonNullable<WidgetSpec['looked']> }, scope: Scope): {
     readonly widget: WidgetSpec
     readonly states: Partial<Record<LookedWidgetField, LookedState>>
+    readonly numericConstraintsPending: boolean
   } => {
     const states: Partial<Record<LookedWidgetField, LookedState>> = {}
+    let numericConstraintsPending = false
     const fields: Record<string, unknown> = { ...widget.options }
     let completions = widget.textCompletions
     const worked = new Set<LookedNumberField>()
@@ -1578,6 +1582,7 @@ function elaboratePass(
       const value = found === undefined ? undefined : lookedAnswerValue(widget, field, found)
       if (found !== undefined && value === undefined && states[field] !== undefined) states[field] = wrongShape(states[field])
       if (value === undefined) {
+        if (field !== 'options' && field !== 'completions') numericConstraintsPending = true
         if (field === 'offset') fields[OFFSET_UNKNOWN] = true
         continue
       }
@@ -1599,6 +1604,7 @@ function elaboratePass(
     const min = limitOf(fields['min'])
     const max = limitOf(fields['max'])
     if (min !== undefined && max !== undefined && min > max) {
+      numericConstraintsPending = true
       for (const field of ['min', 'max'] as const) {
         if (!worked.has(field)) continue
         delete fields[field]
@@ -1613,6 +1619,7 @@ function elaboratePass(
         ...(completions !== undefined ? { textCompletions: completions } : {}),
       },
       states,
+      numericConstraintsPending,
     }
   }
 
@@ -1728,6 +1735,7 @@ function elaboratePass(
       ...(scope.kept !== undefined ? { kept: scope.kept } : {}),
       ...(boxedLabel ? { ownLabel: own } : {}),
       ...(looked !== undefined && Object.keys(looked.states).length > 0 ? { looked: looked.states } : {}),
+      ...(looked?.numericConstraintsPending ? { numericConstraintsPending: true as const } : {}),
       ...(hiddenByScope ? { hiddenByScope: true as const } : {}),
       ...(scope.hiddenByDeclaration ? { hiddenByDeclaration: true as const } : {}),
       ...extra,

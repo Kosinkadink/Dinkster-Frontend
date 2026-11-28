@@ -192,9 +192,6 @@ function DirectLibraryState(props: { readonly state: CollectionPanelState; reado
   if (props.state.kind === 'loading') {
     return <ProductEmptyState tone="loading" title={props.message('library.state.loading.title', { source: source() })} hint={props.message('library.state.loading.directDetail', { source: props.state.sourceLabel, backend: props.backend.label })} />
   }
-  if (props.state.kind === 'error') {
-    return <ProductEmptyState tone="error" title={props.message('library.state.unavailable.title', { source: props.state.sourceLabel })} hint={props.state.message ?? props.message('library.state.unavailable.directDetail', { source: props.state.sourceLabel, backend: props.backend.label })} />
-  }
   if (props.state.kind === 'no-match') {
     return <ProductEmptyState title={props.message('library.state.noMatch.title', { source: source() })} hint={props.message('library.state.noMatch.directDetail')} />
   }
@@ -224,9 +221,6 @@ function ActivityState(props: { readonly state: CollectionPanelState; readonly b
   if (props.state.kind === 'loading') {
     return <ProductEmptyState tone="loading" title={props.message('library.state.loading.title', { source: noun() })} hint={durable ? props.message('library.state.loading.runsDetail', { backend: props.backend.label }) : props.message('library.state.loading.historyDetail')} />
   }
-  if (props.state.kind === 'error') {
-    return <ProductEmptyState tone="error" title={props.message('library.state.unavailable.title', { source: props.state.sourceLabel })} hint={props.state.message ?? props.message('library.state.unavailable.activityDetail', { source: noun() })} />
-  }
   if (props.state.kind === 'no-match') {
     return <ProductEmptyState title={props.message('library.state.noMatch.title', { source: noun() })} hint={props.message(durable ? 'library.state.noMatch.runsDetail' : 'library.state.noMatch.historyDetail')} />
   }
@@ -238,12 +232,10 @@ function ActivityState(props: { readonly state: CollectionPanelState; readonly b
 
 function inheritedState(state: CollectionPanelState, message: LibraryMessage) {
   return <ProductEmptyState
-    tone={state.kind === 'error' ? 'error' : state.kind === 'loading' ? 'loading' : 'empty'}
+    tone={state.kind === 'loading' ? 'loading' : 'empty'}
     title={state.kind === 'loading'
       ? message('library.inherited.loading')
-      : state.kind === 'error'
-        ? state.message
-        : state.kind === 'no-match'
+      : state.kind === 'no-match'
           ? message('library.inherited.noMatches')
           : state.kind === 'no-compatible'
             ? message('library.inherited.noCompatible')

@@ -1417,7 +1417,7 @@ describe('formula properties', () => {
     const sizes = { kind: 'group', id: 'g', member: [field('s')], keys: { numbered: { prefix: 'item', start: 0 } }, grows: 'link', minMembers: 2 }
     const rules = (check: string, fix: unknown[] = []) => {
       const { schema, diagnostics } = parseDinksterSchema('Formulas', { body: [field('w'), field('h'), pick, sizes], validate: [
-        { check: { formula: check }, message: 'Too big', fix },
+        { check: { formula: check }, message: 'Too big', fix, ...(fix.length > 0 ? { fixLabel: 'Use 4' } : {}) },
       ] } as never)
       expect(diagnostics).toEqual([])
       return (values: Record<string, unknown>, dynamic: Record<string, unknown> = { pick: { selected: 'a' } }) =>

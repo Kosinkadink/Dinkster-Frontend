@@ -15,6 +15,8 @@ export type ProblemBoxKind = 'error' | 'warning' | 'info'
 export interface ProblemBoxViewAction {
   readonly id: string
   readonly label: string
+  readonly labels?: readonly string[]
+  readonly disabled?: boolean
 }
 
 export interface ProblemBoxViewLine {
@@ -106,7 +108,9 @@ export function ProblemBox(props: {
                   {(action) => (
                     <ProductTextButton
                       label={action.label}
+                      labels={action.labels}
                       data-testid={`problem-box-${action.id}`}
+                      disabled={action.disabled}
                       onClick={() => props.onAction?.(line, action.id)}
                     />
                   )}

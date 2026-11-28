@@ -579,7 +579,9 @@ describe('LibraryPanel', () => {
 
     const failed: CollectionSource = { id: 'templates', label: 'Templates', page: async () => { throw new RequestFailure('GET', '/api/templates', 503, 'catalog offline') } }
     const disposeFailed = render(() => <LibraryPanel backend={() => backend} sources={[failed]} />, root)
-    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('catalog offline'))
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toContain('Could not load Templates.'))
+    expect(root.querySelector('[role="alert"] [data-testid="collection-retry"]')).not.toBeNull()
+    expect(root.textContent).not.toContain('catalog offline')
     disposeFailed()
 
     const disposeHistory = render(() => <LibraryPanel backend={() => backend} sources={[source('history', 'History', [])]} />, root)

@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
-import { createSignal as coreSignal, type Diagnostic, type WidgetRegistry } from '@dinkster/core'
+import { asNodeId, createSignal as coreSignal, diag, t, type Diagnostic, type WidgetRegistry } from '@dinkster/core'
 import {
   CanvasRenderer,
   canvasColorsForTheme,
@@ -30,6 +30,9 @@ import { problemBoxLines, problemBoxRows, runtimeProblemBoxLines } from '../../a
 import { NodeProblemBox } from '../../app/src/NodeProblemBox.js'
 import { ProblemsPanel } from '../../app/src/ProblemsPanel.js'
 import type { AppState } from '../../app/src/app-state.js'
+import { SettingsDialog } from '../../app/src/SettingsDialog.js'
+import { CommandRegistry, KeybindingRegistry, SettingsRegistry } from '../../app/src/settings.js'
+import { registerAutomaticFixSettings } from '../../app/src/automatic-fixes.js'
 
 /** Room under the nodes for their tabs, and under the lowest box, in px. */
 const TAB_ROOM = 24
@@ -164,7 +167,7 @@ function ProblemBoxCard(props: {
               label={`Problems of ${placed.box.nodeTitle}`}
               lines={placed.box.lines.map((line) => ({
                 ...line,
-                actions: line.actions.map((label) => ({ id: label, label })),
+                actions: line.actions.map((action) => ({ id: action.label, ...action })),
               }))}
               {...(highlighted()[placed.box.nodeId] === undefined ? {} : { highlighted: highlighted()[placed.box.nodeId]! })}
               x={placed.x}
@@ -212,6 +215,10 @@ export function ProblemBoxGallery(props: { theme: 'dark' | 'light' }) {
     return problemBoxGallery(tokens, measure, widgetMeasure)
   }
   const ids = cardsFor(defaultTokens).map((card) => card.id)
+  const settings = new SettingsRegistry({ getItem: () => null, setItem: () => {} })
+  registerAutomaticFixSettings(settings)
+  const commands = new CommandRegistry()
+  const keybindings = new KeybindingRegistry(settings)
   return (
     <div class="dinkster-canvas-examples">
         <For each={ids}>
@@ -224,6 +231,66 @@ export function ProblemBoxGallery(props: { theme: 'dark' | 'light' }) {
             />
           )}
         </For>
+        <For each={[true, false]}>{(offered) => {
+          const app = { tabs: coreSignal([]), activeTabId: coreSignal(''), activeTab: () => undefined } as unknown as AppState
+          const item = diag('warning', 'environment', 'list.index.outside', 'Get item: item: Only 4 items are known.', {
+            anchor: { occurrence: { instancePath: [], node: asNodeId('item') } },
+          })
+          const other = diag(offered ? 'warning' : 'error', 'environment', offered ? 'automatic.numberOutsideLimits' : 'rule.failed',
+            offered ? 'Sampler: steps: Stored value 12000 is outside the allowed values.' : 'Resize: Width must be positive.', {
+              anchor: { occurrence: { instancePath: [], node: asNodeId('other') } },
+            })
+          return (
+            <figure class="dinkster-canvas-example dinkster-problem-fixes-example" data-testid={offered ? 'fix-all-offered' : 'fix-all-unavailable'}>
+              <ProductPanel>
+                <ProblemsPanel app={app} diagnostics={() => [item, other]} compatSkips={() => []} fixes={{
+                  forProblem: (problem) => ({ label: problem === item ? 'Use the last item' : offered ? 'Use 10000' : 'Edit field',
+                    labels: problem === item ? ['Use the last item', 'Storing...', 'Check again']
+                      : offered ? ['Use 10000', 'Storing...', 'Check again'] : [], run: () => {} }),
+                  all: () => offered ? { label: 'Fix all', labels: ['Fix all', 'Storing...'], run: () => {} } : undefined,
+                }} />
+              </ProductPanel>
+              <figcaption class="dinkster-metadata">{offered
+                ? 'Fix all is offered across the workflow because every open Ask me problem has an immediate fix. The fixed-order batch stores all or nothing in one undo step.'
+                : 'Fix all is absent when a problem has no immediate fix. Downloads, installs, secrets, pickers and questions never run through Fix all.'}</figcaption>
+            </figure>
+          )
+        }}</For>
+        <For each={['offered', 'storing', 'stale', 'no-output'] as const}>{(state) => {
+          const app = { tabs: coreSignal([]), activeTabId: coreSignal(''), activeTab: () => undefined } as unknown as AppState
+          const noOutput = state === 'no-output'
+          const item = diag('warning', 'environment', 'saveTarget.mountsMissing', state === 'stale'
+            ? t('problemFix.workflowChanged') : noOutput
+              ? `${t('saveTargetWidget.bothTitle', { id: 'renders' })} ${t('saveTargetWidget.noDefaultBody')}`
+              : t('problemFix.saveTargetsMissing', { mounts: '"renders", "clips"' }), {
+              refs: ['portrait', 'movie'].map((nodeId) => ({ graphId: 'root', nodeId, valueKey: 'target', portId: 'target', direction: 'input' as const })),
+            })
+          const label = t(state === 'storing' ? 'problemFix.storing' : state === 'stale' ? 'problemFix.checkAgain'
+            : noOutput ? 'problems.action.modelStorage' : 'problemFix.useProjectDefaultForAll')
+          return <figure class="dinkster-canvas-example dinkster-problem-fixes-example" data-testid={`save-target-fix-${state}`}>
+            <ProductPanel>
+              <ProblemsPanel app={app} diagnostics={() => [item]} compatSkips={() => []} fixes={{
+                forProblem: () => ({ label, labels: [t('problemFix.useProjectDefaultForAll'), t('problemFix.storing'),
+                  t('problemFix.checkAgain'), t('problems.action.modelStorage')], disabled: state === 'storing', run: () => {} }),
+                all: () => state === 'offered' || state === 'storing' ? {
+                  label: t(state === 'storing' ? 'problemFix.storing' : 'problemFix.fixAll'),
+                  labels: [t('problemFix.fixAll'), t('problemFix.storing')], disabled: state === 'storing', run: () => {},
+                } : undefined,
+              }} />
+            </ProductPanel>
+            <figcaption class="dinkster-metadata">{state === 'offered'
+              ? 'One fix covers all stored save targets whose mounts are missing. Names stay unchanged; Undo restores the targets together.'
+              : state === 'storing' ? 'Storing disables the group action and Fix all while the same batch is in flight.'
+              : state === 'stale' ? 'A changed workflow or mount snapshot needs Check again before anything is stored.'
+              : 'Without a ready project output, the same missing-target entry opens Storage. Fix all is absent; a ready output restores the fix without reopening.'}</figcaption>
+          </figure>
+        }}</For>
+        <figure class="dinkster-canvas-example dinkster-automatic-fixes-example" data-testid="automatic-fixes-settings">
+          <h3 class="dinkster-heading">Automatic fixes</h3>
+          <SettingsDialog settings={settings} commands={commands} keybindings={keybindings}
+            request={{ category: 'automaticFixes', id: 'automaticFixes.numberOutsideLimits' }} />
+          <figcaption class="dinkster-metadata">Personal settings, outside the workflow. Every kind starts on Apply; only the two wire-removal kinds offer a second choice.</figcaption>
+        </figure>
     </div>
   )
 }
