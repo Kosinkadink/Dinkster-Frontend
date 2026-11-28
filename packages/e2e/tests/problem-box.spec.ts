@@ -144,8 +144,24 @@ test('a problem outlines its row and the tab opens one box under the node', asyn
   expect(overlaps(boxRect, nodes.node)).toBe(false)
   for (const pin of nodes.pins) expect(overlaps(boxRect, pin)).toBe(false)
 
-  // Zoomed out past the tabs, the open box is not drawn; it returns with them.
+  // Panning to either edge moves the box inside the canvas without squeezing it.
   const viewport = await page.evaluate(() => window.__dinksterTest!.renderer!.getViewport())
+  for (const edge of ['right', 'left'] as const) {
+    await page.evaluate((edge) => {
+      const renderer = window.__dinksterTest!.renderer!
+      const node = renderer.getScene().nodes.find((item) => item.id === 'gen')!
+      const width = document.querySelector('[data-testid=graph-canvas]')!.clientWidth
+      renderer.setViewport({ ...renderer.getViewport(), x: (edge === 'right' ? width - 50 : -80) - node.x })
+    }, edge)
+    await expect.poll(async () => {
+      const bounds = await box.boundingBox()
+      const canvas = await page.getByTestId('graph-canvas').boundingBox()
+      return bounds !== null && canvas !== null && bounds.x >= canvas.x + 16
+        && bounds.x + bounds.width <= canvas.x + canvas.width - 16
+    }).toBe(true)
+    expect((await box.boundingBox())!.width).toBeCloseTo(rect!.width, 0)
+  }
+  await page.evaluate((viewport) => window.__dinksterTest!.renderer!.setViewport(viewport), viewport)
   await page.evaluate(() => {
     window.__dinksterTest!.app.settings.set('canvas.detailMode', 'fixed')
     window.__dinksterTest!.app.settings.set('canvas.detailMinPercent', 50)
