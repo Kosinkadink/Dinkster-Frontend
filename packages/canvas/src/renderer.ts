@@ -1702,6 +1702,22 @@ export class CanvasRenderer {
     return layoutNodeBadges(node, this.badges[node.id] ?? [], this.badgeLayoutOptions(node))
   }
 
+  /** The words actually painted, so help can distinguish a full label from a cut or hidden one. */
+  getBadgeText(entry: BadgePlacement): string {
+    const { badge } = entry
+    if (badge.placement === 'title') return badge.count === undefined ? '' : String(badge.count)
+    if (entry.compact && badge.icon !== undefined) return ''
+    const ctx = this.canvas.getContext('2d')!
+    const paint = { ...canvasPaintTokens.badge.tab, ...this.tokens.badgeTab }
+    const width = entry.overflow ? entry.width : Math.max(0, entry.width - paint.padding * 2 -
+      (badge.icon === undefined ? 0 : paint.iconSize + paint.iconGap))
+    ctx.save()
+    ctx.font = `${canvasPaintTokens.type.semiboldWeight} ${paint.fontSize}px ${this.tokens.fontFamily}`
+    const text = fitText(ctx, badge.glyph, width)
+    ctx.restore()
+    return text
+  }
+
   private nodeDecorations: Readonly<Record<string, NodeDecoration>> = {}
 
   setNodeDecorations(decorations: Readonly<Record<string, NodeDecoration>>): void {
@@ -3718,7 +3734,7 @@ export class CanvasRenderer {
         if (badge.count !== undefined) ctx.fillText(String(badge.count), x + mark.padding + mark.iconSize + mark.gap, textY)
       } else if (entry.overflow) {
         ctx.textAlign = 'center'
-        ctx.fillText(fitText(ctx, badge.glyph, width), x + width / 2, textY)
+        ctx.fillText(this.getBadgeText(entry), x + width / 2, textY)
       } else {
         let textX = x + paint.padding
         if (badge.icon !== undefined) {
@@ -3726,7 +3742,7 @@ export class CanvasRenderer {
           textX += paint.iconSize + paint.iconGap
         }
         if (!entry.compact || badge.icon === undefined) {
-          ctx.fillText(fitText(ctx, badge.glyph, Math.max(0, x + width - paint.padding - textX)), textX, textY)
+          ctx.fillText(this.getBadgeText(entry), textX, textY)
         }
       }
       ctx.restore()

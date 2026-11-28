@@ -539,7 +539,7 @@ function ExampleCard(props: {
     paintLabels()
     let removeListeners: (() => void) | undefined
     if (Object.keys(fixture.badges).length > 0) {
-      const hit = (event: PointerEvent | MouseEvent) => {
+      const hit = (event: PointerEvent | MouseEvent, includePresentation = false) => {
         const rect = canvas.getBoundingClientRect()
         return hitTestBadge(
           renderer.getScene(),
@@ -547,16 +547,23 @@ function ExampleCard(props: {
           (event.clientX - rect.left) / scale + origin.x,
           (event.clientY - rect.top) / scale + origin.y,
           (node) => renderer.getNodeBadgeLayout(node),
+          includePresentation,
         )
       }
       let hovered: string | undefined
       const hover = (event: PointerEvent) => {
-        const target = event.type === 'pointerleave' ? undefined : hit(event)
+        const target = event.type === 'pointerleave' ? undefined : hit(event, true)
+        renderer.setOverlay({
+          ...fixture.overlay,
+          ...(target && target.badge.interactive !== false ? { hoveredBadge: { nodeId: target.node.id, badgeId: target.badge.id } } : {}),
+        })
+        renderer.renderNow()
         const key = target && `${target.node.id}:${target.badge.id}`
         if (key !== hovered) {
           hovered = key
           props.tooltips.hideMatching(() => true, canvas)
-          if (target) {
+          const entry = target && renderer.getNodeBadgeLayout(target.node).find((entry) => entry.badge.id === target.badge.id)
+          if (target && entry && (entry.overflow || renderer.getBadgeText(entry) !== target.badge.glyph)) {
             const label = (target.overflow ?? [target.badge]).map((badge) => badge.glyph).join(', ')
             props.tooltips.show(label, {
               x: event.clientX,
@@ -571,18 +578,6 @@ function ExampleCard(props: {
             }, false, false, canvas)
           }
         }
-        renderer.setOverlay({
-          ...fixture.overlay,
-          ...(target
-            ? {
-                hoveredBadge: {
-                  nodeId: target.node.id,
-                  badgeId: target.badge.id,
-                },
-              }
-            : {}),
-        })
-        renderer.renderNow()
       }
       const activate = (event: MouseEvent) => props.onBadge(hit(event))
       canvas.addEventListener('pointermove', hover)

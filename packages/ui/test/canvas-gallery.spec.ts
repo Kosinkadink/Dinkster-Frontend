@@ -1400,10 +1400,21 @@ for (const theme of ['dark', 'light'] as const) {
         )
         if (id === 'run-editable' || id === 'run-frozen') {
           const running = page.getByTestId(`canvas-${id}-1`)
+          await page.clock.install()
           await running.hover({ position: { x: 45, y: 185 } })
-          const tooltip = page.getByRole('tooltip')
-          await expect(tooltip).toHaveText('Running')
+          await page.clock.fastForward(1000)
+          await expect(page.getByRole('tooltip')).toHaveCount(0)
           await expect(running).not.toHaveAttribute('title')
+        }
+        if (id === 'badges') {
+          await page.clock.install()
+          await page.getByTestId('canvas-badges-0').hover({ position: { x: 39, y: 280 } })
+          await page.clock.fastForward(1000)
+          await expect(page.getByRole('tooltip')).toHaveCount(0)
+          await page.getByTestId('canvas-badges-2').hover({ position: { x: 45, y: 185 } })
+          await page.clock.fastForward(1000)
+          const tooltip = page.getByRole('tooltip')
+          await expect(tooltip).toHaveText('Blocked: Missing image')
           await page.keyboard.press('Escape')
           await expect(tooltip).toHaveCount(0)
         }

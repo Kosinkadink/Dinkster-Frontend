@@ -341,6 +341,7 @@ export interface BadgeHit {
 /** Topmost badge under a world point (nodes drawn later win, like hitTest). */
 export function hitTestBadge(scene: Scene, badges: BadgeMap, wx: number, wy: number,
   layout: (node: SceneNode, badges: readonly NodeBadge[]) => readonly BadgePlacement[],
+  includePresentation = false,
 ): BadgeHit | undefined {
   for (let i = scene.nodes.length - 1; i >= 0; i--) {
     const node = scene.nodes[i]!
@@ -352,7 +353,7 @@ export function hitTestBadge(scene: Scene, badges: BadgeMap, wx: number, wy: num
       // points no resting tab covers.
       for (const grown of [false, true]) for (let index = entries.length - 1; index >= 0; index--) {
         const entry = entries[index]!
-        if (entry.badge.interactive === false || (grown && !entry.rest)) continue
+        if ((!includePresentation && entry.badge.interactive === false) || (grown && !entry.rest)) continue
         const target = grown ? entry : entry.rest ?? entry
         // The title mark is drawn small; its target grows to the mark's hit size.
         const grow = entry.badge.placement === 'title'
