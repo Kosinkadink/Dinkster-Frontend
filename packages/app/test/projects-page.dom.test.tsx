@@ -158,6 +158,12 @@ it('shows recorded history newest first and keeps current generations, imports a
   await settle()
   expect(document.body.textContent).toContain('No recorded installation history')
   expect(document.body.textContent).not.toContain('Recorded history cannot be read')
+  unavailable = true
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(document.body.textContent).toContain('Recorded history cannot be read')
+  expect(document.body.textContent).not.toContain('No recorded installation history')
+  unavailable = false
   empty = false
   nightlyHistory.history[1]!.reason = 'rollback'
   globalThis.dispatchEvent(new Event('focus'))

@@ -68,7 +68,7 @@ function SelectedInstallationHistory(props: { readonly root: string }) {
 
   return <ProductProjectSection title={message('installations.history.title')}>
     <ProductPageLoad page={page} read={read} loadingLabel={message('installations.history.loading')}>
-      {(record) => <Show when={record.history.length} fallback={<ProductEmptyState message={message('installations.history.empty')} />}>
+      {(record) => <Show when={record.history.length} fallback={<Show when={!page.error()}><ProductEmptyState message={message('installations.history.empty')} /></Show>}>
         <ProductList label={message('installations.history.title')}>
           <For each={[...record.history].reverse()}>{(entry) => <ProductListRow title={title(entry)}
             description={<time dateTime={entry.timestamp}>{new Date(entry.timestamp).toLocaleString(locale().tag, { dateStyle: 'medium', timeStyle: 'short' })}</time>}
