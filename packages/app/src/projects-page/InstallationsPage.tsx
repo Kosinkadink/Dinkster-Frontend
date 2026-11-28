@@ -5,6 +5,7 @@ import {
   ProductErrorBanner,
   ProductList,
   ProductListRow,
+  ProductNotice,
   ProductPageAnswer,
   ProductPageLoad,
   ProductProjectFacts,
@@ -16,7 +17,7 @@ import {
   ProductTextButton,
   ProductToast,
 } from '@dinkster/ui'
-import { activeLocale } from '@dinkster/core'
+import { activeLocale, formatByteSize } from '@dinkster/core'
 import { requestFailure, requestFetch } from '@dinkster/client'
 import { useAppMessage } from '../locale.js'
 import { useSignal } from '../solid-adapter.js'
@@ -30,7 +31,12 @@ import { setupJobActive } from '../setup-job.js'
 const fetchRequest = requestFetch((url, init) => fetch(url, init))
 
 interface InstallationFacts {
-  readonly build: { readonly version: string; readonly variant: string } | null
+  readonly host: { readonly kind: 'local' | 'wsl'; readonly distribution?: string }
+  readonly build: { readonly version: string; readonly variant: string; readonly label: string } | null
+}
+
+interface InstallationSpace {
+  readonly space: { readonly allocatedBytes: number | null; readonly store: string | null }
 }
 
 interface InstallationHistory {
@@ -90,6 +96,8 @@ function SelectedInstallationHistory(props: { readonly root: string; readonly re
 function SelectedInstallationFacts(props: { readonly root: string; readonly revision?: number | undefined }) {
   const message = useAppMessage()
   const page = createPageLoad<InstallationFacts>()
+  const space = createPageLoad<InstallationSpace>()
+  const [dismissedSpace, setDismissedSpace] = createSignal<Error>()
   const read = async () => {
     try {
       const response = await fetchRequest(`/supervisor/installations/facts?${new URLSearchParams({ root: props.root })}`, { cache: 'no-store' })
@@ -99,22 +107,46 @@ function SelectedInstallationFacts(props: { readonly root: string; readonly revi
       throw new Error(failureMessage(failure))
     }
   }
-  const refresh = () => { void page.load(read) }
+  const readSpace = async () => {
+    try {
+      const response = await fetchRequest(`/supervisor/installations/space?${new URLSearchParams({ root: props.root })}`, { cache: 'no-store' })
+      if (!response.ok) throw await requestFailure(response)
+      return await response.json() as InstallationSpace
+    } catch (failure) {
+      throw new Error(failureMessage(failure))
+    }
+  }
+  const refresh = () => { void page.load(read); void space.load(readSpace) }
   createEffect(() => { void props.revision; refresh() })
   onMount(() => {
     globalThis.addEventListener('focus', refresh)
     onCleanup(() => globalThis.removeEventListener('focus', refresh))
   })
 
-  return <ProductPageLoad page={page} read={read} loadingLabel={message('installations.factsLoading')}>
+  return <>
+    <Show when={space.error() !== dismissedSpace() && space.error()}>{(error) =>
+      <ProductErrorBanner onDismiss={() => setDismissedSpace(error())}>{error().message}</ProductErrorBanner>}</Show>
+    <ProductPageLoad page={page} read={read} loadingLabel={message('installations.factsLoading')}>
     {(facts) => <ProductProjectFacts label={message('installations.facts')} columns={[
       [
         { label: message('setup.folder'), value: props.root },
-        { label: message('setup.build'), value: facts.build?.variant ?? message('installations.noSelectedBuild') },
+        { label: message('installations.host'), value: facts.host.kind === 'wsl' ? 'WSL2' : message('resources.thisComputer'), detail: facts.host.distribution },
+        { label: message('setup.build'), value: facts.build?.label ?? message('installations.noSelectedBuild') },
       ],
-      [{ label: message('installations.version'), value: facts.build?.version ?? message('installations.noSelectedBuild') }],
+      [
+        { label: message('installations.version'), value: facts.build?.version ?? message('installations.noSelectedBuild') },
+        { label: message('installations.size'), value: <Show when={!space.pending()} fallback={message('installations.sizeLoading')}>
+          <Show when={!space.error() && space.value()?.space.allocatedBytes !== null && space.value()} fallback={message('installations.sizeUnknown')}>
+            {(result) => formatByteSize(result().space.allocatedBytes!)}
+          </Show>
+        </Show>, action: <Show when={space.error()}><ProductTextButton label={message('common.tryAgain')} disabled={space.pending()} onClick={() => { void space.load(readSpace) }} /></Show> },
+      ],
     ]} />}
   </ProductPageLoad>
+    <Show when={page.value() && space.value() && !space.error() && !space.pending()}>
+      <ProductNotice>{message(space.value()!.space.store === null ? 'installations.sizeScope' : 'installations.sizeSharedScope')}</ProductNotice>
+    </Show>
+  </>
 }
 
 export function InstallationsView(props: {

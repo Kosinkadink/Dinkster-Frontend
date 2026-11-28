@@ -20,8 +20,9 @@ function installationFactsReply(input: unknown): Response | undefined {
   const url = new URL(String(input), 'http://localhost')
   if (url.pathname === '/supervisor/setup/active') return Response.json({ activeJob: null })
   if (url.pathname.endsWith('/history')) return Response.json({ root: url.searchParams.get('root'), current: null, history: [] })
+  if (url.pathname.endsWith('/space')) return Response.json({ root: url.searchParams.get('root'), space: { allocatedBytes: 0, store: null } })
   return url.pathname.endsWith('/facts')
-    ? Response.json({ root: url.searchParams.get('root'), current: 1, build: { version: '0.0.19', variant: 'linux-cpu' }, engines: [] })
+    ? Response.json({ root: url.searchParams.get('root'), host: { kind: 'local' }, current: 1, build: { version: '0.0.19', variant: 'linux-cpu', label: 'CPU only' }, engines: [] })
     : undefined
 }
 
@@ -178,16 +179,26 @@ it('shows recorded history newest first and keeps current generations, imports a
 it('keeps recorded facts with their selected installation through late replies, failures and retry', async () => {
   let finishStable: (response: Response) => void = () => {}
   let stableRead = new Promise<Response>((resolve) => { finishStable = resolve })
+  let finishStableSpace: (response: Response) => void = () => {}
+  let stableSpace = new Promise<Response>((resolve) => { finishStableSpace = resolve })
+  let size: number | null = 3 * 1024 ** 3
+  let sizeUnavailable = false
   let nightlyUnavailable = false
   let noBuild = false
   vi.stubGlobal('fetch', vi.fn(async (input) => {
     const url = new URL(String(input), 'http://localhost')
+    if (url.pathname.endsWith('/space')) {
+      if (url.searchParams.get('root') === stable.root) return stableSpace
+      return sizeUnavailable
+        ? Response.json({ error: 'space-unavailable', message: 'Allocation cannot be measured' }, { status: 503 })
+        : Response.json({ root: nightly.root, space: { allocatedBytes: size, observedAllocatedBytes: 17, complete: size !== null, store: '/shared/software' } })
+    }
     if (url.pathname.endsWith('/facts')) {
       if (url.searchParams.get('root') === stable.root) return stableRead
       return nightlyUnavailable
         ? Response.json({ error: 'facts-unavailable', message: 'Selected snapshot cannot be read' }, { status: 503 })
-        : Response.json({ root: nightly.root, current: noBuild ? null : 7,
-          build: noBuild ? null : { version: '0.3.7', variant: 'linux-cuda128' }, engines: [] })
+        : Response.json({ root: nightly.root, host: { kind: 'wsl', distribution: 'Dinkster-Desktop' }, current: noBuild ? null : 7,
+          build: noBuild ? null : { version: '0.3.7', variant: 'linux-cuda128', label: 'NVIDIA graphics' }, engines: [] })
     }
     return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
   }))
@@ -199,15 +210,25 @@ it('keeps recorded facts with their selected installation through late replies, 
   await settle()
   const facts = () => document.querySelector('[aria-label="About this installation"]')!
   expect(facts().textContent).toContain(nightly.root)
-  expect(facts().textContent).toContain('linux-cuda128')
+  expect(facts().textContent).toContain('NVIDIA graphics')
+  expect(facts().textContent).toContain('WSL2')
+  expect(facts().textContent).toContain('Dinkster-Desktop')
+  expect(facts().textContent).toContain('3 GB')
+  expect(document.body.textContent).toContain('Size includes the shared software store')
   expect(facts().textContent).toContain('0.3.7')
-  finishStable(Response.json({ root: stable.root, current: 2, build: { version: '0.1.2', variant: 'linux-cpu' }, engines: [] }))
+  finishStable(Response.json({ root: stable.root, host: { kind: 'local' }, current: 2, build: { version: '0.1.2', variant: 'linux-cpu', label: 'CPU only' }, engines: [] }))
+  finishStableSpace(Response.json({ root: stable.root, space: { allocatedBytes: 9 * 1024 ** 3, store: null } }))
   await settle()
   expect(facts().textContent).not.toContain('0.1.2')
-  stableRead = Promise.resolve(Response.json({ root: stable.root, current: 2, build: { version: '0.1.2', variant: 'linux-cpu' }, engines: [] }))
+  expect(facts().textContent).not.toContain('9 GB')
+  stableRead = Promise.resolve(Response.json({ root: stable.root, host: { kind: 'local' }, current: 2, build: { version: '0.1.2', variant: 'linux-cpu', label: 'CPU only' }, engines: [] }))
+  stableSpace = Promise.resolve(Response.json({ root: stable.root, space: { allocatedBytes: 0, store: null } }))
   document.querySelectorAll<HTMLElement>('[data-project-selection]')[0]!.click()
   await settle()
   expect(facts().textContent).toContain('0.1.2')
+  expect(facts().textContent).toContain('This computer')
+  expect(facts().textContent).toContain('CPU only')
+  expect(facts().textContent).toContain('0 B')
   nightlyUnavailable = true
   document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
   await settle()
@@ -223,6 +244,24 @@ it('keeps recorded facts with their selected installation through late replies, 
   globalThis.dispatchEvent(new Event('focus'))
   await settle()
   expect(facts().textContent).toContain('0.3.7')
+  size = null
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(facts().textContent).toContain('Not known')
+  expect(facts().textContent).not.toContain('17 B')
+  expect(facts().textContent).not.toContain('0 B')
+  sizeUnavailable = true
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(document.body.textContent).toContain('Allocation cannot be measured')
+  expect(facts().textContent).toContain('0.3.7')
+  expect(facts().textContent).toContain('Not known')
+  sizeUnavailable = false
+  size = 2 * 1024 ** 3
+  ;[...facts().querySelectorAll('button')].find((button) => button.textContent === 'Try again')!.click()
+  await settle()
+  expect(facts().textContent).toContain('2 GB')
+  expect(document.body.textContent).not.toContain('Allocation cannot be measured')
   dispose()
 })
 
@@ -1173,7 +1212,7 @@ it.each(['completed', 'failed'] as const)('requires reviewed Restore consent and
       { id: 17, generation: 1, kind: 'activation', reason: 'setup', timestamp: '2026-11-01T00:00:00Z', snapshot: { engine: { version: '1.7' } } },
       { id: 24, generation: 2, kind: 'activation', reason: 'update', timestamp: '2026-11-02T00:00:00Z', snapshot: { engine: { version: '2.0' } } },
     ] })
-    if (url.pathname.endsWith('/facts') && root === stable.root) return Response.json({ build: { version: restored ? '1.7-restored' : '2.0', variant: 'linux-cpu' } })
+    if (url.pathname.endsWith('/facts') && root === stable.root) return Response.json({ host: { kind: 'local' }, build: { version: restored ? '1.7-restored' : '2.0', variant: 'linux-cpu', label: 'CPU only' } })
     return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
   })
   const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable, nightly], engine: 'stopped' }) }} />, document.body)
