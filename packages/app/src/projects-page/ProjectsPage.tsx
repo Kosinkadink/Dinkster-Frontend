@@ -35,6 +35,7 @@ import {
   createPageLoad,
   ProductPageAnswer,
   ProductPageLoad,
+  ProductPath,
   ProductProjectFacts,
   ProductProjectHeader,
   ProductProjectListHeader,
@@ -66,6 +67,7 @@ import './projects-page.css'
 import { byProjectTime, formatWhen, projectTime } from './project-facts.js'
 import { WorkflowPicture } from './workflow-picture.js'
 import { EngineLogDialog } from '../EngineRunControl.js'
+import { InstallationsView } from './InstallationsPage.js'
 import { failureMessage } from '../request-failure.js'
 import { templateCollectionSource, type TemplateCollectionRef } from '../collections.js'
 import { RemoteTemplateCatalog } from '../template-catalog.js'
@@ -376,6 +378,9 @@ export function ProjectsPage(props: { readonly shell: ProjectsPageShell }) {
             <Match when={place() === 'projects'}>
               <ProjectsView shell={props.shell} source={source} onCount={setCount} onEngine={setEngine} onSetupStatusChange={setSetupStatus} />
             </Match>
+            <Match when={place() === 'installations'}>
+              <InstallationsView source={source} onEngine={setEngine} onSetupStatusChange={setSetupStatus} />
+            </Match>
             <Match when={true}>
               <ProductProjectsView>
                 <ProductProjectHeader title={message(`projects.place.${place()}`)} />
@@ -635,7 +640,7 @@ export function ProjectsView(props: {
     const locationFacts = createMemo(() => [
       ...(project().filesFolder || project().folder ? [{
         label: message('projects.facts.filesFolder'),
-        value: <ProductPageAnswer page={page}>{project().filesFolder ?? project().folder}</ProductPageAnswer>,
+        value: <ProductPageAnswer page={page}><ProductPath value={(project().filesFolder ?? project().folder)!} /></ProductPageAnswer>,
         action: <Show when={installations()?.openFolder}>
           <ProductTextButton label={message('projects.facts.showInFolder')} onClick={() => {
             setFolderFailed(undefined)

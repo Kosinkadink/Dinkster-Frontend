@@ -3,7 +3,9 @@ import {
   Index,
   Show,
   createContext,
+  createEffect,
   createMemo,
+  createSignal,
   createUniqueId,
   mergeProps,
   onCleanup,
@@ -40,6 +42,27 @@ export function ProductProjectsView(props: {
   back?: { label: string; onSelect: () => void; disabled?: boolean }
 }) {
   let backButton: HTMLDivElement | undefined
+  let viewport!: HTMLDivElement
+  const keepVisibleFocus = (target: EventTarget | null) => {
+    const panel = (target as Element | null)?.closest('.dinkster-projects-panel')
+    if (!panel) return
+    // Selection can hide the focused pane after its row handler has run.
+    queueMicrotask(() => {
+      if (
+        !viewport.isConnected ||
+        panel.getClientRects().length ||
+        (document.activeElement !== document.body &&
+          !panel.contains(document.activeElement))
+      )
+        return
+      const destination = panel.matches('.dinkster-projects-list')
+        ? backButton?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+        : viewport.querySelector<HTMLElement>(
+            '[data-project-selection][tabindex="0"]',
+          )
+      if (destination?.getClientRects().length) destination.focus()
+    })
+  }
   return (
     <ProjectBack.Provider
       value={() => (
@@ -58,8 +81,11 @@ export function ProductProjectsView(props: {
       )}
     >
       <div
+        ref={viewport}
         class="dinkster-projects-viewport"
+        onClick={(event) => keepVisibleFocus(event.target)}
         onKeyDown={(event) => {
+          keepVisibleFocus(event.target)
           if (
             event.key !== 'Escape' ||
             event.defaultPrevented ||
@@ -450,6 +476,74 @@ export interface ProductProjectFact {
   value: JSX.Element
   detail?: string | undefined
   action?: JSX.Element
+}
+
+/** A selectable path keeps its final folder visible and reveals the full value when clipped. */
+export function ProductPath(props: { value: string }) {
+  let path!: HTMLElement
+  let text!: HTMLSpanElement
+  const [displayed, setDisplayed] = createSignal(props.value)
+  const shortened = () => displayed() !== props.value
+  const measure = () => {
+    if (!path.isConnected) return
+    const value = props.value
+    text.textContent = value
+    if (text.getBoundingClientRect().width <= path.clientWidth) {
+      setDisplayed(value)
+      return
+    }
+    const characters = Array.from(value)
+    const split = Math.max(
+      characters.lastIndexOf('/'),
+      characters.lastIndexOf('\\'),
+    )
+    const ending = characters.length - split
+    // Keep the complete final folder when it fits; unusually long names retain their end.
+    let low = 0
+    let high = characters.length
+    let fitted = '...'
+    while (low < high) {
+      const keep = Math.ceil((low + high) / 2)
+      const tail = Math.min(keep - 1, Math.max(ending, Math.ceil(keep / 2)))
+      const head = keep - tail
+      text.textContent =
+        characters.slice(0, head).join('') +
+        '...' +
+        characters.slice(characters.length - tail).join('')
+      if (text.getBoundingClientRect().width <= path.clientWidth) {
+        fitted = text.textContent
+        low = keep
+      } else high = keep - 1
+    }
+    setDisplayed(fitted)
+  }
+  createEffect(() => {
+    props.value
+    queueMicrotask(measure)
+  })
+  onMount(() => {
+    const observer = new ResizeObserver(measure)
+    observer.observe(path)
+    void document.fonts?.ready.then(measure)
+    onCleanup(() => observer.disconnect())
+  })
+  return (
+    <code
+      ref={path}
+      class="dinkster-path"
+      tabIndex={shortened() ? 0 : undefined}
+      data-tooltip-label={shortened() ? props.value : undefined}
+      onCopy={(event) => {
+        if (!event.clipboardData) return
+        event.clipboardData.setData('text/plain', props.value)
+        event.preventDefault()
+      }}
+    >
+      <span class="dinkster-path-measure" aria-hidden="true" ref={text} />
+      <span class="dinkster-visually-hidden">{props.value}</span>
+      <span aria-hidden="true">{displayed()}</span>
+    </code>
+  )
 }
 
 /**

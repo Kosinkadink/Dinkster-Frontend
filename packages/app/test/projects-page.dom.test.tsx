@@ -4,8 +4,9 @@ import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { asConnectionId, loadDocument, setLocale, type CollectionEntry, type WorkflowDocument } from '@dinkster/core'
-import { DinksterConnection, RequestFailure, type LibraryProject, type ProjectCreation } from '@dinkster/client'
+import { DinksterConnection, RequestFailure, subscribeRequestFailures, type LibraryProject, type ProjectCreation } from '@dinkster/client'
 import '../src/locale.js'
+import { InstallationsView } from '../src/projects-page/InstallationsPage.js'
 import {
   processSource,
   ProjectsPage,
@@ -15,8 +16,18 @@ import {
   type ProjectsSource,
 } from '../src/projects-page/ProjectsPage.js'
 
+function installationFactsReply(input: unknown): Response | undefined {
+  const url = new URL(String(input), 'http://localhost')
+  if (url.pathname === '/supervisor/setup/active') return Response.json({ activeJob: null })
+  if (url.pathname.endsWith('/history')) return Response.json({ root: url.searchParams.get('root'), current: null, history: [] })
+  if (url.pathname.endsWith('/space')) return Response.json({ root: url.searchParams.get('root'), space: { allocatedBytes: 0, store: null } })
+  return url.pathname.endsWith('/facts')
+    ? Response.json({ root: url.searchParams.get('root'), host: { kind: 'local' }, current: 1, build: { version: '0.0.19', variant: 'linux-cpu', label: 'CPU only' }, engines: [] })
+    : undefined
+}
+
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+  vi.stubGlobal('fetch', vi.fn(async (input) => installationFactsReply(input) ?? new Response(JSON.stringify({
     plan: { id: 'p1', root: '/install/nightly', channel: 'nightly', variant: 'linux-nvidia',
       buildLabel: 'NVIDIA graphics card build', buildReason: 'Supported card',
       engineRelease: 'r1', baseId: 'b1', detectedCards: [], choices: [], gpus: [],
@@ -92,8 +103,420 @@ const projects = [
 ]
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
-const rows = () => [...document.querySelectorAll('[role="option"]')].map((row) => row.textContent)
+const rows = () => [...document.querySelectorAll('[data-project-selection]')].map((row) => row.textContent)
 const loading = (label: string) => [...document.querySelectorAll('[role="status"]')].find((node) => node.textContent === label)
+
+it('shows recorded history newest first and keeps current generations, imports and failures distinct across roots', async () => {
+  let finishStable: (response: Response) => void = () => {}
+  let stableRead = new Promise<Response>((resolve) => { finishStable = resolve })
+  let unavailable = false
+  let empty = false
+  const entry = (id: number, generation: number, reason: string, version: string, kind: 'activation' | 'import' = 'activation') => ({
+    id, generation, reason, kind, timestamp: `2026-11-${10 + id}T12:34:00Z`, snapshot: { engine: { version } },
+  })
+  const nightlyHistory = {
+    current: 4,
+    history: [entry(1, 4, 'legacy-import', '0.1.0', 'import'), entry(2, 9, 'update', '0.2.0'),
+      entry(3, 4, 'restore', '0.3.0'), entry(4, 12, 'new-operation', '0.7.0')],
+  }
+  vi.stubGlobal('fetch', vi.fn(async (input) => {
+    const url = new URL(String(input), 'http://localhost')
+    if (url.pathname.endsWith('/history')) {
+      if (url.searchParams.get('root') === stable.root) return stableRead
+      return unavailable ? Response.json({ error: 'history-unavailable', message: 'Recorded history cannot be read' }, { status: 503 })
+        : Response.json(empty ? { current: null, history: [] } : nightlyHistory)
+    }
+    return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable, nightly], engine: 'stopped' }) }} />, document.body)
+  await settle()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
+  await settle()
+  const history = () => document.querySelector('[aria-label="History"]')!
+  const items = () => [...history().querySelectorAll('li')]
+  expect(items().map((row) => row.textContent)).toEqual([
+    expect.stringContaining('Recorded version 0.7.0'), expect.stringContaining('Restored to 0.3.0'),
+    expect.stringContaining('Updated to 0.2.0'), expect.stringContaining('Imported record of 0.1.0'),
+  ])
+  expect(items().filter((row) => row.textContent?.includes('Current')).map((row) => row.textContent)).toEqual([
+    expect.stringContaining('Restored to 0.3.0'),
+  ])
+  expect(items()[0]!.querySelector('time')?.dateTime).toBe('2026-11-14T12:34:00Z')
+  finishStable(Response.json({ current: 1, history: [entry(1, 1, 'setup', '9.9.9')] }))
+  await settle()
+  expect(history().textContent).not.toContain('9.9.9')
+  stableRead = Promise.resolve(Response.json({ current: 1, history: [entry(1, 1, 'setup', '9.9.9')] }))
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[0]!.click()
+  await settle()
+  expect(history().textContent).toContain('Set up with 9.9.9')
+  unavailable = true
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
+  await settle()
+  expect(document.body.textContent).toContain('Recorded history cannot be read')
+  expect(document.body.textContent).not.toContain('No recorded installation history')
+  unavailable = false
+  empty = true
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Try again')!.click()
+  await settle()
+  expect(document.body.textContent).toContain('No recorded installation history')
+  expect(document.body.textContent).not.toContain('Recorded history cannot be read')
+  unavailable = true
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(document.body.textContent).toContain('Recorded history cannot be read')
+  expect(document.body.textContent).not.toContain('No recorded installation history')
+  unavailable = false
+  empty = false
+  nightlyHistory.history[1]!.reason = 'rollback'
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(history().textContent).toContain('Restored to 0.3.0')
+  expect(history().textContent).toContain('Restored previous version 0.2.0')
+  expect(history().textContent).not.toContain('Rolled back')
+  dispose()
+})
+
+it('opens only the selected installation folder when supported and keeps failures dismissible until success', async () => {
+  let supported = false
+  const opened: string[] = []
+  const logged: RequestFailure[] = []
+  const unsubscribe = subscribeRequestFailures((failure) => logged.push(failure))
+  let finish: (response: Response) => void = () => {}
+  vi.stubGlobal('fetch', vi.fn(async (input, init) => {
+    if (String(input) === '/supervisor/installations/folder') {
+      if (init?.method !== 'POST') throw new Error('Folder opening requires POST')
+      const body = JSON.parse(String(init.body))
+      expect(Object.keys(body)).toEqual(['root'])
+      opened.push(body.root)
+      return new Promise<Response>((resolve) => { finish = resolve })
+    }
+    return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable, nightly], openFolder: supported }) }} />, document.body)
+  const action = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Show in folder')
+  await settle()
+  expect(action()).toBeUndefined()
+  supported = true
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  action()!.click()
+  expect(action()!.disabled).toBe(true)
+  expect(opened).toEqual([stable.root])
+  finish(Response.json({ error: 'folder-unavailable', message: 'File manager cannot open this folder' }, { status: 503 }))
+  await settle()
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain('Could not open the folder.')
+  expect(document.querySelector('[role="alert"]')?.textContent).not.toContain('File manager cannot open this folder')
+  expect(logged.some((failure) => failure.method === 'POST' && failure.path === '/supervisor/installations/folder'
+    && failure.status === 503 && failure.serverMessage === 'File manager cannot open this folder')).toBe(true)
+  const replayed: RequestFailure[] = []
+  subscribeRequestFailures((failure) => replayed.push(failure), true)()
+  expect(replayed.some((failure) => failure.serverMessage === 'File manager cannot open this folder')).toBe(true)
+  expect(action()!.disabled).toBe(false)
+  action()!.click()
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain('Could not open the folder.')
+  finish(Response.json({ folder: stable.root }))
+  await settle()
+  expect(document.querySelector('[role="alert"]')).toBeNull()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
+  await settle()
+  action()!.click()
+  expect(opened).toEqual([stable.root, stable.root, nightly.root])
+  finish(Response.json({ error: 'folder-unavailable', message: 'Selected folder disappeared' }, { status: 404 }))
+  await settle()
+  document.querySelector<HTMLButtonElement>('[role="alert"] button')!.click()
+  expect(document.querySelector('[role="alert"]')).toBeNull()
+  supported = false
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(action()).toBeUndefined()
+  unsubscribe()
+  dispose()
+})
+
+it('keeps recorded facts with their selected installation through late replies, failures and retry', async () => {
+  let finishStable: (response: Response) => void = () => {}
+  let stableRead = new Promise<Response>((resolve) => { finishStable = resolve })
+  let finishStableSpace: (response: Response) => void = () => {}
+  let stableSpace = new Promise<Response>((resolve) => { finishStableSpace = resolve })
+  let size: number | null = 3 * 1024 ** 3
+  let sizeUnavailable = false
+  let nightlyUnavailable = false
+  let noBuild = false
+  vi.stubGlobal('fetch', vi.fn(async (input) => {
+    const url = new URL(String(input), 'http://localhost')
+    if (url.pathname.endsWith('/space')) {
+      if (url.searchParams.get('root') === stable.root) return stableSpace
+      return sizeUnavailable
+        ? Response.json({ error: 'space-unavailable', message: 'Allocation cannot be measured' }, { status: 503 })
+        : Response.json({ root: nightly.root, space: { allocatedBytes: size, observedAllocatedBytes: 17, complete: size !== null, store: '/shared/software' } })
+    }
+    if (url.pathname.endsWith('/facts')) {
+      if (url.searchParams.get('root') === stable.root) return stableRead
+      return nightlyUnavailable
+        ? Response.json({ error: 'facts-unavailable', message: 'Selected snapshot cannot be read' }, { status: 503 })
+        : Response.json({ root: nightly.root, host: { kind: 'wsl', distribution: 'Dinkster-Desktop' }, current: noBuild ? null : 7,
+          build: noBuild ? null : { version: '0.3.7', variant: 'linux-cuda128', label: 'NVIDIA graphics' }, engines: [] })
+    }
+    return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({
+    all: [stable, nightly], open: stable, engine: 'ready',
+  }) }} />, document.body)
+  await settle()
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
+  await settle()
+  const facts = () => document.querySelector('[aria-label="About this installation"]')!
+  expect(facts().textContent).toContain(nightly.root)
+  expect(facts().textContent).toContain('NVIDIA graphics')
+  expect(facts().textContent).toContain('WSL2')
+  expect(facts().textContent).toContain('Dinkster-Desktop')
+  expect(facts().textContent).toContain('3 GB')
+  expect(document.body.textContent).toContain('Size includes the shared software store')
+  expect(facts().textContent).toContain('0.3.7')
+  finishStable(Response.json({ root: stable.root, host: { kind: 'local' }, current: 2, build: { version: '0.1.2', variant: 'linux-cpu', label: 'CPU only' }, engines: [] }))
+  finishStableSpace(Response.json({ root: stable.root, space: { allocatedBytes: 9 * 1024 ** 3, store: null } }))
+  await settle()
+  expect(facts().textContent).not.toContain('0.1.2')
+  expect(facts().textContent).not.toContain('9 GB')
+  stableRead = Promise.resolve(Response.json({ root: stable.root, host: { kind: 'local' }, current: 2, build: { version: '0.1.2', variant: 'linux-cpu', label: 'CPU only' }, engines: [] }))
+  stableSpace = Promise.resolve(Response.json({ root: stable.root, space: { allocatedBytes: 0, store: null } }))
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[0]!.click()
+  await settle()
+  expect(facts().textContent).toContain('0.1.2')
+  expect(facts().textContent).toContain('This computer')
+  expect(facts().textContent).toContain('CPU only')
+  expect(facts().textContent).toContain('0 B')
+  nightlyUnavailable = true
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
+  await settle()
+  expect(document.body.textContent).toContain('Selected snapshot cannot be read')
+  expect(document.querySelector('[aria-label="About this installation"]')).toBeNull()
+  nightlyUnavailable = false
+  noBuild = true
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Try again')!.click()
+  await settle()
+  expect(facts().textContent).toContain('No selected build')
+  expect(facts().textContent).not.toContain('0.3.7')
+  noBuild = false
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(facts().textContent).toContain('0.3.7')
+  size = null
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(facts().textContent).toContain('Not known')
+  expect(facts().textContent).not.toContain('17 B')
+  expect(facts().textContent).not.toContain('0 B')
+  sizeUnavailable = true
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(document.body.textContent).toContain('Allocation cannot be measured')
+  expect(facts().textContent).toContain('0.3.7')
+  expect(facts().textContent).toContain('Not known')
+  sizeUnavailable = false
+  size = 2 * 1024 ** 3
+  ;[...facts().querySelectorAll('button')].find((button) => button.textContent === 'Try again')!.click()
+  await settle()
+  expect(facts().textContent).toContain('2 GB')
+  expect(document.body.textContent).not.toContain('Allocation cannot be measured')
+  dispose()
+})
+
+it('selects installations independently of the running engine and opens setup in the detail pane', async () => {
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({
+    all: [stable, nightly], open: nightly, engine: 'ready',
+  }) }} />, document.body)
+  await settle()
+  expect(rows()).toEqual(['StableStopped', 'NightlyRunning'])
+  expect(document.querySelector('[aria-label="About this installation"]')?.textContent).toContain(stable.root)
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
+  await settle()
+  expect(document.querySelector('h2')?.textContent).toBe('Nightly')
+  expect(document.querySelector('[aria-label="About this installation"]')?.textContent).toContain(nightly.root)
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Set up'))!.click()
+  await settle()
+  expect(document.querySelector('[data-testid="setup-form"]')).not.toBeNull()
+  expect(document.querySelector('.dinkster-projects-detail')?.textContent).toContain('Set up Dinkster')
+  const back = document.querySelector<HTMLButtonElement>('.dinkster-projects-back button')!
+  expect(back.textContent).toBe('Installations')
+  back.click()
+  await settle()
+  expect(document.querySelector('[role="row"][aria-selected="true"] [data-project-selection]')?.textContent).toBe('NightlyRunning')
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[0]!.click()
+  await settle()
+  expect(document.querySelector('[data-testid="setup-form"]')).toBeNull()
+  expect(document.querySelector('h2')?.textContent).toBe('Stable')
+  dispose()
+})
+
+it('does not invent stopped status when the installation list is readable but engine status is not', async () => {
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable] }) }} />, document.body)
+  await settle()
+  expect(rows()).toEqual(['StableCould not read engine status'])
+  expect(document.querySelector('.dinkster-project-header')?.textContent).toContain('Could not read engine status')
+  dispose()
+})
+
+it('offers setup only after a failed installations read recovers to a known empty list', async () => {
+  let unavailable = true
+  const dispose = render(() => <InstallationsView source={{ installations: async () => {
+    if (unavailable) throw new Error('Registry is unavailable')
+    return { all: [] }
+  } }} />, document.body)
+  await settle()
+  expect(document.body.textContent).toContain('Registry is unavailable')
+  expect(document.querySelector('[data-testid="setup-form"]')).toBeNull()
+  unavailable = false
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Try again')!.click()
+  await settle()
+  expect(document.body.textContent).not.toContain('Registry is unavailable')
+  expect(document.querySelector('[data-testid="setup-form"]')).not.toBeNull()
+  dispose()
+})
+
+it('reads saved sandbox authority per installation and keeps unavailable prerequisites distinct from off', async () => {
+  let available = false
+  const saved = new Map([[stable.root, false], [nightly.root, true]])
+  vi.stubGlobal('fetch', vi.fn(async (input, init) => {
+    const facts = installationFactsReply(input)
+    if (facts) return facts
+    const url = new URL(String(input), 'http://localhost')
+    const root = url.searchParams.get('root')!
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body))
+      saved.set(body.root, body.sandboxPacks)
+      // The write happened even though its reply was lost.
+      throw new Error('Reply lost')
+    }
+    return Response.json(url.pathname.endsWith('/readiness')
+      ? { sandboxPacks: saved.get(root), available, detail: 'bubblewrap is missing' }
+      : { available: true, packs: [] })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable, nightly], engine: 'stopped' }) }} />, document.body)
+  await settle()
+  const toggle = () => document.querySelector<HTMLButtonElement>('[role="switch"]')!
+  expect(toggle().getAttribute('aria-checked')).toBe('false')
+  expect(toggle().disabled).toBe(true)
+  expect(document.querySelector('details')?.textContent).toContain('bubblewrap is missing')
+  available = true
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Check again')!.click()
+  await settle()
+  expect(toggle().disabled).toBe(false)
+  toggle().click()
+  await settle()
+  expect(toggle().getAttribute('aria-checked')).toBe('true')
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain('The engine did not answer.')
+  expect(document.body.textContent).toContain('Changes apply when the engine restarts.')
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[1]!.click()
+  await settle()
+  expect(toggle().getAttribute('aria-checked')).toBe('true')
+  toggle().click()
+  await settle()
+  expect(toggle().getAttribute('aria-checked')).toBe('false')
+  document.querySelectorAll<HTMLElement>('[data-project-selection]')[0]!.click()
+  await settle()
+  expect(toggle().getAttribute('aria-checked')).toBe('true')
+  dispose()
+})
+
+it('shows pack requests and edits all internet addresses with provenance and field-specific refusals', async () => {
+  let addresses = [{ address: 'https://models.example', source: 'pack' }, { address: 'https://mirror.example', source: 'user' }]
+  let packRead: Promise<void> | undefined
+  vi.stubGlobal('fetch', vi.fn(async (input, init) => {
+    const facts = installationFactsReply(input)
+    if (facts) return facts
+    const url = new URL(String(input), 'http://localhost')
+    if (url.pathname.endsWith('/readiness')) return Response.json({ sandboxPacks: true, available: true, detail: '' })
+    if (url.pathname.endsWith('/internet')) {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init.body))
+        if (body.address === 'bad') return Response.json({ error: 'invalid-request', message: 'Use an exact HTTPS origin' }, { status: 400 })
+        addresses = [...addresses, { address: body.address, source: 'user' }]
+      } else if (init?.method === 'DELETE') {
+        const body = JSON.parse(String(init.body))
+        addresses = addresses.filter((row) => row.address !== body.address)
+      }
+      return Response.json({ internetAddresses: addresses })
+    }
+    await packRead
+    return Response.json({ available: true, packs: [
+      { pack: 'Detector', graphicsCard: { requested: true, granted: true }, internetAddresses: addresses },
+      { pack: 'Local tools', graphicsCard: { requested: false, granted: false }, internetAddresses: [] },
+      { pack: 'Unreadable', graphicsCard: { requested: null, granted: null }, internetAddresses: null },
+    ] })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable], engine: 'stopped' }) }} />, document.body)
+  await settle()
+  const table = document.querySelector('table')!
+  expect([...table.querySelectorAll('tbody tr')].map((row) => row.textContent)).toEqual([
+    'DetectorUses it2 addresses', 'Local toolsNot used0 addresses', 'UnreadableNot knownNot known',
+  ])
+  expect(document.querySelectorAll('[role="switch"]')).toHaveLength(1)
+  ;[...table.querySelectorAll('button')].find((button) => button.textContent === '2 addresses')!.click()
+  await settle()
+  const dialog = () => document.querySelector('dialog')!
+  expect(dialog().textContent).toContain('https://models.exampleAsked by the pack')
+  expect(dialog().textContent).toContain('https://mirror.exampleAdded by you')
+  const input = () => dialog().querySelector('input')!
+  const enter = (value: string) => { input().value = value; input().dispatchEvent(new Event('input', { bubbles: true })) }
+  enter('bad')
+  dialog().querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await settle()
+  expect(input().getAttribute('aria-invalid')).toBe('true')
+  expect(document.getElementById(input().getAttribute('aria-describedby')!)?.textContent).toContain('Use an exact HTTPS origin')
+  enter('https://extra.example')
+  dialog().querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await settle()
+  expect(dialog().textContent).toContain('https://extra.exampleAdded by you')
+  ;[...dialog().querySelectorAll('li')].find((row) => row.textContent?.includes('https://models.example'))!.querySelector('button')!.click()
+  expect(dialog().textContent).toContain('Remove https://models.example')
+  ;[...dialog().querySelectorAll('button')].find((button) => button.textContent === 'Remove')!.click()
+  await settle()
+  expect(dialog().textContent).not.toContain('https://models.example')
+  expect(dialog().textContent).toContain('https://mirror.exampleAdded by you')
+  expect(dialog().textContent).toContain('https://extra.exampleAdded by you')
+  dialog().dispatchEvent(new Event('close'))
+  await settle()
+  const addressButton = [...document.querySelectorAll<HTMLButtonElement>('table button')]
+    .find((button) => button.textContent === '2 addresses')!
+  expect(document.querySelector('dialog')).toBeNull()
+  expect(document.activeElement).toBe(addressButton)
+  addressButton.click()
+  await settle()
+  let release!: () => void
+  packRead = new Promise<void>((resolve) => { release = resolve })
+  dialog().dispatchEvent(new Event('close'))
+  await settle()
+  const toggle = document.querySelector<HTMLButtonElement>('[role="switch"]')!
+  toggle.focus()
+  release()
+  await settle()
+  expect(document.activeElement).toBe(toggle)
+  dispose()
+})
+
+it('does not turn unavailable pack metadata into an empty installed pack list', async () => {
+  let unavailable = true
+  vi.stubGlobal('fetch', vi.fn(async (input) => {
+    const facts = installationFactsReply(input)
+    if (facts) return facts
+    const path = new URL(String(input), 'http://localhost').pathname
+    if (path.endsWith('/readiness')) return Response.json({ sandboxPacks: true, available: true, detail: '' })
+    return unavailable
+      ? Response.json({ error: 'pack-metadata-unavailable', message: 'Snapshot cannot report pack requests' }, { status: 503 })
+      : Response.json({ available: true, packs: [] })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable], engine: 'stopped' }) }} />, document.body)
+  await settle()
+  expect(document.body.textContent).toContain('Snapshot cannot report pack requests')
+  expect(document.body.textContent).not.toContain('No packs installed')
+  unavailable = false
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Try again')!.click()
+  await settle()
+  expect(document.body.textContent).toContain('No packs installed')
+  expect(document.body.textContent).not.toContain('Snapshot cannot report pack requests')
+  dispose()
+})
 
 it.each([
   { required: ['a', 'b', 'a'], extra: ['a', 'c', 'c'], unknown: 0, text: '2 needed by its workflows, 1 added', names: 'a\nb\nc' },
@@ -809,4 +1232,135 @@ it('revokes a pending template choice when the feature turns off without creatin
   expect(document.querySelector('input[type="radio"][value="template"]')).toBeNull()
   expect(document.body.textContent).not.toContain('Starter')
   expect(created).toBe(false)
+})
+
+it.each(['completed', 'failed'] as const)('requires reviewed Restore consent and reconciles a delayed lost-reply job through %s', async (terminal) => {
+  vi.useFakeTimers()
+  let job: Record<string, unknown> | null = null
+  let discoverable = false
+  let posts = 0
+  let restored = false
+  const approved: unknown[] = []
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://localhost')
+    const root = url.searchParams.get('root')!
+    if (url.pathname.endsWith('/active')) return Response.json({ activeJob: restored
+      ? { id: 'newer-job', root: nightly.root, operation: 'update', state: 'running' }
+      : discoverable ? job : null })
+    if (url.pathname.includes('/jobs/')) {
+      if (url.pathname.endsWith('/newer-job')) return Response.json({ id: 'newer-job', root: nightly.root, operation: 'update', state: 'running' })
+      if (init?.method === 'DELETE') job = { ...job, state: 'cancelling' }
+      return Response.json(job)
+    }
+    if (url.pathname.endsWith('/restore')) {
+      if (init?.method === 'POST') {
+        posts++; approved.push(JSON.parse(String(init.body)))
+        job = { id: 'restore-stable', root: stable.root, operation: 'restore', state: 'running',
+          progress: { stage: 'downloading', completed: 21, total: 50, unit: 'bytes' }, error: null, installation: null }
+        throw new Error('Lost start reply')
+      }
+      expect(root).toBe(stable.root)
+      expect(url.searchParams.get('entry')).toBe('17')
+      return Response.json({ plan: { root, entry: 17, exact: false, missing: ['old wheel'], alternatives: [
+        { planId: 'approved-stable-17', snapshot: { engine: { version: '1.7' } }, substitutions: [{ field: 'engine', before: '1.7', after: '1.8' }] },
+      ] }, activeJob: job })
+    }
+    if (url.pathname.endsWith('/history')) return Response.json({ current: restored ? 3 : 2, history: [
+      { id: 17, generation: 1, kind: 'activation', reason: 'setup', timestamp: '2026-11-01T00:00:00Z', snapshot: { engine: { version: '1.7' } } },
+      { id: 24, generation: 2, kind: 'activation', reason: 'update', timestamp: '2026-11-02T00:00:00Z', snapshot: { engine: { version: '2.0' } } },
+    ] })
+    if (url.pathname.endsWith('/facts') && root === stable.root) return Response.json({ host: { kind: 'local' }, build: { version: restored ? '1.7-restored' : '2.0', variant: 'linux-cpu', label: 'CPU only' } })
+    return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
+  })
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable, nightly], engine: 'stopped' }) }} />, document.body)
+  try {
+    await vi.advanceTimersByTimeAsync(0)
+    button('Restore')!.click()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(posts).toBe(0)
+    expect(button('Apply restore')!.disabled).toBe(true)
+    expect(document.querySelector('dialog')!.textContent).toContain(stable.root)
+    document.querySelector<HTMLElement>('dialog [role="combobox"]')!.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Alternative 1: version 1.7')!.click()
+    expect(button('Apply restore')!.disabled).toBe(false)
+    expect(document.querySelector('dialog')!.textContent).toContain('engine')
+    button('Apply restore')!.click()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(approved).toEqual([{ planId: 'approved-stable-17' }])
+    expect(button('Apply restore')!.disabled).toBe(true)
+    button('Apply restore')!.click()
+    expect(posts).toBe(1)
+    await vi.advanceTimersByTimeAsync(terminal === 'failed' ? 6000 : 1500)
+    expect(button('Apply restore')!.disabled).toBe(true)
+    if (terminal === 'failed') expect(document.querySelector('dialog')!.textContent).toContain('The restore start is still unconfirmed.')
+    discoverable = true
+    if (terminal === 'failed') [...document.querySelectorAll<HTMLButtonElement>('dialog button')].find((entry) => entry.textContent === 'Check again')!.click()
+    await vi.advanceTimersByTimeAsync(750)
+    document.querySelector<HTMLDialogElement>('dialog')!.close()
+    await vi.advanceTimersByTimeAsync(0)
+    const selections = () => [...document.querySelectorAll<HTMLElement>('[data-project-selection]')]
+    expect(selections()[0]!.textContent).toContain('Restoring - 42%')
+    selections()[1]!.click()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(selections()[1]!.closest('[role="row"]')!.getAttribute('aria-selected')).toBe('true')
+    expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0.42')
+    button('Cancel')!.focus()
+    button('Cancel')!.click()
+    await vi.waitFor(() => expect(document.activeElement).toBe(selections()[0]))
+    expect(selections()[0]!.textContent).toContain('Cancelling restore')
+    expect(button('Cancel')!.disabled).toBe(true)
+    expect(selections()[1]!.closest('[role="row"]')!.getAttribute('aria-selected')).toBe('true')
+    // Activation can commit before either cancellation or a later cleanup failure.
+    job = Object.assign({}, job, { state: terminal, error: terminal === 'failed' ? { code: 'cleanup-failed', message: 'Cleanup failed after activation.' } : null }); restored = true
+    await vi.advanceTimersByTimeAsync(750)
+    expect(selections()[0]!.textContent).toContain(terminal === 'completed' ? 'Restore completed' : 'Restore failed')
+    expect([...document.querySelectorAll('.dinkster-toast')].map((toast) => toast.textContent).filter(Boolean)).toEqual(terminal === 'completed' ? [`${stable.root}: Restore completed`] : [])
+    expect(selections()[1]!.closest('[role="row"]')!.getAttribute('aria-selected')).toBe('true')
+    selections()[0]!.click()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(document.body.textContent).toContain('1.7-restored')
+    expect(posts).toBe(1)
+  } finally { dispose() }
+})
+
+it('keeps Restore unavailable on failed or empty reviews and requires a new choice after a stale approval', async () => {
+  let mode: 'error' | 'empty' | 'available' = 'error'
+  let revision = 0
+  let posts = 0
+  vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://localhost')
+    if (url.pathname.endsWith('/restore')) {
+      if (init?.method === 'POST') { posts++; return Response.json({ error: 'plan-changed', message: 'Review a new plan.' }, { status: 409 }) }
+      if (mode === 'error') return Response.json({ error: 'restore-unavailable', message: 'History cannot be read.' }, { status: 503 })
+      revision++
+      return Response.json({ plan: { root: stable.root, entry: 19, exact: true, missing: [], alternatives: mode === 'empty' ? [] : [
+        { planId: `review-${revision}`, snapshot: { engine: { version: '1.9' } }, substitutions: [] },
+      ] }, activeJob: null })
+    }
+    if (url.pathname.endsWith('/history')) return Response.json({ current: 5, history: [
+      { id: 19, generation: 2, reason: 'setup', timestamp: '2026-11-01T00:00:00Z', snapshot: { engine: { version: '1.9' } } },
+    ] })
+    return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
+  })
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable], engine: 'stopped' }) }} />, document.body)
+  try {
+    await settle(); button('Restore')!.click(); await settle()
+    expect(document.querySelector('dialog')!.textContent).toContain('History cannot be read.')
+    expect(button('Apply restore')!.disabled).toBe(true)
+    mode = 'empty'; button('Try again')!.click(); await settle()
+    expect(document.querySelector('dialog')!.textContent).toContain('Nothing can be applied.')
+    expect(button('Apply restore')!.disabled).toBe(true)
+    document.querySelector<HTMLDialogElement>('dialog')!.close(); await settle()
+    mode = 'available'; button('Restore')!.click(); await settle()
+    document.querySelector<HTMLElement>('dialog [role="combobox"]')!.click()
+    ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'Alternative 1: version 1.9')!.click()
+    button('Apply restore')!.click(); await settle()
+    expect(posts).toBe(1)
+    expect(document.querySelector('dialog')!.textContent).toContain('Review a new plan.')
+    expect(button('Apply restore')!.disabled).toBe(true)
+    button('Review again')!.click(); await settle()
+    expect(button('Apply restore')!.disabled).toBe(true)
+    expect(document.querySelector('dialog [role="combobox"]')!.textContent).toContain('Choose an alternative')
+    expect(posts).toBe(1)
+  } finally { dispose() }
 })

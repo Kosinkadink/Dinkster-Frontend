@@ -1,6 +1,6 @@
 import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
 import { formatByteSize } from '@dinkster/core'
-import { ProductBrandMark, ProductButton, ProductDialog, ProductField, ProductMenu, ProductNotice, ProductPageLoad, ProductProgress, ProductTextButton, ProductTextInput } from '@dinkster/ui'
+import { ProductBrandMark, ProductButton, ProductDialog, ProductDisclosure, ProductFacts, ProductField, ProductMenu, ProductNotice, ProductPageLoad, ProductPanel, ProductProgress, ProductProjectHeader, ProductTextButton, ProductTextInput } from '@dinkster/ui'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { useAppMessage } from './locale.js'
 import { createSetupController, setupJobActive, type SetupJob, type UnusableGraphicsCard } from './setup-job.js'
@@ -137,10 +137,18 @@ export function SetupForm(props: {
       <Show when={setup.plan()}>
         {(plan) => <section class="setup-form">
           <Show when={props.surface === 'editor'}><ProductBrandMark /></Show>
-          <h1 class="dinkster-title">{message(props.surface === 'editor' ? 'setup.editorTitle' : 'projects.setup.title')}</h1>
-          <dl class="setup-facts">
+          <Show when={props.surface === 'projects'} fallback={<h1 class="dinkster-title">{message('setup.editorTitle')}</h1>}>
+            <ProductProjectHeader title={message('projects.setup.title')} />
+          </Show>
+          <div class="setup-facts">
+          <ProductPanel fill="quiet">
+          <dl class="setup-facts-rows">
             <dt>{message('setup.folder')}</dt>
             <dd><span>{setupJobActive(setup.job()) ? setup.job()!.root : plan().root}</span><Show when={canChange()}><ProductTextButton label={message('setup.chooseFolder')} disabled={busy()} onClick={() => { void chooseFolder() }} /></Show></dd>
+          </dl>
+          </ProductPanel>
+          <ProductPanel fill="quiet">
+          <dl class="setup-facts-rows">
             <Show when={plan().buildLabel || graphicsWarning() || setupJobActive(setup.job())}><dt>{message('setup.build')}</dt>
             <dd><div>
               <Show when={buildLabel()} fallback={<Show when={!variant()}><span class="dinkster-description">{message('setup.notChosen')}</span></Show>}>{(label) => <span>{label()}</span>}</Show>
@@ -157,6 +165,18 @@ export function SetupForm(props: {
             </dd></Show>
             <Show when={download()}>{(size) => <><dt>{message('setup.download')}</dt><dd><span>{message('setup.downloadSpace', { size: size(), free: formatByteSize(plan().freeBytes) })}</span></dd></>}</Show>
           </dl>
+          <Show when={variant() === plan().variant && plan().buildDetails}>{(details) =>
+            <ProductDisclosure title={message('setup.details')}>
+              <ProductFacts label={message('setup.buildVersions')} items={[
+                { label: message('setup.python'), value: details().python },
+                { label: message('setup.pytorch'), value: details().pytorch },
+                { label: message('setup.cuda'), value: details().cuda ?? message('setup.cudaNotUsed') },
+                { label: message('shell.applicationTitle'), value: details().dinkster },
+              ]} />
+            </ProductDisclosure>
+          }</Show>
+          </ProductPanel>
+          </div>
           <Show when={graphicsWarning()}><ProductNotice tone="warning">
             {message(repairable() ? plan().variant ? 'setup.graphics.cpuRepair' : 'setup.graphics.repair' : 'setup.graphics.cpu')}
             <For each={cardLines(false)}>{(line) => <><br /><span class="dinkster-description">{line}</span></>}</For>

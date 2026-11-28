@@ -3170,7 +3170,8 @@ export class AppState {
   /** Problems-to-canvas handoff; CanvasHost revalidates the anchor before acting. */
   readonly diagnosticFocus: Signal<DiagnosticFocusRequest | undefined> = createSignal<DiagnosticFocusRequest | undefined>(undefined)
   readonly logs: Signal<readonly AppLogEntry[]> = createSignal<readonly AppLogEntry[]>([])
-  private readonly unsubscribeRequestFailures = subscribeRequestFailures((failure) => this.log('error', 'Requests', failure.message), true)
+  private readonly unsubscribeRequestFailures = subscribeRequestFailures((failure) => this.log('error', 'Requests',
+    failure.serverMessage === undefined ? failure.message : `${failure.message}: ${failure.serverMessage}`), true)
   /**
    * All connected backends; index 0 is the default (never removable). Most
    * users have exactly one and see none of the multi-backend chrome.

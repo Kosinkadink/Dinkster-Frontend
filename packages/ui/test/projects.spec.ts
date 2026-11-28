@@ -1,6 +1,42 @@
 import { expect, test } from '@playwright/test'
 import axe from 'axe-core'
 
+test('shortened paths reveal and copy their full value without wrapping', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  const full = '/home/sam/workspaces/generation-projects/shared-installations/dinkster/nightly'
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/#tooltips')
+    const facts = page.getByRole('group', { name: 'Folder paths', exact: true })
+    const path = facts.locator('code').first()
+    const short = facts.locator('code').last()
+    await expect(path).toHaveAttribute('data-tooltip-label', full)
+    await expect(path.getByText(/^\/home\/.*\.\.\..*\/nightly$/).filter({ visible: true })).toBeVisible()
+    await path.hover()
+    await expect(page.getByRole('tooltip')).toHaveText(full)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Memory details', exact: true }).focus()
+    await page.keyboard.press('Tab')
+    await expect(path).toBeFocused()
+    await expect(page.getByRole('tooltip')).toHaveText(full)
+    await path.evaluate((element) => {
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      window.getSelection()!.removeAllRanges()
+      window.getSelection()!.addRange(range)
+    })
+    await page.keyboard.press('Control+c')
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(full)
+    await page.keyboard.press('Escape')
+    await short.hover()
+    await expect(short).not.toHaveAttribute('data-tooltip-label')
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
+    const box = (await path.boundingBox())!
+    expect(box.height).toBeLessThanOrEqual(await path.evaluate((element) => parseFloat(getComputedStyle(element).lineHeight)))
+  }
+})
+
 test('installation row cancellation stays separate from pointer and keyboard selection', async ({ page }) => {
   for (const width of [1280, 390]) {
     for (const activation of ['Enter', 'Space', 'pointer']) {
@@ -185,6 +221,24 @@ test('the project list selects by pointer and arrow keys and the detail follows'
   await expect(detail).toHaveText('Film grain tests')
   await page.keyboard.press('End')
   await expect(detail).toHaveText('Default')
+
+  await page.setViewportSize({ width: 390, height: 1000 })
+  await page.goto('about:blank')
+  await page.goto('/#projects')
+  await list.getByRole('option', { name: /Film grain tests/ }).focus()
+  await page.keyboard.press('ArrowDown')
+  const selected = page
+    .getByRole('listbox', { name: 'Projects', includeHidden: true })
+    .getByRole('option', { name: /Teapot product shots/, includeHidden: true })
+  const back = page.locator('.dinkster-projects-back button')
+  await expect(detail).toHaveText('Teapot product shots')
+  await expect(selected).toHaveAttribute('aria-selected', 'true')
+  await expect(back).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(selected).toBeVisible()
+  await expect(selected).toBeFocused()
+  await list.getByRole('option', { name: /Bookshop diorama/ }).click()
+  await expect(back).toBeFocused()
 })
 
 test("each fact's action ends at the right edge of the box that holds the fact", async ({

@@ -118,7 +118,7 @@ export function ProductTooltip(props: { readonly tip: VisibleTooltip; readonly l
   })
   return (
     <aside ref={element} popover="manual" class="app-tooltip" aria-label={props.label} data-testid="app-tooltip">
-      <div ref={content} role="tooltip">
+      <div ref={content} role="tooltip" data-path={props.tip.element?.matches('.dinkster-path') ? '' : undefined}>
         <Show when={displayed().title}><div class="app-tooltip-title">
           {displayed().title}<Show when={displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
         </div></Show>
