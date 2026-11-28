@@ -1,5 +1,6 @@
-import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { ChevronRight } from 'lucide-solid'
+import { RuntimeSettingsError } from '@dinkster/client'
 import type { DinksterConnection, MemoryGovernorDevice, MemoryStatus, RuntimeSettings } from '@dinkster/client'
 import { formatByteProgress, formatByteSize } from '@dinkster/core'
 import { ProductButton, ProductByteSizeInput, ProductDisclosure, ProductErrorBanner, ProductFacts, ProductField, ProductIcon, ProductNotice, ProductResourceUsage, ProductToast, type ProductResourceSample, type ProductResourceSegment } from '@dinkster/ui'
@@ -34,6 +35,7 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
   const [details, setDetails] = createSignal<MemoryStatus['consumerDetails']>()
   const [settings, setSettings] = createSignal<RuntimeSettings>()
   const [error, setError] = createSignal('')
+  const [budgetError, setBudgetError] = createSignal<{ device: string; text: string }>()
   const [telemetryError, setTelemetryError] = createSignal('')
   const [budgetDraft, setBudgetDraft] = createSignal<Readonly<Record<string, number>>>({})
   const [headroomDraft, setHeadroomDraft] = createSignal<number>()
@@ -88,23 +90,28 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
     setOpen(next)
     controller?.setExpanded('resources', next)
   }
-  const act = async (run: () => Promise<unknown>): Promise<void> => {
+  const act = async (run: () => Promise<unknown>, budgetDevice?: string): Promise<void> => {
     if (pending() || stale()) return
     setPending(true)
     setError('')
+    setBudgetError(undefined)
     try {
       await run()
       accept(await connection().fetchMemoryStatus(), false)
       controller?.refreshDetails()
       setNotification({ message: message('resources.updated') })
-    } catch (cause) { setError(failureMessage(cause, message('request.resourcesSaveFailed'))) }
+    } catch (cause) {
+      if (budgetDevice !== undefined && cause instanceof RuntimeSettingsError && cause.body?.error === 'invalid-settings') {
+        setBudgetError({ device: budgetDevice, text: message('resources.invalidBudget') })
+      } else setError(failureMessage(cause, message('request.resourcesSaveFailed')))
+    }
     finally { setPending(false) }
   }
   const granted = (category: string) => settings()?.categories.granted.includes(category) === true && settings()?.settings[category]?.writable === true
   const limit = (device: string) => status()?.acceleratorPolicy?.devices[device]?.governorAdmission.effectiveBudgetBytes ?? status()?.memoryGovernor?.[device]?.budgetBytes ?? undefined
   const budgetValue = (device: string) => budgetDraft()[device] ?? limit(device) ?? status()!.memoryGovernor![device]!.measured!.totalBytes
   const configuredBudgets = () => (settings()?.settings['memory-budgets']?.value ?? {}) as Record<string, unknown>
-  const otherBudgets = () => [...new Set([...Object.keys(configuredBudgets()), ...Object.keys(status()?.memoryGovernor ?? {})])].filter((device) => !cards().includes(device))
+  const otherBudgets = createMemo<string[]>((previous) => [...new Set([...previous, ...Object.keys(configuredBudgets()), ...Object.keys(status()?.memoryGovernor ?? {})])].filter((device) => !cards().includes(device)), [])
   const budgetName = (device: string) => device === 'ram' ? message('resources.systemMemory') : device === 'disk' ? message('resources.disk') : device
   const configuredBudgetValue = (device: string) => {
     const value = configuredBudgets()[device]
@@ -114,17 +121,17 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
     const value = { ...configuredBudgets() }
     if (budget === undefined) delete value[device]
     else value[device] = budget
-    void update('memory-budgets', value)
+    void update('memory-budgets', value, device)
   }
   const headroom = () => {
     const configured = settings()?.settings['memory-headroom']?.value
     return status()?.acceleratorPolicy?.physicalHeadroomBytes ?? (typeof configured === 'number' ? configured : undefined)
   }
-  const update = async (category: string, value: unknown): Promise<void> => {
+  const update = async (category: string, value: unknown, budgetDevice?: string): Promise<void> => {
     await act(async () => {
       const section = await connection().updateRuntimeSetting(category, value)
       setSettings((current) => current ? { ...current, settings: { ...current.settings, [category]: section } } : current)
-    })
+    }, budgetDevice)
     if (category === 'memory-budgets') setBudgetDraft({})
     if (category === 'memory-headroom') setHeadroomDraft(undefined)
   }
@@ -219,9 +226,8 @@ function BackendResources(props: { readonly backend: ResourceBackend; readonly m
             <Show when={granted('memory-budgets') && otherBudgets().length > 0}>
               <div class="dinkster-stack">
                 <strong>{message('resources.otherLimits')}</strong>
-                <p class="dinkster-description">{message('resources.exactLimitHelp')}</p>
                 <For each={otherBudgets()}>{(device) => <ProductField label={budgetName(device)}>{(attributes) =>
-                  <ProductByteSizeInput {...attributes} allowExpressions value={configuredBudgetValue(device)} placeholder={message('resources.automatic')} disabled={pending() || stale()} onCommit={(value) => updateOtherBudget(device, value)} />
+                  <ProductByteSizeInput {...attributes} allowExpressions value={configuredBudgetValue(device)} placeholder={message('resources.automatic')} error={budgetError()?.device === device ? budgetError()?.text : undefined} disabled={pending() || stale()} onCommit={(value) => updateOtherBudget(device, value)} />
                 }</ProductField>}</For>
               </div>
             </Show>

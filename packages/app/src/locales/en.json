@@ -1292,7 +1292,7 @@
   "resources.limits": "Limits",
   "resources.otherLimits": "Other limits",
   "resources.disk": "Disk",
-  "resources.exactLimitHelp": "Enter a size such as 1.5 GB or a backend expression. Bare numbers are GB. Clear the field to use Automatic.",
+  "resources.invalidBudget": "Enter a size or an expression.",
   "resources.memoryLimit": "Memory limit",
   "resources.automatic": "Automatic",
   "resources.cardLimit": "Memory limit, {name}",
