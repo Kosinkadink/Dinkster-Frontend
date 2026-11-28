@@ -40,6 +40,27 @@ export function ProductProjectsView(props: {
   back?: { label: string; onSelect: () => void; disabled?: boolean }
 }) {
   let backButton: HTMLDivElement | undefined
+  let viewport!: HTMLDivElement
+  const keepVisibleFocus = (target: EventTarget | null) => {
+    const panel = (target as Element | null)?.closest('.dinkster-projects-panel')
+    if (!panel) return
+    // Selection can hide the focused pane after its row handler has run.
+    queueMicrotask(() => {
+      if (
+        !viewport.isConnected ||
+        panel.getClientRects().length ||
+        (document.activeElement !== document.body &&
+          !panel.contains(document.activeElement))
+      )
+        return
+      const destination = panel.matches('.dinkster-projects-list')
+        ? backButton?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+        : viewport.querySelector<HTMLElement>(
+            '[data-project-selection][tabindex="0"]',
+          )
+      if (destination?.getClientRects().length) destination.focus()
+    })
+  }
   return (
     <ProjectBack.Provider
       value={() => (
@@ -58,8 +79,11 @@ export function ProductProjectsView(props: {
       )}
     >
       <div
+        ref={viewport}
         class="dinkster-projects-viewport"
+        onClick={(event) => keepVisibleFocus(event.target)}
         onKeyDown={(event) => {
+          keepVisibleFocus(event.target)
           if (
             event.key !== 'Escape' ||
             event.defaultPrevented ||

@@ -185,6 +185,21 @@ test('the project list selects by pointer and arrow keys and the detail follows'
   await expect(detail).toHaveText('Film grain tests')
   await page.keyboard.press('End')
   await expect(detail).toHaveText('Default')
+
+  await page.setViewportSize({ width: 390, height: 1000 })
+  await page.goto('about:blank')
+  await page.goto('/#projects')
+  await list.getByRole('option', { name: /Film grain tests/ }).focus()
+  await page.keyboard.press('ArrowDown')
+  const selected = list.getByRole('option', { name: /Valley matte paintings/ })
+  const back = page.locator('.dinkster-projects-back button')
+  await expect(selected).toHaveAttribute('aria-selected', 'true')
+  await expect(back).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(selected).toBeVisible()
+  await expect(selected).toBeFocused()
+  await list.getByRole('option', { name: /Bookshop diorama/ }).click()
+  await expect(back).toBeFocused()
 })
 
 test("each fact's action ends at the right edge of the box that holds the fact", async ({
