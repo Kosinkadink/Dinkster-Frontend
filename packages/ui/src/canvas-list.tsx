@@ -58,11 +58,13 @@ export const CANVAS_LIST_ROWS = 8
 export function canvasListBox(row: CanvasBox, bounds: CanvasBox, heading: CanvasSideSize, scale: number): CanvasBox {
   const width = Math.min(bounds.width, Math.max(row.width,
     Math.min(heading.width * scale, Math.max(canvasPaintTokens.attachedMaxWidth, row.width))))
+  const height = Math.max(row.height, heading.height * scale)
   return {
     ...row,
     x: Math.max(bounds.x, Math.min(row.x, bounds.x + bounds.width - width)),
+    y: Math.max(bounds.y, Math.min(row.y, bounds.y + bounds.height - height)),
     width,
-    height: Math.max(row.height, heading.height * scale),
+    height,
   }
 }
 

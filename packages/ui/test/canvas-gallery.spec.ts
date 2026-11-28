@@ -583,6 +583,7 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
   for (const scale of [0.75, 1, 1.5]) {
     await longChoice.locator('..').evaluate((element, zoom) => {
       const editor = element.closest<HTMLElement>('.dinkster-canvas-editor')!
+      editor.style.top = '330px'
       editor.style.transformOrigin = 'top left'
       editor.style.transform = `scale(${zoom})`
     }, scale)

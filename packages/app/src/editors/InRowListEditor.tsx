@@ -405,13 +405,14 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
     const local = row.scale / Math.max(1, row.scale)
     const grow = inRow.look === 'flat-title' ? 1 : 0
     const screen = canvasListBox(row.screen, bounds(), headingSize(), Math.max(1, row.scale))
+    const raised = (row.screen.y - screen.y) / Math.max(1, row.scale)
     return {
       ...row,
       screen,
       rowWidth: screen.width / Math.max(1, row.scale),
       ...canvasListLayout(screen, bounds(), listSize(), sideSize(), row.scale,
-        (inRow.nodeBottom - ed.rect.y) * local + grow,
-        (ed.rect.y - inRow.nodeTop) * local - grow, row.sideEdges),
+        (inRow.nodeBottom - ed.rect.y) * local + grow + raised,
+        (ed.rect.y - inRow.nodeTop) * local - grow - raised, row.sideEdges),
     }
   })
   createEffect(() => { if (!authoring()) placeRow(frame, placement()) })
