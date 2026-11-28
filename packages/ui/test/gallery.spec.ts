@@ -20,6 +20,30 @@ const expectNoAxeViolations = async (page: Page) => {
   ).toEqual([])
 }
 
+test('icon help uses shared labels and releases the dedicated tooltip gallery', async ({ page }) => {
+  await page.goto('/#controls')
+  await page.clock.install()
+  const add = page.getByRole('button', { name: 'Add item', exact: true })
+  const tooltip = page.getByRole('tooltip')
+  await add.hover()
+  await page.clock.fastForward(1000)
+  await expect(add).not.toHaveAttribute('title')
+  await expect(tooltip).toHaveText('Add item')
+  await page.keyboard.press('Escape')
+  await expect(tooltip).toHaveCount(0)
+  await page.getByRole('button', { name: 'Remove item', exact: true }).hover()
+  await page.clock.fastForward(1000)
+  await expect(tooltip).toHaveText('Remove this item')
+  await page.evaluate(() => { window.location.hash = '#tooltips' })
+  await expect(tooltip).toHaveCount(0)
+  await page.getByRole('button', { name: 'Memory details', exact: true }).hover()
+  await page.clock.fastForward(1000)
+  await expect(tooltip).toHaveCount(1)
+  await expect(tooltip).toContainText('Memory currently in use')
+  await page.keyboard.press('Escape')
+  await expect(tooltip).toHaveCount(0)
+})
+
 test('color chooser edits accepted RGB values without changing invalid, disabled or refused values', async ({ page }) => {
   await page.goto('/#color-input')
   const trigger = page.getByRole('button', { name: 'Brush color', exact: true })
@@ -635,7 +659,7 @@ test('enabled controls expose actual hover, keyboard focus and pressed states', 
   await page.goto('/#controls')
   await expect(
     page.getByRole('button', { name: 'Add item', exact: true }),
-  ).toHaveAttribute('title', 'Add item')
+  ).not.toHaveAttribute('title')
   const samples = page.getByRole('region', {
     name: 'Button roles and fills',
     exact: true,

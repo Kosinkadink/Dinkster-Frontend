@@ -123,6 +123,7 @@ import { ModelsGallery } from './models.js'
 import { SettingsSectionGallery } from './settings-section.js'
 import { FieldAlignmentGallery, SelectGallery } from './select.js'
 import { TooltipsGallery } from './tooltips.js'
+import { attachDomTooltips, ProductTooltip, TooltipController, type DomTooltipTarget } from '../src/index.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -651,6 +652,7 @@ function Gallery() {
                   />
                   <ProductIconButton
                     label="Remove item"
+                    data-tooltip-label="Remove this item"
                     icon={Trash2}
                     intent="remove"
                     onClick={() => setDialog(true)}
@@ -1813,6 +1815,27 @@ function WindowToolbarGallery() {
 function GalleryRoot() {
   const [route, setRoute] = createSignal(window.location.hash)
   const [narrow, setNarrow] = createSignal(narrowQuery.matches)
+  const tooltips = new TooltipController()
+  const [tooltip, setTooltip] = createSignal(tooltips.visible)
+  tooltips.register({
+    id: 'gallery.dom',
+    resolve(target, options) {
+      const dom = target as Partial<DomTooltipTarget>
+      return dom.kind === 'dom' && dom.label ? {
+        lines: [dom.label],
+        ...(dom.shortcut ? { shortcut: dom.shortcut } : {}),
+        ...(options.detailed && dom.detail ? { detail: dom.detail } : {}),
+      } : undefined
+    },
+  })
+  onMount(() => {
+    createEffect(() => {
+      if (route() === '#tooltips') return
+      const detach = attachDomTooltips(document.getElementById('root')!, tooltips)
+      const unsubscribe = tooltips.subscribe(() => setTooltip(tooltips.visible))
+      onCleanup(() => { detach(); tooltips.hide(); unsubscribe(); setTooltip(undefined) })
+    })
+  })
   // The site pages use the site form throughout. The gallery uses the Canvas
   // page's frame, except that below the breakpoint its other pages keep the
   // site form's narrow frame. Their content uses the site form, except the
@@ -1835,7 +1858,7 @@ function GalleryRoot() {
     window.addEventListener('hashchange', update)
     onCleanup(() => window.removeEventListener('hashchange', update))
   })
-  return (
+  return (<>
     <Show
       when={route().startsWith('#site-') && route() !== '#site-field-alignment'}
       fallback={
@@ -1869,7 +1892,8 @@ function GalleryRoot() {
         }}
       />
     </Show>
-  )
+    <Show when={tooltip()}>{(tip) => <ProductTooltip tip={tip()} label="Context help" />}</Show>
+  </>)
 }
 
 render(() => <GalleryRoot />, document.getElementById('root')!)
