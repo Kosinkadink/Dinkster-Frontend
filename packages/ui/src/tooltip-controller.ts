@@ -201,7 +201,7 @@ export function attachDomTooltips(root: HTMLElement, controller: TooltipControll
     if (label === null || label.textContent?.trim() !== element.dataset['tooltipLabel']) return false
     // Compact window actions clip their label to a 1px box.
     const rect = label.getBoundingClientRect()
-    return rect.width > 1 && rect.height > 1
+    return rect.width > 1 && rect.height > 1 && label.scrollWidth <= label.clientWidth && label.scrollHeight <= label.clientHeight
   }
   const sessionOf = (element: Element | null | undefined) => element?.closest<HTMLElement>('[data-tooltip-session]') ?? undefined
   const domTargetOf = (element: HTMLElement) => {

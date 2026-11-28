@@ -260,7 +260,7 @@ function Menu(props: {
             : props.triggerName
         }
         aria-busy={props.busy || undefined}
-        title={props.title}
+        data-tooltip-label={props.title ?? (props.iconOnly ? props.triggerName : undefined)}
         aria-expanded={props.onTrigger ? undefined : open()}
         aria-controls={open() ? id : undefined}
         onClick={() =>
@@ -411,6 +411,7 @@ function Menu(props: {
                             : item().description || item().labelContent !== undefined ? item().label : undefined
                         })()}
                         class="dinkster-menu-item"
+                        data-tooltip-label={props.project ? item().label : undefined}
                         data-active={props.filter && activeItem()?.id === `${descriptionId}-item` ? '' : undefined}
                         data-description={item().description ? '' : undefined}
                         data-role={item().intent ?? 'neutral'}
@@ -430,7 +431,7 @@ function Menu(props: {
                         >
                           <ProductIcon icon={Check} />
                         </Show>
-                        <Show when={item().description} fallback={<span class="dinkster-menu-item-label" data-custom-label={item().labelContent !== undefined ? '' : undefined}>{item().labelContent ?? item().label}</span>}>
+                        <Show when={item().description} fallback={<span class="dinkster-menu-item-label" data-tooltip-visible-label data-custom-label={item().labelContent !== undefined ? '' : undefined}>{item().labelContent ?? item().label}</span>}>
                           {(description) => (
                             <span class="dinkster-menu-item-copy" data-custom-label={item().labelContent !== undefined ? '' : undefined}>
                               <span class="dinkster-menu-item-label" data-custom-label={item().labelContent !== undefined ? '' : undefined}>{item().labelContent ?? item().label}</span>
@@ -459,7 +460,7 @@ function Menu(props: {
                               class="dinkster-menu-item dinkster-menu-row-action"
                               data-active={props.filter && activeItem()?.id === `${descriptionId}-action` ? '' : undefined}
                               aria-label={`${action().label}: ${item().label}`}
-                              title={action().label}
+                              data-tooltip-label={action().label}
                               onClick={() => {
                                 close(true)
                                 action().onSelect()
@@ -522,7 +523,7 @@ export function ProductMenu(props: {
       filter={props.filter}
     >
       <Show when={props.icon}>{(icon) => <ProductIcon icon={icon()} />}</Show>
-      <Show when={!props.iconOnly}><span class="dinkster-menu-label" data-compact={!!props.icon}>
+      <Show when={!props.iconOnly}><span class="dinkster-menu-label" data-compact={!!props.icon} data-tooltip-visible-label>
         {props.labelContent ?? props.label}
       </span></Show>
     </Menu>
@@ -723,7 +724,7 @@ export function ProductProjectMenu(props: {
       ]}
     >
       <ProductIcon icon={FolderOpen} />
-      <span class="dinkster-menu-label dinkster-project-name">
+      <span class="dinkster-menu-label dinkster-project-name" data-tooltip-visible-label>
         {props.name}
       </span>
     </Menu>
