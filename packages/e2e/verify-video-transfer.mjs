@@ -306,6 +306,7 @@ try {
         uploads.push(request)
         const url = new URL(request.url())
         attempt.requests.push({
+          timestamp: Date.now(),
           origin: url.origin,
           pathname: url.pathname,
           query: Object.fromEntries(
@@ -318,10 +319,17 @@ try {
     }
     const trackResponse = (received) => {
       if (isUpload(received.request()))
-        attempt.responses.push({ status: received.status() })
+        attempt.responses.push({
+          timestamp: Date.now(),
+          status: received.status(),
+        })
     }
     const trackFailure = (request) => {
-      if (isUpload(request)) attempt.failures.push(request.failure())
+      if (isUpload(request))
+        attempt.failures.push({
+          timestamp: Date.now(),
+          failure: request.failure(),
+        })
     }
     const mediaResponse = refused
       ? undefined
