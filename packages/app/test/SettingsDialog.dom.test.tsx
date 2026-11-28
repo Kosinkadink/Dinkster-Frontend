@@ -2,8 +2,8 @@
 
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
-import { RequestFailure, type LibraryStorage, type PackSettings } from '@dinkster/client'
-import { registerCatalog, setLocale, t } from '@dinkster/core'
+import { DinksterConnection, RequestFailure, type LibraryStorage, type ModelSettingsState, type PackSettings } from '@dinkster/client'
+import { asConnectionId, createSignal as coreSignal, registerCatalog, setLocale, t } from '@dinkster/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '../src/locale.js'
 import { SettingsDialog } from '../src/SettingsDialog.js'
@@ -12,6 +12,12 @@ import { CommandRegistry, KeybindingRegistry, SettingsRegistry, SETTINGS_STORAGE
 import { registerAutomaticFixSettings } from '../src/automatic-fixes.js'
 
 const isolatedSettings = (): SettingsRegistry => new SettingsRegistry({ getItem: () => null, setItem: () => {} })
+
+const readingPreferences = () => {
+  const state: ModelSettingsState = { settings: { version: 1, locations: [], downloadLocation: null },
+    locations: [], revision: 'initial', project: 'default', changesAllowed: true, restartRequired: false, pendingRemovals: [] }
+  return { principalGeneration: coreSignal(0), fetchModelSettings: async () => state, updateModelSettings: async () => state }
+}
 
 const mountDialog = () => {
   const settings = isolatedSettings()
@@ -122,7 +128,7 @@ describe('SettingsDialog search', () => {
       policyAvailable: true, limitBytes: 8193 }
     let resolve!: (value: LibraryStorage) => void
     const pending = new Promise<LibraryStorage>((done) => { resolve = done })
-    const [connection, setConnection] = createSignal({ fetchLibraryStorage: () => pending,
+    const [connection, setConnection] = createSignal({ ...readingPreferences(), fetchLibraryStorage: () => pending,
       updateLibraryStorageLimit: async () => {}, clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') } })
     const root = document.createElement('div')
     document.body.append(root)
@@ -130,7 +136,7 @@ describe('SettingsDialog search', () => {
       keybindings={new KeybindingRegistry(settings)} storageConnection={connection()}
       request={{ category: 'storage', id: 'library-storage-limit' }} />, root)
     expect(root.textContent).toContain('Loading storage accounting')
-    setConnection({ fetchLibraryStorage: async () => status, updateLibraryStorageLimit: async () => {},
+    setConnection({ ...readingPreferences(), fetchLibraryStorage: async () => status, updateLibraryStorageLimit: async () => {},
       clearLibraryStorage: async () => { throw new Error('Clear must remain blocked') } })
     await vi.waitFor(() => expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('313 bytes'))
     resolve({ ...status, vaultBytes: 999 })
@@ -142,6 +148,7 @@ describe('SettingsDialog search', () => {
   it('distinguishes unknown storage from zero and saves a limit without enabling Clear', async () => {
     let limit: number | null = 8193
     const connection = {
+      ...readingPreferences(),
       fetchLibraryStorage: async () => ({ temporaryBytes: 37, vaultBytes: 0, adoptedBytes: 211,
         reclaimableBytes: null, blocked: ['owner_completeness_unknown'], collectionEnabled: false,
         policyAvailable: true, limitBytes: limit }),
@@ -171,6 +178,7 @@ describe('SettingsDialog search', () => {
     let fail = true
     let pending = new Promise<void>((resolve) => { finish = resolve })
     const connection = {
+      ...readingPreferences(),
       fetchLibraryStorage: async () => ({ temporaryBytes: 37, vaultBytes: 513, adoptedBytes: 299,
         reclaimableBytes: enabled ? 113 : null, blocked: enabled ? [] : ['owner_completeness_unknown'],
         collectionEnabled: enabled, policyAvailable: true, limitBytes: 21474836480 }),
@@ -210,6 +218,7 @@ describe('SettingsDialog search', () => {
   it('does not present an unavailable policy as unlimited or accept a failed write', async () => {
     let available = false
     const connection = {
+      ...readingPreferences(),
       fetchLibraryStorage: async () => ({ temporaryBytes: null, vaultBytes: null, adoptedBytes: null,
         reclaimableBytes: null, blocked: ['reference_state_unavailable'], collectionEnabled: false,
         policyAvailable: available, limitBytes: available ? 8193 : null }),
@@ -231,6 +240,68 @@ describe('SettingsDialog search', () => {
     await vi.waitFor(() => expect(root.querySelector('[role="alert"]')?.textContent).toBe('The action could not be completed. Operator permission denied'))
     expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('Unknown')
     unmount()
+  })
+
+  it('saves the folder reading switch through the public client without losing folders or accepting stale account responses', async () => {
+    const folder = { id: 'studio', path: '/studio/models', mode: 'readwrite' as const, visibility: 'default-on' as const }
+    let state: ModelSettingsState = { settings: { version: 1, locations: [folder], downloadLocation: 'studio' },
+      locations: [{ ...folder, mounts: [], enabled: true, active: true }], revision: 'first', project: 'default',
+      changesAllowed: true, restartRequired: false, pendingRemovals: [] }
+    let refuse = false
+    let delayed: Promise<Response> | undefined
+    let principal = 'local'
+    const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+    const connection = new DinksterConnection({ id: asConnectionId('storage'), baseUrl: '', clientId: 'settings', fetchFn: async (url, init) => {
+      if (url === '/api/account') return response({ available: true, canStartSignIn: true, signInUnavailableReason: null,
+        signedIn: false, profile: null, signIn: { state: 'idle' }, principalRevision: principal })
+      if (url.includes('/api/library/storage')) return response({ temporaryBytes: 37, vaultBytes: 313, adoptedBytes: 211,
+        reclaimableBytes: null, blocked: ['owner_completeness_unknown'], collectionEnabled: false, policyAvailable: true, limitBytes: 8193 })
+      if (url.includes('/api/models/settings')) {
+        if (init?.method !== 'PUT') return response(state)
+        if (refuse) return response({ error: 'conflict' }, 409)
+        const body = JSON.parse(String(init.body)) as { settings: ModelSettingsState['settings']; revision: string }
+        if (body.revision !== state.revision) return response({ error: 'conflict' }, 409)
+        state = { ...state, settings: body.settings, revision: `${state.revision}-saved` }
+        return delayed ?? response(state)
+      }
+      throw new Error(`Unexpected route: ${url}`)
+    } })
+    await connection.accountStatus()
+    const settings = isolatedSettings()
+    const root = document.createElement('div'); document.body.append(root)
+    const unmount = render(() => <SettingsDialog settings={settings} commands={new CommandRegistry()}
+      keybindings={new KeybindingRegistry(settings)} storageConnection={connection} request={{ category: 'storage', id: 'library-storage-reading' }} />, root)
+    const toggle = root.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Read folders while a workflow runs"]')!
+    await vi.waitFor(() => expect(toggle.disabled).toBe(false))
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    toggle.click()
+    expect(toggle.disabled).toBe(true)
+    await vi.waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'))
+    expect(state.settings).toEqual({ version: 1, locations: [folder], downloadLocation: 'studio', readFoldersWhileRunning: true })
+    expect(root.querySelector('#library-storage-vaultBytes')?.textContent).toBe('313 bytes')
+    expect(root.textContent).toContain('Folder reading setting saved.')
+    refuse = true
+    toggle.click()
+    await vi.waitFor(() => expect(root.querySelector('#library-storage-reading-message')?.textContent).toContain('Refresh and try again.'))
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+    refuse = false
+    ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Refresh')!.click()
+    await vi.waitFor(() => expect(toggle.disabled).toBe(false))
+    let finish!: (value: Response) => void
+    delayed = new Promise((resolve) => { finish = resolve })
+    toggle.click()
+    const old = state
+    state = { ...state, settings: { ...state.settings, readFoldersWhileRunning: true }, revision: 'other', changesAllowed: false }
+    principal = 'other'
+    await connection.accountStatus()
+    await vi.waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'))
+    finish(response(old))
+    await Promise.resolve(); await Promise.resolve()
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+    expect(toggle.disabled).toBe(true)
+    expect(root.textContent).not.toContain('Folder reading setting saved.')
+    unmount()
+    connection.disconnect()
   })
 
   it('updates mounted settings fields, search, and command labels when the locale changes', () => {

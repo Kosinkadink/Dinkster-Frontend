@@ -176,12 +176,16 @@ export function StorageFolders(props: {
       filesDone: sum.filesDone + row.filesDone, filesTotal: sum.filesTotal + row.filesTotal,
       bytesDone: sum.bytesDone + row.bytesDone, bytesTotal: sum.bytesTotal + row.bytesTotal,
       elapsedSeconds: Math.max(sum.elapsedSeconds, row.elapsedSeconds),
-    }), { filesDone: 0, filesTotal: 0, bytesDone: 0, bytesTotal: 0, elapsedSeconds: 0 })
+      waitingForRun: sum.waitingForRun === true && row.waitingForRun === true,
+    }), { filesDone: 0, filesTotal: 0, bytesDone: 0, bytesTotal: 0, elapsedSeconds: 0, waitingForRun: true })
   }
+  const readingLabel = (progress: MountScanProgress) => progress.waitingForRun
+    ? message('storagePanel.waitingForRun')
+    : message('storagePanel.reading', { done: progress.filesDone, total: progress.filesTotal })
   const scan = (progress: MountScanProgress) => {
     const bytes = formatByteProgress(progress.bytesDone, progress.bytesTotal)
     return <div class="dinkster-stack">
-      <ProductProgress label={message('storagePanel.reading', { done: progress.filesDone, total: progress.filesTotal })}
+      <ProductProgress label={readingLabel(progress)}
         value={progress.bytesTotal > 0 ? progress.bytesDone / progress.bytesTotal : undefined} />
       <span class="dinkster-metadata">{message('storagePanel.bytesRead', { done: bytes.received, total: bytes.total })}</span>
     </div>
@@ -281,7 +285,7 @@ export function StorageFolders(props: {
         <Show when={!location.active}><span>{message('modelSettings.inactive')}</span></Show>
       </span>}
       trailing={<Show when={reading(counts(location.mounts))} fallback={<Show when={modelCount(location.mounts) !== undefined}>{message('storagePanel.modelCount', { count: modelCount(location.mounts)! })}</Show>}>
-        {(progress) => message('storagePanel.reading', { done: progress().filesDone, total: progress().filesTotal })}
+        {(progress) => readingLabel(progress())}
       </Show>}
       {...disclosure}
       status={reading(counts(location.mounts)) || counts(location.mounts).some((mount) => mount.state === 'failed')
@@ -311,7 +315,7 @@ export function StorageFolders(props: {
       <Show when={!['ready', 'failed', 'scanning'].includes(mount.state)}><span>{mount.state}</span></Show>
     </span>}
     trailing={<Show when={reading([mount])} fallback={<Show when={mount.entryCount !== undefined}>{message('storagePanel.files', { count: mount.entryCount! })}</Show>}>
-      {(progress) => message('storagePanel.reading', { done: progress().filesDone, total: progress().filesTotal })}
+      {(progress) => readingLabel(progress())}
     </Show>}
     status={mount.state === 'failed' || mount.saveError || reading([mount]) ? <>{mountFailure(mount)}<Show when={mount.saveError}>{(reason) => <ProductNotice tone="warning"><span class="storage-save-warning">
       <span>{folderWriteFailureMessage(reason())}</span><ProductTextButton label={message('common.tryAgain')} disabled={disabled() || mount.state === 'scanning'}
