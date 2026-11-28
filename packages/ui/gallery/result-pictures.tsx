@@ -17,7 +17,7 @@ export function ResultPicturesGallery() {
           kind: 'picture',
           rect: { x: 0, y: 0, width: 160, height: 100 },
           asset: {
-            digest: 'missing',
+            digest: `blake3:${'0'.repeat(64)}`,
             name: 'Missing result',
             mediaType: 'image/jpeg',
           },
@@ -27,7 +27,7 @@ export function ResultPicturesGallery() {
           kind: 'picture',
           rect: { x: 180, y: 0, width: 160, height: 100 },
           asset: {
-            digest: 'present',
+            digest: `blake3:${'1'.repeat(64)}`,
             name: 'Present result',
             mediaType: 'image/jpeg',
           },
@@ -51,10 +51,14 @@ export function ResultPicturesGallery() {
         <ProductBoard
           store={store}
           viewControls={(view) => (
-            <ProductButton onClick={view.onFit}>Fit to view</ProductButton>
+            <div class="canvas-corner-controls">
+              <div class="canvas-corner-bar">
+                <ProductButton onClick={view.onFit}>Fit to view</ProductButton>
+              </div>
+            </div>
           )}
           assetUrl={(asset) =>
-            asset.digest === 'missing'
+            asset.name === 'Missing result'
               ? '/missing-result.jpg'
               : '/templates/diner.jpg'
           }
