@@ -603,7 +603,7 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
       const style = getComputedStyle(input)
       const measure = document.createElement('canvas').getContext('2d')!
       measure.font = `italic ${style.fontSize} ${style.fontFamily}`
-      return input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) >= measure.measureText(input.placeholder).width
+      return input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) >= measure.measureText(input.getAttribute('placeholder')!).width
     })).toBe(true)
     await headingInput.fill('mono')
     await expect(list.getByRole('option')).toHaveCount(1)
