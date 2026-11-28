@@ -7462,7 +7462,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   surface: { width: 340, height: element.scrollHeight },
                   anchor: { left: input.x, right: input.x, top: input.y, bottom: input.y },
                   bounds: canvas,
-                  direction: 'block', margin: 12, gap: 12,
+                  direction: 'block', margin: 12, gap: 20,
                 })
                 element.style.left = `${placement.left}px`
                 element.style.top = `${placement.top}px`
