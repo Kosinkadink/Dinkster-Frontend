@@ -402,12 +402,16 @@ export class ExecutionStore {
   }
 
   /** A successful replacement repairs existing refusals, not future failures or run history. */
-  resolveSecretErrors(connection: ConnectionId, name: string): void {
+  resolveSecretErrors(connection: ConnectionId, name: string, target?: {
+    readonly execution: ExecutionRef; readonly runtimeId: string; readonly inputId: string
+  }): void {
     for (const state of this.map.values()) {
-      if (state.ref.connection !== connection) continue
+      if (state.ref.connection !== connection || (target !== undefined && state.key !== executionKey(target.execution))) continue
       const resolved = new Set(state.resolvedSecretErrors)
       for (const error of state.errors) {
-        if (rejectedSecretName(state, error) === name) resolved.add(error)
+        if (rejectedSecretName(state, error) === name && (target === undefined ||
+          (error.data?.['runtimeId'] === target.runtimeId && error.runtime?.hints?.some((hint) =>
+            hint.code === 'secret-rejected' && hint.inputId === target.inputId)))) resolved.add(error)
       }
       if (resolved.size !== (state.resolvedSecretErrors?.length ?? 0)) {
         this.put({ ...state, resolvedSecretErrors: [...resolved] })

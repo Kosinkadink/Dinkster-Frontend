@@ -5848,6 +5848,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const principal = backend.connection.principalGeneration.get()
         const isCurrent = () => request === secretOpenRequest && secretContextIsCurrent(tab, backend, principal)
         const initialName = typeof name === 'string' ? name : ''
+        const execution = props.app.executionForTab(tab)
+        const refusedInputs = nodeErrors(nodeId).flatMap((error) => {
+          const runtimeId = error.data?.['runtimeId']
+          return typeof runtimeId !== 'string' ? [] : (error.runtime?.hints ?? []).flatMap((hint) =>
+            hint.code === 'secret-rejected' && (hint.inputId === hit.row.inputId || hint.inputId === valueKey)
+              ? [{ runtimeId, inputId: hint.inputId }] : [])
+        })
         void backend.connection.fetchSecretNames().then((available) => {
           if (!isCurrent()) return
           setSecretEditor({ tab, backend, principal, name: initialName, canManageDeployment: available.canManageDeployment,
@@ -5861,6 +5868,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   params: { graphId: valueGraphId, nodeId: valueNodeId, inputId: valueKey, value: chosen },
                 }))
               if (!outcome.ok) throw new Error('Cannot choose this secret')
+              if (execution !== undefined && isCurrent()) {
+                for (const input of refusedInputs) props.app.store.resolveSecretErrors(backend.id, initialName,
+                  { execution: execution.ref, ...input })
+              }
             } })
         }).catch(() => {
           if (isCurrent()) showGestureRefusal([diag('error', 'command', 'secret.access.failed', 'Cannot access secret. Try again')])
@@ -8478,8 +8489,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             if (!secretContextIsCurrent(target.tab, target.backend, target.principal)) throw new Error('Secret context changed')
             await target.backend.connection.saveSecret(name, value, scope)
             await target.chooseName(name)
-            if (secretContextIsCurrent(target.tab, target.backend, target.principal)) {
-              props.app.store.resolveSecretErrors(target.backend.id, target.name)
+            if (name === target.name && secretContextIsCurrent(target.tab, target.backend, target.principal)) {
+              props.app.store.resolveSecretErrors(target.backend.id, name)
             }
           }}
           onCancel={() => setSecretEditor(undefined)}
