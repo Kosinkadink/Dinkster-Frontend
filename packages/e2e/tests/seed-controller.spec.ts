@@ -125,6 +125,7 @@ documentTest('20 rapid INT increments follow the declared step grid and undo ind
 }, async ({ page }) => {
   await page.evaluate(async () => {
     const test = window.__dinksterTest!
+    test.app.settings.set('automaticFixes.numberOutsideLimits', 'ask')
     test.app.registerSchemas([{
       type: 'RapidSeedE2E', displayName: 'Rapid Seed', category: 'test', source: 'v3', isOutputNode: false,
       body: [{
