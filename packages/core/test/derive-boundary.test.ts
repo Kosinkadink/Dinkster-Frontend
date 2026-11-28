@@ -2152,6 +2152,9 @@ describe('Boundary sample acceptance compilation', () => {
         nested: ['n0', 'n1', 'n2', 'n3'], 'nested.n0.weights': ['w0'], 'nested.n1.weights': ['w0', 'w1'],
         'nested.n2.weights': ['w0', 'w1'], 'nested.n3.weights': ['w0'],
       })
+      expect(Object.fromEntries(Object.entries(compiled[second]!.outputMembers!).filter(([id]) => id === 'nested' || id.startsWith('nested.')))).toEqual({
+        nested: ['n0', 'n1', 'n2'], 'nested.n0.weights': ['w0'], 'nested.n1.weights': ['w0', 'w1'], 'nested.n2.weights': ['w0'],
+      })
       const check = (document: WorkflowDocument, removed: boolean) => {
         expect(loadDocument(JSON.parse(JSON.stringify(document))).document).toEqual(document)
         const current = prompt(document)
