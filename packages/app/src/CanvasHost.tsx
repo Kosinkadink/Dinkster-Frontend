@@ -5155,8 +5155,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           .filter((d) => d.code === 'node.rule.failed')
           .map((d): Diagnostic => managedRules.find((problem) => problem.refs?.[0]?.nodeId === node.id &&
             problem.data?.['rule'] === d.data?.['rule']) ??
-            { ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) }))
-      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags, ...lastRunAutomatic]
+            { ...d, origin: 'compile', message: `${node.title || reg?.resolve(node.type)?.displayName || node.type}: ${d.message}`,
+              refs: ruleProblemRefs(d, scene.graphId, node.id), data: { ...d.data, nodeMessage: d.message } }))
+      const instancePath = viewInstancePath(tab)
+      const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags, ...lastRunAutomatic].map((diagnostic) => {
+        const node = diagnostic.anchor?.port?.node ?? diagnostic.refs?.[0]?.nodeId
+        return instancePath !== undefined && node !== undefined && diagnostic.anchor?.occurrence === undefined &&
+          (diagnostic.code === 'solve.varConflict' || diagnostic.code === 'node.rule.failed')
+          ? { ...diagnostic, anchor: { ...diagnostic.anchor, occurrence: { instancePath: instancePath.map(asNodeId), node: asNodeId(node) } } }
+          : diagnostic
+      })
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
     }
