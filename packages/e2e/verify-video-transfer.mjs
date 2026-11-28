@@ -264,7 +264,9 @@ try {
       })
       const position = await point.jsonValue()
       await page.mouse.click(position.x, position.y)
-      const quickList = page.locator('[data-editor-surface="asset-quick-list"]')
+      const quickList = page.locator(
+        '[data-editor-surface="asset-quick-list"] .asset-quick-list',
+      )
       await expect(quickList).toBeVisible()
       if (policy === null) await expect(quickList).toContainText('Any size')
       else await expect(quickList).toContainText('Up to')
@@ -387,7 +389,7 @@ try {
         if (surface === 'field') {
           await expect(
             page.locator('[data-editor-surface="asset-quick-list"]'),
-          ).toBeHidden()
+          ).toHaveCount(0)
           await expect(
             page.getByTestId('asset-field-import-status'),
           ).toBeHidden()
