@@ -1304,8 +1304,11 @@ for (const theme of ['dark', 'light'] as const) {
     await cardsReady(page, 'tabs', theme)
     // The narrow example's first strip and its +5: measured text leaves room for four strips.
     const canvas = page.getByTestId('canvas-tabs-14')
+    await page.clock.install()
     await canvas.hover({ position: { x: 16, y: 152 } })
-    await expect(canvas).toHaveAttribute('title', 'Detail 1')
+    await page.clock.fastForward(1000)
+    await expect(canvas).not.toHaveAttribute('title')
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
     await expect(canvas).toHaveScreenshot(`tabs-hover-${theme}.png`)
     await page.mouse.move(0, 0)
     await expect(canvas).not.toHaveAttribute('title', /.+/)
@@ -1433,8 +1436,23 @@ for (const theme of ['dark', 'light'] as const) {
         )
         if (id === 'run-editable' || id === 'run-frozen') {
           const running = page.getByTestId(`canvas-${id}-1`)
+          await page.clock.install()
           await running.hover({ position: { x: 45, y: 185 } })
-          await expect(running).toHaveAttribute('title', 'Running')
+          await page.clock.fastForward(1000)
+          await expect(page.getByRole('tooltip')).toHaveCount(0)
+          await expect(running).not.toHaveAttribute('title')
+        }
+        if (id === 'badges') {
+          await page.clock.install()
+          await page.getByTestId('canvas-badges-0').hover({ position: { x: 39, y: 280 } })
+          await page.clock.fastForward(1000)
+          await expect(page.getByRole('tooltip')).toHaveCount(0)
+          await page.getByTestId('canvas-badges-2').hover({ position: { x: 45, y: 185 } })
+          await page.clock.fastForward(1000)
+          const tooltip = page.getByRole('tooltip')
+          await expect(tooltip).toHaveText('Blocked: Missing image')
+          await page.keyboard.press('Escape')
+          await expect(tooltip).toHaveCount(0)
         }
         await page.setViewportSize({ width: 390, height: 1000 })
         await cardsReady(page, id, theme)
