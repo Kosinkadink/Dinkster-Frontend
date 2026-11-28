@@ -1,6 +1,11 @@
 import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
-import { X } from 'lucide-solid'
-import { ProductButton, ProductIconButton, ProductTextButton } from './controls.js'
+import { TriangleAlert, X } from 'lucide-solid'
+import {
+  ProductButton,
+  ProductIconButton,
+  ProductTextButton,
+} from './controls.js'
+import { CanvasEditorNote } from './canvas-editor.js'
 
 /** One change the editor made by itself and reports in the notice. */
 export interface FixesNoticeChange {
@@ -230,42 +235,50 @@ export function ProductFixesNotice(props: {
         </div>
       </Show>
       <div class="dinkster-fixes-line" role="status">
-        <span class="dinkster-fixes-title">
-          {props.state === 'undone'
-            ? props.strings.undone
-            : props.strings.adjusted(count())}
-        </span>
-        <span class="canvas-chrome-divider" aria-hidden="true" />
-        <Show
-          when={props.state !== 'undone'}
-          fallback={
-            <ProductButton fill="outline" onClick={() => props.onRedo()}>
-              {props.strings.redo}
+        <div class="dinkster-fixes-actions">
+          <span class="dinkster-fixes-title">
+            {props.state === 'undone'
+              ? props.strings.undone
+              : props.strings.adjusted(count())}
+          </span>
+          <span class="canvas-chrome-divider" aria-hidden="true" />
+          <Show
+            when={props.state !== 'undone'}
+            fallback={
+              <ProductButton fill="outline" onClick={() => props.onRedo()}>
+                {props.strings.redo}
+              </ProductButton>
+            }
+          >
+            <ProductButton
+              aria-expanded={reviewing()}
+              onClick={() => setReview(!review())}
+            >
+              {props.strings.review}
             </ProductButton>
-          }
-        >
-          <ProductButton
-            aria-expanded={reviewing()}
-            onClick={() => setReview(!review())}
-          >
-            {props.strings.review}
-          </ProductButton>
-          <ProductButton
-            disabled={props.state === 'refused'}
-            onClick={() => props.onUndo()}
-          >
-            {props.strings.undo}
-          </ProductButton>
+            <ProductButton
+              disabled={props.state === 'refused'}
+              onClick={() => props.onUndo()}
+            >
+              {props.strings.undo}
+            </ProductButton>
+          </Show>
+          <ProductIconButton
+            icon={X}
+            label={props.strings.dismiss}
+            onClick={() => props.onDismiss()}
+          />
+        </div>
+        <Show when={props.state === 'refused'}>
+          <CanvasEditorNote tone="warning">
+            <TriangleAlert
+              class="dinkster-canvas-editor-note-icon"
+              aria-hidden="true"
+            />
+            {props.strings.refused}
+          </CanvasEditorNote>
         </Show>
-        <ProductIconButton
-          icon={X}
-          label={props.strings.dismiss}
-          onClick={() => props.onDismiss()}
-        />
       </div>
-      <Show when={props.state === 'refused'}>
-        <p class="dinkster-fixes-reason">{props.strings.refused}</p>
-      </Show>
     </section>
   )
 }
