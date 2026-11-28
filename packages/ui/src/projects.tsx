@@ -315,6 +315,21 @@ export function ProductProjectRows(props: {
                       </Show>
                       {project.detail}
                     </span>
+                    <Show when={project.state === 'opening'}>
+                      <Show
+                        when={project.progress}
+                        fallback={
+                          <span class="dinkster-progress" aria-hidden="true" />
+                        }
+                      >
+                        {(progress) => (
+                          <ProductProgress
+                            label={progress().label}
+                            value={progress().value}
+                          />
+                        )}
+                      </Show>
+                    </Show>
                   </>
                 )
                 return (
@@ -364,21 +379,6 @@ export function ProductProjectRows(props: {
                           </div>
                         </>
                       )}
-                    </Show>
-                    <Show when={project.state === 'opening'}>
-                      <Show
-                        when={project.progress}
-                        fallback={
-                          <span class="dinkster-progress" aria-hidden="true" />
-                        }
-                      >
-                        {(progress) => (
-                          <ProductProgress
-                            label={progress().label}
-                            value={progress().value}
-                          />
-                        )}
-                      </Show>
                     </Show>
                   </li>
                 )

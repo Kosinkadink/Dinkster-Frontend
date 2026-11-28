@@ -903,7 +903,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-root .dinkster-project-row-copy:focus-visible { outline: none; }
 .dinkster-project-row:has(> .dinkster-project-row-copy:focus-visible) { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: calc(-1 * var(--dinkster-focus-ring-width)); }
 .dinkster-project-row-action { display: flex; align-items: center; cursor: default; }
-.dinkster-project-row > .dinkster-product-progress { position: absolute; inset-inline: var(--dinkster-space-12); bottom: var(--dinkster-space-4); height: var(--dinkster-indicator-width); }
+.dinkster-project-row > .dinkster-product-progress, .dinkster-project-row-copy > .dinkster-product-progress { position: absolute; inset-inline: var(--dinkster-space-12); bottom: var(--dinkster-space-4); height: var(--dinkster-indicator-width); }
 .dinkster-projects-row-group > .dinkster-disclosure { padding-inline: var(--dinkster-space-12); }
 .dinkster-projects-row-group > .dinkster-disclosure > .dinkster-stack { margin-inline: calc(-1 * var(--dinkster-space-12)); }
 .dinkster-project-row[data-state='deleted'] { grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--dinkster-space-8); cursor: default; }

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import axe from 'axe-core'
 
 test('installation row cancellation stays separate from pointer and keyboard selection', async ({ page }) => {
   for (const width of [1280, 390]) {
@@ -13,6 +14,14 @@ test('installation row cancellation stays separate from pointer and keyboard sel
       const detail = page.getByRole('heading', { level: 2 })
       const cancel = grid.getByRole('button', { name: 'Cancel Nightly restore', exact: true })
       await expect(nightly.getByRole('progressbar', { name: 'Nightly restore' })).toHaveAttribute('aria-valuenow', '0.42')
+      if (activation === 'Enter') {
+        await page.addScriptTag({ content: axe.source })
+        expect(await page.evaluate(async () =>
+          (await (window as unknown as { axe: typeof axe }).axe.run(document.querySelector('[role="grid"]')!, {
+            runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] },
+          })).violations.map(({ id }) => id),
+        )).toEqual([])
+      }
       await expect(stable).toHaveAttribute('aria-selected', 'true')
       await nightly.getByRole('gridcell').first().click()
       await expect(nightly).toHaveAttribute('aria-selected', 'true')
