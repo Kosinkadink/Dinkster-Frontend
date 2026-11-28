@@ -11,7 +11,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { render } from 'solid-js/web'
-import { canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
+import { canvasPaintTokens, canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
 import { semanticTokensForTheme } from '@dinkster/core'
 import components from '@dinkster/branding/components' with { type: 'json' }
 import {
@@ -55,6 +55,7 @@ import {
   ProductButton,
   ProductByteSizeInput,
   ProductCheckbox,
+  ProductColorInput,
   ProductConfirmation,
   ProductConfirmationDialog,
   ProductDialog,
@@ -176,6 +177,7 @@ function SegmentedStates() {
 
 function Gallery() {
   const [route, setRoute] = createSignal(window.location.hash || '#controls')
+  const [brushColor, setBrushColor] = createSignal(canvasPaintTokens.editor.painter.initialColor)
   const [toast, setToast] = createSignal<{ readonly message: string }>()
   const [error, setError] = createSignal(true)
   const [dialog, setDialog] = createSignal(false)
@@ -269,6 +271,20 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#color-input'}>
+              <Section title="Color chooser" components="ProductColorInput, CanvasColorPicker, CanvasColorSquare">
+                <ProductField label="Brush color">
+                  {(attributes) => <ProductColorInput {...attributes} value={brushColor()} onChange={setBrushColor} />}
+                </ProductField>
+                <ProductField label="Unavailable brush color">
+                  {(attributes) => <ProductColorInput {...attributes} value={canvasPaintTokens.editor.painter.initialColor} disabled onChange={() => {}} />}
+                </ProductField>
+                <ProductField label="Unchanged brush color" description="The owner does not accept changes.">
+                  {(attributes) => <ProductColorInput {...attributes} value={canvasPaintTokens.editor.painter.initialColor} onChange={() => {}} />}
+                </ProductField>
+                <output aria-label="Chosen brush color">{brushColor()}</output>
+              </Section>
+            </Match>
             <Match when={route() === '#settings-section'}>
               <SettingsSectionGallery />
             </Match>

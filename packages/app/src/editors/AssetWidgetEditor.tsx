@@ -102,7 +102,6 @@ export { mediaAcceptsFile } from '../asset-browser/helpers.js'
 
 function assetPickerState(state: CollectionPanelState, vocabulary: AssetPickerVocabulary) {
   if (state.kind === 'loading') return <SearchState kind="loading" title={`Loading ${vocabulary.plural}`} detail={`Searching ${state.sourceLabel}.`} />
-  if (state.kind === 'error') return <SearchState kind="error" title={`${vocabulary.titlePlural} unavailable`} detail={state.message ?? `Unable to load ${state.sourceLabel}.`} />
   if (state.kind === 'no-compatible') return <SearchState kind="empty" title={`No available ${vocabulary.plural}`} detail="Choose another source or adjust the picker requirements." />
   if (state.kind === 'no-match') return <SearchState kind="empty" title={`No matching ${vocabulary.plural}`} detail="Try another search or remove an active filter." />
   return <SearchState kind="empty" title={`No ${vocabulary.plural} yet`} detail={`No matching ${vocabulary.plural} are available in ${state.sourceLabel}.`} />
