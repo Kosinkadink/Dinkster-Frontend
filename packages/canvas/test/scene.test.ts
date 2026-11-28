@@ -529,6 +529,7 @@ describe('buildScene', () => {
       { kind: 'input', id: 'field', pin: false, type: { kind: 'concrete', types: ['COMBO'] }, default: '[]', widget: { type: 'COMBO' } },
       { kind: 'output', id: 'value', type: { kind: 'record_field', input: 'record', index: 'field' } },
     ] } as never)
+    expect(emptyParsed.diagnostics).toEqual([])
     const emptyBody = emptyParsed.schema!.body
     schema = { ...parsed.schema!, body: emptyBody }
     expect(rows()).toHaveLength(1)

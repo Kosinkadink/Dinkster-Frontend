@@ -4963,7 +4963,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const target = ed.target
           const node = fieldNodes.find((item) => item.id === target.nodeId)
           const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === target.valueKey)
-          if (node !== undefined && row?.kind === 'widget' && (row.readOnly || row.disabled || editorDriven)) {
+          if (node !== undefined && row?.kind === 'widget' && !row.inert && (row.readOnly || row.disabled || editorDriven)) {
             setRowFocus({ ...rowFocusAt(tab, node, row), ...(editorDriven ? {
               cancellation: 'A wire now feeds this field. Your edit was not kept.',
             } : {}) })
@@ -4983,7 +4983,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             ? undefined : buttonFocusAt(tab, node, row))
         } else {
           const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === focus.valueKey)
-          setRowFocus(node === undefined || row?.kind !== 'widget' || focus.tabId !== tab.id || focus.graphId !== graphId
+          setRowFocus(node === undefined || row?.kind !== 'widget' || row.inert || focus.tabId !== tab.id || focus.graphId !== graphId
             ? undefined
             : { ...rowFocusAt(tab, node, row), ...(focus.markOnly ? { markOnly: true } : {}), ...(focus.tooltipOnly ? { tooltipOnly: true } : {}), ...(focus.note === undefined ? {} : { note: focus.note }),
               ...(focus.cancellation === undefined || !rowIsDriven(node.id, row) ? {} : { cancellation: focus.cancellation }) })

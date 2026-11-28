@@ -1042,6 +1042,29 @@ const dynDoc = (parts: {
 const dynCompile = (doc: WorkflowDocument, scope: ExecutionScope = { kind: 'full' }) =>
   compile({ ...compileInput(doc, scope), resolve: dynResolve })
 
+it('submits the saved empty-record selector instead of its display-only placeholder', () => {
+  const record = { kind: 'record', types: ['settings'], fields: [] } as const
+  const wire = { schemaVersion: 2, nodeType: 'change', body: [
+    { kind: 'input', id: 'record', type: { ...record, templateId: 'Record' }, required: true },
+    { kind: 'input', id: 'field', type: { kind: 'concrete', types: ['COMBO'] }, pin: false,
+      default: '[]', widget: { type: 'COMBO' } },
+    { kind: 'input', id: 'value', type: { kind: 'record_field', input: 'record', index: 'field' } },
+    { kind: 'output', id: 'record', type: { kind: 'variable', templateId: 'Record' } },
+  ] } as never
+  const parsed = parseDinksterSchema('change', wire)
+  expect(parsed.diagnostics).toEqual([])
+  const source = parseDinksterSchema('source', { body: [{ kind: 'output', id: 'record', type: record }] } as never).schema!
+  for (const values of [{}, { field: '[]' }]) {
+    const document = dynDoc({ nodes: { source: { type: 'source' }, change: { type: 'change', values } },
+      links: [[['source', 'record'], ['change', 'record']]] })
+    const result = compile({ ...compileInput(document, { kind: 'full' }, (type) => type === 'source' ? source : parsed.schema),
+      graphFeatures: ['regions', 'typedLiteral'] })
+    expect(result.ok, JSON.stringify(!result.ok && result.diagnostics)).toBe(true)
+    if (!result.ok) return
+    expect(result.artifact.prompt.change?.inputs).toEqual({ record: ['source', 0], field: '[]' })
+  }
+})
+
 it('compiles a record selected from generic list and tuple nodes through a subgraph', () => {
   const variable = { kind: 'variable', templateId: 'T' } as const
   const integer = { kind: 'concrete', types: ['INT'] } as const

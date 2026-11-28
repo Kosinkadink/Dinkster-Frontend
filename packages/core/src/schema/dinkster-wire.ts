@@ -1019,18 +1019,14 @@ function widgetFor(
           diags.push(diag('warning', 'schema', 'schema.dinkster.badComboRemote', `${nodeType}.${id}: COMBO remote requires a route starting with '/'`))
         }
       }
-      if (options === undefined && remote === undefined && lookedOptions === undefined && descriptor.editableOptions !== true) {
-        diags.push(diag('warning', 'schema', 'schema.dinkster.badCombo', `${nodeType}.${id}: COMBO has no options or option source`))
-      } else {
-        return {
-          widgetType: 'COMBO',
-          options: options !== undefined ? { options } : {},
-          ...(lookedOptions !== undefined ? { looked: { options: lookedOptions } } : {}),
-          ...(descriptor.editableOptions === true ? { editableOptions: true as const } : {}),
-          ...(typeof descriptor.optionsInput === 'string' ? { optionsInput: descriptor.optionsInput } : {}),
-          ...(remote !== undefined ? { remote } : {}),
-          ...(dflt !== undefined ? { default: dflt } : {}),
-        }
+      return {
+        widgetType: 'COMBO',
+        options: options !== undefined ? { options } : {},
+        ...(lookedOptions !== undefined ? { looked: { options: lookedOptions } } : {}),
+        ...(descriptor.editableOptions === true ? { editableOptions: true as const } : {}),
+        ...(typeof descriptor.optionsInput === 'string' ? { optionsInput: descriptor.optionsInput } : {}),
+        ...(remote !== undefined ? { remote } : {}),
+        ...(dflt !== undefined ? { default: dflt } : {}),
       }
     }
     if (descriptor.type === 'MULTI_COMBO') {

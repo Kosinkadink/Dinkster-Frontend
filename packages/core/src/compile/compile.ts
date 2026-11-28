@@ -1946,13 +1946,13 @@ function compileImpl(
         if (lowered !== undefined) fn.inputs[inputId] = lowered
       }
     }
-    // Derived values (combo selectors) are authoritative and applied LAST:
+    // Active derived values (combo selectors) are authoritative and applied LAST:
     // the elaborated interface (which branch inputs exist) was computed FROM
     // this selection, so nothing - not even a promoted override - may
     // contradict it in the prompt. Occurrence-level selector overrides need
     // occurrence-state forwarding to re-elaborate first.
     for (const input of fn.elab.inputs) {
-      if (input.derivedValue !== undefined && input.apiName !== undefined) {
+      if (input.derivedValue !== undefined && !input.inert && input.apiName !== undefined) {
         fn.inputs[input.spec.id] = input.derivedValue
       }
     }
