@@ -742,13 +742,13 @@ describe('MatchType resolution', () => {
   })
 
   it.each([1, 2])('two instances of one subgraph resolve independently through %i boundaries', (depth) => {
-    // Inner definition: one Switch whose template crosses the boundary. The
-    // derived schema carries the namespaced variable 'sw:T'; prefixing the
-    // instance node id at solve time compounds to per-occurrence freshness.
     const innerDef = {
       id: 'gsub',
       name: 'wrap',
-      nodes: { sw: { id: 'sw', type: 'Switch', values: {} } },
+      nodes: {
+        sw: { id: 'sw', type: 'Switch', values: {} },
+        other: { id: 'other', type: 'Switch', values: {} },
+      },
       links: {},
       nets: {},
       reroutes: {},
@@ -756,6 +756,8 @@ describe('MatchType resolution', () => {
         body: [
           { kind: 'input', id: 'in', binds: { kind: 'port', node: 'sw', port: 'in' } },
           { kind: 'output', id: 'out', binds: { kind: 'port', node: 'sw', port: 'out' } },
+          { kind: 'input', id: 'otherIn', binds: { kind: 'port', node: 'other', port: 'in' } },
+          { kind: 'output', id: 'otherOut', binds: { kind: 'port', node: 'other', port: 'out' } },
         ],
       },
       nextOrdinal: 1,
@@ -768,12 +770,16 @@ describe('MatchType resolution', () => {
       boundary: { body: [
         { kind: 'input', id: 'source', binds: { kind: 'port', node: 'detail', port: 'in' } },
         { kind: 'output', id: 'result', binds: { kind: 'port', node: 'detail', port: 'out' } },
+        { kind: 'input', id: 'companion', binds: { kind: 'port', node: 'detail', port: 'otherIn' } },
+        { kind: 'output', id: 'companionResult', binds: { kind: 'port', node: 'detail', port: 'otherOut' } },
       ] },
     } as unknown as GraphDef
     const outer = deriveBoundarySchema(outerDef, (type) => type === derived.type ? derived : resolve(type)).schema!
     const shown = depth === 1 ? derived : outer
     const inputId = depth === 1 ? 'in' : 'source'
     const outputId = depth === 1 ? 'out' : 'result'
+    const otherInputId = depth === 1 ? 'otherIn' : 'companion'
+    const otherOutputId = depth === 1 ? 'otherOut' : 'companionResult'
     const resolveWith: SchemaResolver = (type) => type === shown.type ? shown : resolve(type)
 
     const def = defOf({
@@ -786,6 +792,8 @@ describe('MatchType resolution', () => {
       links: {
         l0: { from: ['img', 'out'], to: ['i1', inputId] },
         l1: { from: ['lat', 'out'], to: ['i2', inputId] },
+        l2: { from: ['lat', 'out'], to: ['i1', otherInputId] },
+        l3: { from: ['img', 'out'], to: ['i2', otherInputId] },
       },
     })
     const s = solveGraphTypes(def, resolveWith)
@@ -794,6 +802,10 @@ describe('MatchType resolution', () => {
     expect(s.portTypeOf(n('i2'), 'input', inputId)).toEqual({ kind: 'concrete', name: 'LATENT' })
     expect(s.portTypeOf(n('i1'), 'output', outputId)).toEqual({ kind: 'concrete', name: 'IMAGE' })
     expect(s.portTypeOf(n('i2'), 'output', outputId)).toEqual({ kind: 'concrete', name: 'LATENT' })
+    expect(s.portTypeOf(n('i1'), 'input', otherInputId)).toEqual({ kind: 'concrete', name: 'LATENT' })
+    expect(s.portTypeOf(n('i2'), 'input', otherInputId)).toEqual({ kind: 'concrete', name: 'IMAGE' })
+    expect(s.portTypeOf(n('i1'), 'output', otherOutputId)).toEqual({ kind: 'concrete', name: 'LATENT' })
+    expect(s.portTypeOf(n('i2'), 'output', otherOutputId)).toEqual({ kind: 'concrete', name: 'IMAGE' })
     expect(s.diagnostics).toEqual([])
   })
 
