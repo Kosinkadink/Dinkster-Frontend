@@ -43,6 +43,7 @@ import { applyUse, choiceScopeRows, framesNamesOf, isRowId, keyPosition, memberK
 import { Formula, FormulaRefused, type FormulaScope } from '../mirror/formula.js'
 import { canonicalTypeIdOf, inputsOf, isNumberWidget, scopeRowsOf, typeExprFromTypeId } from './model.js'
 import { readWhenUnset } from './widget-defaults.js'
+import { solveGraphTypes } from './solve.js'
 import type {
   BodyRow,
   ChoiceSpec,
@@ -660,6 +661,7 @@ export function deriveBoundarySchema(
     diags.push(diag('error', 'schema', code, `[${graph.id}] ${msg}`))
   }
   let connectivityOf: ReturnType<typeof buildGraphConnectivity> | undefined
+  let solved: ReturnType<typeof solveGraphTypes> | undefined
 
   if (!graph.boundary) {
     fail('boundary.missing', `graph definition has no boundary (root graphs cannot be instanced)`)
@@ -1165,7 +1167,12 @@ export function deriveBoundarySchema(
     }
     if (route.terminal.kind !== 'port') continue
     const inner = route.terminal.slot as OutputSpec
-    const type = elabOutputsOf(interfaceOf(node)).find((output) => output.spec.id === item.binds.port)?.spec.type ?? inner.type
+    // Solve the definition before projecting into its parent, never its own elaboration.
+    const type = (solved ??= solveGraphTypes(graph, resolve, {
+      resolveNode, connectivityOf: connectivityOf ??= buildGraphConnectivity(graph),
+    }))
+      .portTypeOf(node.id, 'output', item.binds.port) ??
+      elabOutputsOf(interfaceOf(node)).find((output) => output.spec.id === item.binds.port)?.spec.type ?? inner.type
     items.push({
       kind: 'output',
       id: item.id,
