@@ -11,8 +11,10 @@ import {
   formatByteSize,
   formatDate,
   localCollectionSource,
+  t,
   type CollectionEntry,
   type CollectionSource,
+  type BoardCardSource,
 } from '@dinkster/core'
 import { HISTORY_STATES, type ExecutionState, type HistoryPage, type HistoryRunRecord, type LibraryRecord, type TemplateDescriptor } from '@dinkster/client'
 import { LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState, type Backend } from './app-state.js'
@@ -23,12 +25,19 @@ const COLLECTION_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
   year: 'numeric',
   month: 'numeric',
   day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-  second: '2-digit',
 }
 
-export const formatCollectionDate = (value: number): string => formatDate(value, COLLECTION_DATE_OPTIONS)
+export const formatCollectionDate = (value: number): string => formatDate(value, {
+  ...COLLECTION_DATE_OPTIONS, hour: 'numeric', minute: '2-digit', second: '2-digit',
+})
+
+export const formatCollectionRowDate = (value: number): string => {
+  const date = new Date(value)
+  const today = new Date()
+  return date.toDateString() === today.toDateString()
+    ? t('collection.date.today', { time: formatDate(value, { hour: 'numeric', minute: '2-digit' }) })
+    : formatDate(value, COLLECTION_DATE_OPTIONS)
+}
 
 /**
  * Bind a remote page cursor to the backend that minted it. A keyset cursor
@@ -139,6 +148,13 @@ export function packsSource(app: AppState): CollectionSource {
         if (count === 0) continue
         const sourceKind = info.source?.split(':', 1)[0]
         const assetCount = info.assets?.length ?? 0
+        const typeStorage = Object.entries(info.typeStorage ?? {}).sort(([a], [b]) => a.localeCompare(b))
+          .filter(([type]) => info.typeStorageChoices?.includes(type))
+          .map(([type, provider]) => ({
+            label: `${type.slice(type.lastIndexOf('.') + 1)} values`,
+            text: `Stored ${provider}'s way`,
+            title: type,
+          }))
         entries.push({
           id: packId,
           title: info.displayName,
@@ -173,6 +189,7 @@ export function packsSource(app: AppState): CollectionSource {
             ...(info.source !== undefined ? [{ label: 'source', text: info.source }] : []),
             ...(info.publisher !== undefined ? [{ label: 'publisher', text: info.publisher }] : []),
             ...(info.artifactDigest !== undefined ? [{ label: 'digest', text: info.artifactDigest }] : []),
+            ...typeStorage,
           ],
         })
       }
@@ -333,14 +350,15 @@ const workflowEntry = (r: LibraryRecord, backend: Backend): CollectionEntry => (
   id: r.id,
   owner: backend.id,
   title: r.name,
-  subtitle: `Modified ${formatCollectionDate(r.modified * 1000)}`,
-  badges: [...r.labels.filter((l) => l !== WORKFLOW_LABEL), `rev ${r.revision}`],
+  kind: 'workflow',
+  subtitle: `Modified ${formatCollectionRowDate(r.modified * 1000)}`,
+  badges: r.labels.filter((l) => l !== WORKFLOW_LABEL),
   details: [
     { label: 'workflow id', text: r.id },
     { label: 'backend', text: backend.label },
     { label: 'digest', text: r.digest },
     { label: 'media type', text: r.mediaType },
-    { label: 'modified', text: formatCollectionDate(r.modified * 1000) },
+    { label: 'modified', text: formatDate(r.modified * 1000, { ...COLLECTION_DATE_OPTIONS, hour: 'numeric', minute: '2-digit' }) },
     { label: 'revision', text: String(r.revision) },
     ...(r.folder !== undefined ? [{ label: 'folder', text: r.folder }] : []),
   ],
@@ -356,12 +374,15 @@ const workflowEntry = (r: LibraryRecord, backend: Backend): CollectionEntry => (
  * loaded page. A V1 backend has no library surface; the source renders
  * its text-first empty state.
  */
-export function workflowsSource(app: AppState): CollectionSource {
+export function workflowsSource(app: AppState,
+  backendForPage = () => app.libraryBackend(),
+  project?: string,
+): CollectionSource {
   return {
     id: 'workflows',
     label: 'Workflows',
     page: async (req) => {
-      const backend = app.libraryBackend()
+      const backend = backendForPage()
       if (!backend) return { items: [], total: 0 }
       const cursor = decodeOwnedCursor(backend.id, req.cursor)
       const page = await backend.connection.listLibrary({
@@ -369,6 +390,7 @@ export function workflowsSource(app: AppState): CollectionSource {
         query: req.query,
         label: WORKFLOW_LABEL,
         limit: req.limit,
+        ...(project === undefined ? {} : { project }),
         ...(cursor !== undefined ? { cursor } : {}),
       })
       const nextCursor = encodeOwnedCursor(backend.id, page.cursor)
@@ -377,6 +399,55 @@ export function workflowsSource(app: AppState): CollectionSource {
         items: page.records.map((r) => workflowEntry(r, backend)),
         ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
       }
+    },
+  }
+}
+
+/** Saved project and enabled-pack blueprints share one ungrouped picker. */
+export function boardBlueprintsSource(backendForPage: () => Backend | undefined, project: string): CollectionSource {
+  return {
+    id: 'board-blueprints', label: 'Blueprints',
+    page: async (req) => {
+      const backend = backendForPage()
+      if (!backend) return { items: [], total: 0 }
+      const cursor = decodeOwnedCursor(backend.id, req.cursor)
+      const items: CollectionEntry[] = []
+      const errors: string[] = []
+      try {
+        let next: string | undefined
+        do {
+          req.signal?.throwIfAborted()
+          const page = await backend.connection.listLibrary({ scope: LIBRARY_SCOPE, project,
+            label: 'blueprint', limit: 200, ...(next === undefined ? {} : { cursor: next }) })
+          items.push(...page.records.map((record): CollectionEntry => ({
+            id: `saved:${record.id}`, owner: backend.id, title: record.name,
+            kind: 'blueprint',
+            subtitle: `Modified ${formatCollectionRowDate(record.modified * 1000)}`,
+            badges: record.labels.filter((label) => label !== 'blueprint'),
+            details: [{ label: 'blueprint id', text: record.id }, { label: 'backend', text: backend.label },
+              { label: 'digest', text: record.digest }, { label: 'revision', text: String(record.revision) }],
+            ref: { kind: 'library', recordId: record.id } satisfies BoardCardSource,
+          })))
+          next = page.cursor
+        } while (next !== undefined)
+      } catch (reason) { errors.push(reason instanceof Error ? reason.message : String(reason)) }
+      const registry = backend.registry.get()
+      if (!registry) errors.push('Blueprint packs are unavailable')
+      for (const [packId, pack] of registry?.packs ?? []) {
+        for (const blueprint of pack.blueprints ?? []) items.push({
+          id: `pack:${JSON.stringify([packId, blueprint.id])}`, owner: backend.id, title: blueprint.name,
+          kind: 'blueprint',
+          subtitle: blueprint.description ?? pack.displayName, badges: blueprint.tags ?? [],
+          details: [{ label: 'pack', text: pack.displayName }, { label: 'digest', text: blueprint.digest }],
+          ref: { kind: 'pack', packId, blueprintId: blueprint.id, digest: blueprint.digest } satisfies BoardCardSource,
+        })
+      }
+      req.signal?.throwIfAborted()
+      const page = await localCollectionSource({ id: 'board-blueprints', label: 'Blueprints', corpus: () => items })
+        .page({ ...req, ...(cursor === undefined ? {} : { cursor }) })
+      const next = encodeOwnedCursor(backend.id, page.cursor)
+      return { ...page, owner: backend.id, ...(next === undefined ? {} : { cursor: next }),
+        ...(errors.length === 0 ? {} : { error: errors.join('; ') }) }
     },
   }
 }
@@ -403,8 +474,9 @@ export function boardsSource(app: AppState): CollectionSource {
           id: record.id,
           owner: backend.id,
           title: record.name,
-          subtitle: `Modified ${formatCollectionDate(record.modified * 1000)}`,
-          badges: [...record.labels.filter((label) => label !== 'board'), `rev ${record.revision}`],
+          kind: 'board',
+          subtitle: `Modified ${formatCollectionRowDate(record.modified * 1000)}`,
+          badges: record.labels.filter((label) => label !== 'board'),
           details: [
             { label: 'board id', text: record.id },
             { label: 'backend', text: backend.label },
@@ -474,7 +546,7 @@ const runEntry = (r: HistoryRunRecord, owner: string): CollectionEntry => ({
   ref: r,
   owner,
   title: r.workflowName ?? `${titleCase(r.state)} run`,
-  subtitle: `${timeText(r.finishedAt)} - ${r.jobId}`,
+  subtitle: `${formatCollectionRowDate(r.finishedAt * 1000)} - ${r.jobId}`,
   badges: [
     ...attributionBadges({ principalId: r.principalId, kind: r.principalKind }),
     'Durable record',
@@ -672,7 +744,7 @@ export function historySource(app: AppState): CollectionSource {
         return {
           id: exec.key,
           title: app.tabTitleFor(exec.ref),
-          subtitle: `${localTimeText(exec.queuedAt)} - ${exec.ref.prompt}`,
+          subtitle: `${formatCollectionRowDate(exec.queuedAt)} - ${exec.ref.prompt}`,
           badges: [
             ...attributionBadges({
               principalId: exec.submittedBy?.principalId,

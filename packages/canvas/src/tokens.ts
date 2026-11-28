@@ -46,7 +46,7 @@ export const canvasPaintTokens = {
   },
   viewport: { initialOffset: 40, fitMargin: 60, minFitScale: 0.1, maxFitScale: 2 },
   keyboardFocus: { stroke: 1, outset: 2 },
-  graphCache: { tilePixels: 512, bleedPixels: 2, detailMinScale: 0.3, detailMaxScale: 0.5 },
+  graphCache: { tilePixels: 512, bleedPixels: 2, detailMaxScale: 0.5 },
   badge: {
     radius: 3,
     baselineOffset: 0.5,
@@ -1017,6 +1017,18 @@ export const previousCanvasTypePaint: Pick<DesignTokens, 'typeColors' | 'typeFal
     AUDIO: '#1565C0',
   },
   typeFallbackLightness: 62,
+}
+
+/** Engine model kinds reuse the named pin colors in every theme. */
+export const modelKindColorMap: Readonly<Record<string, string>> = {
+  'model/checkpoint': 'MODEL',
+  'model/diffusion': 'MODEL',
+  'model/text-encoder': 'CLIP',
+  'model/vae': 'VAE',
+  'model/controlnet': 'CONTROL_NET',
+  'model/lora': 'LATENT',
+  'model/upscale': 'IMAGE',
+  'model/upscaler': 'IMAGE',
 }
 
 /** A field's box inset from the node's edge in the default look; a pin's name lines up with the field's label inside it. */

@@ -68,7 +68,7 @@ describe('WorkflowQueueControl', () => {
       canQueue={status().state === 'ready'} onQueue={() => undefined} onCancel={() => undefined}
       onOpenExecution={() => undefined} hideRunList={status().state === 'failed'}
       runControl={(runButton) => <EngineRunControl status={status()} baseUrl="" onRestart={async () => undefined}>
-        {runButton}
+        {runButton()}
       </EngineRunControl>} />, root)
     expect(root.querySelector('[data-testid="queue-button"]')).not.toBeNull()
     for (const state of ['stopped', 'starting'] as const) {
@@ -233,12 +233,12 @@ describe('WorkflowQueueControl', () => {
     ), root)
 
     const line = root.querySelector('.workflow-queue-buttons [data-testid="workflow-progress"]')!
-    expect(line.tagName).toBe('PROGRESS')
+    expect(line.getAttribute('role')).toBe('progressbar')
     expect(line.getAttribute('aria-valuetext')).toBe('63%, 2 of 4 nodes')
-    expect(line.getAttribute('value')).toBe('0.625')
+    expect(line.getAttribute('aria-valuenow')).toBe('0.625')
     const node = () => root.querySelector('.workflow-queue-buttons [data-testid="workflow-progress-node"]')!
-    expect(node().tagName).toBe('PROGRESS')
-    expect(node().getAttribute('value')).toBe('0.5')
+    expect(node().getAttribute('role')).toBe('progressbar')
+    expect(node().getAttribute('aria-valuenow')).toBe('0.5')
     expect(node().hasAttribute('aria-hidden')).toBe(false)
     expect(root.textContent).not.toContain('of 4 nodes')
 
@@ -246,13 +246,13 @@ describe('WorkflowQueueControl', () => {
       ...entries()[0]!,
       nodes: { ...entries()[0]!.nodes, c: { state: 'running', value: 0.75, max: 20 } },
     }])
-    expect(root.querySelector('[data-testid="workflow-progress"]')?.getAttribute('value')).toBe('0.6875')
-    expect(node().getAttribute('value')).toBe('0.75')
+    expect(root.querySelector('[data-testid="workflow-progress"]')?.getAttribute('aria-valuenow')).toBe('0.6875')
+    expect(node().getAttribute('aria-valuenow')).toBe('0.75')
 
     // A running node that reports no progress of its own leaves its line empty.
     setEntries([{ ...entries()[0]!, nodes: { ...entries()[0]!.nodes, c: { state: 'done' }, d: { state: 'running' } } }])
-    expect(root.querySelector('[data-testid="workflow-progress"]')?.getAttribute('value')).toBe('0.75')
-    expect(node().getAttribute('value')).toBe('0')
+    expect(root.querySelector('[data-testid="workflow-progress"]')?.getAttribute('aria-valuenow')).toBe('0.75')
+    expect(node().getAttribute('aria-valuenow')).toBe('0')
     expect(node().getAttribute('aria-hidden')).toBe('true')
     unmount()
   })

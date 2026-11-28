@@ -38,6 +38,37 @@ const stubConnection = <T extends object>(members: T): DinksterConnection => ({
 } as unknown as DinksterConnection)
 
 describe('Assets dock body', () => {
+  it('opens the requested mount after discovery without overriding later source choices', async () => {
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    const connection = stubConnection({
+      listMounts: async () => {
+        await pending
+        return [{ id: 'renders', mode: 'readwrite', state: 'ready', entryCount: 1 }, { id: 'plates', mode: 'read', state: 'ready', entryCount: 0 }]
+      },
+      listMountEntries: async (id: string) => ({ entries: id === 'renders' ? [{ virtualPath: 'render.txt', name: 'render.txt', size: 7, mediaType: 'text/plain' }] : [] }),
+      assetUrl: () => '',
+    })
+    const [focus, setFocus] = createSignal({ mountId: 'plates' })
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <AssetsBody connection={connection} backendId="native" mountFocus={focus()} />, root)
+    const source = () => root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!
+    try {
+      finish()
+      await vi.waitFor(() => expect(source().textContent).toContain('Other / Plates'))
+      expect(root.querySelector('[data-testid="collection-entry"]')).toBeNull()
+      setFocus({ mountId: 'renders' })
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('render.txt'))
+      expect(source().textContent).toContain('Other / Renders')
+      source().click()
+      document.querySelector<HTMLButtonElement>('[data-option-id="local-assets"]')!.click()
+      await vi.waitFor(() => expect(source().textContent).toContain('Local assets'))
+      setFocus({ mountId: 'renders' })
+      await vi.waitFor(() => expect(source().textContent).toContain('Other / Renders'))
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')?.textContent).toContain('render.txt'))
+    } finally { dispose() }
+  })
+
   it('offers complete available media as project/backend-tagged drags, but not models or missing bytes', async () => {
     const assets = [
       { digest: `blake3:${'a'.repeat(64)}`, name: 'song.wav', mediaType: 'audio/wav', size: 42, virtualPath: '' },
@@ -485,7 +516,7 @@ describe('Assets dock body', () => {
     dispose()
   })
 
-  it('renders a ready mount listing failure as a source-specific reason', async () => {
+  it('keeps source-specific failure details separate from the collection recovery banner', async () => {
     const connection = stubConnection({
       listMounts: vi.fn().mockResolvedValue([{ id: 'broken', mode: 'read', state: 'ready' }]),
       listMountEntries: vi.fn().mockRejectedValue(new RequestFailure('GET', '/api/mounts/ready/entries', 503, 'index unavailable')),
@@ -496,8 +527,9 @@ describe('Assets dock body', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <AssetsBody connection={connection} backendId="native" />, root)
-    await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('Assets unavailable'))
-    expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('local catalog unavailable')
+    await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('Could not load All assets.'))
+    expect(root.querySelector('[data-collection-state="error"]')?.textContent).not.toContain('local catalog unavailable')
+    expect(root.querySelector('[role="alert"] [data-testid="collection-retry"]')).not.toBeNull()
     root.querySelector<HTMLElement>('[data-testid="asset-source-health"] summary')!.click()
     expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('Broken')
     expect(root.querySelector('[data-testid="asset-source-health"]')?.textContent).toContain('index unavailable')

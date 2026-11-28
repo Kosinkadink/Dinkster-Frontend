@@ -22,7 +22,7 @@ function EngineStateExample(props: { readonly state: typeof states[number] }) {
             hideRunList={status().state === 'failed'}
             runControl={(runButton) => <EngineRunControl status={status()} baseUrl="" onRestart={async () => {
               setStatus({ protocol: 1, state: 'starting', progress: { done: 0, total: 8 } })
-            }}>{runButton}</EngineRunControl>} />
+            }}>{runButton()}</EngineRunControl>} />
       </div>
     </figure>
   )

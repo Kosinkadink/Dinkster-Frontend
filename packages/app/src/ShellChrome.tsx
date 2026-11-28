@@ -109,6 +109,11 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   const resetFit = (): void => {
     readoutHeight = undefined
     setFitted(undefined)
+    if (element.isConnected) {
+      // A dialog may have entered the top layer since the previous target.
+      element.hidePopover()
+      element.showPopover()
+    }
     queueMicrotask(position)
   }
   createEffect(on(() => props.tip, resetFit))
@@ -122,6 +127,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     onCleanup(() => observer.unobserve(container))
   })
   onMount(() => {
+    element.showPopover()
     observer.observe(element)
     window.addEventListener('resize', resetFit)
     window.addEventListener('scroll', position, true)
@@ -132,7 +138,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
     })
   })
   return (
-    <aside ref={element} class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip">
+    <aside ref={element} popover="manual" class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip">
       <div ref={content} role="tooltip">
         <Show when={displayed().title}><div class="app-tooltip-title">
           {displayed().title}<Show when={displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
@@ -140,6 +146,7 @@ export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
         <For each={displayed().lines}>{(line, index) => <div>
           {line}<Show when={index() === 0 && !displayed().title && displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
         </div>}</For>
+        <Show when={displayed().note}>{(note) => <div class="app-tooltip-note">{note()}</div>}</Show>
         <Show when={props.tip.detailed}><For each={displayed().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
       </div>
     </aside>

@@ -119,6 +119,7 @@ class FakeConn implements CollabConnection {
       baseRevision: op.baseRevision,
       revision: ++this.session.revision,
       patch: op.patch,
+      ...(op.numericCorrections === undefined ? {} : { numericCorrections: op.numericCorrections }),
       timestamp: 1000,
     }
     this.session.log.push(server)
@@ -286,6 +287,104 @@ describe('Board workspace collaboration', () => {
     await until(() => joined.session.doc.order.length === 1)
     expect(shared.session.doc.order).toEqual(['foreign-note'])
     expect(joined.session.doc).toEqual(shared.session.doc)
+  })
+
+  it('places saved runs around existing items without shifting them and reuses the freed home', async () => {
+    const app = makeApp(new FakeCollabServer())
+    const entry = app.boards.open(emptyBoard(), 'Results', 'http://collab')
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'card', kind: 'workflow', name: 'Rain', source: { kind: 'library', recordId: 'saved' },
+      values: {}, rect: { x: 17, y: 29, width: 340, height: 188 },
+    }, { id: 'note', kind: 'note', text: 'Keep this here',
+      rect: { x: 685, y: 29, width: 200, height: 240 } }, {
+      id: 'section', kind: 'section', name: 'Background', rect: { x: 0, y: 0, width: 1400, height: 1200 },
+    }] } })
+    const connection = app.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)!.connection
+    vi.spyOn(connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+      digests.map((digest) => ({ digest, status: 'available' })))
+    const assets = Array.from({ length: 4 }, (_, index) => ({ digest: `blake3:${String(index + 1).repeat(64)}`,
+      name: `Saved ${index}`, mediaType: 'image/png', width: 160, height: 320 }))
+    const held = app.boards.reserveResultPlaces(entry.id, 'card', 1)
+    expect(held).toEqual([{ x: 381, y: 29, width: 280, height: 175 }])
+    const note = entry.session.doc.items['note']
+    const source = { project: activeProjectId(), baseUrl: entry.baseUrl, assets,
+      run: { job: 'first', card: 'card', places: held } }
+    const ids = await app.boards.placeMedia(entry.id, source, held[0]!)
+    expect(ids.map((id) => entry.session.doc.items[id]!.rect)).toEqual([
+      { x: 381, y: 29, width: 87.5, height: 175 },
+      { x: 381, y: 293, width: 87.5, height: 175 },
+      { x: 685, y: 293, width: 87.5, height: 175 },
+      { x: 381, y: 492, width: 87.5, height: 175 },
+    ])
+    expect(entry.session.doc.items['note']).toEqual(note)
+    const later = app.boards.reserveResultPlaces(entry.id, 'card', 1)
+    expect(later).toHaveLength(4)
+    expect(later[0]).toEqual({ x: 381, y: 691, width: 87.5, height: 175 })
+    for (const id of ids) entry.session.dispatch({ command: 'board.item.move', params: {
+      moves: [{ id, x: -600, y: entry.session.doc.items[id]!.rect.y }],
+    } })
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1)[0]).toEqual({ x: 381, y: 29, width: 87.5, height: 175 })
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1, [{ x: 381, y: 29, width: 280, height: 175 }])[0]!.y).toBe(228)
+    entry.session.dispatch({ command: 'board.item.remove', params: { ids } })
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1)).toHaveLength(4)
+    expect(app.boards.reserveResultPlaces(entry.id, 'card', 1)[0]).toEqual({ x: 381, y: 293, width: 280, height: 175 })
+    app.dispose()
+  })
+
+  it('records checked run deliveries once and never restores removed results on reopening', async () => {
+    const app = makeApp(new FakeCollabServer())
+    const entry = app.boards.open(emptyBoard(), 'Results', 'http://collab')
+    entry.session.dispatch({ command: 'board.item.add', params: { items: [{
+      id: 'card', kind: 'workflow', name: 'Rain', source: { kind: 'library', recordId: 'saved' },
+      values: {}, rect: { x: 17, y: 29, width: 340, height: 240 },
+    }] } })
+    const connection = app.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)!.connection
+    let missing = true
+    vi.spyOn(connection, 'checkAssetAvailability').mockImplementation(async (digests) =>
+      digests.map((digest, index) => ({ digest, status: missing && index === 1 ? 'missing' : 'available' })))
+    const source = { project: activeProjectId(), baseUrl: entry.baseUrl,
+      run: { job: 'native-run', card: 'card' }, assets: [
+        { digest: `blake3:${'1'.repeat(64)}`, name: 'Rain', mediaType: 'video/mp4', origin: { job: 'native-run', node: 'save-video' } },
+        { digest: `blake3:${'2'.repeat(64)}`, name: 'Sound', mediaType: 'audio/wav', origin: { job: 'native-run', node: 'save-sound' } },
+      ] }
+    const point = { x: 410, y: 29 }
+    await expect(app.boards.placeMedia(entry.id, source, point)).rejects.toThrow('nothing was placed')
+    expect(entry.session.doc.order).toEqual(['card'])
+    expect(entry.session.doc.runs).toBeUndefined()
+    missing = false
+    const ids = await app.boards.placeMedia(entry.id, source, point)
+    expect(ids.map((id) => entry.session.doc.items[id]!.kind)).toEqual(['video', 'sound'])
+    expect(entry.session.doc.runs).toEqual({ 'native-run': { card: 'card', items: ids } })
+    expect(entry.session.doc.items[ids[1]!]).toMatchObject({ asset: { origin: { job: 'native-run', node: 'save-sound' } } })
+    expect(await app.boards.placeMedia(entry.id, source, point)).toEqual([])
+    expect(await app.boards.placeMedia(entry.id, { ...source, assets: [], run: { job: 'empty-run', card: 'card' } }, point)).toEqual([])
+    expect(entry.session.doc.runs?.['empty-run']).toEqual({ card: 'card', items: [] })
+    expect(entry.session.undo()).toBe(true)
+    expect(entry.session.doc.order).toEqual(['card'])
+    expect(entry.session.redo()).toBe(true)
+    expect(entry.session.doc.order).toEqual(['card', ...ids])
+    entry.session.dispatch({ command: 'board.item.remove', params: { ids } })
+    const snapshot = JSON.parse(JSON.stringify(entry.session.doc))
+    app.boards.close(entry.id)
+    const reopened = app.boards.open(snapshot, 'Reopened', entry.baseUrl)
+    // A replay needs neither availability nor source bytes after delivery was recorded.
+    missing = true
+    expect(await app.boards.placeMedia(reopened.id, source, point)).toEqual([])
+    expect(reopened.session.doc.order).toEqual(['card'])
+    expect(reopened.session.doc.runs?.['native-run']?.items).toEqual(ids)
+    await expect(app.boards.placeMedia(reopened.id, { ...source, baseUrl: 'http://other' }, point)).rejects.toThrow('project and backend')
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    vi.mocked(connection.checkAssetAvailability).mockImplementation(async (digests) => {
+      await gate
+      return digests.map((digest) => ({ digest, status: 'available' }))
+    })
+    const late = app.boards.placeMedia(reopened.id, { ...source, run: { job: 'next-run', card: 'card' } }, point)
+    reopened.session.dispatch({ command: 'board.item.remove', params: { ids: ['card'] } })
+    release()
+    await expect(late).rejects.toThrow('no item')
+    expect(reopened.session.doc.order).toEqual([])
+    expect(reopened.session.doc.runs?.['next-run']).toBeUndefined()
   })
 
   it('owns placed Assets, preserves their recorded origin and proportions, and refuses a mixed missing batch', async () => {
@@ -649,6 +748,90 @@ describe('stableActorId', () => {
 })
 
 describe('the notice of the editor\'s own fixes in a shared workflow', () => {
+  it('reports a confirmed automatic numeric correction before peer limits arrive and keeps peer Undo', async () => {
+    const server = new FakeCollabServer()
+    const appA = makeApp(server)
+    const appB = makeApp(server)
+    const limits = (max: number) => ({ ...nodesPayload, nodes: { Numbers: {
+      nodeType: 'Numbers', schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, version: 1,
+      displayName: 'Numbers', category: 'test', body: [
+      { kind: 'input', id: 'amount', label: 'Amount', type: INT, default: 0,
+        widget: { type: 'NUMBER', min: 0, max, step: 4 } },
+    ] } } })
+    for (const app of [appA, appB]) for (const backend of app.backends.get())
+      backend.registry.set(buildDinksterRegistry(backend.id, limits(20)))
+    expect(await appA.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-provenance', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+        n1: { id: 'n1', type: 'Numbers', values: { amount: 16 } },
+      } } }, view: { graphs: { g0: { nodes: {} } } },
+    }, 'Shared numbers')).toEqual([])
+    expect(await appA.shareActiveTab()).toBeUndefined()
+    const tabA = activeTab(appA)
+    expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
+    const tabB = activeTab(appB)
+    for (const backend of appA.backends.get()) backend.registry.set(buildDinksterRegistry(backend.id, limits(13)))
+    expect(appA.backendForTab(tabA).registry.get()?.resolve('Numbers')).toBeDefined()
+    await until(() => tabB.store.doc.graphs.g0!.nodes.n1!.values.amount === 12, 'confirmed correction before peer limits')
+    await sharedSession(appA, tabA.id).settle()
+    expect(appA.adjustmentNotices.get().get(tabA.id)?.adjustments).toHaveLength(1)
+    expect(appB.adjustmentNotices.get().get(tabB.id)?.adjustments).toHaveLength(1)
+    expect(appB.adjustmentNotices.get().get(tabB.id)?.adjustments[0]?.details).toEqual([
+      'Amount: 16 to 12',
+    ])
+    expect(appB.undoAdjustments(tabB.id)).toBe(true)
+    await sharedSession(appB, tabB.id).settle()
+    await until(() => tabA.store.doc.graphs.g0!.nodes.n1!.values.amount === 16, 'peer Undo')
+    for (const backend of appB.backends.get()) backend.registry.set(buildDinksterRegistry(backend.id, limits(13)))
+    await sharedSession(appB, tabB.id).settle()
+    expect(appB.scanTabNumberFixes(tabB)).toEqual([])
+    expect(tabB.store.doc.graphs.g0!.nodes.n1!.values.amount).toBe(16)
+    appA.clearAdjustmentNotice(tabA.id)
+    appB.clearAdjustmentNotice(tabB.id)
+    expect(tabA.store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 12 } }).ok).toBe(true)
+    await sharedSession(appA, tabA.id).settle()
+    await until(() => tabB.store.doc.graphs.g0!.nodes.n1!.values.amount === 12, 'ordinary equal-value edit')
+    expect(appB.adjustmentNotices.get().has(tabB.id)).toBe(false)
+  })
+
+  it('refuses numeric notice Undo after a peer changes a correction joined to a personal edit', async () => {
+    const server = new FakeCollabServer()
+    const appA = makeApp(server)
+    const appB = makeApp(server)
+    for (const app of [appA, appB]) for (const backend of app.backends.get()) {
+      backend.registry.set(buildDinksterRegistry(backend.id, { ...nodesPayload, nodes: { Numbers: { body: [
+        { kind: 'input', id: 'cap', type: INT, default: 20, widget: { type: 'NUMBER', min: 0 } },
+        { kind: 'input', id: 'amount', type: INT, default: 0,
+          widget: { type: 'NUMBER', min: 0, max: { formula: 'cap' }, step: 4 } },
+      ] } } }))
+    }
+    expect(await appA.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: 'numeric-notice-collab', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'root', nextOrdinal: 2, links: {}, nets: {}, reroutes: {}, nodes: {
+        n1: { id: 'n1', type: 'Numbers', values: { amount: 16, cap: 20 } },
+      } } }, view: { graphs: { g0: { nodes: {} } } },
+    }, 'Shared numbers')).toEqual([])
+    const tabA = activeTab(appA)
+    const edit = (inputId: string, value: number) => ({ command: 'node.setValue',
+      params: { graphId: 'g0', nodeId: 'n1', inputId, value } })
+    expect((await appA.dispatchEditTo(tabA, edit('cap', 13))).ok).toBe(true)
+    expect(appA.undoAdjustments(tabA.id)).toBe(true)
+    expect(await appA.shareActiveTab()).toBeUndefined()
+    expect(appA.scanTabNumberFixes(activeTab(appA)).map((fix) => fix.valueKey)).toEqual([])
+    expect(appA.redoAdjustments(tabA.id)).toBe(true)
+    expect(await appB.joinCollabSession(appA.collabFor(tabA.id)!.descriptor.sessionId)).toBeUndefined()
+    await sharedSession(appA, tabA.id).settle()
+    const tabB = activeTab(appB)
+    await until(() => tabB.store.doc.graphs.g0!.nodes.n1!.values.amount === 12, 'numeric correction')
+    expect(appA.adjustmentNoticeState(tabA.id)).toBe('ready')
+    expect(tabB.store.dispatch(edit('amount', 8)).ok).toBe(true)
+    await sharedSession(appB, tabB.id).settle()
+    await until(() => activeTab(appA).store.doc.graphs.g0!.nodes.n1!.values.amount === 8, 'peer numeric edit')
+    expect(appA.adjustmentNoticeState(tabA.id)).toBe('refused')
+    expect(appA.undoAdjustments(tabA.id)).toBe(false)
+    expect(activeTab(appA).store.doc.graphs.g0!.nodes.n1!.values).toEqual({ amount: 8, cap: 13 })
+  })
+
   it('refuses Undo for the whole notice once another person changed an adjusted value, and keeps their value', async () => {
     const server = new FakeCollabServer()
     const appA = makeApp(server)

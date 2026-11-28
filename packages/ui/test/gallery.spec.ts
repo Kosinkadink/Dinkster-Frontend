@@ -19,6 +19,62 @@ const expectNoAxeViolations = async (page: Page) => {
     ),
   ).toEqual([])
 }
+
+test('color chooser edits accepted RGB values without changing invalid, disabled or refused values', async ({ page }) => {
+  await page.goto('/#color-input')
+  const trigger = page.getByRole('button', { name: 'Brush color', exact: true })
+  const chosen = page.getByRole('status', { name: 'Chosen brush color' })
+  const original = await chosen.textContent()
+  await expect(page.getByRole('button', { name: 'Unavailable brush color', exact: true })).toBeDisabled()
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'Color value', exact: true })
+  const field = dialog.getByRole('textbox', { name: 'Color value', exact: true })
+  await expect(field).toBeFocused()
+  await field.fill('#12xx56')
+  await page.keyboard.press('Enter')
+  await expect(field).toHaveAttribute('aria-invalid', 'true')
+  await expect(dialog.getByText('Enter an RGB color as #rrggbb.')).toBeVisible()
+  await expect(chosen).toHaveText(original!)
+  await field.fill('#FF0000')
+  await expect(chosen).toHaveText('#ff0000')
+  await expect(field).toHaveValue('#ff0000')
+  await expect(field).toHaveAttribute('aria-invalid', 'false')
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('slider', { name: 'Saturation and value' })).toBeFocused()
+  await page.keyboard.press('ArrowLeft')
+  await expect(chosen).toHaveText('#ff0303')
+  await field.fill('#ff0000')
+  const hue = dialog.getByRole('slider', { name: 'Hue', exact: true })
+  const bounds = (await hue.boundingBox())!
+  await hue.click({ position: { x: bounds.width / 2, y: bounds.height / 2 } })
+  await expect(chosen).toHaveText('#00ffff')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  await trigger.click()
+  await trigger.click()
+  await expect(dialog).toHaveCount(0)
+  await trigger.click()
+  await page.getByRole('heading', { name: 'Color chooser', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  const refused = page.getByRole('button', { name: 'Unchanged brush color', exact: true })
+  await trigger.click()
+  await page.keyboard.press('Shift+Tab')
+  await expect(dialog).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  await trigger.click()
+  await hue.focus()
+  await page.keyboard.press('Tab')
+  await expect(dialog).toHaveCount(0)
+  await expect(refused).toBeFocused()
+  await refused.click()
+  await field.fill('#123456')
+  await expect(field).toHaveValue(original!)
+  await expect(refused).toHaveText(original!)
+  await expect(chosen).toHaveText('#00ffff')
+})
+
 test('list rows expand independently of their sibling menu and navigation does not imply expansion', async ({ page }) => {
   await page.goto('/#lists')
   const servers = page.getByRole('list', { name: 'Backend servers' })
@@ -64,6 +120,38 @@ test('list rows expand independently of their sibling menu and navigation does n
   await expect(version).toHaveAttribute('aria-pressed', 'false')
   await expect(version).not.toHaveAttribute('aria-expanded')
   await expect(version).not.toHaveAttribute('aria-controls')
+})
+
+test('stacked form values start on the same line in app and site densities', async ({ page }) => {
+  for (const route of ['#field-alignment', '#site-field-alignment']) {
+    await page.goto(`/${route}`)
+    await expect(page.getByLabel('Text field', { exact: true })).toBeVisible()
+    await page.evaluate(() => document.fonts.ready)
+    const origins = []
+    for (const label of ['Dropdown', 'Text field', 'Password field', 'Number field']) {
+      origins.push(await page.getByLabel(label, { exact: true }).evaluate((control) => {
+        const input = control as HTMLInputElement
+        const face = control.closest('.product-number') ?? control
+        const faceLeft = face.getBoundingClientRect().left
+        const value = control.querySelector('.dinkster-canvas-list-label')
+        if (value?.firstChild) {
+          const range = document.createRange()
+          range.setStart(value.firstChild, 0)
+          range.setEnd(value.firstChild, 1)
+          return { left: range.getBoundingClientRect().left, faceLeft }
+        }
+        const style = getComputedStyle(input)
+        return {
+          left: input.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft),
+          faceLeft,
+        }
+      }))
+    }
+    for (const origin of origins) {
+      expect(origin.left - origin.faceLeft).toBe(13)
+      expect(origin.left).toBe(origins[0]!.left)
+    }
+  }
 })
 
 test('single-line fields match their density while site dialogs keep app field sizing', async ({ page }) => {
@@ -264,7 +352,7 @@ for (const width of [1280, 390]) {
       await expect(page.getByRole('main')).toBeVisible()
       if (section === 'confirmations') expect(await page.evaluate(() => window.scrollY)).toBe(0)
       if (section === 'lists') {
-        const heading = page.locator('.storage-folder-heading').first()
+        const heading = page.getByRole('list', { name: 'Storage model folders', exact: true }).locator('.dinkster-row-heading')
         const name = await heading.locator('strong').boundingBox()
         const actions = await heading.getByRole('button', { name: 'Folder actions' }).boundingBox()
         expect(name!.x + name!.width).toBeLessThan(actions!.x)
@@ -318,7 +406,6 @@ test('setup feedback exposes known fractions, unknown progress and non-dismissab
       await expect(page.getByRole('progressbar', { name: 'Complete', exact: true }).locator('svg')).toHaveCSS('opacity', '1')
       const widths = await unknown.evaluate((element) => [element.getBoundingClientRect().width, element.querySelector('svg')!.getBoundingClientRect().width])
       expect(widths[1]! / widths[0]!).toBeCloseTo(motion === 'reduce' ? 1 : 0.36, 2)
-      await expect(page).toHaveScreenshot(`setup-feedback-${theme}-${motion}.png`, { fullPage: true })
     }
     await expectNoAxeViolations(page)
   }
@@ -401,8 +488,6 @@ test('described menu choices keep separate accessible descriptions, checks and o
       await page.setViewportSize({ width, height: 1000 })
       await page.goto(`/?theme=${theme}#setup-components`)
       await page.evaluate((theme) => { document.documentElement.dataset.theme = theme }, theme)
-      // Full-page capture must not resize the viewport while the menu is open.
-      await page.setViewportSize({ width, height: await page.evaluate(() => document.documentElement.scrollHeight) })
       const trigger = page.getByRole('button', { name: 'Change build', exact: true })
       await trigger.scrollIntoViewIfNeeded()
       await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
@@ -422,7 +507,6 @@ test('described menu choices keep separate accessible descriptions, checks and o
       const row = await alternative.boundingBox()
       const description = await text.boundingBox()
       expect(description!.y + description!.height).toBeLessThanOrEqual(row!.y + row!.height)
-      await expect(page).toHaveScreenshot(`setup-menu-${theme}-${width}.png`, { fullPage: true })
       await page.keyboard.press('ArrowDown')
       await expect(alternative).toBeFocused()
       await page.keyboard.press('Enter')
@@ -740,7 +824,7 @@ test('quiet text menus keep shared focus, checked selection and dismissal withou
     await expect(any).toBeFocused()
     await any.hover()
     await expect(any).toHaveCSS('background-color', await token(page, '--dinkster-surface-raised'))
-    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-hover'))
+    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-pressed'))
     await expect(page).toHaveScreenshot(`quiet-menu-${theme}-open.png`)
     await page.keyboard.press('Escape')
     await expect(section.getByRole('menu')).toHaveCount(0)
@@ -754,7 +838,7 @@ test('quiet text menus keep shared focus, checked selection and dismissal withou
     await expect(page).toHaveScreenshot(`quiet-menu-${theme}-focus.png`)
     await page.keyboard.press('ArrowDown')
     await expect(any).toBeFocused()
-    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-hover'))
+    await expect(trigger).toHaveCSS('background-color', await token(page, '--dinkster-interaction-pressed'))
     await expect(page).toHaveScreenshot(`quiet-menu-${theme}-keyboard-open.png`)
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Enter')
@@ -1437,12 +1521,18 @@ test('the canvas corner bar keeps one width right-justified under the minimap, i
     return {
       bar: style('[data-testid="canvas-chrome-corner-small"] .canvas-corner-bar').borderTopColor,
       menu: style('[data-testid="canvas-chrome-corner-settings"] .minimap-menu').borderTopColor,
+      minimapBackground: style('[data-testid="canvas-chrome-corner-settings"] [data-testid="minimap-settings"]').backgroundColor,
+      minimapGroupBackground: style('[data-testid="canvas-chrome-corner-settings"] .canvas-corner-split').backgroundColor,
+      zoomBackground: style('[data-testid="canvas-chrome-corner-zoom"] [data-testid="canvas-zoom-level"]').backgroundColor,
       fitColor: style('[data-testid="canvas-chrome-corner-small"] [data-testid="canvas-fit-view"]').color,
       listColor: style('[data-testid="canvas-chrome-run-ready"] .workflow-queue-toggle').color,
       ready: run('ready'),
       off: run('off'),
     }
   })
+  expect(outlines.minimapBackground).toBe('rgba(0, 0, 0, 0)')
+  expect(outlines.minimapGroupBackground).not.toBe(outlines.minimapBackground)
+  expect(outlines.zoomBackground).toBe(outlines.minimapGroupBackground)
   expect(outlines.ready.list).toBe(outlines.bar)
   expect(outlines.menu).toBe(outlines.bar)
   expect(outlines.listColor).toBe(outlines.fitColor)

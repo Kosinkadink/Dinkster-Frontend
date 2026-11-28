@@ -26,7 +26,7 @@ import {
   type Prompt,
   type WorkflowDocument,
 } from '@dinkster/core'
-import { buildDinksterRegistry, DinksterConnection, ExecutionStore, IMAGE_DOCUMENT_MEDIA_TYPE, hydrateDinksterCompletedExecution, PackInstallError, promptToDinksterGraph, reconcileDinksterExecutions, targetsForArtifact, type FetchLike, type WebSocketLike } from '../src/index.js'
+import { buildDinksterRegistry, DinksterConnection, ExecutionStore, IMAGE_DOCUMENT_MEDIA_TYPE, hydrateDinksterTerminalExecution, PackInstallError, promptToDinksterGraph, reconcileDinksterExecutions, targetsForArtifact, type FetchLike, type WebSocketLike } from '../src/index.js'
 import { uuidv4 } from '../src/dinkster-connection.js'
 import { requestFailureReason, subscribeRequestFailures } from '../src/request-failure.js'
 
@@ -695,6 +695,9 @@ describe('shared model management', () => {
     expect(calls.at(-1)).toEqual({ url: '/engine/api/models/locations/studio%20%2F%20second/projects/work%20%2F%20client', body: { enabled: true } })
     status = 409
     await expect(connection.updateModelSettings(state.settings, state.revision)).rejects.toThrow('Refresh before saving')
+    status = 400
+    payload = { error: 'not a directory: /archive/models' }
+    await expect(connection.updateModelSettings(state.settings, state.revision)).rejects.toMatchObject({ status: 400, serverMessage: 'not a directory: /archive/models' })
     status = 403
     await expect(connection.fetchModelSettings()).rejects.toThrow('403')
   })
@@ -752,8 +755,34 @@ describe('shared model management', () => {
 })
 
 describe('mount listing decode', () => {
+  it.each([
+    [{ error: 'not a directory: /archive/plates' }, 'not a directory: /archive/plates'],
+    [{ error: { message: 'not a supported refusal' } }, undefined],
+  ])('retains a mount grant refusal with a status fallback', async (body, expected) => {
+    const connection = new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', fetchFn: async () => jsonResponse(400, body) })
+    await expect(connection.addMount('plates', '/archive/plates', 'readwrite')).rejects.toMatchObject({ status: 400, serverMessage: expected })
+  })
+
   const connectionWith = (mounts: unknown, outputMount?: unknown, mountChangesAllowed: unknown = true): DinksterConnection =>
     new DinksterConnection({ id: C0, baseUrl: '', clientId: 'test', webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async () => jsonResponse(200, { mounts, mountChangesAllowed, ...(outputMount === undefined ? {} : { outputMount }) }) })
+
+  it('changes save access with the displayed revision and project, retaining a stale refusal', async () => {
+    const requests: { url: string; body: unknown }[] = []
+    const mount = { id: 'plates', path: '/plates', mode: 'readwrite', state: 'ready', saveError: 'Cannot save here: Permission denied' }
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/native', clientId: 'test', project: 'my project', fetchFn: async (url, init) => {
+      if (init?.method === 'PUT') {
+        requests.push({ url: String(url), body: JSON.parse(String(init.body)) })
+        return jsonResponse(409, { error: 'Mount settings changed. Refresh and try again.' })
+      }
+      return String(url).includes('/locations') ? jsonResponse(200, { mounts: [mount], activeMounts: [mount] })
+        : jsonResponse(200, { mounts: [mount], revision: 'displayed-revision', mountChangesAllowed: true })
+    } })
+    const settings = await connection.fetchMountSettings()
+    expect(settings.mounts[0]?.saveError).toBe('Cannot save here: Permission denied')
+    expect((await connection.fetchMountLocations()).activeMounts?.[0]?.saveError).toBe(mount.saveError)
+    await expect(connection.updateMountAccess('plates', 'read', settings.revision!)).rejects.toMatchObject({ status: 409, serverMessage: 'Mount settings changed. Refresh and try again.' })
+    expect(requests).toEqual([{ url: '/native/api/mounts/plates/access?project=my+project', body: { mode: 'read', revision: 'displayed-revision' } }])
+  })
 
   it.each([200, 503])('answers an older mount read with the newer snapshot after a late HTTP %s response', async (status) => {
     let finish!: (response: Response) => void
@@ -905,8 +934,10 @@ describe('mount listing decode', () => {
 
   it.each([undefined, 'default', 'film'])('persists the output for project %s without changing another project', async (project) => {
     const requests: { url: string; init?: RequestInit }[] = []
+    let refused = false
     const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'test', ...(project === undefined ? {} : { project }), webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
       requests.push({ url: String(url), ...(init ? { init } : {}) })
+      if (refused && init?.method === 'PUT') return jsonResponse(409, { error: 'Cannot save here: Permission denied' })
       return jsonResponse(200, { mounts: [{ id: 'renders', mode: 'readwrite', state: 'ready' }], outputMount: null, activeOutputMount: null, restartRequired: true, pendingRemovals: ['old'] })
     } })
     await connection.selectOutputMount('renders')
@@ -921,10 +952,12 @@ describe('mount listing decode', () => {
         init: { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mounts: ['renders'], outputMount: 'renders' }) },
       },
     ])
+    refused = true
+    await expect(connection.selectOutputMount('renders')).rejects.toMatchObject({ status: 409, serverMessage: 'Cannot save here: Permission denied' })
   })
 
   it('keeps operator configured and active locations distinct across pending changes', async () => {
-    const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'ready' }
+    const active = { id: 'plates', path: '/live/plates', mode: 'readwrite', state: 'failed', error: 'Permission denied: /live/plates' }
     const payload = { mounts: [{ id: 'plates', path: '/configured/new-plates', mode: 'read', state: 'restart-required', source: 'config', kind: 'image', entryCount: 17 }], activeMounts: [active], importMount: 'plates' }
     const { conn } = submitHarness(() => jsonResponse(200, payload))
     expect(await conn.fetchMountLocations()).toEqual(payload)
@@ -2676,9 +2709,11 @@ describe('reconcileDinksterExecutions', () => {
     },
   )
 
-  it('hydrates persisted image outputs after run_finished observed an unfinished job', async () => {
+  it.each(['completed', 'failed', 'cancelled'] as const)('hydrates saved files after a live terminal event: %s', async (state) => {
     const job: Record<string, unknown> = { state: 'running' }
     const { conn, store, seedRunning } = harness({ '/api/jobs/cid/j1': job })
+    let hydration: Promise<void> | undefined
+    conn.onLiveTerminal((execution) => { hydration = hydrateDinksterTerminalExecution(conn, store, execution) })
     seedRunning('j1')
     conn.ingest({ type: 'run_finished', jobId: 'j1' })
     expect(store.get(ref('j1'))!.status).toBe('running')
@@ -2687,14 +2722,26 @@ describe('reconcileDinksterExecutions', () => {
     const outputs = { save: { images: {
       typeId: 'IMAGE', fingerprint: 'saved-image', meta: { shape: [2, 48, 64, 3] },
     } } }
-    Object.assign(job, { state: 'completed', outputs, artifacts: [],
+    const artifacts = [{ nodeId: 'save', digest: `blake3:${'7'.repeat(64)}`,
+      name: 'saved.mp4', size: 137, mediaType: 'video/mp4', virtualPath: 'mounts/renders/saved.mp4' }]
+    Object.assign(job, { state, ...(state === 'completed' ? { outputs } : {}), artifacts,
       automaticValues: [{ nodeId: 'save', inputId: 'fps', value: 24, source: 'default' }] })
-    conn.ingest({ type: 'job_state', jobId: 'j1', state: 'completed' })
-    expect(store.get(ref('j1'))!.status).toBe('completed')
-    await hydrateDinksterCompletedExecution(conn, store, ref('j1'))
-    expect(store.get(ref('j1'))!.outputs).toEqual(outputs)
+    conn.ingest({ type: 'job_state', jobId: 'j1', state })
+    expect(hydration).toBeDefined()
+    await hydration
+    expect(store.get(ref('j1'))!.status).toBe(state === 'failed' ? 'error' : state)
+    expect(store.get(ref('j1'))!.outputs).toEqual(state === 'completed' ? outputs : {})
+    expect(store.get(ref('j1'))!.artifacts).toEqual(artifacts)
     expect(store.get(ref('j1'))!.artifactsHydrated).toBe(true)
     expect(store.get(ref('j1'))!.automaticValues).toEqual([{ runtimeNodeId: 'save', inputId: 'fps', value: 24, workedOut: false }])
+
+    const cached = harness({ '/api/jobs/cid/j1': job })
+    cached.seedRunning('j1')
+    cached.conn.ingest({ type: 'job_state', jobId: 'j1', state })
+    await reconcileDinksterExecutions(cached.conn, cached.store)
+    expect(cached.store.get(ref('j1'))).toMatchObject({
+      status: state === 'failed' ? 'error' : state, artifacts, artifactsHydrated: true,
+    })
   })
 
   it('completes a run whose terminal event was missed, hydrating output descriptors', async () => {

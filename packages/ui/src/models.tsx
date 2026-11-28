@@ -236,7 +236,7 @@ export function ProductModelList(props: ProductModelListProps) {
         }
         status={
           progressing() ? (
-            <div class="dinkster-model-progress">
+            <div>
               <ProductProgress
                 label={`${model().name}: ${version().name}`}
                 value={version().progress}

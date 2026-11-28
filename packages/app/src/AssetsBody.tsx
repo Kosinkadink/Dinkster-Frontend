@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import { failureMessage } from './request-failure.js'
 import type { DinksterConnection, MountDescriptor } from '@dinkster/client'
 import { formatByteSize, type CollectionSource, type MessageParams } from '@dinkster/core'
@@ -109,10 +109,20 @@ function AssetSourceControl(props: {
   readonly failures: Readonly<Record<string, AssetSourceFailurePresentation>>
   readonly selectedId: () => string
   readonly select: (id: string) => void
+  readonly mountFocus?: { readonly mountId: string } | undefined
   readonly message: AssetMessage
 }) {
+  let appliedFocus: { readonly mountId: string } | undefined
+  createEffect(() => {
+    const request = props.mountFocus
+    if (request === undefined || request === appliedFocus) return
+    const id = `mount:${request.mountId}`
+    if (!props.sources.some((source) => source.id === id)) return
+    appliedFocus = request
+    untrack(() => props.select(id))
+  })
   const sourceById = () => new Map(props.sources.map((source) => [source.id, source]))
-  const ready = () => props.presentations.filter(({ mount }) => mount.state === 'ready' && mount.entryCount !== 0)
+  const ready = () => props.presentations.filter(({ mount }) => (mount.state === 'ready' && mount.entryCount !== 0) || props.selectedId() === `mount:${mount.id}`)
   const sourceOptions = () => [
     ...(props.sources[0] ? [{ id: props.sources[0].id, label: props.sources[0].id === 'all-assets' ? props.message('assets.source.all') : props.sources[0].label, value: props.sources[0].id }] : []),
     ...props.sources.slice(1).filter((source) => !source.id.startsWith('mount:')).map((source) => ({
@@ -173,13 +183,12 @@ function AssetSourceControl(props: {
 function assetState(state: CollectionPanelState, message: AssetMessage) {
   const source = state.sourceLabel === 'All assets' ? message('assets.source.all') : state.sourceLabel
   if (state.kind === 'loading') return <ProductEmptyState tone="loading" title={message('assets.state.loading.title')} hint={message('assets.state.loading.detail', { source })} />
-  if (state.kind === 'error') return <ProductEmptyState tone="error" title={message('assets.state.error.title')} hint={state.message ?? message('assets.state.error.detail', { source })} />
   if (state.kind === 'no-compatible') return <ProductEmptyState title={message('assets.state.noCompatible.title')} hint={message('assets.state.noCompatible.detail')} />
   if (state.kind === 'no-match') return <ProductEmptyState title={message('assets.state.noMatch.title')} hint={message('assets.state.noMatch.detail')} />
   return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source })} />
 }
 
-export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly onOpenStorage?: () => void }) {
+export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly onOpenStorage?: () => void; readonly mountFocus?: { readonly mountId: string } | undefined }) {
   const message = useAppMessage()
   const project = activeProjectId()
   const [adapters, setAdapters] = createSignal<readonly AssetSourceAdapter[]>()
@@ -294,7 +303,7 @@ export function AssetsBody(props: { readonly connection: DinksterConnection; rea
                 },
               }}
               sourceRail={({ selectedId, select }) => <>
-                <AssetSourceControl sources={sources()} presentations={presentations()} failures={failures()} selectedId={selectedId} select={select} message={message} />
+                <AssetSourceControl sources={sources()} presentations={presentations()} failures={failures()} selectedId={selectedId} select={select} mountFocus={props.mountFocus} message={message} />
                 <Show when={discoveryError()}>
                   <ProductButton type="button" data-testid="assets-retry" onClick={() => setRetryTick((tick) => tick + 1)}>{message('templateGallery.retry')}</ProductButton>
                 </Show>

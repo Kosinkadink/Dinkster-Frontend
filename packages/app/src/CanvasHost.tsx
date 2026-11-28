@@ -113,6 +113,7 @@ import {
   nodeSearchFields,
   searchVisibilityOf,
   isAssetWidgetInput,
+  isComboWidgetInput,
   isPortEndpoint,
   planOccurrenceLinkMutation,
   samePortRef,
@@ -146,7 +147,8 @@ import {
   type WorkflowDocument,
   widgetRepresentationChoices,
 } from '@dinkster/core'
-import { Check, CheckCircle2, Dice5, FileUp, LoaderCircle, Lock, Minus, Plus, Snowflake, TriangleAlert, X } from 'lucide-solid'
+import { CheckCircle2, FileUp, LoaderCircle, Snowflake, TriangleAlert, X } from 'lucide-solid'
+import { ControllerModeMenu } from './ControllerModeMenu.js'
 import { executionProgress, executionStatusLabel } from './ExecutionActivityCard.js'
 import { runClock } from './execution-activity.js'
 import { controllerAdvancementPlan, currentGraphId, diagnosticFocusPlan, EMPTY_CANVAS_SELECTION, pushGraph, restoreNavigation, toggledSelectionCollapsed, toggledSelectionMode, truncateGraphStack, viewInstancePath, type AppState, type Backend, type CanvasBridge, type CanvasSelectionSnapshot, type Tab } from './app-state.js'
@@ -1392,7 +1394,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const backendsTick = useSignal(props.app.backendsTick)
   const tabTargets = useSignal(props.app.tabTargets)
   const settingsTick = useSignal(props.app.settings.changed)
-  const detailMinScale = (): number => (settingsTick(), props.app.settings.get<number>('canvas.detailMinPercent') / 100)
+  const problemFixesChanged = useSignal(props.app.problemFixes.changed)
+  const adjustmentNotices = useSignal(props.app.adjustmentNotices)
+  const [detailMinScale, setDetailMinScale] = createSolidSignal(defaultTokens.detailMinScale)
   const extensionRevision = useSignal(props.app.extensionRevision)
   const selectionScopesChanged = useSignal(props.app.selectionScopesChanged)
   const comparisonCompilesChanged = useSignal(props.app.comparisonCompilesChanged)
@@ -1971,6 +1975,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     readonly inputId: string
     readonly mode: ControllerMode
     readonly trigger: 'after_generate' | 'after_refresh'
+    readonly choice: boolean
     readonly lifetime: object
     readonly refusal: Diagnostic | undefined
   }
@@ -2016,8 +2021,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     controller: ControllerMenuState,
     mode: ControllerMode,
   ): Promise<void> => {
-    // The compact canvas-row menu is the sole controller surface. Refuse
-    // when the tab object that opened it is gone.
+    // Refuse when the tab object that opened the menu is gone.
     if (!props.app.tabs.get().includes(controller.tab) || pendingController() === controller.lifetime) return
     const store = controller.tab.store
     const stack = controller.tab.graphStack.get()
@@ -2172,6 +2176,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     problemBoxHost?.highlightRow(undefined)
   }
 
+  const refreshProblemBox = (): void => {
+    const open = problemBox()
+    if (open === undefined) return
+    const lines = open.owner === problemBoxHost?.owner() ? problemBoxHost.lines(open.nodeId, open.runLevel) : []
+    if (lines.length === 0) { closeProblemBox(); return }
+    setProblemBox({ ...open, lines, ...(lines.some((line) => line.key === open.highlighted) ? {} : { highlighted: undefined }) })
+  }
+
   /** Opens the node's box, optionally with one line highlighted; false when the node has no line to show. */
   const openProblemBox = (nodeId: string, pick?: (line: ProblemBoxLine) => boolean, runLevel?: 'error' | 'warning' | 'info'): boolean => {
     const host = problemBoxHost
@@ -2186,10 +2198,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     return true
   }
 
-  createEffect(() => {
-    if (problemBox() === undefined) return
+  onMount(() => {
     const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') closeProblemBox() }
     const onPointer = (event: PointerEvent): void => {
+      problemBoxPointerClose = undefined
       const open = problemBox()
       if (open === undefined || (problemBoxElement?.contains(event.target as Node | null) ?? false)) return
       problemBoxPointerClose = { nodeId: open.nodeId, ...(open.runLevel === undefined ? {} : { runLevel: open.runLevel }), at: performance.now() }
@@ -2471,8 +2483,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [menu, setMenu] = createSolidSignal<OwnedMenuAnchor | undefined>(undefined)
   let refreshMenuScopes: (() => void) | undefined
   createEffect(on(selectionScopesChanged, () => refreshMenuScopes?.(), { defer: true }))
-  const appViewEnabled = createMemo(() => (settingsTick(), props.app.appViewEnabled))
-  createEffect(() => { appViewEnabled(); setMenu(undefined) })
+  const exposureEnabled = createMemo(() => (settingsTick(), props.app.exposureEnabled))
+  createEffect(() => { exposureEnabled(); setMenu(undefined) })
   /** Set in onMount; invoking needs the controller + renderer closures. */
   let menuInvoke: (item: MenuActionItem) => void = () => {}
 
@@ -2824,7 +2836,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           // A run saves to the project's output mount and never falls back to the machine's.
           const projectMount = settings.activeOutputMount
           renderer.setWidgetFacts({ SAVE_TARGET: {
-            ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready').map((mount) => mount.id),
+            ready: settings.mounts.filter((mount) => mount.mode === 'readwrite' && mount.state === 'ready' && !mount.saveError).map((mount) => mount.id),
             ...(projectMount === undefined ? {} : { projectMount }),
           } })
         }).catch(() => { if (live) renderer.setWidgetFacts({}) })
@@ -2890,7 +2902,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     createEffect(() => {
       settingsTick()
       renderer.setGridVisible(props.app.settings.get('canvas.grid.visible'))
-      renderer.setDetailMinScale(detailMinScale())
+      renderer.setDetailMinScale(props.app.settings.get<number>('canvas.detailMinPercent') / 100)
+      renderer.setDetailMode(props.app.settings.get<'automatic' | 'fixed'>('canvas.detailMode'))
+      setDetailMinScale(renderer.getTokens().detailMinScale)
       if (!props.app.settings.get<boolean>('canvas.smoothWheelZoom')) renderer.cancelViewportAnimation()
       repaintMinimap?.()
     })
@@ -2987,7 +3001,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     const dispatchGesture = async (tab: Tab, invocation: CommandInvocation): Promise<CommandOutcome> => {
       const target = captureLifecycleTarget(tab, currentGraphId(tab))
       try {
-        const outcome = await props.app.dispatchTo(tab, invocation)
+        const outcome = await props.app.dispatchEditTo(tab, invocation)
         if (!outcome.ok && target.isCurrent()) showGestureRefusal(outcome.diagnostics)
         return outcome
       } finally {
@@ -3496,6 +3510,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           inputId: hit.row.familyOwner?.valueKey ?? hit.row.valueKey,
           mode: hit.row.controllerMode,
           trigger: hit.row.spec.controller ?? 'after_generate',
+          choice: isComboWidgetInput({ widget: hit.row.spec }),
         })
       },
       onBadgeClick: (node, badge, rect) => {
@@ -3614,6 +3629,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               ...target,
               ...(target.kind === 'widget' && companion ? { companion } : {}),
               connected: companion !== undefined || linked,
+              ...(target.kind === 'widget' && numberIsKept(target.hit.node.id, target.hit.row.valueKey)
+                ? { keptNumberNote: message('problemFix.keptUntilChanged') } : {}),
             }
           }
           const tooltipTab = activeTab()
@@ -3857,6 +3874,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     setEditorViewport({ ...renderer.getViewport() })
     setCanvasClientRect(canvasEl.getBoundingClientRect())
     const unsubscribeEditorViewport = renderer.onViewportChange(() => setEditorViewport({ ...renderer.getViewport() }))
+    const unsubscribeDetailScale = renderer.onDetailMinScaleChange(setDetailMinScale)
     // A row edited in place is drawn by its field, so the canvas leaves it out.
     createEffect(() => {
       const ed = editor()
@@ -4002,6 +4020,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       typeof ResizeObserver !== 'undefined'
         ? new ResizeObserver(() => {
             setCanvasClientRect(canvasEl.getBoundingClientRect())
+            renderer.refreshDetailMinScale()
             // Synchronous: the callback runs before this frame paints, so a
             // same-frame backing-store resize + redraw never flashes the
             // stretched stale bitmap (rail/panel toggles resize the canvas).
@@ -4361,7 +4380,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             const connect = linkDropInvocations(p.linkDrop, graphId, nodeId, schema)
             return connect.length > 0 ? connect : undefined
           },
-          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
+          dispatch: async (invocation) => (await props.app.dispatchEditTo(tab, invocation)).ok,
           onInserted: (nodeId) => {
             if (activeTab() === tab) controller.setSelection([nodeId])
           },
@@ -4456,7 +4475,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const target = captureLifecycleTarget(tab, graphId)
       const selectionVersion = selVersion()
       try {
-        const outcome = await props.app.dispatchTo(
+        const outcome = await props.app.dispatchEditTo(
           tab,
           connect.length === 0
             ? addInvocation
@@ -4621,6 +4640,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const place = line.row === undefined ? undefined : `${nodeId}.${line.row}: `
           const text = line.diagnostic.message
           return place !== undefined && text.startsWith(place) ? text.slice(place.length) : text
+        }).map((line): ProblemBoxLine => {
+          const fix = line.problem === undefined ? undefined : props.app.problemFixes.forProblem(tab, line.problem.diagnostic)
+          return fix === undefined ? line : { ...line, key: fix.key, fix }
         })
       },
       title: (nodeId) => renderer.getScene().nodes.find((candidate) => candidate.id === nodeId)?.layout.title ?? nodeId,
@@ -4673,6 +4695,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly recordedAutomatic: ExecutionState['automaticValues']
       readonly lookups: LookupClient | undefined
       readonly lookupGeneration: number
+      readonly keptNumberRows: ReadonlySet<string>
       readonly buttonNoticeHeights: ReturnType<typeof buttonNoticeHeights>
       readonly editorControls: Readonly<Record<string, Readonly<Record<string, number>>>> | undefined
     } | undefined
@@ -4713,6 +4736,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const unsubscribe = props.app.backendForTab(tab).lookupGeneration.subscribe(() => setLookupTick((tick) => tick + 1))
       onCleanup(unsubscribe)
     })
+
+    const keptNumberRows = createMemo(() => {
+      docTick(); lookupTick(); registry(); adjustmentNotices()
+      const tab = activeTab()
+      const graphId = tab && currentGraphId(tab)
+      const path = JSON.stringify(tab === undefined ? [] : viewInstancePath(tab) ?? [])
+      return new Set(tab === undefined ? [] : props.app.scanTabProblemFixes(tab, tab.store.doc, { keptOnly: true })
+        .flatMap((fix) => fix.kind === 'number' && fix.part.graphId === graphId &&
+          JSON.stringify(fix.part.instancePath ?? []) === path ? [JSON.stringify([fix.part.nodeId, fix.valueKey])] : []))
+    }, undefined, { equals: (a, b) => a.size === b.size && [...a].every((key) => b.has(key)) })
+    const numberIsKept = (nodeId: string, valueKey: string): boolean => keptNumberRows().has(JSON.stringify([nodeId, valueKey]))
 
     // Scene: rebuilt when the tab, graph stack, document, or schemas change.
     createEffect(() => {
@@ -4756,6 +4790,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const lookupAnswers = lookups === undefined ? undefined : lookupAnswersOf(lookups)
       const currentExtensionRevision = props.app.extensionRevision.get()
       const previousBuild = sceneBuildContext
+      const keptRows = keptNumberRows()
       const noticeHeights = buttonNoticeHeights()
       const graphNodes = new Map(Object.entries(doc.graphs[graphId]?.nodes ?? {}))
       const canReuseScene = previousBuild !== undefined &&
@@ -4769,6 +4804,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.recordedAutomatic === recordedAutomatic &&
         previousBuild.lookups === lookups &&
         previousBuild.lookupGeneration === lookupGeneration &&
+        previousBuild.keptNumberRows === keptRows &&
         previousBuild.buttonNoticeHeights === noticeHeights &&
         previousBuild.editorControls === editorControls
       const valuesUpdated = canReuseScene && path.length === 0
@@ -4794,7 +4830,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           resolve,
           schemasPending: reg === undefined,
           // A hidden row shows while its stored value has a problem, as Problems lists it.
-          storedValueProblem: (row, value) =>
+          storedValueProblem: (row, value) => !numberIsKept(row.nodeId, row.valueKey) &&
             storedValueProblems(valueRegistry, graphId, row, value).some((d) => d.severity !== 'info'),
           renderVirtualNode: (node) => props.app.virtualNodeKinds.get(node.type)?.render(node),
           tokens: defaultTokens,
@@ -4838,6 +4874,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         recordedAutomatic,
         lookups,
         lookupGeneration,
+        keptNumberRows: keptRows,
         buttonNoticeHeights: noticeHeights,
         editorControls,
       }
@@ -5076,12 +5113,21 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     // projection outlines that row.
     const widgetValueDiagnostics = (): Diagnostic[] => {
       const out: Diagnostic[] = []
+      const tab = activeTab()
+      const numberProblems = tab === undefined ? [] : props.app.problemFixes.diagnostics(tab).filter((problem) =>
+        problem.code === 'automatic.numberOutsideLimits' && problem.refs?.[0]?.graphId === scene.graphId &&
+        JSON.stringify(problem.anchor?.occurrence?.instancePath ?? []) === JSON.stringify(viewInstancePath(tab)))
       for (const node of scene.nodes) {
         for (const row of node.fieldRows ?? node.layout.rows) {
           if (row.kind !== 'widget' || row.selector !== undefined) continue
-          if (companionInputs.get(node.id)?.has(row.valueKey)) continue
-          out.push(...storedValueProblems(widgetRegistry(), scene.graphId,
-            { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey]))
+          if (companionInputs.get(node.id)?.has(row.valueKey) || numberIsKept(node.id, row.valueKey)) continue
+          const problem = numberProblems.find((candidate) => candidate.refs?.[0]?.nodeId === node.id && candidate.refs[0].valueKey === row.valueKey)
+          if (problem !== undefined) {
+            out.push(problem)
+          } else {
+            out.push(...storedValueProblems(widgetRegistry(), scene.graphId,
+              { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec }, node.node.values[row.valueKey]))
+          }
         }
       }
       return out
@@ -5101,10 +5147,15 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // origin compile gives it. A rule whose check reads exactly one field
       // is that field's problem: its ref names the field, so the problem
       // projection outlines that row.
+      const managedRules = tab.execution ? [] : props.app.problemFixes.diagnostics(tab).filter((problem) =>
+        problem.code === 'node.rule.failed' && problem.refs?.[0]?.graphId === scene.graphId &&
+        JSON.stringify(problem.anchor?.occurrence?.instancePath ?? []) === JSON.stringify(viewInstancePath(tab)))
       const ruleDiags = scene.nodes.flatMap(({ node, elaborated }) =>
         (elaborated?.diagnostics ?? [])
           .filter((d) => d.code === 'node.rule.failed')
-          .map((d): Diagnostic => ({ ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) })))
+          .map((d): Diagnostic => managedRules.find((problem) => problem.refs?.[0]?.nodeId === node.id &&
+            problem.data?.['rule'] === d.data?.['rule']) ??
+            { ...d, origin: 'compile', refs: ruleProblemRefs(d, scene.graphId, node.id) }))
       const sceneDiags = [...scene.diagnostics, ...widgetDiags, ...ruleDiags, ...availabilityDiags, ...lastRunAutomatic]
       setInstanceDiagnostics(sceneDiags)
       if (hostFocused()) props.app.solveDiagnostics.set(sceneDiags)
@@ -5113,6 +5164,11 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     createEffect(on(comparisonCompilesChanged, () => {
       const tab = activeTab()
       if (tab) untrack(() => refreshSceneDiagnostics(tab))
+    }, { defer: true }))
+
+    createEffect(on(problemFixesChanged, () => {
+      const tab = activeTab()
+      if (tab) untrack(() => { refreshSceneDiagnostics(tab); refreshSceneOverlays(tab) })
     }, { defer: true }))
 
     // Execution state + badges: frozen tabs pin their execution, live tabs
@@ -5403,15 +5459,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       renderer.setNodeOutputTexts(nodeOutputTexts)
       renderer.setNodePreviews(model.previews)
       // Background overlay updates must not dismiss a still-valid user decision.
-      const openBox = problemBox()
-      if (openBox !== undefined) {
-        const lines = openBox.owner === JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])
-          ? problemBoxHost?.lines(openBox.nodeId, openBox.runLevel) ?? []
-          : []
-        // The box and its tab go together when the node's last problem goes.
-        if (lines.length === 0) closeProblemBox()
-        else setProblemBox({ ...openBox, lines, ...(lines.some((line) => line.key === openBox.highlighted) ? {} : { highlighted: undefined }) })
-      }
+      refreshProblemBox()
       setProblemBoxTick((tick) => tick + 1)
       setBadgePopover((anchor) => {
         if (!anchor || anchor.owner !== JSON.stringify([tab.id, tab.store.doc.lineage, gid, viewedPath])) return undefined
@@ -5749,7 +5797,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // editor takes the ordinary expanded path instead. A ghost widget's
       // first toggle materializes its member in the SAME batch (one undo step).
       if (spec.widgetType === 'BOOLEAN' && hit.row.selector === undefined && widgetView?.editorUi === undefined) {
-        props.app.dispatchTo(
+        props.app.dispatchEditTo(
           tab,
           withMaterializeFrames(valueGraphId, valueNodeId, hit.row.materialize, {
             command: 'node.setValue',
@@ -6452,7 +6500,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           upload: (body) => existing ? Promise.resolve(existing) : backend.protocol === 'dinkster'
             ? backend.connection.uploadLatentAsset(body, { scope: 'local', name: 'dropped-latent.latent', signal: abort.signal })
             : Promise.reject(new Error('latent upload requires a Dinkster backend')),
-          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
+          dispatch: async (invocation) => (await props.app.dispatchEditTo(tab, invocation)).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },
         })
         const reportable = ownerLive()
@@ -6526,7 +6574,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             )
             return uploaded
           },
-          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
+          dispatch: async (invocation) => (await props.app.dispatchEditTo(tab, invocation)).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },
         })
         const reportable = ownerLive()
@@ -6798,7 +6846,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           currentGraphId: () => currentGraphId(tab),
           graphStillOwned: () => !graphRetired,
           doc: () => tab.store.doc,
-          dispatch: async (invocation) => (await props.app.dispatchTo(tab, invocation)).ok,
+          dispatch: async (invocation) => (await props.app.dispatchEditTo(tab, invocation)).ok,
           onPasted: (nodeIds, rerouteIds) => {
             if (activeTab() === tab) controller.setSelection([...nodeIds], [], [...rerouteIds])
           },
@@ -7107,6 +7155,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       camera.dispose()
       minimap.dispose()
       unsubscribeEditorViewport()
+      unsubscribeDetailScale()
       unsubscribeTabViewport()
       flushViewport()
       unregisterViewportFlusher()
@@ -7213,6 +7262,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       progress: state?.status === 'running' ? executionProgress(state) : undefined,
       queuedAt: state?.queuedAt,
       sync: props.app.frozenSyncStatus(tab),
+      boardRun: state?.artifact?.snapshot.ext?.['dinkster.boardCard'] !== undefined,
       tooltip: message('frozen.runTooltip', { id: tab.execution.prompt.slice(0, 8),
         state: state === undefined ? '' : executionStatusLabel(state.status).toLocaleLowerCase() }),
       live: props.app.liveTabFor(tab.store.doc.lineage),
@@ -7459,7 +7509,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             const index = buildRerouteIndex(graph)
             const port = portRefKey({ node: asNodeId(target.nodeId), port: asPortId(target.inputId) })
             if (live.wired || index.inputDriverOf.has(port) || index.netSourceOf.has(port)) return false
-            const outcome = await props.app.dispatchTo(tab,
+            const outcome = await props.app.dispatchEditTo(tab,
               withMaterializeFrames(target.graphId, target.nodeId, live.field.materialize, { command: 'node.setValue', params: { ...target, value } }))
             return outcome.ok
           }
@@ -7531,7 +7581,14 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           const backend = props.app.backendForTab(at.tab)
           return backend.protocol === 'dinkster' ? backend.connection : undefined
         })
+        const [saveTargetMountVersion, setSaveTargetMountVersion] = createSolidSignal(0)
+        createEffect(() => {
+          const connection = saveTargetMounts()
+          if (connection === undefined) return
+          onCleanup(connection.onMountsChanged(() => setSaveTargetMountVersion((value) => value + 1)))
+        })
         const fetchSaveTargetMounts = createMemo(() => {
+          saveTargetMountVersion()
           const connection = saveTargetMounts()
           return connection === undefined ? undefined : () => connection.fetchMountSettings()
         })
@@ -7565,7 +7622,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               values[inputId] = (value as JsonObject)[key]!
             }
             if (Object.keys(values).length === 0) return true
-            const outcome = await props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, live.field.materialize,
+            const outcome = await props.app.dispatchEditTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, live.field.materialize,
               { command: 'node.setValues', params: { graphId: at.target.graphId, nodeId: at.target.nodeId, values } }))
             return outcome.ok
           }
@@ -7651,7 +7708,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               if (live === undefined || live.field.readOnly || live.field.disabled) return
               const inputId = row(part)
               if (inputId === undefined) return
-              void props.app.dispatchTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, at.current.field.materialize,
+              void props.app.dispatchEditTo(at.tab, withMaterializeFrames(at.target.graphId, at.target.nodeId, at.current.field.materialize,
                 { command: 'node.setValue', params: { graphId: at.target.graphId, nodeId: at.target.nodeId, inputId, value } }))
             },
           }
@@ -7887,50 +7944,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             data-testid="seed-controller-catcher"
             onPointerDown={(event) => { if (event.target === event.currentTarget) setControllerMenu(undefined) }}
           >
-            <div
-              ref={controllerMenuEl}
-              class="floating-surface seed-controller-menu"
-              data-testid="seed-controller-menu"
-              style={{ left: `${menu().x}px`, top: `${menu().y}px` }}
-              role="menu"
-              aria-busy={pendingController() === menu().lifetime}
-            >
-              <div class="seed-controller-title">After {menu().trigger === 'after_refresh' ? 'refresh' : 'generate'}</div>
-              <For each={[
-                { mode: 'fixed' as const, label: 'Fixed', description: menu().trigger === 'after_refresh' ? 'Keep this value after refresh.' : 'Keep this value after a successful run.', icon: Lock },
-                { mode: 'increment' as const, label: 'Increment', description: menu().trigger === 'after_refresh' ? 'Choose the next option after refresh.' : 'Add the widget step after a successful run.', icon: Plus },
-                { mode: 'decrement' as const, label: 'Decrement', description: menu().trigger === 'after_refresh' ? 'Choose the previous option after refresh.' : 'Subtract the widget step after a successful run.', icon: Minus },
-                {
-                  mode: 'randomize' as const,
-                  label: menu().trigger === 'after_refresh' ? 'Randomize after refresh' : 'Randomize after run',
-                  description: menu().trigger === 'after_refresh'
-                    ? 'After each refresh, choose a random option; selecting this mode does not change the current value.'
-                    : 'After each successful run, choose a new seed within bounds; selecting this mode does not change the current value.',
-                  icon: Dice5,
-                },
-              ]}>
-                {(option) => (
-                  <ProductButton variant="ghost" size="compact"
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={menu().mode === option.mode}
-                    class={`seed-controller-option${menu().mode === option.mode ? ' selected' : ''}`}
-                    data-testid={`seed-controller-${option.mode}`}
-                    disabled={pendingController() === menu().lifetime}
-                    onClick={() => { void commitControllerMode(menu(), option.mode) }}
-                  >
-                    <Icon icon={option.icon} />
-                    <span><strong>{option.label}</strong><small>{option.description}</small></span>
-                    <Show when={menu().mode === option.mode}><Icon icon={Check} /></Show>
-                  </ProductButton>
-                )}
-              </For>
-              <Show when={menu().refusal} keyed>
-                {(refusal) => <ProductNotice tone="error" testId="controller-refusal">
-                  <strong>{refusal.code}</strong>: {refusal.message}
-                </ProductNotice>}
-              </Show>
-            </div>
+            <ControllerModeMenu ref={(element) => {
+              controllerMenuEl = element
+              element.style.left = `${menu().x}px`
+              element.style.top = `${menu().y}px`
+            }}
+              mode={menu().mode} trigger={menu().trigger} choice={menu().choice} pending={pendingController() === menu().lifetime}
+              refusal={menu().refusal} onMode={(mode) => { void commitControllerMode(menu(), mode) }} />
           </div>
         )}
       </Show>
@@ -8023,7 +8043,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   : f().status === 'queued'
                     ? message('frozen.queued')
                     : f().queuedAt === undefined ? '' : message('frozen.ran', { time: runClock(f().queuedAt!) })}
-                {' '}{message(f().sync === 'in-sync' ? 'frozen.sync.inSync' : f().sync === 'diverged' ? 'frozen.sync.diverged' : 'frozen.sync.noLive')}
+                <Show when={!f().boardRun}>
+                  {' '}{message(f().sync === 'in-sync' ? 'frozen.sync.inSync' : f().sync === 'diverged' ? 'frozen.sync.diverged' : 'frozen.sync.noLive')}
+                </Show>
               </span>
               <Show when={f().schemasUnavailable}>
                 <span class="frozen-schema-warning" data-testid="frozen-schema-missing">
@@ -8174,7 +8196,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
                   onAction={(line, action) => {
                     const open = problemBox()
                     if (!open) return
-                    if (action === 'show-log') {
+                    if (action === 'check-problem-fix' || action === 'apply-problem-fix') {
+                      const tab = activeTab()
+                      if (tab === undefined || open.owner !== problemBoxHost?.owner() || line.fix === undefined) return
+                      if (action === 'check-problem-fix') props.app.problemFixes.recheck(tab, line.fix.key)
+                      else void props.app.problemFixes.apply(tab, [line.fix])
+                    } else if (action === 'show-log') {
                       openExecutionLogForNode(open.nodeId)
                     } else if (action === 'dismiss-run') {
                       if (open.runLevel === 'error') dismissNodeError(open.nodeId)

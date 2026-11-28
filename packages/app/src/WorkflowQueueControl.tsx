@@ -34,8 +34,8 @@ export function WorkflowQueueControl(props: {
   readonly blockedReason?: string | undefined
   /** Absent on a frozen tab, which has no Run button: only its run list and progress. */
   readonly onQueue?: (() => void) | undefined
-  /** Replaces Run while its engine is unavailable, inside the progress/list anchor. */
-  readonly runControl?: (runButton: JSX.Element) => JSX.Element
+  /** Replaces Run while unavailable; the factory gives each conditional branch its own DOM. */
+  readonly runControl?: (runButton: () => JSX.Element) => JSX.Element
   /** Hides the list and cancel controls, but keeps progress for an existing job. */
   readonly hideRunList?: boolean | undefined
   readonly onOpenExecution: (ref: ExecutionRef) => void
@@ -46,7 +46,7 @@ export function WorkflowQueueControl(props: {
   readonly thumbnail?: ((entry: ExecutionState) => JSX.Element) | undefined
 }) {
   const message = useAppMessage()
-  const runButton = <Show when={props.onQueue}>{(onQueue) => <button
+  const runButton = () => <Show when={props.onQueue}>{(onQueue) => <button
     type="button"
     class="workflow-queue-submit"
     data-testid="queue-button"
@@ -58,7 +58,7 @@ export function WorkflowQueueControl(props: {
   >
     <Icon icon={Play} /> {message('appView.queue')}
   </button>}</Show>
-  const runControl = children(() => props.runControl?.(runButton) ?? runButton)
+  const runControl = children(() => props.runControl?.(runButton) ?? runButton())
   const [open, setOpen] = createSolidSignal(false)
   createEffect(() => { if (props.hideRunList) setOpen(false) })
   const popoverId = `workflow-queue-popover-${createUniqueId()}`

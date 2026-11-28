@@ -1592,11 +1592,15 @@ function wireSteps(value: unknown, where: string): readonly StepSpec[] {
 
 function wireRule(value: unknown, where: string): RuleSpec {
   const data = wireObject(value, where)
-  rejectUnknownFields(data, ['check', 'message', 'fix'], where)
+  rejectUnknownFields(data, ['check', 'message', 'fix', 'fixLabel'], where)
+  const fix = wireSteps(data['fix'] ?? [], `${where}.fix`)
+  const fixLabel = fix.length > 0 ? wireString(data['fixLabel'], `${where}.fixLabel`) : undefined
+  if (fixLabel !== undefined && fixLabel.trim() === '') throw new Error(`${where}.fixLabel must label the fix`)
   return {
     check: wireFormula(data['check'], `${where}.check`),
     message: wireString(data['message'], `${where}.message`),
-    fix: wireSteps(data['fix'] ?? [], `${where}.fix`),
+    fix,
+    ...(fixLabel === undefined ? {} : { fixLabel }),
   }
 }
 
@@ -2621,6 +2625,8 @@ export function packsFromDinksterWire(payload: DinksterNodesPayload): ReadonlyMa
       artifactDigest?: unknown
       source?: unknown
       publisher?: unknown
+      typeStorage?: unknown
+      typeStorageChoices?: unknown
       assets?: unknown
       blueprints?: unknown
       locales?: unknown
@@ -2634,6 +2640,16 @@ export function packsFromDinksterWire(payload: DinksterNodesPayload): ReadonlyMa
     const artifactDigest = opt(e.artifactDigest)
     const source = opt(e.source)
     const publisher = opt(e.publisher)
+    let typeStorage: Readonly<Record<string, string>> | undefined
+    if (typeof e.typeStorage === 'object' && e.typeStorage !== null && !Array.isArray(e.typeStorage)) {
+      const decoded = Object.entries(e.typeStorage).filter(
+        (entry): entry is [string, string] => entry[0].trim() !== '' && typeof entry[1] === 'string' && entry[1].trim() !== '',
+      )
+      if (decoded.length > 0) typeStorage = Object.fromEntries(decoded)
+    }
+    const typeStorageChoices = Array.isArray(e.typeStorageChoices)
+      ? e.typeStorageChoices.filter((type): type is string => typeof type === 'string' && typeStorage?.[type] !== undefined)
+      : undefined
     let locales: Readonly<Record<string, string>> | undefined
     if (typeof e.locales === 'object' && e.locales !== null && !Array.isArray(e.locales)) {
       const decoded = Object.entries(e.locales).filter(
@@ -2752,6 +2768,8 @@ export function packsFromDinksterWire(payload: DinksterNodesPayload): ReadonlyMa
       ...(artifactDigest !== undefined ? { artifactDigest } : {}),
       ...(source !== undefined ? { source } : {}),
       ...(publisher !== undefined ? { publisher } : {}),
+      ...(typeStorage !== undefined ? { typeStorage } : {}),
+      ...(typeStorageChoices !== undefined ? { typeStorageChoices } : {}),
       ...(assets.length > 0 ? { assets } : {}),
       ...(blueprints.length > 0 ? { blueprints } : {}),
       ...(locales !== undefined ? { locales } : {}),

@@ -1,5 +1,7 @@
 import { createRoot, createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
+import { buildDinksterRegistry } from '@dinkster/client'
+import nodesPayload from '../../core/fixtures/dinkster-nodes.json'
 import { Images } from 'lucide-solid'
 import { describe, expect, it, vi } from 'vitest'
 import { createPageTabHost, PageTabPanel, type PageTab } from '../src/page-tabs.js'
@@ -7,7 +9,7 @@ import { App } from '../src/App.js'
 import { ASSET_DRAG_TYPE } from '../src/asset-browser/drag.js'
 import * as boardMedia from '../src/board-media.js'
 import { setPanelOpen } from '../src/panel-location.js'
-import { BOARD_MEDIA_TYPE, emptyBoard } from '@dinkster/core'
+import { BOARD_MEDIA_TYPE, asPromptId, boundaryOf, emptyBoard, exposedKey, loadDocument } from '@dinkster/core'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import {
   layoutGroups,
@@ -353,6 +355,186 @@ describe('app page tabs', () => {
       root.remove()
       vi.restoreAllMocks()
       vi.unstubAllGlobals()
+    }
+  })
+
+  it('chooses workflows and both blueprint sources from the Board backend, cancels late placement, and selects undoable independent cards', async () => {
+    const app = createWorkflowApp()
+    const tabs = app.tabs.get()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (this: HTMLDialogElement) { this.setAttribute('open', '') })
+    vi.spyOn(HTMLDialogElement.prototype, 'close').mockImplementation(function (this: HTMLDialogElement) { this.removeAttribute('open') })
+    const record = { id: 'saved-card', scope: 'local', name: 'Saved card', digest: `blake3:${'c'.repeat(64)}`,
+      mediaType: 'application/x-dinkster-workflow+json', labels: ['workflow'], created: 1, modified: 2, revision: 1 }
+    const source = { format: 'dinkster-workflow', formatVersion: 1, lineage: 'card-source', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Source', nodes: {}, links: {}, nets: {}, reroutes: {}, nextOrdinal: 0 } },
+      view: { graphs: {} } }
+    const bytes = JSON.stringify(source)
+    const backend = app.addBackend('http://board-cards:8000', 'Card sources', false, 'dinkster')!
+    vi.spyOn(app.connection, 'listLibrary').mockRejectedValue(new Error('Wrong backend'))
+    vi.spyOn(backend.connection, 'listLibrary').mockResolvedValue({ records: [record] })
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record)
+    let release!: (text: string) => void
+    const fetch = vi.spyOn(backend.connection, 'fetchAssetText').mockImplementation(() => new Promise((resolve) => { release = resolve }))
+    try {
+      const entry = app.boards.open(emptyBoard(), 'Cards', backend.baseUrl)
+      app.pages.open(`board:${entry.id}`)
+      const tab = app.pages.tabs().find((tab) => tab.id === `page:board:${entry.id}`) as PageTab
+      dispose = render(() => <PageTabPanel host={app.pages} tab={tab} />, root)
+      const choose = async (kind = 'Workflow', row = 'saved-card') => {
+        [...root.querySelectorAll<HTMLButtonElement>('.dinkster-board button')].find((button) => button.textContent === 'Add')!.click()
+        const workflow = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === kind)!
+        workflow.click()
+        await vi.waitFor(() => expect([...root.querySelectorAll('[data-entry]')].some((item) => item.getAttribute('data-entry') === row)).toBe(true))
+      }
+      await choose()
+      root.querySelector<HTMLButtonElement>('[data-testid="board-card-picker"] [data-testid="modal-close"]')!.click()
+      expect(entry.session.doc.order).toEqual([])
+      await choose()
+      root.querySelector<HTMLElement>('[data-entry="saved-card"]')!.click()
+      await vi.waitFor(() => expect(release).toBeDefined())
+      root.querySelector<HTMLButtonElement>('[data-testid="board-card-picker"] [data-testid="modal-close"]')!.click()
+      release(bytes)
+      await Promise.resolve()
+      expect(entry.session.doc.order).toEqual([])
+      expect(entry.session.canUndo).toBe(false)
+      fetch.mockResolvedValue(bytes)
+      for (let i = 0; i < 2; i++) {
+        await choose()
+        root.querySelector<HTMLElement>('[data-entry="saved-card"]')!.click()
+        await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(i + 1))
+        const id = entry.session.doc.order[i]!
+        await vi.waitFor(() => expect(root.querySelector(`[data-board-item="${id}"]`)?.getAttribute('data-selected')).toBe('true'))
+      }
+      const [first, second] = entry.session.doc.order.map((id) => entry.session.doc.items[id]!)
+      expect(first).toMatchObject({ kind: 'workflow', name: 'Saved card', source: { kind: 'library', recordId: 'saved-card' }, values: {} })
+      expect(second!.rect.x - first!.rect.x).toBe(24)
+      expect(second!.rect.y - first!.rect.y).toBe(24)
+      expect(entry.session.undo()).toBe(true)
+      expect(entry.session.doc.order).toHaveLength(1)
+      expect(root.querySelector('.dinkster-board-card')?.textContent).toContain('Saved card')
+      expect(app.tabs.get()).toEqual(tabs)
+      const blueprint = { ...source, graphs: { g0: { ...source.graphs.g0, boundary: boundaryOf([], []) } } }
+      const digest = `sha256:${'d'.repeat(64)}`
+      backend.registry.set({ ...app.registry.get()!, connection: backend.id, packs: new Map([['pack', { displayName: 'Installed pack',
+        blueprints: [{ id: 'saved-card', name: 'Pack card', digest }],
+      }]]) })
+      vi.mocked(backend.connection.listLibrary).mockResolvedValue({ records: [{ ...record, labels: ['blueprint'] }] })
+      vi.mocked(backend.connection.getLibraryRecord).mockResolvedValue({ ...record, labels: ['blueprint'] })
+      fetch.mockResolvedValue(JSON.stringify(blueprint))
+      vi.spyOn(backend.connection, 'fetchBlueprintBody').mockResolvedValue(loadDocument(blueprint).document)
+      await choose('Blueprint', 'saved:saved-card')
+      root.querySelector<HTMLElement>('[data-entry="saved:saved-card"]')!.click()
+      await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(2))
+      const saved = entry.session.doc.items[entry.session.doc.order[1]!]!
+      expect(saved).toMatchObject({ kind: 'blueprint', source: { kind: 'library', recordId: 'saved-card' } })
+      await choose('Blueprint', 'saved:saved-card')
+      const packed = [...root.querySelectorAll<HTMLElement>('[data-entry]')].find((item) => item.textContent?.includes('Pack card'))!
+      packed.click()
+      await vi.waitFor(() => expect(entry.session.doc.order).toHaveLength(3))
+      expect(entry.session.doc.items[entry.session.doc.order[2]!]).toMatchObject({ kind: 'blueprint',
+        source: { kind: 'pack', packId: 'pack', blueprintId: 'saved-card', digest } })
+      const packCard = root.querySelector<HTMLElement>(`[data-board-item="${entry.session.doc.order[2]}"]`)!
+      packCard.querySelector<HTMLButtonElement>('[aria-label="Actions for Pack card"]')!.click()
+      expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Remove from board'])
+      packCard.querySelector<HTMLButtonElement>('[aria-label="Actions for Pack card"]')!.click()
+      expect(document.querySelector('[role="menu"]')).toBeNull()
+      packCard.querySelector('.dinkster-board-card-name')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+      const savedCard = root.querySelector<HTMLElement>(`[data-board-item="${entry.session.doc.order[1]}"]`)!
+      savedCard.querySelector<HTMLButtonElement>('[aria-label="Actions for Saved card"]')!.click()
+      expect([...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Open workflow', 'Choose inputs', 'Remove from board'])
+      expect(app.tabs.get()).toEqual(tabs)
+    } finally {
+      dispose()
+      app.dispose()
+      root.remove()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('edits ordered exposed card inputs independently, preserves focus, and restores defaults on undo while the source is offline', async () => {
+    const app = createWorkflowApp()
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    const backend = app.addBackend('http://board-inputs:8000', 'Card inputs', false, 'dinkster')!
+    backend.registry.set(buildDinksterRegistry(backend.id, nodesPayload))
+    const exposed = [
+      { graphId: 'g0', nodeId: 'n0', inputId: 'b', label: 'Right' },
+      { graphId: 'g0', nodeId: 'n0', inputId: 'a', label: 'Left' },
+      { graphId: 'g0', nodeId: 'n1', inputId: 'a', label: 'Linked' },
+    ]
+    const bytes = JSON.stringify({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'card-controls-source', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Source', nodes: {
+        n0: { id: 'n0', type: 'std.math.add_ints', values: { a: 3, b: 4 } },
+        n1: { id: 'n1', type: 'std.math.add_ints', values: { b: 10 } },
+      }, links: { l0: { id: 'l0', from: { node: 'n0', port: 'sum' }, to: { node: 'n1', port: 'a' } } }, nets: {}, reroutes: {}, nextOrdinal: 2 } },
+      view: { graphs: {} }, ext: { 'dinkster.exposed': exposed } })
+    const record = { id: 'form', scope: 'local', name: 'Arithmetic', digest: `blake3:${'e'.repeat(64)}`,
+      mediaType: 'application/x-dinkster-workflow+json', labels: ['workflow'], created: 1, modified: 2, revision: 1 }
+    vi.spyOn(backend.connection, 'getLibraryRecord').mockResolvedValue(record)
+    const fetch = vi.spyOn(backend.connection, 'fetchAssetText').mockResolvedValue(bytes)
+    try {
+      const entry = app.boards.open(emptyBoard(), 'Controls', backend.baseUrl)
+      const selection = { project: 'default', baseUrl: backend.baseUrl, kind: 'workflow' as const,
+        source: { kind: 'library' as const, recordId: record.id }, name: record.name }
+      const first = await app.boards.placeCard(entry.id, selection, { x: 300, y: 250 })
+      const second = await app.boards.placeCard(entry.id, selection, { x: 700, y: 250 })
+      app.pages.open(`board:${entry.id}`)
+      const tab = app.pages.tabs().find((tab) => tab.id === `page:board:${entry.id}`) as PageTab
+      dispose = render(() => <PageTabPanel host={app.pages} tab={tab} />, root)
+      await vi.waitFor(() => expect(root.querySelectorAll('.dinkster-board-card input')).toHaveLength(4))
+      const card = () => root.querySelector(`[data-board-item="${first}"]`)!
+      expect([...card().querySelectorAll('.app-view-label')].map((label) => label.textContent)).toEqual(['Right', 'Left', 'Linked'])
+      expect(card().querySelectorAll('input')).toHaveLength(2)
+      const input = card().querySelector<HTMLInputElement>('input')!
+      expect(input.value).toBe('4')
+      fetch.mockRejectedValue(new Error('Source is offline'))
+      input.focus()
+      input.value = '17'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await vi.waitFor(() => expect((entry.session.doc.items[first] as { values: object }).values).toEqual({ [exposedKey(exposed[0]!)]: 17 }))
+      expect(document.activeElement).toBe(input)
+      expect(root.querySelector<HTMLInputElement>(`[data-board-item="${second}"] input`)!.value).toBe('4')
+      expect(entry.session.undo()).toBe(true)
+      await vi.waitFor(() => expect(input.value).toBe('4'))
+      expect(entry.session.redo()).toBe(true)
+      await vi.waitFor(() => expect(input.value).toBe('17'))
+      expect(app.tabs.get()).toHaveLength(1)
+      fetch.mockResolvedValue(bytes)
+      vi.spyOn(backend.connection, 'uploadAsset').mockResolvedValue(`blake3:${'f'.repeat(64)}`)
+      const ref = { connection: backend.id, prompt: asPromptId('board-progress') }
+      let release!: () => void
+      vi.spyOn(backend.connection, 'submit').mockImplementation(() => new Promise((resolve) => {
+        release = () => resolve({ ok: true, execution: ref, jobRef: 'board-progress' })
+      }))
+      ;[...card().querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Run')!.click()
+      await vi.waitFor(() => expect(release).toBeDefined())
+      expect(root.querySelector('[data-board-pending]')?.textContent).toBe('Preparing')
+      expect(root.querySelector('[aria-label="Run progress"]')).toBeNull()
+      expect(card().querySelector('footer [role="status"]')?.textContent).toBe('Preparing')
+      release()
+      await vi.waitFor(() => expect(app.store.get(ref)).toBeDefined())
+      expect(root.querySelectorAll('[data-board-pending]')).toHaveLength(1)
+      await vi.waitFor(() => expect(root.querySelector('[data-board-pending]')?.textContent).toBe('Queued'))
+      expect(root.querySelector('[aria-label="Run progress"]')).toBeNull()
+      expect(card().querySelector('footer [role="status"]')?.textContent).toBe('Queued')
+      app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
+      app.store.apply({ kind: 'nodeStates', execution: ref, timestamp: 2,
+        nodes: { n0: { state: 'done' }, n1: { state: 'running', value: 0.5 } } })
+      await vi.waitFor(() => expect(root.querySelector('[aria-label="Run progress"]')?.getAttribute('aria-valuenow')).toBe('0.75'))
+      app.store.apply({ kind: 'error', execution: ref, timestamp: 3,
+        detail: { exceptionType: 'Error', exceptionMessage: 'Failed before saving', traceback: [] } })
+      app.store.hydrateArtifacts(ref, [])
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-board-pending]')).toHaveLength(0))
+      expect(root.querySelectorAll('[data-board-history]')).toHaveLength(0)
+      expect(entry.session.doc.order).toEqual([first, second])
+    } finally {
+      dispose(); app.dispose(); root.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals()
     }
   })
 

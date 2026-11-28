@@ -526,6 +526,7 @@ export interface RuleSpec {
   readonly check: FormulaSpec
   readonly message: string
   readonly fix: readonly StepSpec[]
+  readonly fixLabel?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -1031,6 +1032,10 @@ export interface PackInfo {
   readonly artifactDigest?: string
   readonly source?: string
   readonly publisher?: string
+  /** Borrowed type ids mapped to the packs selected to store their values. */
+  readonly typeStorage?: Readonly<Record<string, string>>
+  /** Types with competing installed storage providers and no installed owner. */
+  readonly typeStorageChoices?: readonly string[]
   /** Pack asset declarations, descriptors only; absent means none declared. */
   readonly assets?: readonly PackAssetDescriptor[]
   /**
@@ -1343,7 +1348,7 @@ export function allRowsOf(rows: readonly OptionRow[]): readonly OptionRow[] {
 }
 
 /** An input whose concrete COMBO value is edited by a combo dropdown. */
-export const isComboWidgetInput = (spec: InputSpec): boolean =>
+export const isComboWidgetInput = (spec: Pick<InputSpec, 'widget'>): boolean =>
   spec.widget?.widgetType === 'COMBO'
 
 export const isAssetWidgetInput = (spec: Pick<InputSpec, 'widget'>): boolean =>
