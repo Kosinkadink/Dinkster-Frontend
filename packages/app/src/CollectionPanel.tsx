@@ -467,8 +467,8 @@ export function CollectionPanel(props: {
     if (viewport === null || !scrolls) return
     const entryRect = entry.getBoundingClientRect()
     const viewportRect = viewport.getBoundingClientRect()
-    if (entryRect.bottom > viewportRect.bottom) viewport.scrollTop += entryRect.bottom - viewportRect.bottom
-    else if (entryRect.top < viewportRect.top) viewport.scrollTop -= viewportRect.top - entryRect.top
+    if (entryRect.bottom > viewportRect.bottom) viewport.scrollTop = Math.ceil(viewport.scrollTop + entryRect.bottom - viewportRect.bottom)
+    else if (entryRect.top < viewportRect.top) viewport.scrollTop = Math.floor(viewport.scrollTop + entryRect.top - viewportRect.top)
   }
 
   // Roving tab index: exactly one row is Tab-reachable - the selected row,
