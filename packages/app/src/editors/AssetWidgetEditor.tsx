@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component, type JSX } from 'solid-js'
-import { assetMultiSelect, formatByteSize, rankSearch, type CollectionEntry, type CollectionPageRequest, type JsonObject } from '@dinkster/core'
+import { assetMultiSelect, formatByteSize, rankSearch, type CollectionEntry, type CollectionPageRequest, type Json, type JsonObject } from '@dinkster/core'
 import { ProductModelList, ProductTextButton, ProductTextInput, type ProductModel, type ProductModelVersion } from '@dinkster/ui'
 import type { AssetGuessCandidate } from '@dinkster/client'
 import { failureMessage } from '../request-failure.js'
@@ -40,6 +40,8 @@ import { AssetFileLocation } from '../AssetFileLocation.js'
 import { useAppMessage } from '../locale.js'
 import { tabDocumentUnchanged } from '../widget-editor-anchor.js'
 import { AssetQuickList, assetQuickListAllowed } from './AssetQuickList.js'
+import type { Backend } from '../app-state.js'
+import type { WidgetEditorState } from '../WidgetEditorController.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -105,24 +107,28 @@ function assetPickerState(state: CollectionPanelState, vocabulary: AssetPickerVo
   return <ProductEmptyState title={state.query ? `No ${plural} match "${state.query}".` : `No ${plural} found.`} />
 }
 
-interface AssetImplementationProps extends WidgetEditorImplementationProps {
+export interface AssetFilePickerProps {
+  readonly state: Pick<WidgetEditorState, 'spec' | 'declaredType' | 'mergeableTypes' | 'sourceFilename' | 'initial' | 'missingAssetDigest' | 'stagedFile'>
+  readonly backend: () => Backend
+  readonly uploadLimits?: Readonly<Record<string, number>> | null
+  /** The host still owns the selection on the same backend. */
+  readonly current: () => boolean
+  /** An automatic import may commit only while its original target is unchanged. */
+  readonly unchanged: () => boolean
+  readonly close: () => void
+  readonly commitValue: (value: Json) => Promise<boolean>
   setDismissBlocked: (blocked: () => boolean) => void
   setRequestClose: (handler: (close: () => void) => void) => void
   commitImportedFile?: boolean | undefined
 }
 
-const AssetEditorImplementation: Component<AssetImplementationProps> = (implementationProps) => {
-  const props = implementationProps.editor
+export const AssetFilePicker: Component<AssetFilePickerProps> = (props) => {
   const message = useAppMessage()
-  const ed = props.ed
-  const close = implementationProps.close
-  const commitEditorValue = implementationProps.commitValue
+  const ed = props.state
+  const close = props.close
+  const commitEditorValue = props.commitValue
   let live = true
   onCleanup(() => { live = false })
-  // The tab owns backend affinity, so asset bytes use that tab's native
-  // connection uses the editing tab's native client. Never fall back to the
-  // default backend: identical digests are not proof that two
-  // configured servers share a vault.
   const [assetPreview, setAssetPreview] = createSolidSignal<AssetPreview | undefined>(undefined)
   const [assetPreviewFailed, setAssetPreviewFailed] = createSolidSignal(false)
   /** Natural pixel size of the previewed media, measured on load; feeds the
@@ -144,23 +150,13 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     })
   })
   const [assetUploading, setAssetUploading] = createSolidSignal(false)
-  const uploadBackend = props.app.backendForTab(ed.tab)
+  const uploadBackend = props.backend()
   const project = activeProjectId()
-  const openedTab = ed.tab
-  const openedStore = openedTab.store
-  const openedDocument = openedStore.doc
-  const openedRevision = openedStore.revision
-  const openedRegistry = props.app.registryForTab(openedTab)
   let connectionChanged = false
   const unsubscribeConnection = uploadBackend.connection.status.subscribe(() => { connectionChanged = true })
   onCleanup(unsubscribeConnection)
   const pickerContextCurrent = (): boolean =>
-    live && !connectionChanged && openedTab.store === openedStore &&
-    openedStore.doc === openedDocument && openedStore.revision === openedRevision &&
-    (ed.tab === openedTab || props.app.liveTabContinuing(openedStore) === ed.tab) &&
-    tabDocumentUnchanged(openedTab, openedRevision, ed.tab) &&
-    props.app.tabs.get().includes(ed.tab) && props.app.backendForTab(ed.tab) === uploadBackend &&
-    props.app.registryForTab(ed.tab) === openedRegistry && activeProjectId() === project
+    live && !connectionChanged && props.unchanged() && activeProjectId() === project
   const [destination, setDestination] = createSolidSignal(readUploadDestination(String(uploadBackend.id), project))
   const [destinationOpen, setDestinationOpen] = createSolidSignal(false)
   const [uploadedLocation, setUploadedLocation] = createSolidSignal('')
@@ -230,7 +226,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     ? uploadKind
     : undefined
   const classifiedLatent = ed.spec?.widgetType === 'ASSET' && uploadKind === 'data/latent'
-  const policy = assetUploadPolicy(uploadKind, openedRegistry?.uploadLimits)
+  const policy = assetUploadPolicy(uploadKind, props.uploadLimits)
   const assetUploadLimitLabel = policy.label === undefined ? undefined : `${policy.label} per file`
   // The SCALAR MERGE arm specifically (multi-select whose declaration is
   // NOT list-outer): an empty selection cannot commit `[]` there - the
@@ -247,7 +243,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     change: (current: readonly AssetRef[]) => readonly AssetRef[],
     published: () => void = () => {},
   ): Promise<boolean> => {
-    if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
+    if (!live || !props.current() || activeProjectId() !== project) return false
     setAssetSelection(change(assetSelection()))
     setAssetError(undefined)
     published()
@@ -319,7 +315,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       clearAssetPreview()
       return
     }
-    const backend = props.app.backendForTab(ed.tab)
+    const backend = props.backend()
     if (backend.protocol !== 'dinkster') {
       clearAssetPreview()
       setAssetError('Asset previews require a native Dinkster backend')
@@ -332,7 +328,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     try {
       const bytes = await backend.connection.fetchAssetBytes(ref.digest, abort.signal)
       if (!live || request !== assetPreviewRequest || abort.signal.aborted || bytes === undefined ||
-        props.app.backendForTab(ed.tab) !== backend || activeProjectId() !== project) return
+        props.backend() !== backend || activeProjectId() !== project) return
       const url = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
       replaceAssetPreview({ kind, src: url, name: ref.name,
         ...(kind === 'model3d' ? { mime: ref.mediaType } : {}),
@@ -379,7 +375,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   }
 
   if (ed.spec?.widgetType === 'ASSET') {
-    const backend = props.app.backendForTab(ed.tab)
+    const backend = props.backend()
     const asset = isAssetRef(ed.initial) ? ed.initial : isAssetRefArray(ed.initial) ? ed.initial[0] : undefined
     if (asset !== undefined && backend.protocol === 'dinkster') {
       void stageAssetSelection((current) => current, () => {
@@ -414,16 +410,16 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
    */
   const pickAsset = async (file: File, signal: AbortSignal): Promise<boolean> => {
     if (ed.spec?.widgetType !== 'ASSET') return false
-    const backend = props.app.backendForTab(ed.tab)
+    const backend = props.backend()
     if (backend.protocol !== 'dinkster') {
       setAssetError('Asset uploads require a native Dinkster backend')
       return false
     }
-    if (backend !== uploadBackend) return false
+    if (!props.current()) return false
     setAssetError(undefined)
     publishLocalAssetPreview(file)
     const current = (): boolean => live && !signal.aborted &&
-      props.app.backendForTab(ed.tab) === backend && activeProjectId() === project
+      props.backend() === backend && activeProjectId() === project
     try {
       const choice = destination()
       const result = await importAssetFile(file, {
@@ -471,7 +467,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       try {
         for (const file of assetMulti ? files : files.slice(0, 1)) {
           if (!live || abort.signal.aborted || !(await pickAsset(file, abort.signal))) break
-          if (implementationProps.commitImportedFile && !assetMulti && pickerContextCurrent()) {
+          if (props.commitImportedFile && !assetMulti && pickerContextCurrent()) {
             await commitEditorValue(assetSelection()[0]!)
           }
         }
@@ -534,7 +530,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
 
   const retryAssetMatch = async (): Promise<void> => {
     if (unresolvedAsset === undefined) return
-    const backend = props.app.backendForTab(ed.tab)
+    const backend = props.backend()
     if (backend.protocol !== 'dinkster') {
       setAssetMatchError('Retry matching requires a native Dinkster backend')
       return
@@ -593,7 +589,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   // refs), and the widget's MIME accept + semantic kind become the pick
   // predicate. Details render in the editor's own selection rail.
   const assetUrlOf = (): ((digest: string) => string) | undefined => {
-    const backend = props.app.backendForTab(ed.tab)
+    const backend = props.backend()
     return backend.protocol === 'dinkster' ? (digest) => backend.connection.assetUrl(digest) : undefined
   }
   const assetPanelSources = createMemo(() => {
@@ -603,7 +599,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     const fixedKind = assetBrowseKind()
     if (usesLogicalModelSource()) return []
     if (adapters.length === 0) return []
-    const connection = props.app.backendForTab(ed.tab).connection
+    const connection = props.backend().connection
     return [mountAssetSource(connection, adapters.map((adapter) => adapter.id.slice('mount:'.length))), ...adapters].map((adapter) => ({
       ...assetCollectionSource(adapter, {
         ...(assetUrl !== undefined ? { assetUrl } : {}),
@@ -662,8 +658,8 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   }
 
 
-  implementationProps.setDismissBlocked(assetUploading)
-  implementationProps.setRequestClose((finish) => { assetUploadAbort?.abort(); finish() })
+  props.setDismissBlocked(assetUploading)
+  props.setRequestClose((finish) => { assetUploadAbort?.abort(); finish() })
   const renderFooter = (summary?: JSX.Element, validFolder: () => boolean = () => true) => <ProductActionFooter
     status={<div class="asset-import-line">
       <Show when={!usesLogicalModelSource()}>
@@ -932,7 +928,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 </div>
               </Show>
               <Show when={selectionDetailItem()} keyed>
-                {(item) => <AssetSelectionDetails item={item} dimensions={assetPreviewDims()} adapters={assetSources() ?? []} backendId={String(props.app.backendForTab(ed.tab).id)} />}
+                {(item) => <AssetSelectionDetails item={item} dimensions={assetPreviewDims()} adapters={assetSources() ?? []} backendId={String(props.backend().id)} />}
               </Show>
               <Show when={inspectedModelDetail() ?? selectionDetailModel()} keyed>
                 {(detail) => <LogicalModelVariantFacts detail={detail} />}
@@ -956,7 +952,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
             <Show when={uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined} keyed>
               {(backend) => <For each={assetSelection()}>{(ref) => <AssetFileLocation connection={backend.connection}
                 backendUrl={backend.baseUrl} digest={ref.digest} project={project}
-                isCurrent={() => live && props.app.backendForTab(ed.tab) === backend && activeProjectId() === project} />}</For>}
+                isCurrent={() => live && props.backend() === backend && activeProjectId() === project} />}</For>}
             </Show>
             <Show when={classifiedMediaKind === 'media/audio' && ed.spec?.allowUpload === true}>
               <AudioRecorder disabled={assetUploading()} onSave={async (file) => {
@@ -984,6 +980,28 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
 
     </>
   )
+}
+
+const AssetEditorImplementation: Component<WidgetEditorImplementationProps & Pick<AssetFilePickerProps,
+  'setDismissBlocked' | 'setRequestClose' | 'commitImportedFile'>> = (props) => {
+  const host = props.editor
+  const ed = host.ed
+  const backend = host.app.backendForTab(ed.tab)
+  const openedTab = ed.tab
+  const store = openedTab.store
+  const document = store.doc
+  const revision = store.revision
+  const registry = host.app.registryForTab(openedTab)
+  const current = (): boolean => host.app.backendForTab(ed.tab) === backend
+  const unchanged = (): boolean => openedTab.store === store && store.doc === document && store.revision === revision &&
+    (ed.tab === openedTab || host.app.liveTabContinuing(store) === ed.tab) &&
+    tabDocumentUnchanged(openedTab, revision, ed.tab) && host.app.tabs.get().includes(ed.tab) &&
+    current() && host.app.registryForTab(ed.tab) === registry
+  return <AssetFilePicker state={ed} backend={() => host.app.backendForTab(ed.tab)}
+    {...(registry?.uploadLimits === undefined ? {} : { uploadLimits: registry.uploadLimits })}
+    current={current} unchanged={unchanged} close={props.close} commitValue={props.commitValue}
+    setDismissBlocked={props.setDismissBlocked} setRequestClose={props.setRequestClose}
+    commitImportedFile={props.commitImportedFile} />
 }
 
 const AssetPickerWidgetEditor: Component<WidgetEditorProps & { commitImportedFile?: boolean | undefined }> = (props) => {
