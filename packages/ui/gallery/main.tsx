@@ -116,6 +116,7 @@ import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
 import { BoardGallery } from './board.js'
 import { ResultPicturesGallery } from './result-pictures.js'
+import { ExposureRowsGallery } from './exposure-rows.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
 import { SettingsSectionGallery } from './settings-section.js'
@@ -555,6 +556,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#result-pictures'}>
               <ResultPicturesGallery />
+            </Match>
+            <Match when={route() === '#exposure-rows'}>
+              <ExposureRowsGallery theme="dark" />
             </Match>
             <Match when={route() === '#node-search'}>
               <NodeSearchGallery />
