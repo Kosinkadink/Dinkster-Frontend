@@ -634,12 +634,13 @@ export function App(props: {
     backendsTick()
     return app.libraryBackend()?.templatesEnabled.get() === true
   })
-  const librarySources = createMemo(() => {
+  const libraryBoardsEnabled = createMemo(() => {
     settingsTick()
-    return builtinLibrarySources.filter((source) =>
-      (source.id !== 'templates' || libraryTemplatesEnabled()) &&
-      (source.id !== 'boards' || app.settings.get<boolean>('features.board.enabled')))
+    return app.settings.get<boolean>('features.board.enabled')
   })
+  const librarySources = createMemo(() => builtinLibrarySources.filter((source) =>
+    (source.id !== 'templates' || libraryTemplatesEnabled()) &&
+    (source.id !== 'boards' || libraryBoardsEnabled())))
   // The backend the library browses (the active tab's target). A memo so
   // the panel re-pages exactly when the resolved backend IDENTITY changes
   // (tab switch onto another backend, retarget, backend removal) - not on
