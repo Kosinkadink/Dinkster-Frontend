@@ -3003,7 +3003,7 @@ export class InteractionController {
     if (this.renderer.getDesignTokens().widgetEditing !== 'in-row' || pointerType === 'touch') return undefined
     const row = hit.row
     if (row.viewId !== 'core.number' && row.viewId !== 'core.slider') return undefined
-    if (row.derivedValue !== undefined || row.ghost || row.readOnly || row.disabled) return undefined
+    if (row.derivedValue !== undefined || row.ghost || row.readOnly || row.disabled || row.inert) return undefined
     if (Object.hasOwn(hit.bnode?.fields?.wired ?? {}, row.valueKey)) return undefined
     const scene = this.renderer.getScene()
     if (scene.links.some((link) => link.to.kind === 'port' && link.to.node === hit.node.id && link.to.port === row.inputId)) return undefined
@@ -3220,7 +3220,7 @@ export class InteractionController {
         ? { kind: 'subgraphMark', mark: subgraphMark, x: clientX, y: clientY }
       : note
         ? { kind: 'note', row: note, x: clientX, y: clientY }
-      : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' || hit.kind === 'button' || hit.kind === 'memberRemove' || hit.kind === 'header' || hit.kind === 'reroute' ||
+      : hit && (hit.kind === 'pin' || hit.kind === 'widgetTap' || hit.kind === 'widget' && !hit.row.inert || hit.kind === 'button' || hit.kind === 'memberRemove' || hit.kind === 'header' || hit.kind === 'reroute' ||
         hit.kind === 'link' && (hit.link.mismatch === true || hit.link.fromType?.kind === 'record'))
         ? { kind: hit.kind, hit, x: clientX, y: clientY } as CanvasHoverTarget
         : undefined)
@@ -3612,6 +3612,7 @@ export class InteractionController {
       case 'widget':
         this.pushOverlay()
         if (!g.moved) {
+          if (g.hit.row.inert) return
           // Boundary bindings on a DynamicCombo row forward the construct, not a
           // value: the row stays the occurrence-local editor (edits route to
           // the owning instance), so only real links make it inert.

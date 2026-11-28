@@ -316,6 +316,10 @@ describe('canvas tooltip provider', () => {
     const node = { node: { type: 'Stack', values: {} } }
     expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row } }, { detailed: false })?.title).toBe('lora 1 name')
     expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row: { ...row, kept: 'Kept for its wire.' } } }, { detailed: false })?.title).toBe('lora 1 name')
+    expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row: { ...row, disabled: true } } }, { detailed: false })?.title).toBe('lora 1 name')
+    for (const detailed of [false, true]) {
+      expect(resolveCanvasTooltip({ kind: 'widget', hit: { node, row: { ...row, disabled: true, inert: true } } }, { detailed })).toBeUndefined()
+    }
   })
 
   it('shows Save target naming help on its header but hides it under a wire', () => {

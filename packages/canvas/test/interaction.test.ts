@@ -3472,12 +3472,16 @@ describe('dragging a number row', () => {
 })
 
 describe('numeric widget steppers', () => {
-  it.each(['readOnly', 'disabled'] as const)('inspects a %s number without stepping or dragging its stored value', (flag) => {
+  it.each(['readOnly', 'disabled', 'inert'] as const)('preserves a %s number without stepping or dragging its stored value', (flag) => {
     const scene = interactionScene() as any
     scene.nodes[0].layout.rows[0][flag] = true
     scene.nodes[0].layout.rows[0].viewId = 'core.number'
-    const harness = interactionHarness(scene)
+    const activate = vi.fn()
+    const hover = vi.fn()
+    const harness = interactionHarness(scene, { onWidgetActivate: activate, onHoverTarget: hover })
     Object.assign(harness.renderer, { setRowDrag: () => undefined })
+    harness.fire('pointermove', 60, 35)
+    expect(hover.mock.calls.at(-1)?.[0]?.kind).toBe(flag === 'inert' ? undefined : 'widget')
     for (const x of [20, 60, 100]) {
       harness.fire('pointerdown', x, 35)
       harness.fire('pointerup', x, 35)
@@ -3486,6 +3490,8 @@ describe('numeric widget steppers', () => {
     harness.fire('pointermove', 90, 35)
     harness.fire('pointerup', 90, 35)
     expect(harness.dispatched).toEqual([])
+    if (flag === 'inert') expect(activate).not.toHaveBeenCalled()
+    else expect(activate).toHaveBeenCalled()
   })
 
   it('routes a forwarded suffix member value to its occurrence owner', () => {

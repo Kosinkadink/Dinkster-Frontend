@@ -5720,6 +5720,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     function openWidgetEditor(hit: Extract<Hit, { kind: 'widget' }>, missingAssetDigest?: string, caret?: { x: number; y: number }): void {
       const tab = activeTab()
       if (!tab) return
+      if (hit.row.inert) return
       if (hit.row.readOnly || hit.row.disabled) {
         focusEditorRow({ nodeId: hit.node.id, valueKey: hit.row.valueKey })
         return
@@ -5951,7 +5952,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         (row.viewId === 'core.text' || row.viewId === 'core.line') &&
         widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi === undefined
       const stops = node.layout.rows.filter((row): row is WidgetLayoutRow | Extract<LayoutRow, { kind: 'button' }> =>
-        row.kind === 'button' || (row.kind === 'widget' && !rowIsDriven(node.id, row)))
+        row.kind === 'button' || (row.kind === 'widget' && !row.inert && !rowIsDriven(node.id, row)))
       const index = stops.findIndex((row) => row.kind === 'button'
         ? 'buttonId' in from && row.buttonId === from.buttonId
         : 'valueKey' in from && row.valueKey === from.valueKey)
@@ -6090,7 +6091,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const tab = activeTab()
       const node = rowNodeOf(from.nodeId)?.node
       const row = node?.layout.rows.find((item) => item.kind === 'widget' && item.valueKey === from.valueKey)
-      if (tab === undefined || node === undefined || row?.kind !== 'widget' || !editsRowsInPlace()) {
+      if (tab === undefined || node === undefined || row?.kind !== 'widget' || row.inert || !editsRowsInPlace()) {
         setRowFocus(undefined)
         return
       }

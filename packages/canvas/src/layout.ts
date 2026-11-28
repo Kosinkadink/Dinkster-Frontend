@@ -253,6 +253,7 @@ export type LayoutRow =
       /** Limits direct user value edits, not wires or action writes. */
       readonly readOnly?: true
       readonly disabled?: true
+      readonly inert?: true
       readonly disabledReason?: string
       /** Wire-22 execution binding retained from the elaborated input. */
       readonly sourceFilename?: SourceFilenameSpec
@@ -1712,6 +1713,7 @@ export function layoutNode(
         ...(item.automaticIfEmptied !== undefined ? { automaticIfEmptied: item.automaticIfEmptied } : {}),
         ...(item.readOnly ? { readOnly: true as const } : {}),
         ...(item.disabled ? { disabled: true as const } : {}),
+        ...(item.inert ? { inert: true as const } : {}),
         ...(item.disabledReason !== undefined ? { disabledReason: item.disabledReason } : {}),
         // A menu's state lives under its flattened id, members included.
         ...(representation.spec.editableOptions === true ? { optionsTarget: { construct: item.address.port } } : {}),

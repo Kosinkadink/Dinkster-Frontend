@@ -365,6 +365,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       lines: [type.tooltip],
     }
   }
+  if (t.kind === 'widget' && t.hit.row.inert) return undefined
   if (t.kind === 'widget' && t.hit.row.kept !== undefined) return { title: t.hit.row.name ?? t.hit.row.label, lines: [t.hit.row.kept] }
   if (t.kind === 'widget') {
     const row = t.hit.row

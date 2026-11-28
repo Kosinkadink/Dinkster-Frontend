@@ -524,8 +524,12 @@ describe('buildScene', () => {
         expect(session.doc.graphs.g0!.nodes.read!.values).toEqual({ field: seed })
       }
     }
-    const emptyBody = parsed.schema!.body.map((item) => item.kind === 'input' && item.id === 'record' && item.type.kind === 'record'
-      ? { ...item, type: { ...item.type, fields: [] } } : item)
+    const emptyParsed = parseDinksterSchema('Read', { body: [
+      { kind: 'input', id: 'record', required: true, type: { kind: 'record', types: ['pack.bundle'], fields: [] } },
+      { kind: 'input', id: 'field', pin: false, type: { kind: 'concrete', types: ['COMBO'] }, default: '[]', widget: { type: 'COMBO' } },
+      { kind: 'output', id: 'value', type: { kind: 'record_field', input: 'record', index: 'field' } },
+    ] } as never)
+    const emptyBody = emptyParsed.schema!.body
     schema = { ...parsed.schema!, body: emptyBody }
     expect(rows()).toHaveLength(1)
     expect(rows()[0]!.disabled).not.toBe(true)
@@ -535,6 +539,7 @@ describe('buildScene', () => {
     expect(rows()).toHaveLength(1)
     expect(emptyRow.label).toBe('field')
     expect(emptyRow.disabled).toBe(true)
+    expect(emptyRow.inert).toBe(true)
     expect(emptyRow.disabledReason).toBeUndefined()
     expect(emptyRow.derivedValue).toBe('')
     expect(emptyRow.spec.options['placeholder']).toBe('No fields')
@@ -546,6 +551,7 @@ describe('buildScene', () => {
     expect(replacement.kind === 'input' && replacement.spec.optional).toBe(true)
     schema = parsed.schema!
     expect(rows()[0]!.disabled).not.toBe(true)
+    expect(rows()[0]!.inert).not.toBe(true)
     expect(scene().diagnostics).toEqual([])
     expect(rows()).toHaveLength(1)
     expect(normalizedComboOptions(rows()[0]!.spec).find((option) => option.value === '[]')?.label).toBe('number')

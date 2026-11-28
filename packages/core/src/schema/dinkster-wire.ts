@@ -538,9 +538,6 @@ function validateStrictWidgetDescriptor(descriptor: Record<string, unknown>, whe
           throw new Error(`${where}.remote.refreshButton must be a boolean`)
         }
       }
-      if (!lookedOptions && (!Array.isArray(options) || options.length === 0) && remote === undefined && descriptor['editableOptions'] !== true) {
-        throw new Error(`${where} requires options or remote`)
-      }
       return
     }
     case 'MULTI_COMBO': {

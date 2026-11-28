@@ -254,6 +254,8 @@ export interface ElaboratedInput {
   /** Direct user value edits are blocked; wires and action writes are unchanged. */
   readonly readOnly?: true
   readonly disabled?: true
+  /** Display-only unavailable row: no focus, activation or hover explanation. */
+  readonly inert?: true
   readonly disabledReason?: string
   /** Keys of the boxes the node draws around this row, outermost first. */
   readonly boxes?: readonly string[]
@@ -2664,7 +2666,7 @@ function elaboratePass(
         if (selector?.kind === 'input' && selector.spec.widget !== undefined) {
           const options = { ...selector.spec.widget.options }
           delete options['options']
-          items[items.indexOf(selector)] = { ...selector, disabled: true, derivedValue: '', spec: {
+          items[items.indexOf(selector)] = { ...selector, disabled: true, inert: true, derivedValue: '', spec: {
             ...selector.spec, widget: { ...selector.spec.widget, options: { ...options, placeholder: t('canvas.record.noFields') } },
           } }
         }
