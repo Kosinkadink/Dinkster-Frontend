@@ -249,7 +249,8 @@ export function typeExprToDinksterWire(t: TypeExpr): Json | undefined {
         fields.push({ id: field.id, name: field.name, type, optional: field.optional,
           ...(field.default !== undefined ? { default: field.default as Json } : {}) })
       }
-      return { kind: 'record', types: [t.name], fields }
+      return { kind: 'record', types: [t.name], fields,
+        ...(t.templateId !== undefined ? { templateId: t.templateId } : {}) }
     }
     case 'record_field':
       return { kind: 'record_field', input: t.input, index: t.index }

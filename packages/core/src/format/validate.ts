@@ -114,6 +114,7 @@ function checkTypeExpr(c: ShapeChecker, v: unknown, path: string): void {
       return
     case 'record':
       c.str(v['name'], `${path}.name`, { nonEmpty: true })
+      if (v['templateId'] !== undefined) c.str(v['templateId'], `${path}.templateId`, { nonEmpty: true })
       if (c.arr(v['fields'], `${path}.fields`)) v['fields'].forEach((field, i) => {
         const at = `${path}.fields[${i}]`
         if (!c.obj(field, at)) return

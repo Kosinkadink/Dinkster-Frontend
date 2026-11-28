@@ -102,6 +102,7 @@ export function typeProblemWords(type: TypeExpr, form: 'value' | 'name' | 'plura
 /** Every variable occurring in `t`, including inside list/asset elements. */
 function* nestedVariablesOf(t: TypeExpr): Generator<TypeExpr & { kind: 'variable' }> {
   if (t.kind === 'variable') yield t
+  else if (t.kind === 'record' && t.templateId !== undefined) yield { kind: 'variable', templateId: t.templateId }
   else if (t.kind === 'tuple') for (const element of t.elements) yield* nestedVariablesOf(element)
   else if (t.kind === 'tuple_element' && t.element !== undefined) yield* nestedVariablesOf(t.element)
   else if (t.kind === 'list' || t.kind === 'asset' || t.kind === 'stream') yield* nestedVariablesOf(t.element)
@@ -653,6 +654,10 @@ export function solveGraphTypes(
         return
       }
       if (fromType.kind === 'record' && toType.kind === 'record') {
+        if (toType.templateId !== undefined) {
+          // The constraint checks a subset, but Change passes the whole producer record on.
+          vars.constrain(varKeyOf(to.node, toType.templateId), [fromType.name], source, fromType)
+        }
         setVerdict(source, 'ok')
         return
       }

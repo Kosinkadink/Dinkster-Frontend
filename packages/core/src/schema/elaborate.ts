@@ -832,7 +832,7 @@ interface Scope {
 }
 
 const scopeType = (type: TypeExpr, member: string): TypeExpr => {
-  if (type.kind === 'variable') return { ...type, templateId: `${member}:${type.templateId}` }
+  if (type.kind === 'variable' || type.kind === 'record' && type.templateId !== undefined) return { ...type, templateId: `${member}:${type.templateId}` }
   if (type.kind === 'tuple') return { ...type, elements: type.elements.map((element) => scopeType(element, member)) }
   if (type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') return { ...type, element: scopeType(type.element, member) }
   return type

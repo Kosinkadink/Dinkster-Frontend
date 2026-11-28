@@ -124,6 +124,8 @@ function freshenType(
   bindings: ReadonlyMap<string, TypeExpr> = NO_TYPE_BINDINGS,
 ): TypeExpr {
   switch (type.kind) {
+    case 'record':
+      return type.templateId === undefined ? type : { ...type, templateId: `${nodeId}:${type.templateId}` }
     case 'tuple':
       return { ...type, elements: type.elements.map((element) => freshenType(element, nodeId, bindings)) }
     case 'tuple_element':

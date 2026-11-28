@@ -55,7 +55,7 @@ export type TypeExpr =
   | { readonly kind: 'stream'; readonly element: TypeExpr }
   | { readonly kind: 'tuple'; readonly elements: readonly TypeExpr[] }
   | { readonly kind: 'tuple_element'; readonly input?: string; readonly element?: TypeExpr; readonly index: string | number }
-  | { readonly kind: 'record'; readonly name: string; readonly fields: readonly RecordField[] }
+  | { readonly kind: 'record'; readonly name: string; readonly fields: readonly RecordField[]; readonly templateId?: string }
   | { readonly kind: 'record_field'; readonly input: string; readonly index: string }
 
 export type RecordField = {

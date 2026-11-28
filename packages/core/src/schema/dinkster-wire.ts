@@ -1488,6 +1488,9 @@ function wireType(value: unknown, where: string): TypeExpr {
       return { kind: 'tuple', elements: type['elements'].map((element, index) => wireType(element, `${where}.elements[${index}]`)) }
     }
     case 'record': {
+      if (type['templateId'] !== undefined && (typeof type['templateId'] !== 'string' || type['templateId'] === '')) {
+        throw new Error(`${where}.templateId must be a non-empty string`)
+      }
       const types = stringList(type['types'], 'types', 1)
       if (types.length !== 1) throw new Error(`${where}.types must contain exactly one record identity`)
       if (types[0]!.length > 64 || !/^[a-z][a-z0-9]*(?:[-_.][a-z0-9]+)*$/.test(types[0]!)) throw new Error(`${where} requires a lowercase namespaced record identity`)
@@ -1508,7 +1511,8 @@ function wireType(value: unknown, where: string): TypeExpr {
         return { id, name, type: fieldType, optional: wireBoolean(field['optional'], `${at}.optional`, false),
           ...(field['default'] !== undefined && field['default'] !== null ? { default: field['default'] as Json } : {}) }
       })
-      return { kind: 'record', name: types[0]!, fields }
+      return { kind: 'record', name: types[0]!, fields,
+        ...(type['templateId'] !== undefined ? { templateId: type['templateId'] as string } : {}) }
     }
     case 'record_field':
       return { kind: 'record_field', input: wireSegment(type['input'], `${where}.input`), index: wireSegment(type['index'], `${where}.index`) }

@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { typesCompatible } from '../src/schema/type-relations.js'
 import { asNodeId, asPortId } from '../src/ids.js'
 import type { GraphDef } from '../src/format/document.js'
-import type { SchemaResolver } from '../src/schema/derive-boundary.js'
+import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { type InputSpec, type NodeSchema, type OutputSpec, type TypeExpr } from '../src/schema/model.js'
 import { solveGraphTypes } from '../src/schema/solve.js'
 import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
@@ -91,6 +91,72 @@ const defOf = (parts: {
 const n = asNodeId
 
 describe('declared record connections', () => {
+  it('binds a generated Change to its complete producer record through independent subgraph instances', () => {
+    const atom = (name: string) => ({ kind: 'concrete', types: [name] })
+    const field = (id: string, name: string, type: unknown) => ({ id, name, type, optional: false })
+    const record = (name: string, fields: unknown[]) => ({ kind: 'record', types: [name], fields })
+    const source = record('source.settings', [field('s', 'seed', atom('INT')), field('g', 'guidance', atom('FLOAT'))])
+    const other = record('other.settings', [field('n', 'seed', atom('INT')), field('p', 'prompt', atom('STRING'))])
+    const subset = record('target.settings', [field('seed', 'seed', atom('INT'))])
+    const decode = (type: string, body: unknown[]): NodeSchema => {
+      const decoded = parseDinksterSchema(type, { body } as never)
+      expect(decoded.diagnostics).toEqual([])
+      return decoded.schema!
+    }
+    const change = decode('Change', [
+      { kind: 'input', id: 'record', required: true, type: { ...subset, templateId: 'Record' } },
+      { kind: 'input', id: 'field', pin: false, type: atom('COMBO'), default: '["seed"]', widget: { type: 'COMBO', options: ['["seed"]'] } },
+      { kind: 'input', id: 'value', type: { kind: 'record_field', input: 'record', index: 'field' } },
+      { kind: 'output', id: 'record', type: { kind: 'variable', templateId: 'Record' } },
+    ])
+    const catalog: Record<string, NodeSchema> = {
+      Source: decode('Source', [{ kind: 'output', id: 'out', type: source }]),
+      Other: decode('Other', [{ kind: 'output', id: 'out', type: other }]),
+      Change: change,
+      Generic: schemaOf('Generic', [input('record', T('T')), output('record', T('T'))]),
+      Subset: decode('Subset', [{ kind: 'input', id: 'record', type: subset, required: true }]),
+      Int: schemaOf('Int', [input('record', concrete('INT'))]),
+    }
+    const inner = defOf({ nodes: { change: { type: 'Change' } } })
+    const subgraph = { ...inner, boundary: { body: [
+      { kind: 'input' as const, id: 'record', binds: { kind: 'port' as const, node: n('change'), port: asPortId('record') } },
+      { kind: 'output' as const, id: 'result', binds: { kind: 'port' as const, node: n('change'), port: asPortId('record') } },
+    ] } }
+    catalog['Subgraph'] = deriveBoundarySchema(subgraph, (type) => catalog[type]).schema!
+    for (const type of ['Change', 'Subgraph']) {
+      const outputPort = type === 'Change' ? 'record' : 'result'
+      let graph = defOf({ nodes: { source: { type: 'Source' }, other: { type: 'Other' },
+        first: { type }, second: { type }, sink: { type: 'Subset' } }, links: {
+        incoming: { from: ['source', 'out'], to: ['first', 'record'] },
+        second: { from: ['other', 'out'], to: ['second', 'record'] },
+      } })
+      const solve = () => solveGraphTypes(graph, (name) => catalog[name])
+      let result = solve()
+      const firstType = result.portTypeOf(n('source'), 'output', 'out')
+      const secondType = result.portTypeOf(n('other'), 'output', 'out')
+      expect(result.portTypeOf(n('first'), 'output', outputPort)).toEqual(firstType)
+      expect(result.portTypeOf(n('second'), 'output', outputPort)).toEqual(secondType)
+      graph = { ...graph, links: { ...graph.links,
+        out: { id: 'out', from: { node: 'first', port: outputPort }, to: { node: 'sink', port: 'record' } } as never,
+      } }
+      result = solve()
+      expect(result.linkVerdicts.get('out' as never)).toBe('ok')
+      expect(result.portTypeOf(n('first'), 'output', outputPort)).toEqual(firstType)
+      graph = { ...graph, nodes: { ...graph.nodes, [n('generic')]: { id: n('generic'), type: 'Generic', values: {} } },
+        links: { ...graph.links,
+          incoming: { id: 'incoming', from: { node: 'generic', port: 'record' }, to: { node: 'first', port: 'record' } } as never,
+          generic: { id: 'generic', from: { node: 'source', port: 'out' }, to: { node: 'generic', port: 'record' } } as never,
+        } }
+      result = solve()
+      expect(result.portTypeOf(n('first'), 'output', outputPort)).toEqual(firstType)
+      expect([...result.linkVerdicts.values()]).not.toContain('mismatch')
+      graph = { ...graph, nodes: { ...graph.nodes, [n('sink')]: { ...graph.nodes[n('sink')]!, type: 'Int' } } }
+      result = solve()
+      expect(result.linkVerdicts.get('out' as never)).toBe('mismatch')
+      expect(result.portTypeOf(n('second'), 'output', outputPort)).toEqual(secondType)
+    }
+  })
+
   it('decodes nested Read/Change declarations, checks fields and keeps a saved selection through rename and removal', () => {
     const atom = (name: string) => ({ kind: 'concrete', types: [name] })
     const field = (id: string, name: string, type: unknown) => ({ id, name, type, optional: false })
