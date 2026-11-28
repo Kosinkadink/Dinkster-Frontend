@@ -14,7 +14,6 @@ import {
   type WidgetMeasure,
 } from '@dinkster/canvas'
 import { createWidgetRegistry, registerCoreWidgets, widgetRegistrationDoors } from '@dinkster/widgets'
-import { ProductSection } from '../src/index.js'
 
 const schema: NodeSchema = {
   type: 'Exposure controls', displayName: 'Exposure controls', category: 'gallery', source: 'v3', isOutputNode: false,
@@ -33,8 +32,7 @@ export function ExposureRowsGallery(props: { theme: 'dark' | 'light' }) {
     { id: 'unchecked', title: 'Exposure: not exposed', active: false },
     { id: 'checked', title: 'Exposure: exposed', active: true },
   ] as const
-  return <ProductSection title="Exposure row space" description="The Exposure tick has its own trailing slot. Text, number controls and a long choice end before it. Ordinary Graph rows retain their full width. These examples use the production canvas renderer; editing is exercised in the app.">
-    <div class="dinkster-canvas-examples">
+  return <div class="dinkster-canvas-examples">
       <For each={examples}>{(example) => {
         let canvas!: HTMLCanvasElement
         createEffect(() => {
@@ -85,5 +83,4 @@ export function ExposureRowsGallery(props: { theme: 'dark' | 'light' }) {
         return <figure class="dinkster-canvas-example"><figcaption>{example.title}</figcaption><canvas ref={canvas} role="img" aria-label={example.title} data-testid={`exposure-${example.id}`} /></figure>
       }}</For>
     </div>
-  </ProductSection>
 }
