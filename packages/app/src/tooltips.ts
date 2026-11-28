@@ -171,7 +171,10 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
   if (t.kind === 'memberRemove') return { lines: [t.hit.remove.disabledReason ?? 'Remove member'] }
   if (t.kind === 'reroute') {
     const rerouteTypeName: string | undefined = t.hit.reroute.typeName
-    return { title: 'Reroute', lines: [rerouteTypeName !== undefined ? presentedType({ ...defaultTokens, typeDisplayNames: context.typeDisplayNames }, typeExprFromTypeId(rerouteTypeName)).tooltip : 'Any'] }
+    const type = rerouteTypeName === undefined ? undefined
+      : presentedType({ ...defaultTokens, typeDisplayNames: context.typeDisplayNames }, typeExprFromTypeId(rerouteTypeName))
+    return { title: 'Reroute', lines: [type?.tooltip ?? 'Any'],
+      ...(type?.tooltipDetail === undefined ? {} : { lineDetails: { 0: type.tooltipDetail } }) }
   }
   if (t.kind === 'link' && t.hit.link.mismatch === true && t.hit.link.diagnostics?.length > 0) {
     return {
@@ -188,7 +191,9 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     const matchConstraint = t.hit.pin.matchConstraint as TypeExpr | undefined
     const acceptedTypes = matchConstraint === undefined
       ? undefined
-      : presentedType({ ...defaultTokens, typeDisplayNames: context.typeDisplayNames }, matchConstraint).tooltip
+      : presentedType({ ...defaultTokens, typeDisplayNames: context.typeDisplayNames }, matchConstraint)
+    const canonicalTypes = [type.tooltipDetail, acceptedTypes?.tooltipDetail]
+      .filter((id): id is string => id !== undefined)
     const matchDescription = matchVariable === undefined ? [] : [
       `Match type ${matchVariable}: every ${matchVariable} port on this node must resolve to the same type.`,
     ]
@@ -196,18 +201,19 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
       title: `${t.hit.direction === 'in' ? 'Input' : 'Output'}: ${t.hit.pin.label ?? t.hit.portId}`,
       lines: [
         ...(t.hit.pin.inferred === true
-          ? [`Resolved to ${type.tooltip}${acceptedTypes === undefined ? '.' : `; original constraint: ${acceptedTypes}.`}`]
+          ? [`Resolved to ${type.tooltip}${acceptedTypes === undefined ? '.' : `; original constraint: ${acceptedTypes.tooltip}.`}`]
           : matchVariable === undefined
             ? [type.tooltip]
             : acceptedTypes === undefined
               ? []
-              : [`Accepts ${acceptedTypes}.`]),
+              : [`Accepts ${acceptedTypes.tooltip}.`]),
         ...matchDescription,
         ...(t.hit.direction === 'in' && port?.kind === 'input' ? [absentPolicyLine(port)] : []),
         ...(t.hit.direction === 'out' && t.hit.pin.maybeAbsent === true ? ['May produce no value.'] : []),
         ...((t.diagnostics ?? []) as readonly { severity: string; message: string }[])
           .map((diagnostic) => diagnostic.message),
       ],
+      ...(canonicalTypes.length === 0 ? {} : { lineDetails: { 0: [...new Set(canonicalTypes)].join('; ') } }),
       ...(opts.detailed && port?.tooltip ? { detail: [port.tooltip] } : {}),
     }
   }
@@ -218,6 +224,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     return {
       title: `Output: ${row?.name ?? row?.label ?? t.hit.pin.label ?? t.hit.input}`,
       lines: [type.tooltip],
+      ...(type.tooltipDetail === undefined ? {} : { lineDetails: { 0: type.tooltipDetail } }),
     }
   }
   if (t.kind === 'widget' && t.hit.row.kept !== undefined) return { title: t.hit.row.name ?? t.hit.row.label, lines: [t.hit.row.kept] }

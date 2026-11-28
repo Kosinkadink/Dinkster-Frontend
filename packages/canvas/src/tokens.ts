@@ -1240,6 +1240,7 @@ export interface PresentedType {
   readonly label: string
   readonly color: string
   readonly tooltip: string
+  readonly tooltipDetail?: string
 }
 
 /** Display label for a TypeExpr without changing its semantic identity. */
@@ -1306,11 +1307,10 @@ export function presentedType(
     ...(canonicalName !== undefined ? { canonicalName } : {}),
     label,
     color: canonicalName === undefined ? tokens.colors.linkDefault : typeColor(tokens, canonicalName),
-    // An aliased display name keeps the canonical id visible as secondary
-    // technical detail so the underlying type is never hidden.
-    tooltip: (tokens.typeDisplayNames !== undefined && label !== typeExprCanonicalLabel(type)) || (canonicalName !== undefined && typeDisplayAliases[canonicalName] !== undefined)
-      ? `${label} (${canonicalName ?? typeExprCanonicalLabel(type)})`
-      : label,
+    tooltip: label,
+    ...(label !== typeExprCanonicalLabel(type)
+      ? { tooltipDetail: canonicalName ?? typeExprCanonicalLabel(type) }
+      : {}),
   }
 }
 

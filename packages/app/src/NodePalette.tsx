@@ -268,7 +268,8 @@ export function NodePalette(props: {
       const descriptor = entry.blueprint?.descriptor
       for (const type of (direction === 'in' ? descriptor?.boundaryInputs : descriptor?.boundaryOutputs) ?? []) found.add(type)
     }
-    return productSearchTypeOptions(found)
+    return productSearchTypeOptions(found, (type) =>
+      productSearchTypeName(typeIdDisplayLabel(type, props.typeDisplayNames)))
   }
   const typeShape = (type: string) => cardinalityOf(typeExprFromTypeId(type)) === 'list' ? 'diamond' as const : 'circle' as const
   let searchInput!: HTMLInputElement
@@ -340,7 +341,7 @@ export function NodePalette(props: {
         chips={[
           ...(props.anchor.linkDrop === undefined ? [] : [{
           label: typeLabelOf(props.anchor.linkDrop.anchorType, props.typeDisplayNames),
-          name: `${message(props.anchor.linkDrop.seeking === 'in' ? 'palette.filter.takes' : 'palette.filter.gives')} ${typeLabelOf(props.anchor.linkDrop.anchorType, props.typeDisplayNames)} (${typeExprCanonicalLabel(props.anchor.linkDrop.anchorType)})`,
+          name: `${message(props.anchor.linkDrop.seeking === 'in' ? 'palette.filter.takes' : 'palette.filter.gives')} ${typeLabelOf(props.anchor.linkDrop.anchorType, props.typeDisplayNames)}${typeLabelOf(props.anchor.linkDrop.anchorType, props.typeDisplayNames) === typeExprCanonicalLabel(props.anchor.linkDrop.anchorType) ? '' : ` (${typeExprCanonicalLabel(props.anchor.linkDrop.anchorType)})`}`,
           direction: props.anchor.linkDrop.seeking === 'in' ? 'takes' as const : 'gives' as const,
           color: presentedType(defaultTokens, props.anchor.linkDrop.anchorType).color,
           shape: cardinalityOf(props.anchor.linkDrop.anchorType) === 'list' ? 'diamond' as const : 'circle' as const,
@@ -348,7 +349,7 @@ export function NodePalette(props: {
           }]),
           ...requirements().map((item) => {
             const label = productSearchTypeName(typeIdDisplayLabel(item.type, props.typeDisplayNames))
-            const name = `${message(item.direction === 'takes' ? 'palette.filter.takes' : 'palette.filter.gives')} ${label} (${item.type})`
+            const name = `${message(item.direction === 'takes' ? 'palette.filter.takes' : 'palette.filter.gives')} ${label}${label === item.type ? '' : ` (${item.type})`}`
             return { label, name, direction: item.direction, color: typeColor(defaultTokens, item.type), shape: typeShape(item.type),
               removeLabel: message('palette.filter.removeType', { type: name }),
               onRemove: () => { setRequirements((items) => items.filter((candidate) => candidate !== item)); setCurrent(undefined) } }

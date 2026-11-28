@@ -1,6 +1,8 @@
 export interface TooltipContent {
   readonly title?: string
   readonly lines: readonly string[]
+  /** Secondary text shown directly below the indexed content line. */
+  readonly lineDetails?: Readonly<Record<number, string>>
   readonly note?: string
   readonly detail?: readonly string[]
   readonly shortcut?: string

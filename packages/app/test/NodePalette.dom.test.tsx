@@ -3,7 +3,7 @@ import { createMemo, createSignal, type JSX } from 'solid-js'
 import { ProductRecoveryNotice } from '@dinkster/ui'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { registerCatalog, setLocale, type WidgetRegistry } from '@dinkster/core'
+import { registerCatalog, setLocale, type TypeDisplayNames, type WidgetRegistry } from '@dinkster/core'
 import { NodePalette, type PaletteAnchor, type PaletteEntry } from '../src/NodePalette.js'
 import '../src/locale.js'
 
@@ -24,6 +24,7 @@ const entry = (type: string, name: string, category = 'Image', input = 'IMAGE', 
 const mount = (entries: () => PaletteEntry[], options: {
   anchor?: PaletteAnchor; recent?: readonly string[]; onCommit?: (entry: PaletteEntry) => void; onHelp?: (entry: PaletteEntry) => void
   onRemoveLinkDrop?: () => void; bounds?: { width: number; height: number }; catalogRecovery?: () => JSX.Element
+  typeDisplayNames?: TypeDisplayNames
 } = {}) => {
   const root = document.createElement('div')
   document.body.append(root)
@@ -34,6 +35,7 @@ const mount = (entries: () => PaletteEntry[], options: {
     recentTypes={() => options.recent ?? []} widgetRegistry={{ kind: () => undefined, viewsFor: () => [] } as unknown as WidgetRegistry}
     bounds={() => options.bounds ?? { width: 800, height: 600 }} onCommit={options.onCommit ?? (() => {})}
     catalogRecovery={catalogRecovery()}
+    typeDisplayNames={options.typeDisplayNames}
     {...(options.onHelp === undefined ? {} : { onHelp: options.onHelp })}
     onRemoveLinkDrop={options.onRemoveLinkDrop ?? (() => {})} onClose={() => {}} />
   }, root)
@@ -46,6 +48,32 @@ const button = (root: HTMLElement, name: string) => [...root.querySelectorAll<HT
   .find((element) => element.getAttribute('aria-label') === name || element.textContent === name)!
 
 describe('NodePalette shared search', () => {
+  it('orders pack types by shown names and finds both the shown name and canonical id', async () => {
+    const view = mount(() => [
+      entry('a', 'Other segments', 'Naming', 'IMAGE', 'other-pack.SEGS'),
+      entry('b', 'Mixed case', 'Naming', 'IMAGE', 'seg-pack.Mixed.Case'),
+      entry('c', 'Segments', 'Naming', 'IMAGE', 'seg-pack.SEGS'),
+    ], { typeDisplayNames: new Map([
+      ['other-pack.SEGS', 'SEGS (other-pack)'], ['seg-pack.SEGS', 'SEGS (seg-pack)'],
+      ['seg-pack.Mixed.Case', 'Mixed.Case'],
+    ]) })
+    try {
+      button(view.root, 'Gives').click()
+      await flush()
+      const labels = () => [...view.root.querySelectorAll('[role="menuitemcheckbox"]')].map(row => row.textContent)
+      expect(labels()).toEqual(['Mixed.Case', 'SEGS (other-pack)', 'SEGS (seg-pack)'])
+      const field = view.root.querySelector<HTMLInputElement>('[placeholder="Find a type"]')!
+      const filter = (query: string) => {
+        field.value = query
+        field.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      }
+      filter('seg-pack')
+      expect(labels()).toEqual(['Mixed.Case', 'SEGS (seg-pack)'])
+      filter('Mixed.Case')
+      expect(labels()).toEqual(['Mixed.Case'])
+    } finally { view.dispose() }
+  })
+
   it('browses recent entries and categories, then owns keyboard selection without an incidental commit', async () => {
     const commit = vi.fn()
     const alpha = entry('alpha', 'Alpha', 'Image/Loaders')

@@ -105,7 +105,11 @@ function Menu(props: {
   const entries = createMemo(() => {
     const search = props.filter ? query().trim().toLocaleLowerCase() : ''
     return search
-      ? props.items.filter((entry) => menuItem(entry)?.label.toLocaleLowerCase().includes(search))
+      ? props.items.filter((entry) => {
+        const item = menuItem(entry)
+        return item !== undefined && [item.label, item.accessibleDescription ?? '']
+          .some((text) => text.toLocaleLowerCase().includes(search))
+      })
       : props.items
   })
   const id = createUniqueId()

@@ -66,14 +66,17 @@ describe('defaultTokens', () => {
   it('presents canonical types and the ComfyUI image and mask bridges', () => {
     const comfyImage = presentedType(defaultTokens, { kind: 'concrete', name: 'comfy.IMAGE' })
     expect(comfyImage.label).toBe('IMAGE')
-    expect(comfyImage.tooltip).toBe('IMAGE (comfy.IMAGE)')
+    expect(comfyImage.tooltip).toBe('IMAGE')
+    expect(comfyImage.tooltipDetail).toBe('comfy.IMAGE')
     const comfyMask = presentedType(defaultTokens, { kind: 'concrete', name: 'comfy.MASK' })
     expect(comfyMask.label).toBe('MASK')
-    expect(comfyMask.tooltip).toBe('MASK (comfy.MASK)')
+    expect(comfyMask.tooltip).toBe('MASK')
+    expect(comfyMask.tooltipDetail).toBe('comfy.MASK')
     // Unaliased types keep their raw label and plain tooltip.
     const plain = presentedType(defaultTokens, { kind: 'concrete', name: 'dinkster.brand_new' })
     expect(plain.label).toBe('dinkster.brand_new')
     expect(plain.tooltip).toBe('dinkster.brand_new')
+    expect(plain.tooltipDetail).toBeUndefined()
   })
 
   it('never treats inherited object members as aliases', () => {
