@@ -55,7 +55,7 @@ import {
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
 import { isButtonIcon, paintButtonIcon } from './button-icons.js'
-import { canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
+import { canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens } from './tokens.js'
 import { fitText, measureWidth, paintCenteredText, shareRowWidth, wrapText } from './text-fit.js'
 
 /**
@@ -430,20 +430,11 @@ export interface RendererLensCapabilities {
 export function widgetRowAffordanceRect(
   rowWidth: number,
   rowHeight: number,
-  row: Extract<LayoutRow, { kind: 'widget' }>,
-  geometry: RowGeometry,
 ): { readonly x: number; readonly y: number; readonly width: number; readonly height: number } {
   const paint = canvasPaintTokens.lensAffordance
   const size = Math.max(paint.rowMinSize, Math.min(paint.rowMaxSize, rowHeight - paint.rowPadding))
-  const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-  const trailingEdge = row.controllerMode !== undefined
-    ? controllerChipRect(rowWidth, rowHeight, geometry).x - CONTROLLER_CHIP_TEXT_GAP
-    : rowWidth - (numeric ? geometry.stepperZone + CONTROLLER_CHIP_TEXT_GAP : CONTROLLER_CHIP_TEXT_GAP)
   return {
-    x: Math.max(
-      geometry.stepperZone + CONTROLLER_CHIP_TEXT_GAP,
-      trailingEdge - size,
-    ),
+    x: Math.max(0, rowWidth - CONTROLLER_CHIP_TEXT_GAP - size),
     y: (rowHeight - size) / 2,
     width: size,
     height: size,
@@ -1622,6 +1613,13 @@ export class CanvasRenderer {
 
   getLensCapabilities(): RendererLensCapabilities {
     return this.lensCapabilities
+  }
+
+  /** Field controls and editors stop before a lens control's trailing slot. */
+  widgetContentWidth(node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>): number {
+    const width = row.width ?? node.layout.width - row.inset * 2
+    if (this.lensCapabilities.widgetRowAffordance?.(node, row) === undefined) return width
+    return Math.max(0, widgetRowAffordanceRect(width, this.tokens.rowHeight).x - CONTROLLER_CHIP_TEXT_GAP)
   }
 
   /** The value and wire state shared by field painting and label-mark hit testing. */
@@ -4843,7 +4841,7 @@ export class CanvasRenderer {
     if (this.openRows[sceneNode.id] === row.valueKey) return
     const display = this.widgetPaintState(node, row, driven)
     const { companion, connected } = display
-    const widgetWidth = row.width ?? l.width - row.inset * 2
+    const widgetWidth = this.widgetContentWidth(sceneNode, row)
     const rowAlpha = ctx.globalAlpha
     if (row.disabled) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
     else {
@@ -5006,8 +5004,8 @@ export class CanvasRenderer {
     }
     const lensAffordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
     if (lensAffordance !== undefined) {
-      const rowWidth = widgetWidth
-      const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight, row, t.rowGeometry)
+      const rowWidth = row.width ?? l.width - row.inset * 2
+      const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight)
       const x = node.x + row.inset + rect.x
       const y = rowY + rect.y
       const affordanceAlpha = ctx.globalAlpha

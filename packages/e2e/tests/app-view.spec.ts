@@ -34,9 +34,8 @@ async function exposureAffordancePoint(page: Page, inputId: string): Promise<{ x
     const row = node.layout.rows.find((item) => item.kind === 'widget' && item.inputId === inputId)!
     const rect = document.querySelector('[data-testid=graph-canvas]')!.getBoundingClientRect()
     const viewport = window.__dinksterTest!.renderer!.getViewport()
-    const numeric = inputId === 'count'
     return {
-      x: rect.left + (node.x + node.layout.width - (row.inset ?? 0) - (numeric ? 25 : 13)) * viewport.scale + viewport.x,
+      x: rect.left + (node.x + node.layout.width - (row.inset ?? 0) - 13) * viewport.scale + viewport.x,
       y: rect.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
     }
   }, inputId)

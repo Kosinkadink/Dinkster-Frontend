@@ -5977,7 +5977,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     }
 
     const rowHit = (node: SceneNode, row: WidgetLayoutRow): Extract<Hit, { kind: 'widget' }> => {
-      const width = row.width ?? node.layout.width - row.inset * 2
+      const width = renderer.widgetContentWidth(node, row)
       return {
         kind: 'widget', node, row,
         x: node.x + row.inset, y: node.y + row.y, width, height: row.height,
@@ -6055,7 +6055,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         graphId: currentGraphId(tab),
         nodeId: node.id,
         valueKey: row.valueKey,
-        rect: { x: node.x + row.inset, y: node.y + row.y + inset, width: row.width ?? node.layout.width - row.inset * 2, height: row.height - inset * 2 },
+        rect: { x: node.x + row.inset, y: node.y + row.y + inset, width: renderer.widgetContentWidth(node, row), height: row.height - inset * 2 },
         look: tokens.nodeLook,
         nodeTop: node.y,
         nodeBottom: node.y + node.layout.height,
@@ -6163,8 +6163,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const hit = hitTest(renderer.getScene(), world.x, world.y, {
         scale: renderer.getViewport().scale,
         detailLevel: renderer.getDetailLevel(),
+        widgetContentWidth: (node, row) => renderer.widgetContentWidth(node, row),
       })
-      if (hit.kind === 'widget' && hit.row.spec.widgetType === 'ASSET') openWidgetEditor(hit)
+      if (hit.kind === 'widget' && hit.localX <= hit.width && hit.row.spec.widgetType === 'ASSET') openWidgetEditor(hit)
     }
 
     // -- camera bookmarks ------------------------------------------------------
