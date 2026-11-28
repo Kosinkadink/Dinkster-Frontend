@@ -5,6 +5,7 @@ import {
   boundarySceneId,
   nodesInGroup,
   typeExprCanonicalLabel,
+  type DataPanelMap,
   type NodeBadge,
   type NodeOutputText,
   type OutputTextMap,
@@ -48,6 +49,7 @@ export interface CanvasSemanticSource {
   readonly badges: Readonly<Record<string, readonly NodeBadge[]>>
   readonly rowProblems: RowProblemMap
   readonly outputTexts: OutputTextMap
+  readonly dataPanels?: DataPanelMap | undefined
 }
 
 const pinConnectionKey = (
@@ -243,6 +245,8 @@ export function buildCanvasSemanticItems(source: CanvasSemanticSource): readonly
       ...(memberships === undefined ? [] : [`in ${memberships.join(', ')}`]),
       ...(status === '' ? [] : [status]),
       ...(outputStatus === undefined ? [] : [outputStatus]),
+      ...(source.dataPanels?.[node.id] ?? []).map((row) =>
+        `${row.label}: ${row.text}${row.accessibleDescription === undefined ? '' : ` (${row.accessibleDescription})`}`),
     ]
     items.push({
       key: `node:${node.id}`,

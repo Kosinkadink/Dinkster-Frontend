@@ -325,6 +325,8 @@ export function solveGraphTypes(
   options: SolveOptions = {},
 ): SolveResult {
   const words = (type: TypeExpr, form?: 'value' | 'name' | 'plural' | 'one'): string => typeProblemWords(type, form, resolve.typeDisplayNames)
+  const typeDescription = (...types: readonly TypeExpr[]): string =>
+    [...new Set(types.flatMap((type) => atomNamesOf(type) ?? []))].join(', ')
   const diagnostics: Diagnostic[] = []
   const linkVerdicts = new Map<LinkId, EdgeVerdict>()
   const netSinkVerdicts = new Map<string, EdgeVerdict>()
@@ -469,7 +471,7 @@ export function solveGraphTypes(
       : `the ${side} ${rowLabel(ref, side)} of ${nodeTitles.get(ref.node) ?? 'the connected node'}`
   const problem = (
     severity: Diagnostic['severity'], code: string, ref: PortRef, side: 'input' | 'output',
-    nodeMessage: string, rest: Pick<Diagnostic, 'anchor' | 'data'> = {},
+    nodeMessage: string, rest: Pick<Diagnostic, 'accessibleDescription' | 'anchor' | 'data'> = {},
   ): Diagnostic => diag(severity, 'schema', code, `${nodeTitles.get(ref.node) ?? 'Node'}: ${nodeMessage}`, {
     ...rest,
     anchor: { ...rest.anchor, port: ref },
@@ -680,6 +682,7 @@ export function solveGraphTypes(
       const code = cf === 'list' ? 'solve.listIntoScalar' : 'solve.scalarIntoList'
       diagnostics.push(
         problem('error', code, to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${words(toType, ct === 'list' ? 'value' : 'one')}, but ${producer} sends ${words(fromType, cf === 'list' ? 'value' : 'one')}.`, {
+          accessibleDescription: typeDescription(toType, fromType),
           anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
         }),
       )
@@ -777,6 +780,7 @@ export function solveGraphTypes(
           setVerdict(source, 'mismatch')
           diagnostics.push(
             problem('warning', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${words(origin?.toType ?? toType)}, but ${producer} sends ${words(origin?.fromType ?? fromType)}.`, {
+              accessibleDescription: typeDescription(origin?.toType ?? toType, origin?.fromType ?? fromType),
               anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
               data: { sourceNode: from.node, sourcePort: from.port },
             }),
@@ -802,6 +806,7 @@ export function solveGraphTypes(
     setVerdict(source, 'mismatch')
     diagnostics.push(
       problem('warning', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${words(origin?.toType ?? toType)}, but ${producer} sends ${words(origin?.fromType ?? fromType)}.`, {
+        accessibleDescription: typeDescription(origin?.toType ?? toType, origin?.fromType ?? fromType),
         anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
         data: { sourceNode: from.node, sourcePort: from.port },
       }),
@@ -966,13 +971,14 @@ export function solveGraphTypes(
       const named = [...brought]
         .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
         .map(([port, types]) => `the input ${labels?.get(port) ?? port} is ${[...types].map((type) => words(typeExprFromTypeId(type))).join(' or ')}`)
-      return { key, node, into, message: `The inputs must be the same type, but ${named.join(' and ')}.` }
+      return { key, node, into, accessibleDescription: [...new Set([...brought.values()].flatMap((types) => [...types]))].join(', '), message: `The inputs must be the same type, but ${named.join(' and ')}.` }
     })
   }
   const refused = new Set<VarRecord>()
   const onNode = (conflict: ReturnType<typeof conflicts>[number]) => {
     const last = conflict.into.at(-1)!
     return {
+      accessibleDescription: conflict.accessibleDescription,
       anchor: { port: last.to, ...(last.source.kind === 'link' ? { link: last.source.id } : {}) },
       data: { node: conflict.node, edges: conflict.into.map((feed) => sourceLabel(feed.source)) },
     }
@@ -1028,6 +1034,9 @@ export function solveGraphTypes(
     }
     diagnostics.push(
       problem('warning', 'solve.varConflict', target, side, message, {
+        accessibleDescription: typeDescription(...edges.flatMap((edge) => [edge.toType, edge.fromType]),
+          ...(declared === undefined ? [] : [declared[1]]),
+          ...root.slotBindings.flatMap(({ ref }) => specializedSlots.filter((slot) => slot.ref.node === ref.node && slot.ref.port === ref.port).map((slot) => slot.selectedType))),
         ...(firstLink ? { anchor: { link: firstLink.id } } : firstProjected ? { anchor: { port: firstProjected.to } } : firstSlotBinding ? { anchor: { port: firstSlotBinding.ref } } : {}),
         data: {
           edges: root.sources.map(sourceLabel),
@@ -1055,6 +1064,7 @@ export function solveGraphTypes(
       const solved = substitute(declared, trace.ref.node)
       if (!isKnown(solved) || typesCompatible(solved, slot.selectedType)) continue
       diagnostics.push(problem('warning', 'solve.slot.staleSpecialization', slot.ref, 'input', `${capitalized(rowLabel(slot.ref, 'input'))} is set to ${words(slot.selectedType, 'name')}, but ${sourceName(trace.ref)} sends ${words(solved)}.`, {
+        accessibleDescription: typeDescription(slot.selectedType, solved),
         anchor: { port: slot.ref },
         data: { sourceNode: trace.ref.node, sourcePort: trace.ref.port },
       }))

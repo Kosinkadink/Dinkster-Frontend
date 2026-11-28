@@ -398,6 +398,7 @@ export interface BoundaryFocusMarks {
 export interface DataPanelRow {
   readonly label: string
   readonly text: string
+  readonly accessibleDescription?: string
   readonly tone?: 'value' | 'muted' | 'stale'
 }
 

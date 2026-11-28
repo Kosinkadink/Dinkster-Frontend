@@ -63,11 +63,14 @@ describe('deriveDataPanels: output rows', () => {
   it('non-inline outputs show their type descriptor with list length', () => {
     const panels = deriveDataPanels({
       nodes: [node('a')],
-      execNodes: { a: done({ imgs: { typeId: 'list<std.image>', length: 4 } }) },
+      execNodes: { a: done({ imgs: { typeId: 'list<seg-pack.SEGS>', length: 4 } }) },
+      typeDisplayNames: new Map([['seg-pack.SEGS', 'SEGS (seg-pack)']]),
       runtimeIdsOf: (id) => [id],
       frozen: true,
     })
-    expect(panels['a']).toEqual([{ label: 'imgs', text: 'list<std.image> [4]', tone: 'muted' }])
+    expect(panels['a']).toEqual([{
+      label: 'imgs', text: 'list<SEGS (seg-pack)> [4]', tone: 'muted', accessibleDescription: 'list<seg-pack.SEGS>',
+    }])
   })
 
   it('projects exactly one unambiguous string through the data-lens truth source', () => {

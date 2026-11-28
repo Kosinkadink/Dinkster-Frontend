@@ -381,7 +381,7 @@ export function ProblemsPanel(props: ProblemsPanelProps) {
                             else expandedProblems.delete(problemKey)
                           }}
                           data-activatable={diagnostic().anchor !== undefined ? true : undefined}>
-                          <summary title={diagnostic().message} onClick={() => activateProblem(props.app, diagnostic())}>
+                          <summary title={diagnostic().accessibleDescription === undefined ? diagnostic().message : `${diagnostic().message}\n${diagnostic().accessibleDescription}`} aria-description={diagnostic().accessibleDescription} onClick={() => activateProblem(props.app, diagnostic())}>
                             <span class="problem-severity" aria-label={diagnostic().severity}>
                               {diagnostic().severity === 'error' ? 'x' : diagnostic().severity === 'warning' ? '!' : 'i'}
                             </span>

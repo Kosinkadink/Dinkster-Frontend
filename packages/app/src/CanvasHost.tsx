@@ -5356,6 +5356,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // about executions or the data lens.
       const lens = props.app.lensRegistry.resolve(props.app.lensFor(tab.id))
       const context = {
+        typeDisplayNames: (registry() ?? keptRegistry())?.typeDisplayNames,
         execNodes: exec?.nodes,
         activities: exec?.activities,
         runtimeIdsOf: model.ownRuntimeIds,
@@ -5482,6 +5483,10 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           badges: decorations.badges,
           rowProblems: model.rowProblems,
           outputTexts: nodeOutputTexts,
+          ...(lens.nodeBodyContent ? { dataPanels: Object.fromEntries(scene.nodes.flatMap((node) => {
+            const rows = lens.nodeBodyContent!(node, context)
+            return rows === null ? [] : [[node.id, rows]]
+          })) } : {}),
           typeDisplayNames: (registry() ?? keptRegistry())?.typeDisplayNames,
         },
       })
@@ -7425,6 +7430,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             data-refusal-id={refusal.id}
             data-frozen={refusal.diagnostic.code === 'Frozen' ? '' : undefined}
             role={refusal.diagnostic.code === 'Frozen' ? 'status' : 'alert'}
+            aria-description={refusal.diagnostic.accessibleDescription}
             style={{ left: `${refusal.x}px`, top: `${refusal.y}px`, 'max-height': `${refusal.maxHeight}px` }}
           >
             <span style={{ 'max-height': `${refusal.contentMaxHeight}px` }}>

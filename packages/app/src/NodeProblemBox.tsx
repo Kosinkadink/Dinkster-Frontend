@@ -46,6 +46,7 @@ export function NodeProblemBox(props: {
     ...(line.row === undefined ? {} : { row: line.row }),
     ...(line.rowName === undefined ? {} : { rowName: line.rowName }),
     message: lineText(line),
+    ...(line.problem?.diagnostic.accessibleDescription === undefined ? {} : { accessibleDescription: line.problem.diagnostic.accessibleDescription }),
     actions: line.fix === undefined
       ? line.actions.map((action) => ({ id: action, label: actionLabel(action) }))
       : [{

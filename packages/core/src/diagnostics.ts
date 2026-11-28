@@ -82,6 +82,8 @@ export interface Diagnostic {
   readonly code: string
   /** Human-readable message. */
   readonly message: string
+  /** Canonical identities retained when the visible message uses presentation names. */
+  readonly accessibleDescription?: string
   /**
    * This condition prevents execution even when its severity is deliberately
    * non-error (for example, a required API input that the backend will
@@ -104,7 +106,7 @@ export const diag = (
   origin: DiagnosticOrigin,
   code: string,
   message: string,
-  rest?: Partial<Pick<Diagnostic, 'blocksExecution' | 'refs' | 'hiddenRequiredField' | 'anchor' | 'runtime' | 'data'>>,
+  rest?: Partial<Pick<Diagnostic, 'accessibleDescription' | 'blocksExecution' | 'refs' | 'hiddenRequiredField' | 'anchor' | 'runtime' | 'data'>>,
 ): Diagnostic => ({ severity, origin, code, message, ...rest })
 
 /** Error severity always blocks; selected non-errors opt in explicitly. */

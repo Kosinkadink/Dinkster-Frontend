@@ -3147,6 +3147,7 @@ function compileImpl(
       for (const conflict of solvedTypes.get(fn.graphId)?.diagnostics ?? []) {
         if (conflict.code !== 'solve.varConflict' || conflict.severity !== 'error' || conflict.data?.['node'] !== fn.node.id) continue
         diags.push(diag('error', 'compile', 'compile.typeVariableConflict', conflict.message, {
+          ...(conflict.accessibleDescription === undefined ? {} : { accessibleDescription: conflict.accessibleDescription }),
           anchor: { occurrence: fn.occ, ...(conflict.anchor?.port !== undefined ? { port: conflict.anchor.port } : {}) },
         }))
       }

@@ -2937,6 +2937,7 @@ describe('a type variable fed two different types', () => {
       links: [[['img', 'out'], ['pair', 'first']], [['lat', 'out'], ['pair', 'second']]],
     }), 'pair')
     expect(refusals(result)).toEqual([['Pair: The inputs must be the same type, but the input first is an image and the input second is latent data.', 'pair']])
+    if (!result.ok) expect(result.diagnostics.find((diagnostic) => diagnostic.code === 'compile.typeVariableConflict')?.accessibleDescription).toBe('IMAGE, LATENT')
   })
 
   it.each([

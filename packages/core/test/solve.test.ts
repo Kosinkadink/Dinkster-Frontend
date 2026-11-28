@@ -227,6 +227,7 @@ describe('solver problems in the reader\'s words', () => {
     }), resolve)
     expect(result.diagnostics.map((problem) => problem.message))
       .toEqual(['Decode: Samples needs a list of SEGS (other-pack) values, but Load images sends one IMAGE.'])
+    expect(result.diagnostics[0]?.accessibleDescription).toBe('list<other-pack.SEGS>, seg-pack.IMAGE')
   })
 
   it('describes a required value that may be absent', () => {
