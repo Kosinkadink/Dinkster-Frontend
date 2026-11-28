@@ -395,13 +395,12 @@
 }
 .gesture-refusal-toast[data-frozen] > span { display: flex; align-items: center; gap: var(--dinkster-space-4); }
 .gesture-refusal-toast span { min-height: 0; flex: 1; overflow: auto; overflow-wrap: anywhere; }
-.gesture-refusal-toast button.dinkster-button {
+.gesture-refusal-toast button {
   display: grid;
   flex: none;
   place-items: center;
   width: 24px;
   height: 24px;
-  min-height: 0;
   padding: 0;
   border: 0;
   border-radius: 4px;
@@ -409,6 +408,7 @@
   color: inherit;
   cursor: pointer;
 }
+.gesture-refusal-toast:not([data-frozen]) button.dinkster-button { height: 24px; min-height: 0; }
 .gesture-refusal-toast button:hover { background: var(--dinkster-interaction-hover); }
 .gesture-refusal-toast button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
 .gesture-refusal-toast svg { width: 15px; height: 15px; }
