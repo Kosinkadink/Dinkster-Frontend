@@ -5,12 +5,56 @@ import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CollectionSource } from '@dinkster/core'
 import { CollectionPanel } from '../src/CollectionPanel.js'
+import { boardBlueprintsSource } from '../src/collections.js'
+import { createWorkflowApp } from './fixtures/workflow-app.js'
 
 const flush = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve() }
 
 afterEach(() => document.body.replaceChildren())
 
 describe('CollectionPanel grouped rows', () => {
+  it('keeps both blueprint sources distinct, ranks all saved pages, and retries partial failures without hiding pack choices', async () => {
+    const app = createWorkflowApp()
+    const backend = app.backends.get()[0]!
+    const registry = backend.registry.get()!
+    const digest = `sha256:${'a'.repeat(64)}`
+    backend.registry.set({ ...registry, packs: new Map([['pack', { displayName: 'Installed pack', blueprints: [
+      { id: 'same', name: 'Moon pack', digest },
+    ] }]]) })
+    let failed = false
+    const record = { id: 'same', scope: 'local', name: 'Moon saved', digest: `blake3:${'b'.repeat(64)}`,
+      mediaType: 'application/x-dinkster-workflow+json', labels: ['blueprint'], created: 1, modified: 2, revision: 1 }
+    vi.spyOn(backend.connection, 'listLibrary').mockImplementation(async (request) => {
+      if (failed) throw new Error('Saved blueprints unavailable')
+      if (request.project !== 'board-project') throw new Error('Wrong project')
+      return request.cursor ? { records: [record] } : { records: [{ ...record, id: 'other', name: 'Sun' }], cursor: 'second' }
+    })
+    const source = boardBlueprintsSource(() => backend, 'board-project')
+    const root = document.createElement('div')
+    document.body.append(root)
+    let dispose = () => {}
+    try {
+      const first = await source.page({ query: 'Moon', limit: 1 })
+      const second = await source.page({ query: 'Moon', limit: 1, cursor: first.cursor! })
+      expect([...first.items, ...second.items].map((entry) => entry.title).sort()).toEqual(['Moon pack', 'Moon saved'])
+      expect(new Set([...first.items, ...second.items].map((entry) => entry.id)).size).toBe(2)
+      expect([...first.items, ...second.items].map((entry) => entry.ref)).toEqual(expect.arrayContaining([
+        { kind: 'library', recordId: 'same' }, { kind: 'pack', packId: 'pack', blueprintId: 'same', digest },
+      ]))
+      expect([...first.items, ...second.items].every((entry) => entry.actions === undefined)).toBe(true)
+      failed = true
+      dispose = render(() => <CollectionPanel sources={[source]} />, root)
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-retry"]')).not.toBeNull())
+      expect(root.textContent).toContain('Moon pack')
+      expect(root.textContent).toContain('Could not load Blueprints.')
+      failed = false
+      root.querySelector<HTMLButtonElement>('[data-testid="collection-retry"]')!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('Moon saved'))
+      expect(root.textContent).toContain('Moon pack')
+      expect(root.querySelector('[data-testid="collection-retry"]')).toBeNull()
+    } finally { dispose(); app.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals() }
+  })
+
   it('drags only eligible committed rows without activating them or dragging their actions', async () => {
     const activate = vi.fn()
     const transfer = new Map<string, string>()

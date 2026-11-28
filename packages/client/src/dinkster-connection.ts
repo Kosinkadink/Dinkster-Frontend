@@ -2022,7 +2022,7 @@ export class DinksterConnection {
   private readonly listeners = new Set<(e: NormalizedEvent) => void>()
   private readonly resumedListeners = new Set<() => void>()
   private readonly problemListeners = new Set<(problem: Diagnostic) => void>()
-  private readonly liveCompletionListeners = new Set<(execution: ExecutionRef) => void>()
+  private readonly liveTerminalListeners = new Set<(execution: ExecutionRef) => void>()
   private readonly memoryListeners = new Set<(status: MemoryStatus) => void>()
   private readonly mountListeners = new Set<() => void>()
   private readonly libraryListeners = new Set<() => void>()
@@ -2157,10 +2157,10 @@ export class DinksterConnection {
     return new ExecutionRequestError(problem, response.status, payload)
   }
 
-  /** Subscribe to persisted completed job_state messages, excluding fetched replays. */
-  onLiveCompletion(listener: (execution: ExecutionRef) => void): () => void {
-    this.liveCompletionListeners.add(listener)
-    return () => this.liveCompletionListeners.delete(listener)
+  /** Subscribe to persisted terminal job_state messages, excluding fetched replays. */
+  onLiveTerminal(listener: (execution: ExecutionRef) => void): () => void {
+    this.liveTerminalListeners.add(listener)
+    return () => this.liveTerminalListeners.delete(listener)
   }
 
   /** Subscribe to the server's droppable memory telemetry stream. */
@@ -2205,10 +2205,11 @@ export class DinksterConnection {
     if (live && !(raw instanceof ArrayBuffer)) this.noteLiveJobEvent(raw)
     const events = this.normalizer.normalize(raw)
     this.emit(events)
-    if (!live || raw instanceof ArrayBuffer || raw.type !== 'job_state' || raw['state'] !== 'completed') return
+    if (!live || raw instanceof ArrayBuffer || raw.type !== 'job_state' ||
+      (raw['state'] !== 'completed' && raw['state'] !== 'failed' && raw['state'] !== 'cancelled')) return
     const jobId = raw['jobId']
     if (typeof jobId !== 'string' || jobId === '') return
-    for (const listener of [...this.liveCompletionListeners]) listener(this.executionFor(jobId))
+    for (const listener of [...this.liveTerminalListeners]) listener(this.executionFor(jobId))
   }
 
   // -- Schemas ----------------------------------------------------------------
@@ -4081,10 +4082,14 @@ export class DinksterConnection {
   }
 
   /** Fetch and validate one immutable blueprint through the owning backend transport. */
-  async fetchBlueprintBody(packId: string, blueprintId: string): Promise<WorkflowDocument | undefined> {
+  async fetchBlueprintBody(packId: string, blueprintId: string, expectedDigest?: string): Promise<WorkflowDocument | undefined> {
     const res = await this.fetchFn(`${this.baseUrl}/api/packs/${encodeURIComponent(packId)}/blueprints/${encodeURIComponent(blueprintId)}`)
     if (!res.ok) return undefined
-    try { return loadDocument(JSON.parse(await res.text()) as unknown).document }
+    try {
+      const text = await res.text()
+      if (expectedDigest !== undefined && `sha256:${sha256Hex(new TextEncoder().encode(text))}` !== expectedDigest) return undefined
+      return loadDocument(JSON.parse(text) as unknown).document
+    }
     catch { return undefined }
   }
 

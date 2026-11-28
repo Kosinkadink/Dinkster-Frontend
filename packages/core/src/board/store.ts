@@ -8,8 +8,10 @@
 
 import { createSignal, type ReadonlySignal } from '../reactive/signal.js'
 import { diag, type Diagnostic } from '../diagnostics.js'
-import type { Json } from '../format/document.js'
+import type { ControllerMode, Json, JsonObject } from '../format/document.js'
 import { applyOwnedOps, invertOps, type PatchOp } from '../commands/patch.js'
+import { jsonSameValue } from '../commands/store.js'
+import { exposedKey, type ExposedParameter } from '../format/exposed.js'
 import { ownJson } from '../format/json.js'
 import {
   BOARD_MAX_ITEMS,
@@ -28,11 +30,29 @@ export type BoardItemInput = BoardItem extends infer T ? T extends BoardItem ? O
 
 export type BoardCommandInvocation =
   | { readonly command: 'board.item.add'; readonly params: { readonly items: readonly BoardItemInput[] } }
+  | { readonly command: 'board.run.add'; readonly params: {
+      readonly job: string
+      readonly card: string
+      readonly items: readonly BoardItemInput[]
+    } }
   | { readonly command: 'board.item.move'; readonly params: { readonly moves: readonly { readonly id: string; readonly x: number; readonly y: number }[] } }
   | { readonly command: 'board.item.resize'; readonly params: { readonly id: string; readonly rect: BoardRect } }
+  | { readonly command: 'board.card.fit'; readonly params: { readonly id: string; readonly height: number } }
   | { readonly command: 'board.item.remove'; readonly params: { readonly ids: readonly string[] } }
   | { readonly command: 'board.note.edit'; readonly params: { readonly id: string; readonly text: string } }
   | { readonly command: 'board.section.rename'; readonly params: { readonly id: string; readonly name: string } }
+  | { readonly command: 'board.card.inputs'; readonly params: { readonly id: string; readonly values: JsonObject } }
+  | { readonly command: 'board.card.controller'; readonly params: {
+      readonly id: string
+      readonly key: string
+      readonly mode?: ControllerMode
+    } }
+  | { readonly command: 'board.card.input'; readonly params: {
+      readonly id: string
+      readonly input: Pick<ExposedParameter, 'graphId' | 'nodeId' | 'inputId'>
+      /** Omit to restore the source's value and controller mode; null is an explicit value. */
+      readonly value?: Json
+    } }
 
 export type BoardDispatchOutcome =
   | { readonly ok: true; readonly document: BoardDocument; readonly revision: number; readonly created: readonly string[] }
@@ -85,6 +105,21 @@ export function planBoardCommand(
 ): { readonly ok: true; readonly forward: readonly PatchOp[]; readonly created: readonly string[] } | Refusal {
   const missing = (id: string): Refusal => refuse('item.missing', `no item '${id}' on this board`)
   switch (invocation.command) {
+    case 'board.run.add': {
+      const { job, card, items } = invocation.params
+      if (Object.hasOwn(board.runs ?? {}, job)) return { ok: true, forward: [], created: [] }
+      const source = board.items[card]
+      if (source?.kind !== 'workflow' && source?.kind !== 'blueprint') return missing(card)
+      if (items.some((item) => item.kind !== 'picture' && item.kind !== 'video' && item.kind !== 'sound'))
+        return refuse('run.invalid', 'a run can deliver only media items')
+      const addition = items.length === 0 ? { ok: true as const, forward: [], created: [] }
+        : planBoardCommand(board, { command: 'board.item.add', params: { items } })
+      if (!addition.ok) return addition
+      const forward: PatchOp[] = [...addition.forward]
+      if (board.runs === undefined) forward.push({ op: 'add', path: ['runs'], value: {} })
+      forward.push({ op: 'add', path: ['runs', job], value: { card, items: [...addition.created] } })
+      return { ok: true, forward, created: addition.created }
+    }
     case 'board.item.add': {
       const { items } = invocation.params
       if (items.length === 0) return refuse('add.empty', 'nothing to add')
@@ -143,11 +178,28 @@ export function planBoardCommand(
       }
       return { ok: true, forward: ops, created: [] }
     }
+    case 'board.card.fit': {
+      const item = board.items[invocation.params.id]
+      if (item === undefined) return missing(invocation.params.id)
+      if ((item.kind !== 'workflow' && item.kind !== 'blueprint') || item.autoSize !== true)
+        return refuse('fit.manual', 'only automatically sized cards can refit')
+      const height = Math.min(480, Math.ceil(invocation.params.height))
+      if (height === item.rect.height) return refuse('edit.none', 'the card already fits its controls')
+      const rect = { ...item.rect, height }
+      if (Object.values(board.items).some((other) => other.id !== item.id && other.kind !== 'section' &&
+        rect.x < other.rect.x + other.rect.width && rect.x + rect.width > other.rect.x &&
+        rect.y < other.rect.y + other.rect.height && rect.y + rect.height > other.rect.y))
+        return refuse('fit.occupied', 'the fitted card would overlap another Board item')
+      return { ok: true, created: [], forward: [{ op: 'replace', path: ['items', item.id, 'rect'], value: owned(rect), oldValue: item.rect as unknown as Json }] }
+    }
     case 'board.item.resize': {
       const item = board.items[invocation.params.id]
       if (item === undefined) return missing(invocation.params.id)
       const rect = owned(invocation.params.rect)
-      return { ok: true, created: [], forward: [{ op: 'replace', path: ['items', item.id, 'rect'], value: rect, oldValue: item.rect as unknown as Json }] }
+      const forward: PatchOp[] = [{ op: 'replace', path: ['items', item.id, 'rect'], value: rect, oldValue: item.rect as unknown as Json }]
+      if ((item.kind === 'workflow' || item.kind === 'blueprint') && item.autoSize === true)
+        forward.push({ op: 'replace', path: ['items', item.id, 'autoSize'], value: false, oldValue: true })
+      return { ok: true, created: [], forward }
     }
     case 'board.item.remove': {
       const ids = new Set(invocation.params.ids)
@@ -179,6 +231,46 @@ export function planBoardCommand(
       if (item.name === invocation.params.name) return refuse('edit.none', 'the section already has that name')
       return { ok: true, created: [], forward: [{ op: 'replace', path: ['items', item.id, 'name'], value: invocation.params.name, oldValue: item.name }] }
     }
+    case 'board.card.inputs': {
+      const { id, values } = invocation.params
+      const item = board.items[id]
+      if (item === undefined) return missing(id)
+      if (item.kind !== 'workflow' && item.kind !== 'blueprint') return refuse('item.kind', `'${id}' is not a workflow or blueprint card`)
+      if (jsonSameValue(item.values, values)) return refuse('edit.none', 'the card already has those input values')
+      return { ok: true, created: [], forward: [{ op: 'replace', path: ['items', id, 'values'], value: owned(values), oldValue: item.values }] }
+    }
+    case 'board.card.controller': {
+      const { id, key, mode } = invocation.params
+      const item = board.items[id]
+      if (item === undefined) return missing(id)
+      if (item.kind !== 'workflow' && item.kind !== 'blueprint') return refuse('item.kind', `'${id}' is not a workflow or blueprint card`)
+      if (typeof key !== 'string' || key.length === 0) return refuse('input.invalid', 'card controller needs an input key')
+      const previous = item.controllers?.[key]
+      if (previous === mode) return refuse('edit.none', 'the card already has that controller mode')
+      const path = ['items', id, 'controllers', key]
+      const forward: PatchOp[] = item.controllers === undefined
+        ? [{ op: 'add', path: ['items', id, 'controllers'], value: {} }] : []
+      forward.push(mode === undefined ? { op: 'remove', path, oldValue: previous! }
+        : previous === undefined ? { op: 'add', path, value: mode } : { op: 'replace', path, value: mode, oldValue: previous })
+      return { ok: true, created: [], forward }
+    }
+    case 'board.card.input': {
+      const { id, input, value } = invocation.params
+      const item = board.items[id]
+      if (item === undefined) return missing(id)
+      if (item.kind !== 'workflow' && item.kind !== 'blueprint') return refuse('item.kind', `'${id}' is not a workflow or blueprint card`)
+      if (![input.graphId, input.nodeId, input.inputId].every((part) => typeof part === 'string' && part.length > 0)) return refuse('input.invalid', 'card inputs need graph, node and input ids')
+      const key = exposedKey(input)
+      const previous = item.values[key]
+      const resetMode = value === undefined && item.controllers?.[key] !== undefined
+      if (jsonSameValue(previous, value) && !resetMode) return refuse('edit.none', 'the card already has that input value')
+      const path = ['items', id, 'values', key]
+      const forward: PatchOp[] = jsonSameValue(previous, value) ? [] : [value === undefined
+        ? { op: 'remove', path, oldValue: previous! } : previous === undefined
+          ? { op: 'add', path, value: owned(value) } : { op: 'replace', path, value: owned(value), oldValue: previous }]
+      if (resetMode) forward.push({ op: 'remove', path: ['items', id, 'controllers', key], oldValue: item.controllers![key]! })
+      return { ok: true, created: [], forward }
+    }
     default:
       return refuse('command.unknown', `unknown board command '${String((invocation as { readonly command?: unknown }).command)}'`)
   }
@@ -196,6 +288,11 @@ function membershipOps(item: BoardItem, sectionId: string | undefined): PatchOp[
 interface HistoryEntry {
   readonly forward: readonly PatchOp[]
   readonly inverse: readonly PatchOp[]
+}
+
+/** Delivery receipts survive undo; only the delivered items are editable history. */
+export function boardUndoableOps(operations: readonly PatchOp[]): readonly PatchOp[] {
+  return operations.filter((operation) => operation.path[0] !== 'runs')
 }
 
 export class BoardStore implements BoardSession {
@@ -222,11 +319,16 @@ export class BoardStore implements BoardSession {
   dispatch(invocation: BoardCommandInvocation): BoardDispatchOutcome {
     const plan = planBoardCommand(this.current, invocation)
     if (!plan.ok) return plan
+    if (invocation.command === 'board.run.add' && plan.forward.length === 0)
+      return { ok: true, document: this.current, revision: this.currentRevision, created: [] }
     const next = this.apply(plan.forward)
     if (!next.ok) return next
-    this.undoStack.push({ forward: plan.forward, inverse: invertOps(plan.forward) })
-    if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
-    this.redoStack.length = 0
+    const forward = boardUndoableOps(plan.forward)
+    if (invocation.command !== 'board.run.add' || forward.length > 0) {
+      this.undoStack.push({ forward, inverse: invertOps(forward) })
+      if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
+      this.redoStack.length = 0
+    }
     const revision = this.commit(next.document, invocation.command, plan.forward)
     return { ok: true, document: next.document, revision, created: plan.created }
   }

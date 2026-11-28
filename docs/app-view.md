@@ -5,9 +5,11 @@ enable **Enable App View (experimental)** under **Features App View**
 (`features.appView.enabled`). This persisted boolean setting applies
 immediately across the shell.
 
-While disabled, the App selector, toggle command and shortcut, widget and
-preview promotion menus, and Exposure lens are hidden. Persisted `app` tabs
-open in Graph View. Disabling also returns open App View tabs to Graph View;
+While disabled, the App selector, toggle command and shortcut are hidden.
+Widget and preview promotion menus and the Exposure lens remain available
+when the Board is enabled (`features.board.enabled`), since both surfaces
+use the same exposed controls. Persisted `app` tabs open in Graph View.
+Disabling also returns open App View tabs to Graph View;
 it does not change `dinkster.exposed`, `dinkster.exposedPreviews`, or
 `dinkster.appLayout`. Re-enabling restores access to the authored content;
 select App View again to use it.

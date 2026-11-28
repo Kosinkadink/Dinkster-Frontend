@@ -82,7 +82,7 @@ test('completion before submit acknowledgment retains and hydrates outputs', asy
   })
   await waitForWorkspaceReady(page)
   await page.evaluate(() => {
-    window.__dinksterTest!.app.backends.get()[0]!.connection.onLiveCompletion(() => {
+    window.__dinksterTest!.app.backends.get()[0]!.connection.onLiveTerminal(() => {
       document.documentElement.dataset['completedJobObserved'] = 'true'
     })
   })

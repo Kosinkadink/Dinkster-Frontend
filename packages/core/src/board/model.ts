@@ -1,7 +1,7 @@
 /**
- * The Board document: a free surface where pictures, video, sound, notes and
- * named sections are laid out. It is a document kind of its own, saved
- * beside workflows, and holds media only as asset-digest references.
+ * The Board document: a free surface for media, notes, named sections and
+ * runnable cards. Saved beside workflows, it holds media by asset digest
+ * and workflow or blueprint cards by library or pack references.
  *
  * Coordinates are unsnapped world units. Items are keyed by id; `order`
  * is paint order, last on top. Sections are painted under every other item
@@ -9,7 +9,7 @@
  */
 
 import { diag, type Diagnostic } from '../diagnostics.js'
-import type { Json, JsonObject } from '../format/document.js'
+import type { ControllerMode, Json, JsonObject } from '../format/document.js'
 import { ownJson } from '../format/json.js'
 
 export const BOARD_FORMAT = 'dinkster-board'
@@ -25,7 +25,7 @@ export const BOARD_MAX_EXTENT = 1_000_000
 export const BOARD_MIN_SIDE = 16
 
 export type BoardMediaKind = 'picture' | 'video' | 'sound'
-export type BoardItemKind = BoardMediaKind | 'note' | 'section'
+export type BoardItemKind = BoardMediaKind | 'note' | 'section' | 'workflow' | 'blueprint'
 
 export interface BoardRect {
   readonly x: number
@@ -70,7 +70,25 @@ export interface BoardSectionItem {
   readonly name: string
 }
 
-export type BoardItem = (BoardMediaItem | BoardNoteItem | BoardSectionItem) & {
+export type BoardCardSource =
+  | { readonly kind: 'library'; readonly recordId: string }
+  | { readonly kind: 'pack'; readonly packId: string; readonly blueprintId: string; readonly digest: string }
+
+export interface BoardCardItem {
+  readonly id: string
+  readonly kind: 'workflow' | 'blueprint'
+  readonly rect: BoardRect
+  readonly name: string
+  /** Resolved on the Board's owning project and backend, never the active tab's. */
+  readonly source: BoardCardSource
+  /** Card-owned overrides keyed by exposedKey, not values written into the source. */
+  readonly values: JsonObject
+  readonly controllers?: Readonly<Record<string, ControllerMode>>
+  /** Only new, never manually resized cards may refit when their controls change. */
+  readonly autoSize?: boolean
+}
+
+export type BoardItem = (BoardMediaItem | BoardNoteItem | BoardSectionItem | BoardCardItem) & {
   readonly sectionId?: string
 }
 
@@ -80,6 +98,8 @@ export interface BoardDocument {
   readonly lineage: string
   readonly items: Readonly<Record<string, BoardItem>>
   readonly order: readonly string[]
+  /** Delivered runs outlive removed cards/results, so replay never restores dismissed media. */
+  readonly runs?: Readonly<Record<string, { readonly card: string; readonly items: readonly string[] }>>
 }
 
 export const emptyBoard = (): BoardDocument =>
@@ -165,6 +185,19 @@ function readRect(value: Json | undefined, where: string): BoardRect | Diagnosti
 
 const text = (value: Json | undefined, max: number): value is string => typeof value === 'string' && value.length <= max
 
+function readCardSource(value: Json | undefined, kind: 'workflow' | 'blueprint', where: string): BoardCardSource | Diagnostic {
+  if (!isObject(value)) return fail('source.invalid', `${where}: source must be an object`)
+  const nonempty = (value: Json | undefined): value is string => text(value, BOARD_MAX_NAME) && value.length > 0
+  if (value['kind'] === 'library' && Object.keys(value).every((key) => ['kind', 'recordId'].includes(key)) && nonempty(value['recordId'])) {
+    return { kind: 'library', recordId: value['recordId'] }
+  }
+  if (kind === 'blueprint' && value['kind'] === 'pack' && Object.keys(value).every((key) => ['kind', 'packId', 'blueprintId', 'digest'].includes(key)) &&
+    nonempty(value['packId']) && nonempty(value['blueprintId']) && typeof value['digest'] === 'string' && /^sha256:[0-9a-f]{64}(?![\s\S])/.test(value['digest'])) {
+    return { kind: 'pack', packId: value['packId'], blueprintId: value['blueprintId'], digest: value['digest'] }
+  }
+  return fail('source.invalid', `${where}: source must reference a library record or a blueprint pack digest`)
+}
+
 function readAsset(value: Json | undefined, where: string): BoardAsset | Diagnostic {
   if (!isObject(value)) return fail('asset.invalid', `${where}: asset must be an object`)
   if (Object.keys(value).some((key) => !['digest', 'mediaType', 'name', 'width', 'height', 'duration', 'origin'].includes(key))) return fail('asset.invalid', `${where}: asset contains unsupported fields`)
@@ -198,10 +231,28 @@ export function readBoardItem(id: string, value: Json | undefined): BoardItem | 
   if (sectionId !== undefined && (typeof sectionId !== 'string' || !ITEM_ID.test(sectionId))) return fail('item.section', `${where}: sectionId must be an item id`)
   const membership = sectionId === undefined ? {} : { sectionId: sectionId as string }
   const kind = value['kind']
-  const content = kind === 'note' ? 'text' : kind === 'section' ? 'name' : 'asset'
-  if (Object.keys(value).some((key) => !['id', 'kind', 'rect', 'sectionId', content].includes(key))) return fail('item.invalid', `${where}: item contains unsupported fields`)
+  const content = kind === 'workflow' || kind === 'blueprint' ? ['name', 'source', 'values', 'controllers', 'autoSize'] : [kind === 'note' ? 'text' : kind === 'section' ? 'name' : 'asset']
+  if (Object.keys(value).some((key) => !['id', 'kind', 'rect', 'sectionId', ...content].includes(key))) return fail('item.invalid', `${where}: item contains unsupported fields`)
   const rect = readRect(value['rect'], where)
   if ('severity' in rect) return rect
+  if (kind === 'workflow' || kind === 'blueprint') {
+    const name = value['name']
+    if (!text(name, BOARD_MAX_NAME)) return fail('item.invalid', `${where}: card name must be a string of at most ${BOARD_MAX_NAME} characters`)
+    const source = readCardSource(value['source'], kind, where)
+    if ('severity' in source) return source
+    const values = value['values']
+    if (!isObject(values)) return fail('item.invalid', `${where}: card values must be an object`)
+    const autoSize = value['autoSize']
+    if (autoSize !== undefined && typeof autoSize !== 'boolean') return fail('item.invalid', `${where}: card autoSize must be a boolean`)
+    const controllers = value['controllers']
+    if (controllers !== undefined && (!isObject(controllers) || Object.values(controllers).some((mode) =>
+      typeof mode !== 'string' || !['fixed', 'increment', 'decrement', 'randomize'].includes(mode)))) {
+      return fail('item.invalid', `${where}: card controller modes are invalid`)
+    }
+    return { id, kind, rect, name, source, values, ...membership,
+      ...(autoSize === undefined ? {} : { autoSize }),
+      ...(controllers === undefined ? {} : { controllers: controllers as Readonly<Record<string, ControllerMode>> }) }
+  }
   if (typeof kind === 'string' && isBoardMediaKind(kind)) {
     const asset = readAsset(value['asset'], where)
     if ('severity' in asset) return asset
@@ -235,7 +286,7 @@ export function loadBoard(input: unknown): BoardLoadResult {
   if (!owned.ok) return { diagnostics: [fail('json.invalid', `board is not JSON: ${owned.reason}`)] }
   const raw = owned.value
   if (!isObject(raw)) return { diagnostics: [fail('shape.invalid', 'board must be an object')] }
-  if (Object.keys(raw).some((key) => !['format', 'formatVersion', 'lineage', 'items', 'order'].includes(key))) return { diagnostics: [fail('shape.invalid', 'board contains unsupported fields')] }
+  if (Object.keys(raw).some((key) => !['format', 'formatVersion', 'lineage', 'items', 'order', 'runs'].includes(key))) return { diagnostics: [fail('shape.invalid', 'board contains unsupported fields')] }
   const lineage = raw['lineage']
   if (typeof lineage !== 'string' || lineage.length === 0) return { diagnostics: [fail('lineage.invalid', 'board needs a stable nonempty lineage')] }
   if (raw['format'] !== BOARD_FORMAT) return { diagnostics: [fail('format.invalid', `format must be '${BOARD_FORMAT}'`)] }
@@ -244,6 +295,19 @@ export function loadBoard(input: unknown): BoardLoadResult {
     return {
       diagnostics: [fail(typeof version === 'number' && version > BOARD_FORMAT_VERSION ? 'version.future' : 'version.invalid',
         `board formatVersion ${JSON.stringify(version)} is not supported (expected ${BOARD_FORMAT_VERSION})`)],
+    }
+  }
+  const runs = raw['runs']
+  if (runs !== undefined) {
+    if (!isObject(runs)) return { diagnostics: [fail('runs.invalid', 'runs must be an object')] }
+    for (const [job, run] of Object.entries(runs)) {
+      if (!text(job, 2048) || job.length === 0 || !isObject(run) ||
+        Object.keys(run).length !== 2 || typeof run['card'] !== 'string' || !ITEM_ID.test(run['card']) ||
+        !Array.isArray(run['items']) || run['items'].length > BOARD_MAX_ITEMS ||
+        new Set(run['items']).size !== run['items'].length ||
+        !run['items'].every((id) => typeof id === 'string' && ITEM_ID.test(id))) {
+        return { diagnostics: [fail('runs.invalid', 'each run needs a job reference, card id and unique delivered item ids')] }
+      }
     }
   }
   const items = raw['items']
@@ -269,7 +333,9 @@ export function loadBoard(input: unknown): BoardLoadResult {
       parent = parsed[parent]!.sectionId
     }
   }
-  const document: BoardDocument = { format: BOARD_FORMAT, formatVersion: BOARD_FORMAT_VERSION, lineage, items: parsed, order: order as string[] }
+  const document: BoardDocument = { format: BOARD_FORMAT, formatVersion: BOARD_FORMAT_VERSION, lineage, items: parsed, order: order as string[],
+    ...(runs === undefined ? {} : { runs: runs as NonNullable<BoardDocument['runs']> }),
+  }
   const frozen = ownJson(document)
   if (!frozen.ok) return { diagnostics: [fail('json.invalid', frozen.reason)] }
   return { document: frozen.value as unknown as BoardDocument, diagnostics: [] }
