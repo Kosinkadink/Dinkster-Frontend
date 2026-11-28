@@ -5,6 +5,7 @@ import {
   CanvasRowList,
   CanvasSidePart,
   canvasListLayout,
+  canvasListBox,
   type CanvasListAction,
   type CanvasListOption,
   type CanvasListStatus,
@@ -391,6 +392,9 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   const [sideSize, setSideSize] = createSignal({ width: 0, height: 0 })
   createEffect(() => { if (side() === undefined) setSideSize({ width: 0, height: 0 }) })
   const [listSize, setListSize] = createSignal(0)
+  const [headingSize, setHeadingSize] = createSignal({ width: 0, height: 0 }, {
+    equals: (a, b) => a.width === b.width && a.height === b.height,
+  })
   const placement = createMemo(() => {
     const row = rowPlacement(
       { ...inRow, rect: ed.rect },
@@ -400,9 +404,12 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
     )
     const local = row.scale / Math.max(1, row.scale)
     const grow = inRow.look === 'flat-title' ? 1 : 0
+    const screen = canvasListBox(row.screen, bounds(), headingSize(), Math.max(1, row.scale))
     return {
       ...row,
-      ...canvasListLayout(row.screen, bounds(), listSize(), sideSize(), row.scale,
+      screen,
+      rowWidth: screen.width / Math.max(1, row.scale),
+      ...canvasListLayout(screen, bounds(), listSize(), sideSize(), row.scale,
         (inRow.nodeBottom - ed.rect.y) * local + grow,
         (ed.rect.y - inRow.nodeTop) * local - grow, row.sideEdges),
     }
@@ -430,6 +437,7 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
         <CanvasRowList
           look={inRow.look}
           rowWidth={placement().rowWidth}
+          onHeadingSize={setHeadingSize}
           label={ed.label}
           query={query()}
           onQuery={onQuery}

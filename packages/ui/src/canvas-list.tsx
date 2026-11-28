@@ -8,6 +8,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { Check, ChevronLeft, ChevronRight, CircleAlert } from 'lucide-solid'
+import { canvasPaintTokens } from '@dinkster/canvas'
 import {
   CanvasRowField,
   canvasSideLayout,
@@ -52,6 +53,18 @@ export interface CanvasListStatus {
 
 /** The most entries a list shows before it scrolls. */
 export const CANVAS_LIST_ROWS = 8
+
+/** Fits a menu's complete heading before wrapping, at a screen-pixel cap. */
+export function canvasListBox(row: CanvasBox, bounds: CanvasBox, heading: CanvasSideSize, scale: number): CanvasBox {
+  const width = Math.min(bounds.width, Math.max(row.width,
+    Math.min(heading.width * scale, Math.max(canvasPaintTokens.attachedMaxWidth, row.width))))
+  return {
+    ...row,
+    x: Math.max(bounds.x, Math.min(row.x, bounds.x + bounds.width - width)),
+    width,
+    height: Math.max(row.height, heading.height * scale),
+  }
+}
 
 /** Where a list opened in a row goes and how it fits the visible canvas. */
 export interface CanvasListLayout extends CanvasSideLayout {
@@ -184,6 +197,8 @@ export function CanvasRowList(
     listMaxHeight?: number
     /** The list's height without a limit, at normal size. */
     onListSize?: (height: number) => void
+    /** Natural heading width (with room for the filter) and rendered row height. */
+    onHeadingSize?: (size: CanvasSideSize) => void
     /** A store is in flight: nothing in the list can be pressed. */
     frozen?: boolean
   },
@@ -191,6 +206,8 @@ export function CanvasRowList(
   const listboxId = createUniqueId()
   const optionId = (index: number) => `${listboxId}-${index}`
   let input: HTMLInputElement | undefined
+  let root: HTMLDivElement | undefined
+  let heading!: HTMLSpanElement
   let body!: HTMLDivElement
   let status: HTMLElement | undefined
   let entries!: HTMLDivElement
@@ -198,6 +215,7 @@ export function CanvasRowList(
   let reported = -1
   const measure = () => {
     if (!body) return
+    props.onHeadingSize?.({ width: heading.offsetWidth, height: (root?.firstElementChild as HTMLElement | undefined)?.offsetHeight ?? 0 })
     // Offsets and scrollHeight measure the contents without removing the
     // height limit, which would reset the keyboard's scroll position.
     const items = [...entries.children] as HTMLElement[]
@@ -223,12 +241,14 @@ export function CanvasRowList(
     }
   }
   createEffect(() => {
-    void [props.options, props.status, props.actions, props.listMaxHeight, props.empty, props.hiddenBefore, props.hiddenAfter]
+    void [props.options, props.status, props.actions, props.listMaxHeight, props.empty, props.hiddenBefore, props.hiddenAfter, props.label, props.rowWidth]
     queueMicrotask(measure)
   })
   onMount(() => {
     const observer = new ResizeObserver(measure)
     observer.observe(body)
+    observer.observe(heading)
+    if (root) observer.observe(root)
     onCleanup(() => observer.disconnect())
   })
   // The candidate stays in view as the keyboard moves it, without scrolling
@@ -304,6 +324,7 @@ export function CanvasRowList(
   const statusBelow = (): boolean => props.status !== undefined && props.options.length > 0
   const listBody = (
     <div ref={(element) => (body = element)} class="dinkster-canvas-list" data-frozen={props.frozen === true}>
+      <span ref={heading} class="dinkster-canvas-list-heading-measure" aria-hidden="true">{props.label}</span>
       <Show when={!statusBelow() && props.status}>{(current) => statusLine(current(), true)}</Show>
       <div
         ref={(element) => (entries = element)}
@@ -370,10 +391,11 @@ export function CanvasRowList(
       {...(props.sideMaxWidth === undefined ? {} : { sideMaxWidth: props.sideMaxWidth })}
       {...(props.side === undefined ? {} : { side: props.side })}
       {...(props.onSideSize === undefined ? {} : { onSideSize: props.onSideSize })}
-      {...(props.ref === undefined ? {} : { ref: props.ref })}
+      ref={(element) => { root = element; props.ref?.(element) }}
       {...(props.look === undefined ? {} : { look: props.look })}
       {...(props.zoomed === undefined ? {} : { zoomed: props.zoomed })}
       panel={listBody}
+      wrapLabel
       panelPlace={props.listPlace ?? 'below'}
       label={props.label}
       value={props.query}

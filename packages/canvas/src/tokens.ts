@@ -8,6 +8,7 @@ import { canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTok
 /** Fixed paint geometry shared with layout and hit testing. */
 export const canvasPaintTokens = {
   detailMinScale: 0.3,
+  attachedMaxWidth: 340,
   imageOpacityScale: IMAGE_OPACITY_MAX,
   editor: {
     imageCompare: { initialSplit: 50, percentScale: 100, dividerColor: '#ffffff', dividerWidth: 2 },
