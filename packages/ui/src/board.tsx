@@ -56,6 +56,7 @@ import { useFieldFocus } from './field-focus.js'
 import { ProductMenu } from './menu.js'
 import { ProductProgress } from './messages.js'
 import { BlueprintIcon } from './search.js'
+import { ProductImage } from './image.js'
 
 /** Shared card chrome; the source owner supplies exposed controls and run state. */
 export function ProductBoardCard(props: {
@@ -1036,12 +1037,9 @@ export function ProductBoard(props: ProductBoardProps) {
                       when={((item) => item.kind === 'picture' && item)(item())}
                     >
                       {(picture) => (
-                        <img
-                          class="dinkster-board-picture"
+                        <ProductImage
                           src={props.assetUrl(picture().asset)}
                           alt={picture().asset.name}
-                          draggable={false}
-                          loading="lazy"
                           onLoad={(event) =>
                             setMetadata({
                               width: event.currentTarget.naturalWidth,
