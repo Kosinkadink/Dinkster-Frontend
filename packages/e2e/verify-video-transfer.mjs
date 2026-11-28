@@ -242,12 +242,13 @@ try {
       },
       { surface, mount },
     )
-    await page.waitForFunction(
-      (surface) =>
-        window.__dinksterTest.app.activeTab()?.store.doc.lineage ===
-        `video-transfer-${surface}`,
-      surface,
-    )
+    await page.waitForFunction((surface) => {
+      const tab = window.__dinksterTest.app.activeTab()
+      return (
+        tab?.store.doc.lineage === `video-transfer-${surface}` &&
+        'status' in tab.store
+      )
+    }, surface)
     const before = await page.evaluate(() =>
       JSON.stringify(window.__dinksterTest.app.activeTab().store.doc),
     )
@@ -296,9 +297,12 @@ try {
       window.__transferLifecycle = []
       let previous
       const record = () => {
+        const active = app.activeTab()
         const state = {
           ownerOpen: app.tabs.get().includes(owner),
-          ownerActive: app.activeTab() === owner,
+          ownerActive: active === owner,
+          ownerShared: 'status' in owner.store,
+          ownerContinues: app.liveTabContinuing(owner.store) === active,
           backendUnchanged: app.backendForTab(owner) === backend,
           execution: owner.execution ?? null,
           modalPanel: app.modalPanel.get(),
