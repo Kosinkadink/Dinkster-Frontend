@@ -30,7 +30,7 @@ export interface ProductModelVersion {
   readonly message?: string
   readonly facts?: readonly {
     readonly label: string
-    readonly value: string
+    readonly value: JSX.Element
     readonly monospace?: boolean
   }[]
 }
@@ -358,8 +358,8 @@ export function ProductModelList(props: ProductModelListProps) {
           title={<span class="dinkster-model-name">{model().name}</span>}
           description={[
             model().kind,
-            strings.modelHere.replace('{count}', String(installed())),
-            strings.modelToDownload.replace('{count}', String(missing())),
+            installed() > 0 ? strings.modelHere.replace('{count}', String(installed())) : '',
+            missing() > 0 ? strings.modelToDownload.replace('{count}', String(missing())) : '',
           ]
             .filter(Boolean)
             .join(', ')}

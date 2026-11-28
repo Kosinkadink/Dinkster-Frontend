@@ -52,6 +52,7 @@ describe('LibraryPanel', () => {
     try {
       await vi.advanceTimersByTimeAsync(0)
       expect(root.textContent).toContain('3 models in 2 folders')
+      expect(root.querySelector('input[type="search"]')?.getAttribute('placeholder')).toBe('Search models')
       const row = (name: string) => [...root.querySelectorAll<HTMLButtonElement>('.dinkster-row-main')].find((button) => button.textContent?.includes(name))!
       expect(row('alpha.safetensors').textContent).toContain('Checkpoints, 1 here, 1 to download')
       expect(row('gamma.safetensors').textContent).toContain('Diffusion models')
@@ -77,9 +78,14 @@ describe('LibraryPanel', () => {
       expect(row('alpha.safetensors').textContent).toContain('1 here, 1 to download')
       expect(row('alpha.safetensors').textContent).not.toContain('Checkpoints')
       expect(row('alpha.safetensors').textContent).not.toContain(', 1 here')
-      const installed = [...root.querySelectorAll<HTMLButtonElement>('.dinkster-row-main')].find((button) => button.textContent === 'alpha.safetensors1 KB')!
+      const installed = [...root.querySelectorAll<HTMLButtonElement>('.dinkster-row-main')].find((button) => button.textContent === 'studio1 KB')!
       expect(installed).toBeDefined()
       expect(installed.querySelector('.dinkster-metadata')).toBeNull()
+      expect(row('archive').textContent).toContain('38%, 3 of 8 KB')
+      installed.click()
+      const facts = installed.closest('li')!.querySelector('dl')!
+      expect(facts.querySelector('code')?.title).toBe('alpha.safetensors')
+      expect([...facts.querySelectorAll('.dinkster-fact')].find((fact) => fact.querySelector('dt')?.textContent === 'Model folder')?.querySelector('dd')?.textContent).toBe('studio')
       expect(row('beta.safetensors').textContent).toContain('Not downloaded')
       root.querySelector<HTMLButtonElement>('[aria-label="Model kind"]')!.click()
       ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'All kinds')!.click()
@@ -109,6 +115,10 @@ describe('LibraryPanel', () => {
       expect(root.textContent).not.toContain('Not downloaded')
       jobs.set([checking])
       expect(root.textContent).toContain('1 model in 1 folder')
+      root.querySelector<HTMLButtonElement>('[aria-label="Model folder"]')!.click()
+      ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'All model folders')!.click()
+      expect(row('alpha.safetensors').textContent).toContain('2 here')
+      expect(row('alpha.safetensors').textContent).not.toContain('to download')
     } finally { dispose(); root.remove() }
   })
 
@@ -223,7 +233,7 @@ describe('LibraryPanel', () => {
         expect(root.textContent).not.toContain('previous.safetensors')
         expect(root.querySelector('[role="alert"]')).toBeNull()
         root.querySelector<HTMLButtonElement>('.dinkster-row-main')!.click()
-        expect(root.textContent).toContain('/current')
+        expect(root.querySelector('code')?.title).toBe('current.safetensors')
         expect(root.textContent).not.toContain('/previous')
       } finally { dispose(); root.remove() }
     }

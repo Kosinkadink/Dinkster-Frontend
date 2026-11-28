@@ -1,7 +1,8 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import type { DinksterConnection, ModelDownloadJob, ModelSettingsState, MountDescriptor } from '@dinkster/client'
 import { formatByteProgress, formatByteSize, type ReadonlySignal } from '@dinkster/core'
-import { ProductButton, ProductConfirmation, ProductErrorBanner, ProductModelList, ProductProgress, type ProductModel } from '@dinkster/ui'
+import { ProductButton, ProductConfirmation, ProductErrorBanner, ProductIcon, ProductModelList, ProductProgress, type ProductModel } from '@dinkster/ui'
+import Search from 'lucide-solid/icons/search'
 import { ProductTextInput } from './ProductControls.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductEmptyState } from './ProductSurfaces.js'
@@ -13,6 +14,7 @@ import { logicalModelVariantName } from './asset-browser/logical-model-collectio
 import { committableAssetRef, type CanonicalAssetRef } from './asset-browser/helpers.js'
 import type { LogicalModel, LogicalModelVariant } from './asset-browser/logical-model.js'
 import type { AssetBrowserItem } from './asset-browser/types.js'
+import { FolderPath } from './FolderPath.js'
 
 export function LibraryModels(props: {
   readonly connection: DinksterConnection
@@ -196,13 +198,23 @@ export function LibraryModels(props: {
     return variants.length ? [{ ...model, variants }] : []
   }).sort((left, right) => left.displayName.localeCompare(right.displayName)))
   const versionKey = (variant: LogicalModelVariant) => JSON.stringify([variant.variantId, variant.digest ?? null])
+  const versionName = (model: LogicalModel, variant: LogicalModelVariant) => {
+    const distinct = (name: (candidate: LogicalModelVariant) => string | undefined) => {
+      const value = name(variant)
+      return value && model.variants.every((other) => other === variant || name(other) !== value) ? value : undefined
+    }
+    return distinct((candidate) => candidate.precision)
+      || distinct((candidate) => providersFor(candidate).map((location) => location.id).join(', '))
+      || localRef(model, variant)?.virtualPath.replace(/^(?:mounts|model-files)\/[^/]+\//, '')
+      || jobFor(model, variant)?.file || logicalModelVariantName(variant)
+  }
   const rows = createMemo<readonly ProductModel[]>(() => visible().map((model) => ({
     id: JSON.stringify([model.kind, model.logicalId]), name: model.displayName, kind: kind() === '' ? kindLabel(model.kind) : '',
     versions: model.variants.map((variant) => {
       const job = jobFor(model, variant)
       const installed = localRef(model, variant) !== undefined
       return {
-        id: versionKey(variant), name: installed ? logicalModelVariantName(variant) : job?.name ?? logicalModelVariantName(variant),
+        id: versionKey(variant), name: versionName(model, variant),
         ...(variant.size !== undefined ? { size: formatByteSize(variant.size) } : {}),
         ...(variant.precision ? { precision: variant.precision } : {}),
         state: installed ? 'installed' : job?.status === 'failed' || job?.status === 'cancelled'
@@ -212,8 +224,8 @@ export function LibraryModels(props: {
           ? message('library.models.downloadProgress', { percent: Math.round(job.received / job.size * 100), ...formatByteProgress(job.received, job.size) })
           : formatByteSize(job.received) } : {}),
         facts: [
-          { label: message('library.models.file'), value: localRef(model, variant)?.virtualPath || job?.file || logicalModelVariantName(variant), monospace: true },
-          { label: message('library.models.folder'), value: providersFor(variant).map((location) => location.path).join('\n'), monospace: true },
+          { label: message('library.models.file'), value: <FolderPath value={localRef(model, variant)?.virtualPath.replace(/^(?:mounts|model-files)\/[^/]+\//, '') || job?.file || logicalModelVariantName(variant)} /> },
+          { label: message('library.models.folder'), value: providersFor(variant).map((location) => location.id).join(', '), monospace: true },
           { label: message('library.models.aliases'), value: model.aliases.join(', ') },
         ],
       }
@@ -271,7 +283,12 @@ export function LibraryModels(props: {
         <ProductButton intent="add" onClick={props.onAddModelFolder}>{message('library.models.addFolder')}</ProductButton>
       } />}>
         <div class="library-model-filters">
-          <ProductTextInput type="search" aria-label={message('library.search', { source: message('library.models.title').toLocaleLowerCase() })} value={query()} onInput={(event) => setQuery(event.currentTarget.value)} />
+          <div class="library-model-search">
+            <ProductIcon icon={Search} />
+            <ProductTextInput type="search" aria-label={message('library.search', { source: message('library.models.title').toLocaleLowerCase() })}
+              placeholder={message('library.search', { source: message('library.models.title').toLocaleLowerCase() })}
+              value={query()} onInput={(event) => setQuery(event.currentTarget.value)} />
+          </div>
           <ProductSelect ariaLabel={message('library.models.kind')} selectedId={kind()} options={[
             { id: '', label: message('library.models.allKinds'), value: '' },
             ...[...new Set(inventory().map((model) => model.kind))].sort().map((value) => ({ id: value, label: kindLabel(value), value })),
