@@ -18,132 +18,11 @@ import { ProductTabs, type ProductTab } from './ProductTabs.js'
 import type { ShellRegion } from './shell-layout.js'
 import type { PanelDragModel, PanelDragTabFit } from './panel-drag.js'
 import { useAppMessage } from './locale.js'
-import type { TooltipContent, VisibleTooltip } from './tooltips.js'
-import { ProductShortcut } from '@dinkster/ui'
+import { ProductTooltip, type VisibleTooltip } from '@dinkster/ui'
 
 export function ShellTooltip(props: { readonly tip: VisibleTooltip }) {
   const message = useAppMessage()
-  let element!: HTMLElement
-  let content!: HTMLDivElement
-  let readoutHeight: number | undefined
-  const [fitted, setFitted] = createSignal<TooltipContent>()
-  const displayed = () => fitted() ?? props.tip
-  const position = (): void => {
-    if (!element.isConnected) return
-    const tip = props.tip
-    const rect = tip.paintedRect?.() ?? tip.element?.getBoundingClientRect()
-    const boundary = tip.boundary?.getBoundingClientRect()
-    const leftEdge = Math.max(0, boundary?.left ?? 0)
-    const topEdge = Math.max(0, boundary?.top ?? 0)
-    const rightEdge = Math.min(window.innerWidth, boundary?.right ?? window.innerWidth)
-    const bottomEdge = Math.min(window.innerHeight, boundary?.bottom ?? window.innerHeight)
-    // A menu row's tooltip below it would cover the next row.
-    const beside = rect !== undefined && (tip.paintedRect !== undefined || Boolean(tip.element?.closest('.left-sidebar, .context-menu')))
-    const before = tip.paintedRect !== undefined && rect !== undefined && rect.left - leftEdge > rightEdge - rect.right
-    element.style.setProperty('--tooltip-available-width', `${Math.max(1, beside ? before ? rect.left - leftEdge - 16 : rightEdge - rect.right - 16 : rightEdge - leftEdge - 16)}px`)
-    content.style.removeProperty('-webkit-line-clamp')
-    const naturalHeight = element.getBoundingClientRect().height
-    if (tip.fit !== undefined) readoutHeight ??= naturalHeight
-    let available = bottomEdge - topEdge - 16
-    let above = false
-    if (rect !== undefined && !beside) {
-      const belowSpace = window.innerHeight - rect.bottom - 16
-      const aboveSpace = rect.top - 16
-      above = tip.element?.dataset['tooltipPlace'] === 'above' || (readoutHeight ?? naturalHeight) > belowSpace && aboveSpace > belowSpace
-      available = above ? aboveSpace : belowSpace
-    }
-    if (tip.fit !== undefined) {
-      const lineHeight = Number.parseFloat(getComputedStyle(content).lineHeight)
-      const chromeHeight = naturalHeight - content.getBoundingClientRect().height
-      const title = content.querySelector<HTMLElement>('.app-tooltip-title')
-      const margins = (title === null ? 0 : Number.parseFloat(getComputedStyle(title).marginBottom)) +
-        Array.from(content.querySelectorAll<HTMLElement>('.app-tooltip-detail'))
-          .reduce((sum, detail) => sum + Number.parseFloat(getComputedStyle(detail).marginTop), 0)
-      const probe = document.createElement('div')
-      probe.style.position = 'absolute'
-      probe.style.visibility = 'hidden'
-      probe.style.width = `${content.getBoundingClientRect().width}px`
-      content.append(probe)
-      const next = tip.fit(Math.max(0, (available - chromeHeight - margins) / lineHeight), (text) => {
-        if (title !== null && text === tip.title) return title.getBoundingClientRect().height / lineHeight
-        probe.textContent = text
-        return probe.getBoundingClientRect().height / lineHeight
-      })
-      probe.remove()
-      const current = displayed().lines
-      if (next.lines.length !== current.length || next.lines.some((line, index) => line !== current[index])) {
-        setFitted(next)
-        queueMicrotask(position)
-        return
-      }
-    }
-    if (naturalHeight > available) {
-      const chromeHeight = naturalHeight - content.getBoundingClientRect().height
-      const lineHeight = Number.parseFloat(getComputedStyle(content).lineHeight)
-      let lines = Math.max(1, Math.floor((available - chromeHeight) / lineHeight))
-      content.style.webkitLineClamp = String(lines)
-      while (lines > 1 && element.getBoundingClientRect().height > available) {
-        content.style.webkitLineClamp = String(--lines)
-      }
-    }
-    const { width, height } = element.getBoundingClientRect()
-    element.style.visibility = height > available ? 'hidden' : ''
-    let left = tip.x
-    let top = tip.y
-    if (rect !== undefined) {
-      if (beside) {
-        left = before ? rect.left - width - 8 : rect.right + 8
-        top = rect.top + (rect.height - height) / 2
-      } else {
-        left = rect.left + (rect.width - width) / 2
-        top = above ? rect.top - height - 8 : rect.bottom + 8
-      }
-    } else if (tip.above !== undefined && top + height > window.innerHeight - 8 && tip.above - height >= 8) {
-      // A painted target's tooltip that does not fit below opens above it,
-      // so it does not cover the row it reads.
-      top = tip.above - height
-    }
-    element.style.left = `${Math.max(leftEdge + 8, Math.min(left, rightEdge - width - 8))}px`
-    element.style.top = `${Math.max(topEdge + 8, Math.min(top, bottomEdge - height - 8))}px`
-  }
-  const resetFit = (): void => {
-    readoutHeight = undefined
-    setFitted(undefined)
-    queueMicrotask(position)
-  }
-  createEffect(on(() => props.tip, resetFit))
-  const observer = new ResizeObserver(position)
-  // The anchor moves when a neighbour changes size (the project button widening when the
-  // project's name loads), which resizes the anchor's container but not the anchor.
-  createEffect(() => {
-    const container = props.tip.element?.parentElement
-    if (container === null || container === undefined) return
-    observer.observe(container)
-    onCleanup(() => observer.unobserve(container))
-  })
-  onMount(() => {
-    observer.observe(element)
-    window.addEventListener('resize', resetFit)
-    window.addEventListener('scroll', position, true)
-    onCleanup(() => {
-      observer.disconnect()
-      window.removeEventListener('resize', resetFit)
-      window.removeEventListener('scroll', position, true)
-    })
-  })
-  return (
-    <aside ref={element} class="app-tooltip" aria-label={message('shell.contextHelp')} data-testid="app-tooltip">
-      <div ref={content} role="tooltip">
-        <Show when={displayed().title}><div class="app-tooltip-title">
-          {displayed().title}<Show when={displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
-        </div></Show>
-        <For each={displayed().lines}>{(line, index) => <div>
-          {line}<Show when={index() === 0 && !displayed().title && displayed().shortcut}>{(keys) => <>{' '}<ProductShortcut keys={keys()} /></>}</Show>
-        </div>}</For>
-        <Show when={props.tip.detailed}><For each={displayed().detail}>{(line) => <div class="app-tooltip-detail">{line}</div>}</For></Show>
-      </div>
-    </aside>
-  )
+  return <ProductTooltip tip={props.tip} label={message('shell.contextHelp')} />
 }
 
 export function TransientStatus(props: { readonly message: string | undefined }) {
@@ -186,6 +65,8 @@ export function ActivityBarButton(props: {
   readonly panelId?: string | undefined
   readonly testId?: string | undefined
   readonly class?: string | undefined
+  /** Drawn unavailable: it keeps its tooltip, which says why, and does nothing when pressed. */
+  readonly unavailable?: boolean | undefined
   readonly onActivate: () => void
 }) {
   const tooltip = () => props.tooltip !== props.label
@@ -201,11 +82,25 @@ export function ActivityBarButton(props: {
       data-tooltip-immediate="true"
       aria-label={props.accessibleName === props.label ? props.label : `${props.label}: ${props.accessibleName}`}
       aria-pressed={props.pressed}
-      onClick={props.onActivate}
+      aria-disabled={props.unavailable ? 'true' : undefined}
+      onClick={() => { if (!props.unavailable) props.onActivate() }}
     >
       <span class="sidebar-button-icon" aria-hidden="true"><Icon icon={props.icon ?? PanelLeft} /></span>
     </button>
   )
+}
+
+/** Desktop supplies the platform after mounting its native window chrome. */
+export function windowBarPlatform(frame: () => HTMLElement) {
+  const [platform, setPlatform] = createSignal<string>()
+  onMount(() => {
+    const read = () => setPlatform(frame().querySelector<HTMLElement>('.dinkster-window-toolbar-host')?.dataset['platform'])
+    read()
+    const observer = new MutationObserver(read)
+    observer.observe(frame(), { childList: true, subtree: true, attributes: true, attributeFilter: ['data-platform'] })
+    onCleanup(() => observer.disconnect())
+  })
+  return platform
 }
 
 /**
@@ -221,6 +116,8 @@ export function IconBar(props: {
   readonly children: JSX.Element
   readonly account: JSX.Element
   readonly onSettings: () => void
+  /** Why Settings cannot open here; draws it unavailable with this as its tooltip. */
+  readonly settingsUnavailable?: string | undefined
 }) {
   const message = useAppMessage()
   return (
@@ -234,8 +131,9 @@ export function IconBar(props: {
         icon={Settings}
         label={message('shell.panel.settings.title')}
         accessibleName={message('shell.panel.settings.title')}
-        tooltip={message('shell.panel.settings.title')}
-        tooltipShortcut="Ctrl+,"
+        tooltip={props.settingsUnavailable ?? message('shell.panel.settings.title')}
+        tooltipShortcut={props.settingsUnavailable === undefined ? 'Ctrl+,' : undefined}
+        unavailable={props.settingsUnavailable !== undefined}
         pressed={undefined}
         testId="settings-button"
         class="sidebar-settings-button"

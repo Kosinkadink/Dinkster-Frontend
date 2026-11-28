@@ -13,10 +13,6 @@ import EllipsisVertical from 'lucide/dist/esm/icons/ellipsis-vertical.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Lock from 'lucide/dist/esm/icons/lock.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
-import Plus from 'lucide/dist/esm/icons/plus.mjs'
-// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
-import Minus from 'lucide/dist/esm/icons/minus.mjs'
-// @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import Dice5 from 'lucide/dist/esm/icons/dice-5.mjs'
 // @ts-expect-error Lucide ships per-icon ESM data without per-file declarations.
 import ArrowUp from 'lucide/dist/esm/icons/arrow-up.mjs'
@@ -116,17 +112,15 @@ export const SUBGRAPH_ICON: IconNode = [
 
 export type SeedControllerMode = 'fixed' | 'increment' | 'decrement' | 'randomize'
 
+/** Next follows the option below; Previous follows the option above. */
 const CONTROLLER_ICONS: Record<SeedControllerMode, IconNode> = {
   fixed: Lock,
-  increment: Plus,
-  decrement: Minus,
+  increment: ArrowDown,
+  decrement: ArrowUp,
   randomize: Dice5,
 }
 
-/**
- * In-row editing draws the mode beside the row's own minus and plus buttons,
- * so increment and decrement are arrows there rather than a third plus or minus.
- */
+/** Increment raises a number; Decrement lowers it. */
 const SEED_MODE_ICONS: Record<SeedControllerMode, IconNode> = {
   fixed: Lock,
   increment: ArrowUp,
@@ -224,7 +218,7 @@ export function paintToolboxIcon(
   paintIconNodes(ctx, ICONS[icon], x, y, size, color)
 }
 
-/** Paint the icon-only status for an after-generate controller chip. */
+/** Paint a controller chip using numeric or choice stepping direction. */
 export function paintSeedControllerIcon(
   ctx: CanvasRenderingContext2D,
   mode: SeedControllerMode,
@@ -232,8 +226,9 @@ export function paintSeedControllerIcon(
   y: number,
   size: number,
   color: string,
+  choice = false,
 ): void {
-  paintIconNodes(ctx, CONTROLLER_ICONS[mode], x, y, size, color)
+  paintIconNodes(ctx, (choice ? CONTROLLER_ICONS : SEED_MODE_ICONS)[mode], x, y, size, color)
 }
 
 /** Paint a seed's after-run mode as drawn before the value of an in-row number. */

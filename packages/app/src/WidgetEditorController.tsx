@@ -32,6 +32,8 @@ import {
 } from '@dinkster/core'
 import { defaultTokens, typeColor, type DynamicEditOwner } from '@dinkster/canvas'
 import type { AppState, Tab } from './app-state.js'
+import { RequestFailure } from '@dinkster/client'
+import { failureMessage } from './request-failure.js'
 import { ModalSurface } from './ModalSurface.js'
 import { ProductNotice } from './ProductForm.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
@@ -337,7 +339,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
     setCommitPending(true)
     setCommitError(undefined)
     try {
-      const outcome = await props.app.dispatchTo(ed.tab, invocation)
+      const outcome = await props.app.dispatchEditTo(ed.tab, invocation)
       if (!live || ed.tab.store !== store) return false
       if (!outcome.ok) {
         setCommitError(outcome.diagnostics[0]?.message ?? message('widgetEditor.commitRefused'))
@@ -346,7 +348,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       if (closeOnAccept) close()
       return true
     } catch (reason) {
-      if (live && ed.tab.store === store) setCommitError(reason instanceof Error ? reason.message : String(reason))
+      if (live && ed.tab.store === store) setCommitError(reason instanceof RequestFailure ? failureMessage(reason) : reason instanceof Error ? reason.message : String(reason))
       return false
     } finally {
       if (live) {

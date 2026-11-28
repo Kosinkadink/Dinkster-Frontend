@@ -23,6 +23,7 @@
 
 import { parseAssetTypeId } from '@dinkster/core'
 import type { FetchLike } from './connection-contract.js'
+import { RequestFailure, requestFetch, requestFailureReason } from './request-failure.js'
 import { parseResultAssetOffer, type ResultAssetOffer } from './result-asset-offer.js'
 
 // ---------------------------------------------------------------------------
@@ -216,7 +217,7 @@ function refusalOf(status: number, body: unknown): ValueRefusal {
     ? b['message']
     : typeof b?.['error'] === 'string'
       ? b['error']
-      : `HTTP ${status}`
+      : requestFailureReason(new RequestFailure('GET', '/api/values', status)) ?? 'The value could not be loaded.'
   const renditions = b?.['renditions'] !== undefined ? renditionsOf(b['renditions']) : undefined
   const rawKinds = b?.['renditions']
   const renditionKinds = Array.isArray(rawKinds) && rawKinds.every((kind) => typeof kind === 'string')
@@ -248,7 +249,7 @@ const isAbort = (error: unknown, signal?: AbortSignal): boolean =>
 const transportRefusal = (error: unknown, signal?: AbortSignal): ValueRefusal =>
   isAbort(error, signal)
     ? aborted()
-    : localRefusal('http-error', error instanceof Error ? error.message : String(error))
+    : localRefusal('http-error', requestFailureReason(error) ?? 'The engine did not answer.')
 
 async function responseJson(
   response: Response,
@@ -367,6 +368,7 @@ export class DinksterValuesClient {
   private readonly baseUrl: string
   private readonly clientId: string
   private readonly fetchFn: FetchLike
+  private readonly lifetime: AbortSignal | undefined
   /** Normalized selectors plus ETag (or advertised/legacy fallback) -> bytes. */
   private readonly renditionCache = new Map<string, CachedRendition>()
   /** Query URL and announced identity -> cache key for no-network repeats. */
@@ -379,10 +381,11 @@ export class DinksterValuesClient {
   private peekSequence = 0
   private peekEpoch = 0
 
-  constructor(opts: { baseUrl: string; clientId: string; fetchFn?: FetchLike }) {
+  constructor(opts: { baseUrl: string; clientId: string; fetchFn?: FetchLike; lifetime?: AbortSignal }) {
     this.baseUrl = opts.baseUrl
     this.clientId = opts.clientId
-    this.fetchFn = opts.fetchFn ?? ((url, init) => fetch(url, init))
+    this.fetchFn = requestFetch(opts.fetchFn ?? ((url, init) => fetch(url, init)))
+    this.lifetime = opts.lifetime
   }
 
   private url(query: ValueQuery, rendition?: string, options?: NormalizedRenditionOptions): string {
@@ -485,6 +488,8 @@ export class DinksterValuesClient {
 
   /** Descriptor + declared renditions for one output (or element) of a completed job. */
   async peek(query: ValueQuery, options: ValuePeekOptions = {}): Promise<ValuePeekResult> {
+    if (this.lifetime !== undefined) options = { ...options,
+      signal: options.signal === undefined ? this.lifetime : AbortSignal.any([this.lifetime, options.signal]) }
     if (options.signal?.aborted === true) return aborted()
     const bad = DinksterValuesClient.badElement(query)
     if (bad) return bad
@@ -551,9 +556,12 @@ export class DinksterValuesClient {
 
   /** Keep value reads bound to their descriptor and query identity. */
   async read<T>(query: ValueQuery, descriptor: ValueDescriptor, consume: () => Promise<T>): Promise<T> {
+    this.lifetime?.throwIfAborted()
     const reader = this.descriptorReaders.get(descriptor)
     if (reader?.queryUrl !== this.url(query)) throw new Error('Read requires its value descriptor')
-    return consume()
+    const value = await consume()
+    this.lifetime?.throwIfAborted()
+    return value
   }
 
   /**
@@ -561,6 +569,8 @@ export class DinksterValuesClient {
    * Completed reads are cached by normalized selectors and server identity.
    */
   async rendition(query: ValueQuery, kind: string, options: RenditionOptions = {}): Promise<RenditionResult> {
+    if (this.lifetime !== undefined) options = { ...options,
+      signal: options.signal === undefined ? this.lifetime : AbortSignal.any([this.lifetime, options.signal]) }
     if (options.signal?.aborted === true) return aborted()
     return this.readRendition(query, kind, options)
   }

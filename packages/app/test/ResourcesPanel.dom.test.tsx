@@ -1,5 +1,6 @@
 import { createSignal as coreSignal } from '@dinkster/core'
 import type { ConnectionStatus, DinksterConnection, MemoryStatus } from '@dinkster/client'
+import { RequestFailure } from '@dinkster/client'
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -53,7 +54,7 @@ it('ends initial loading after a telemetry failure, including after dismissal an
   const root = document.createElement('div'); document.body.append(root)
   const unmount = render(() => <ResourcesPanel backends={[{ id: 'local', label: 'Local', connection }]} activeBackendId="local" />, root)
   expect(root.textContent).toContain('Loading resources...')
-  reject!(new Error('Telemetry unavailable.')); await flush()
+  reject!(new RequestFailure('GET', '/memory/status', 503, 'Telemetry unavailable.')); await flush()
   expect(root.textContent).toContain('Telemetry unavailable.')
   expect(root.textContent).not.toContain('Loading resources...')
   root.querySelector<HTMLButtonElement>('[role="alert"] button')!.click()
@@ -66,10 +67,10 @@ it('ends initial loading after a telemetry failure, including after dismissal an
 })
 
 it.each([
-  { models: true, allocator: false, inconsistent: false, expected: 'Models: 3.0 GB, Other memory: 4.0 GB' },
-  { models: false, allocator: true, inconsistent: false, expected: 'Held, unused: 0.5 GB, Other memory: 6.5 GB' },
-  { models: false, allocator: false, inconsistent: false, expected: 'Used: 7.0 GB' },
-  { models: true, allocator: true, inconsistent: true, expected: 'Used: 7.0 GB' },
+  { models: true, allocator: false, inconsistent: false, expected: 'Models: 2.8 GB, Other memory: 3.7 GB' },
+  { models: false, allocator: true, inconsistent: false, expected: 'Held, unused: 477 MB, Other memory: 6.1 GB' },
+  { models: false, allocator: false, inconsistent: false, expected: 'Used: 6.5 GB' },
+  { models: true, allocator: true, inconsistent: true, expected: 'Used: 6.5 GB' },
 ])('draws only independently reported parts: $expected', async ({ models, allocator, inconsistent, expected }) => {
   const measured = { freeBytes: 5e9, totalBytes: 12e9, ...(allocator ? { torchReservedBytes: inconsistent ? 12e9 : 4e9, torchAllocatedBytes: 3.5e9 } : {}) }
   const { consumerDetails: _details, ...base } = payload
@@ -95,11 +96,11 @@ it('preserves non-card and unmeasured budgets with exact sizes and automatic rem
     const label = [...root.querySelectorAll('label')].find((label) => label.textContent === name)!
     return root.querySelector<HTMLInputElement>(`[id="${label.htmlFor}"]`)!
   }
-  expect(field('System memory').value).toBe('10.0 GB')
-  expect(field('Disk').value).toBe('25.0 GB')
-  expect(field('vram:cuda:1').value).toBe('6.0 GB')
+  expect(field('System memory').value).toBe('9.3 GB')
+  expect(field('Disk').value).toBe('23.3 GB')
+  expect(field('vram:cuda:1').value).toBe('5.6 GB')
   expect(root.querySelectorAll('.dinkster-resource-card')).toHaveLength(1)
-  expect(field('custom').value).toBe('0.123456789 GB')
+  expect(field('custom').value).toBe('0.1 GB')
   expect(root.querySelectorAll('[role="slider"]')).toHaveLength(1)
   const input = (name: string, value: string) => { const element = field(name); element.value = value; element.dispatchEvent(new Event('input', { bubbles: true })) }
   const form = field('Disk').closest('form')!
@@ -107,14 +108,21 @@ it('preserves non-card and unmeasured budgets with exact sizes and automatic rem
   expect(apply.disabled).toBe(true)
   input('System memory', '9.0 GB')
   expect(apply.disabled).toBe(false)
-  input('System memory', '10.0 GB')
+  input('System memory', '9.3 GB')
   expect(apply.disabled).toBe(true)
-  input('System memory', '1.75 GB'); input('custom', '7G'); input('vram:cuda:1', '987654321')
+  input('custom', '7G'); input('vram:cuda:1', '1.5GB')
   field('Disk').parentElement!.querySelector('button')!.click()
   form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
-  expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 8e9, ram: 1.75e9, 'vram:cuda:1': 987654321, custom: '7G' })
-  expect(field('System memory').value).toBe('1.75 GB')
-  updateRuntimeSetting.mockRejectedValueOnce(new Error('Exact budget rejected.'))
+  expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 8e9, ram: 10000000000, 'vram:cuda:1': 1610612736, custom: '7G' })
+  expect(field('System memory').value).toBe('9.3 GB')
+  expect(field('vram:cuda:1').value).toBe('1.5 GB')
+  expect(field('custom').value).toBe('7G')
+  expect(apply.disabled).toBe(true)
+  input('System memory', '1.75 GB'); input('vram:cuda:1', '987654321')
+  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
+  expect(updateRuntimeSetting).toHaveBeenLastCalledWith('memory-budgets', { 'vram:cuda:0': 8e9, ram: 1879048192, 'vram:cuda:1': 987654321, custom: '7G' })
+  expect(field('System memory').value).toBe('1.8 GB')
+  updateRuntimeSetting.mockRejectedValueOnce(new RequestFailure('PUT', '/api/settings', 400, 'Exact budget rejected.'))
   input('System memory', 'bad size'); form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush()
   expect(root.textContent).toContain('Exact budget rejected.')
   expect(field('System memory').value).toBe('bad size')
@@ -167,7 +175,7 @@ it('reports known card totals for closed engines without counting system memory'
   await flush()
   const studio = root.querySelector('[data-backend="studio"] button')!
   expect(studio.getAttribute('aria-expanded')).toBe('false')
-  expect(studio.textContent).toContain('11.0 of 36.0 GB')
+  expect(studio.textContent).toContain('10.2 of 33.5 GB')
   expect(root.querySelector('[data-backend="local"] .dinkster-metadata')!.textContent).toBe('')
   unmount()
 })
@@ -236,15 +244,15 @@ it('preserves focused model rows across snapshots and immediately unloads the se
     fetchMemoryStatus: async () => payload,
     onMemoryStatus: (listener: (next: MemoryStatus) => void) => { push = listener; return () => {} },
     fetchRuntimeSettings: async () => ({ categories: { granted: ['memory-budgets'], available: ['memory-budgets'] }, settings: { 'memory-budgets': { value: {}, writable: true } } }),
-    updateRuntimeSetting: async () => { throw new Error('Server refused the memory limit.') },
+    updateRuntimeSetting: async () => { throw new RequestFailure('PUT', '/api/settings', 400, 'Server refused the memory limit.') },
     unloadMemory,
   } as unknown as DinksterConnection
   const root = document.createElement('div'); document.body.append(root)
   const unmount = render(() => <ResourcesPanel backends={[{ id: 'local', label: 'Local', connection }]} activeBackendId="local" />, root)
   await flush()
-  expect(root.textContent).toContain('7.0 of 12.0 GB')
-  expect(root.querySelector('svg.dinkster-resource-bar')!.getAttribute('aria-label')).toBe('Models: 3.0 GB, Held, unused: 0.5 GB, Other memory: 3.5 GB')
-  expect(root.querySelector('.dinkster-resource-model')!.textContent).toContain('3.0 GB')
+  expect(root.textContent).toContain('6.5 of 11.2 GB')
+  expect(root.querySelector('svg.dinkster-resource-bar')!.getAttribute('aria-label')).toBe('Models: 2.8 GB, Held, unused: 477 MB, Other memory: 3.3 GB')
+  expect(root.querySelector('.dinkster-resource-model')!.textContent).toContain('2.8 GB')
   const unload = root.querySelector<HTMLButtonElement>('[aria-label="Unload Flux model"]')!
   unload.focus()
   push!({ ...payload }); await flush()

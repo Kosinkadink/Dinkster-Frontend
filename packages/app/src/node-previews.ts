@@ -1009,7 +1009,7 @@ export function createPreviewLoader(deps: {
             const image = known.imageAt(Math.max(0, Math.min(batchIndex, known.count - 1)))
             const result = await image.load!(signal ?? new AbortController().signal)
             signal?.throwIfAborted()
-            if (!result.available) throw Object.assign(new Error(`${result.reason}: ${result.error}`), { negativeCache: [400, 404, 406, 410].includes(result.status) })
+            if (!result.available) throw Object.assign(new Error(`Image preview unavailable. ${result.error}`), { negativeCache: [400, 404, 406, 410].includes(result.status) })
             const preview = await decodeRendition({ ...result, node: image.runtimeId, output: image.outputId, count: known.count })
             peekAttribution.set(preview, { runtimeId: image.runtimeId, outputId: image.outputId })
             return preview
@@ -1062,7 +1062,7 @@ export function createPreviewLoader(deps: {
                     ...(batch.rendition.version !== undefined ? { rendererVersion: batch.rendition.version } : {}),
                   })
                   if (result.available && (result.mime !== 'image/png' || result.bytes.byteLength > 64 * 1024 * 1024)) {
-                    return { available: false, status: 406, reason: 'preview-budget', error: 'Expected a PNG preview no larger than 64 MiB' }
+                    return { available: false, status: 406, reason: 'preview-budget', error: 'Expected a PNG preview no larger than 64 MB' }
                   }
                   return result
                 },

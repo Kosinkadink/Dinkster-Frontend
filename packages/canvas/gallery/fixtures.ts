@@ -85,6 +85,7 @@ export const canvasGalleryPages = [
   ['declaration-rows', 'Declaration notes and lines'],
   ['row-editing', 'Editing in the row proposal'],
   ['row-states', 'Declaration row states: Display, nothing and skipped'],
+  ['exposure-rows', 'Exposure row space'],
   ['row-automatic', 'Automatic values proposal'],
   ['row-lists', 'Lists in the row proposal'],
   ['lookups', 'Lookup states'],
@@ -117,7 +118,7 @@ export const canvasGalleryPages = [
   ['zoom-overview', 'Overview zoom'],
   ['minimap', 'Minimap'],
   ['switch-primitive', 'Switch and Primitive'],
-  ['small-flow-nodes', 'Or else, Has value and Only if'],
+  ['small-flow-nodes', 'Small flow nodes'],
   ['type-conflict', 'Type conflicts'],
 ] as const
 export type CanvasGalleryPage = (typeof canvasGalleryPages)[number][0]
@@ -1133,8 +1134,7 @@ export function createCanvasGalleryFixture(
       'Long ordinary': [SUBGRAPH_BADGE, DEPRECATED_BADGE],
     }
     fixture.height = 550
-    fixture.scale =
-      page === 'titles-content' ? 0.5 : tokens.mediaControlMinScale
+    fixture.scale = page === 'titles-content' ? 0.5 : 0.75
     fixture.width *= fixture.scale
     fixture.height *= fixture.scale
   } else if (page === 'tabs' || page === 'tabs-content') {
@@ -1201,7 +1201,7 @@ export function createCanvasGalleryFixture(
     fixture.badges = map
     fixture.overlay = { selection: new Set(['Selected']) }
     fixture.height = 1540
-    fixture.scale = page === 'tabs-content' ? 0.5 : tokens.mediaControlMinScale
+    fixture.scale = page === 'tabs-content' ? 0.5 : 0.75
     fixture.width *= fixture.scale
     fixture.height *= fixture.scale
   } else if (page === 'idle-outline') {
@@ -2126,7 +2126,7 @@ export function createCanvasGalleryFixture(
     ) {
       fixture.scale =
         page === 'zoom'
-          ? tokens.mediaControlMinScale
+          ? 0.75
           : page === 'zoom-content'
             ? tokens.detailMinScale
             : tokens.detailMinScale - 0.01

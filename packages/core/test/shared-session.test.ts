@@ -251,6 +251,7 @@ class FakeConnection implements CollabConnection {
       baseRevision: op.baseRevision,
       revision: ++this.revision,
       patch: op.patch,
+      ...(op.numericCorrections === undefined ? {} : { numericCorrections: op.numericCorrections }),
       timestamp: 1000,
     }
     this.log.push(server)

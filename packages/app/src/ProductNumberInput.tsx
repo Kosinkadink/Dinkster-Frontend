@@ -1,5 +1,8 @@
 import { createEffect, createSignal, on, onCleanup, type JSX } from 'solid-js'
 import { MAX_INTEGER_WIDGET_VALUE, MIN_INTEGER_WIDGET_VALUE } from '@dinkster/core'
+import Minus from 'lucide-solid/icons/minus'
+import Plus from 'lucide-solid/icons/plus'
+import { Icon } from './Icon.js'
 
 type NumberValue = number | string | undefined
 
@@ -262,8 +265,8 @@ export function ProductNumberInput(props: {
         onKeyDown={keydown}
       />
       <span class="product-number-steppers">
-        <button type="button" tabindex="-1" aria-label="Increase value" disabled={props.disabled || pending()} onPointerDown={(event) => event.preventDefault()} onClick={() => step(1)}>+</button>
-        <button type="button" tabindex="-1" aria-label="Decrease value" disabled={props.disabled || pending()} onPointerDown={(event) => event.preventDefault()} onClick={() => step(-1)}>-</button>
+        <button type="button" tabindex="-1" aria-label="Decrease value" disabled={props.disabled || pending()} onPointerDown={(event) => event.preventDefault()} onClick={() => step(-1)}><Icon icon={Minus} /></button>
+        <button type="button" tabindex="-1" aria-label="Increase value" disabled={props.disabled || pending()} onPointerDown={(event) => event.preventDefault()} onClick={() => step(1)}><Icon icon={Plus} /></button>
       </span>
     </span>
   )

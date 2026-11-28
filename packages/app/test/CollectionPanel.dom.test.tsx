@@ -1,9 +1,11 @@
 
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CollectionEntry, CollectionPageRequest, CollectionSource } from '@dinkster/core'
 import { registerCatalog, setLocale } from '@dinkster/core'
 import { CollectionPanel } from '../src/CollectionPanel.js'
+import { RequestFailure } from '@dinkster/client'
 
 const folder = (path: string): CollectionEntry => ({ id: `folder:${path}`, title: path.split('/').at(-1)!, folder: { path } })
 const file = (id: string): CollectionEntry => ({ id, title: `${id}.png`, ref: { id } })
@@ -19,6 +21,88 @@ afterEach(() => {
 })
 
 describe('CollectionPanel folder navigation', () => {
+  it('shows kind labels only for mixed results and a count only while more matches remain', async () => {
+    const source: CollectionSource = {
+      id: 'choices', label: 'Choices',
+      page: async (request) => request.query === '' && request.cursor === undefined
+        ? { items: [{ ...file('saved'), kind: 'workflow', badges: ['review'] }, { ...file('pack'), kind: 'blueprint' }], total: 3, cursor: 'last' }
+        : { items: [{ ...file('last'), kind: 'workflow', badges: ['review'] }], ...(request.query === '' ? { total: 3 } : {}) },
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <CollectionPanel sources={[source]} />, root)
+    await vi.waitFor(() => expect(root.querySelector('[data-entry="saved"]')).not.toBeNull())
+    expect(root.querySelector('[data-entry="saved"] [data-badge="workflow"]')).not.toBeNull()
+    expect(root.querySelector('[data-entry="pack"] [data-badge="blueprint"]')).not.toBeNull()
+    expect(root.querySelector('[data-testid="collection-total"]')?.textContent).toBe('Showing 2 of 3')
+    root.querySelector<HTMLButtonElement>('[data-testid="collection-more"]')!.click()
+    await vi.waitFor(() => expect(root.querySelector('[data-entry="last"]')).not.toBeNull())
+    expect(root.querySelector('[data-testid="collection-total"]')).toBeNull()
+    const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
+    search.value = 'workflow'
+    search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    await vi.waitFor(() => expect(root.querySelector('[data-entry="saved"]')).toBeNull())
+    expect(root.querySelector('[data-badge="workflow"]')).toBeNull()
+    expect(root.querySelector('[data-badge="review"]')).not.toBeNull()
+    expect(root.querySelector('[data-testid="collection-total"]')).toBeNull()
+    unmount()
+  })
+
+  it('keeps recovery inside one error banner and retains rows only for a failed reload of that list', async () => {
+    let failed = true
+    let complete = false
+    const [tick, refresh] = createSignal(0)
+    const source: CollectionSource = {
+      id: 'runs', label: 'Runs',
+      page: async () => {
+        if (failed) throw new Error('private engine failure')
+        if (complete) return { items: [file('complete')], total: 1 }
+        return { items: [file('first')], total: 3, cursor: 'more' }
+      },
+    }
+    const root = document.createElement('div')
+    document.body.append(root)
+    const unmount = render(() => <CollectionPanel sources={[source]} refreshTick={tick}
+      sourceActions={[{ sourceId: 'runs', id: 'clear', label: 'Clear finished' }]}
+      renderState={() => <p>Custom empty state</p>} />, root)
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')).not.toBeNull())
+    const banner = root.querySelector('[role="alert"]')!
+    expect(banner.textContent).toContain('Could not load Runs.')
+    expect(root.textContent).not.toContain('private engine failure')
+    expect(banner.querySelector('[data-testid="collection-retry"]')).not.toBeNull()
+    expect(banner.querySelector('[aria-label="Dismiss error"]')).toBeNull()
+    expect(root.querySelector('[data-testid="collection-source"]')).not.toBeNull()
+    for (const id of ['collection-search', 'collection-mode', 'collection-source-action', 'collection-total']) {
+      expect(root.querySelector(`[data-testid="${id}"]`)).toBeNull()
+    }
+    failed = false
+    root.querySelector<HTMLButtonElement>('[data-testid="collection-retry"]')!.click()
+    await vi.waitFor(() => expect(root.querySelector('[data-entry="first"]')).not.toBeNull())
+    expect(root.querySelector('[data-testid="collection-total"]')?.textContent).toBe('Showing 1 of 3')
+    failed = true
+    refresh(1)
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')).not.toBeNull())
+    expect(root.querySelector('[data-entry="first"]')).not.toBeNull()
+    expect(root.querySelector('[data-testid="collection-search"]')).not.toBeNull()
+    expect(root.querySelector('[data-testid="collection-source-action"]')).not.toBeNull()
+    root.querySelector<HTMLButtonElement>('[role="alert"] [aria-label="Dismiss error"]')!.click()
+    expect(root.querySelector('[role="alert"]')).toBeNull()
+    expect(root.querySelector('[data-entry="first"]')).not.toBeNull()
+    refresh(2)
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')).not.toBeNull())
+    const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
+    search.value = 'different list'
+    search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    await vi.waitFor(() => expect(root.querySelector('[role="alert"]')).not.toBeNull())
+    expect(root.querySelector('[data-entry="first"]')).toBeNull()
+    failed = false
+    complete = true
+    root.querySelector<HTMLButtonElement>('[data-testid="collection-retry"]')!.click()
+    await vi.waitFor(() => expect(root.querySelector('[data-entry="complete"]')).not.toBeNull())
+    expect(root.querySelector('[data-testid="collection-total"]')).toBeNull()
+    unmount()
+  })
+
   it('updates mounted host chrome without refetching or translating collection data', async () => {
     registerCatalog('de-DE', {
       'collection.action.hideRuns': '[Laufe ausblenden]',
@@ -41,7 +125,7 @@ describe('CollectionPanel folder navigation', () => {
       'collection.source.ariaLabel': '[Quelle DE]',
     })
     const page = vi.fn(async (request: CollectionPageRequest) => {
-      if (request.query === 'failure') throw new Error('RAW backend refusal')
+      if (request.query === 'failure') throw new RequestFailure('GET', '/api/assets', 503, 'RAW backend refusal')
       return {
         items: [{
           id: 'RAW-group',
@@ -118,8 +202,8 @@ describe('CollectionPanel folder navigation', () => {
     filterSelect.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     search.value = 'failure'
     search.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('RAW backend refusal'))
-    expect(root.querySelector('.collection-search-description')?.textContent).toBe('[RAW Source konnte nicht geladen werden]')
+    await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('Could not load RAW Source.'))
+    expect(root.textContent).not.toContain('RAW backend refusal')
     unmount()
   })
 
@@ -131,7 +215,7 @@ describe('CollectionPanel folder navigation', () => {
       filters: [{ id: 'kind', label: 'Kind', options: () => [{ value: 'media/image', label: 'Images' }] }],
       page: vi.fn(async (request) => {
         requests.push(request)
-        if (request.query === 'failure') throw new Error('catalog unavailable')
+        if (request.query === 'failure') throw new RequestFailure('GET', '/api/assets', 503, 'catalog unavailable')
         return { items: [] }
       }),
     }
@@ -165,7 +249,7 @@ describe('CollectionPanel folder navigation', () => {
     await vi.waitFor(() => expect(root.querySelector('[data-collection-state="no-match"]')).not.toBeNull())
     search.value = 'failure'
     search.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('catalog unavailable'))
+    await vi.waitFor(() => expect(root.querySelector('[data-collection-state="error"]')?.textContent).toContain('Could not load All assets.'))
     unmount()
   })
 

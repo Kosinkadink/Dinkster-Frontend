@@ -20,9 +20,9 @@ function EngineStateExample(props: { readonly state: typeof states[number] }) {
           <WorkflowQueueControl owner={owner} executions={[]} canQueue={status().state === 'ready'}
             onQueue={() => undefined} onOpenExecution={() => undefined}
             hideRunList={status().state === 'failed'}
-            runControl={status().state !== 'ready' ? <EngineRunControl status={status()} baseUrl="" onRestart={async () => {
+            runControl={(runButton) => <EngineRunControl status={status()} baseUrl="" onRestart={async () => {
               setStatus({ protocol: 1, state: 'starting', progress: { done: 0, total: 8 } })
-            }} /> : undefined} />
+            }}>{runButton()}</EngineRunControl>} />
       </div>
     </figure>
   )

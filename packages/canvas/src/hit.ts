@@ -208,6 +208,8 @@ export interface HitOptions {
    * pin is hit-testable (pure-geometry callers, tests).
    */
   readonly pinRevealed?: (node: SceneNode, pin: PinLayout) => boolean
+  /** Editor width inside a row that also contains a lens control. */
+  readonly widgetContentWidth?: (node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>) => number
 }
 
 const overviewHitRadius = (
@@ -259,11 +261,12 @@ export function textBoxEdgeAt(
   node: SceneNode,
   wx: number,
   wy: number,
+  widgetContentWidth?: HitOptions['widgetContentWidth'],
 ): Extract<LayoutRow, { kind: 'widget' }> | undefined {
   const edge = canvasPaintTokens.widget.textBoxEdge
   for (const row of node.layout.rows) {
     if (row.kind !== 'widget' || row.viewId !== 'core.text' || row.inactive === true || row.ghost === true) continue
-    const width = row.width ?? node.layout.width - row.inset * 2
+    const width = widgetContentWidth?.(node, row) ?? row.width ?? node.layout.width - row.inset * 2
     if (wx < node.x + row.inset || wx > node.x + row.inset + width) continue
     const bottom = node.y + row.y + row.height
     if (wy >= bottom - edge.hitAbove && wy <= bottom + edge.hitBelow) return row
@@ -379,7 +382,7 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
           if (wy < ry || wy > ry + row.height || wx < bnode.x + row.inset || wx > bnode.x + row.inset + width) continue
           return {
             kind: 'widget', node: face, row, bnode,
-            x: bnode.x + row.inset, y: ry, width,
+            x: bnode.x + row.inset, y: ry, width: opts?.widgetContentWidth?.(face, row) ?? width,
             height: row.height, localX: wx - bnode.x - row.inset, localY: wy - ry,
           }
         }
@@ -421,7 +424,7 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
     // must remain usable where they meet the resize band.
     if (inside && contentDetail) {
       // The node's corners stay resizable where a text box edge meets them.
-      const edge = textBoxEdgeAt(node, wx, wy)
+      const edge = textBoxEdgeAt(node, wx, wy, opts?.widgetContentWidth)
       if (edge !== undefined && nodeResizeHandle(node, wx, wy, opts?.scale) === undefined) {
         return { kind: 'text-box-edge', node, row: edge }
       }
@@ -466,7 +469,7 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
         }
         return {
           kind: 'widget', node, row,
-          x: node.x + row.inset, y: ry, width,
+          x: node.x + row.inset, y: ry, width: opts?.widgetContentWidth?.(node, row) ?? width,
           height: row.height, localX: wx - node.x - row.inset, localY: wy - ry,
         }
       }
@@ -513,7 +516,7 @@ export function hitTest(scene: Scene, wx: number, wy: number, opts?: HitOptions)
           row,
           x: node.x + row.inset,
           y: ry,
-          width,
+          width: opts?.widgetContentWidth?.(node, row) ?? width,
           height: row.height,
           localX: wx - node.x - row.inset,
           localY: wy - ry,
@@ -932,7 +935,7 @@ export function hitTestPin(
     const node = scene.nodes[i]!
     if (node.layout.minimized) continue
     for (const pin of node.layout.pins) {
-      if (pin.widgetTap === true || pin.stacked === true || pin.lineHidden === true) continue
+      if (pin.widgetTap === true || pin.stacked === true || pin.lineHidden === true || pin.kept !== undefined) continue
       if (pinRevealed && !pinRevealed(node, pin)) continue
       const px = pin.direction === 'in' ? node.x : node.x + node.layout.width
       const py = node.y + pin.y

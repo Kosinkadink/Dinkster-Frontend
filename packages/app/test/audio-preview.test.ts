@@ -28,7 +28,7 @@ describe('bounded audio previews', () => {
     const result = await audioPreview(client, query, descriptor, renditions).load(5000, 2, signal)
     expect(client.rendition).toHaveBeenCalledWith(query, 'waveform', { descriptor, batch: 2, rendererVersion: 'wave-v1', waveform: { width: 512, height: 128 }, signal })
     expect(client.rendition).toHaveBeenCalledWith(query, 'window', { descriptor, batch: 2, rendererVersion: 'window-v1', window: { start: 5000, duration: 3 }, signal })
-    expect(result.diagnostics).toEqual(['Waveform: sampled peaks (not exhaustive)'])
+    expect(result.diagnostics).toEqual([])
     expect(descriptor.meta).toEqual(meta)
   })
   it('uses effective facts without replacing or rewriting source probe metadata', async () => {
@@ -117,7 +117,7 @@ describe('bounded audio previews', () => {
     expect(missing.window).toBeUndefined()
     client.rendition = vi.fn(async () => ({ available: false as const, reason: 'bad-element', status: 404, error: 'batch absent' }))
     const refused = await audioPreview(client, query, descriptor, renditions).load(0, 4, new AbortController().signal)
-    expect(refused.diagnostics.join(' ')).toContain('bad-element (404) - batch absent')
+    expect(refused.diagnostics.join(' ')).toContain('Audio waveform unavailable. batch absent')
     expect(refused.window).toBeUndefined()
   })
 })

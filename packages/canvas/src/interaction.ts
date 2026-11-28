@@ -49,7 +49,6 @@ import {
   containingGroup,
   initialGroupMembership,
   groupBoxKey,
-  hasKnownLinkDropAnchorType,
   dragNumericValue,
   isIntegerWidgetValue,
   isNumberWidget,
@@ -923,6 +922,7 @@ export class InteractionController {
       this.recoverRepressedGesture(e)
       const wasIdle = this.gesture.kind === 'idle'
       this.onPointerDown(e)
+      this.renderer.setViewportGesture(this.gesture.kind === 'pan' || this.touchNav !== undefined)
       if (wasIdle && this.gesture.kind !== 'idle')
         this.pointerTrace.recordGesture(this.gesture.kind, 'start', 'pointerdown')
       // A press that captured the pointer but started no gesture (badge
@@ -1272,6 +1272,9 @@ export class InteractionController {
       ...options,
       scale: this.renderer.getViewport().scale,
       detailLevel: this.renderer.getDetailLevel(),
+      ...(this.renderer.getLensCapabilities?.().widgetRowAffordance === undefined ? {} : {
+        widgetContentWidth: (node, row) => this.renderer.widgetContentWidth(node, row),
+      }),
     }
   }
 
@@ -1323,6 +1326,7 @@ export class InteractionController {
     if (kind === 'number-drag') this.renderer.setRowDrag(undefined)
     this.pointerTrace.recordGesture(kind, 'cancel', reason)
     this.gesture = { kind: 'idle' }
+    this.renderer.setViewportGesture(false)
     this.pushOverlay()
   }
 
@@ -1489,6 +1493,7 @@ export class InteractionController {
     const nav = this.touchNav
     if (nav === undefined) return
     this.touchNav = undefined
+    this.renderer.setViewportGesture(false)
     this.releasePointer(nav.a)
     this.releasePointer(nav.b)
     this.pointerTrace.recordGesture('touch-nav', event, reason)
@@ -1808,13 +1813,23 @@ export class InteractionController {
       this.gesture = { kind: 'widget-affordance', hit, moved: false }
       return
     }
+    if (hit.kind === 'widget' && hit.localX > hit.width) {
+      this.gesture = { kind: 'idle' }
+      return
+    }
     // A pin's hit circle reaches over the end of its node's field rows. There
     // a click belongs to the field's control and a drag to the pin.
     if (hit.kind === 'pin' || hit.kind === 'widgetTap') {
       const under = hitTest(scene, w.x, w.y, this.hitOptions({ widgetTaps: new Set(), pinRevealed: () => false }))
       if (under.kind === 'widget' && under.node.id === hit.node.id) {
-        this.gesture = { kind: 'widget', hit: under, moved: false, pin: { hit, shiftKey: e.shiftKey, altKey: e.altKey } }
-        return
+        if (this.widgetRowAffordanceContains(under)) {
+          this.gesture = { kind: 'widget-affordance', hit: under, moved: false }
+          return
+        }
+        if (under.localX <= under.width) {
+          this.gesture = { kind: 'widget', hit: under, moved: false, pin: { hit, shiftKey: e.shiftKey, altKey: e.altKey } }
+          return
+        }
       }
     }
     if (hit.kind === 'header' && !e.shiftKey && !e.ctrlKey && !e.metaKey && this.minimizeArrowContains(hit, w.x, w.y)) {
@@ -3086,7 +3101,8 @@ export class InteractionController {
     const affordance = capabilities?.widgetRowAffordance?.(hit.node, hit.row)
     if (affordance === undefined || affordance.disabled === true) return false
     const tokens = this.renderer.getDesignTokens()
-    const rect = widgetRowAffordanceRect(hit.width, tokens.rowHeight, hit.row, tokens.rowGeometry)
+    const width = hit.row.width ?? hit.node.layout.width - hit.row.inset * 2
+    const rect = widgetRowAffordanceRect(width, tokens.rowHeight)
     return hit.localX >= rect.x && hit.localX <= rect.x + rect.width &&
       hit.localY >= rect.y && hit.localY <= rect.y + rect.height
   }
@@ -3538,6 +3554,7 @@ export class InteractionController {
     const g = this.gesture
     const gestureGraphId = this.gestureGraphId
     this.gesture = { kind: 'idle' }
+    this.renderer.setViewportGesture(false)
     this.activePointerId = undefined
     this.activeButtonMask = undefined
     this.activePointerType = undefined
@@ -4480,7 +4497,6 @@ export class InteractionController {
         g.moved &&
         hit.kind === 'empty' &&
         !g.preserveInputDriver &&
-        hasKnownLinkDropAnchorType(g.anchorType) &&
         (g.seeking === 'in' ? fixedFrom : fixedInto) !== undefined
       ) {
         this.host.onLinkDropOnEmpty?.(

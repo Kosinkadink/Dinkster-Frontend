@@ -6,6 +6,7 @@ import { ProductButton, ProductTextInput } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice, productFieldIds } from '../ProductForm.js'
 import { ProductSelect } from '../ProductSelect.js'
 import { useAppMessage } from '../locale.js'
+import { failureMessage } from '../request-failure.js'
 import { WidgetEditorController, type WidgetEditorImplementationProps, type WidgetEditorProps } from '../WidgetEditorController.js'
 import { InRowSaveTargetImplementation } from './InRowSaveTargetEditor.js'
 
@@ -32,10 +33,10 @@ const SaveTargetImplementation: Component<WidgetEditorImplementationProps> = (pr
       const output = value.activeOutputMount ?? value.outputMount
       if (mount() === '' && output !== undefined) setMount(output)
     }).catch((reason: unknown) => {
-      if (live) setError(reason instanceof Error ? reason.message : String(reason))
+      if (live) setError(failureMessage(reason, message('request.storageLoadFailed')))
     })
   } else setError(message('mountWidget.error'))
-  const writable = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready') ?? []
+  const writable = () => settings()?.mounts.filter((entry) => entry.mode === 'readwrite' && entry.state === 'ready' && !entry.saveError) ?? []
   const options = () => {
     const entries = writable().map((entry) => ({ id: entry.id, value: entry.id, label: entry.id, disabled: false }))
     if (mount() !== '' && !entries.some((entry) => entry.id === mount())) entries.unshift({ id: mount(), value: mount(), label: message('mountWidget.unavailable', { id: mount() }), disabled: true })

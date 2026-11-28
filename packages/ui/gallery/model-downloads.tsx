@@ -1,11 +1,14 @@
 import { For, Show, createSignal } from 'solid-js'
+import { formatByteProgress, formatByteSize } from '@dinkster/core'
 import {
   ProductButton,
   ProductDialog,
+  ProductErrorBanner,
   ProductField,
   ProductModelDownloads,
   ProductRadio,
   ProductTextInput,
+  ProductToast,
   type ProductModelDownloadRow,
 } from '../src/index.js'
 
@@ -22,24 +25,40 @@ const scenes = [
 ] as const
 type Scene = (typeof scenes)[number][0]
 
-const files = [
-  {
-    id: 'base',
-    name: 'sd_xl_base_1.0.safetensors',
-    metadata:
-      'Checkpoint - 6.9 GB - Hugging Face, stabilityai/stable-diffusion-xl-base-1.0',
-  },
-  {
-    id: 'vae',
-    name: 'sdxl_vae.safetensors',
-    metadata: 'VAE - 335 MB - Hugging Face, stabilityai/sdxl-vae',
-  },
-  {
-    id: 'upscale',
-    name: '4x-UltraSharp.pth',
-    metadata: 'Upscale model - 67 MB - Civitai, 4x-UltraSharp',
-  },
-] as const
+const files = (
+  [
+    {
+      id: 'base',
+      name: 'sd_xl_base_1.0.safetensors',
+      folder: 'checkpoints',
+      bytes: 6_900_000_000,
+      source: 'Hugging Face',
+    },
+    {
+      id: 'vae',
+      name: 'sdxl_vae.safetensors',
+      folder: 'vae',
+      bytes: 335_000_000,
+      source: 'Hugging Face',
+    },
+    {
+      id: 'upscale',
+      name: '4x-UltraSharp.pth',
+      folder: 'upscale_models',
+      bytes: 67_000_000,
+      source: 'Civitai',
+    },
+  ] as const
+).map((file) => ({
+  ...file,
+  metadata: `${formatByteSize(file.bytes)} - ${file.source}`,
+}))
+const freeBytes = 20 * 1024 ** 3
+const portableFreeBytes = 200 * 1024 ** 2
+const manyModelBytes = 2.25 * 1024 ** 3
+const receivedBytes = 1_200_000_000
+const downloadProgress = formatByteProgress(receivedBytes, files[0]!.bytes)
+const downloadProgressLabel = `Downloading - ${downloadProgress.received} of ${downloadProgress.total}`
 
 function SourceChoices(props: {
   readonly sources: readonly string[]
@@ -93,8 +112,27 @@ function DownloadExample(props: {
   )
   const [sourceOpen, setSourceOpen] = createSignal<string>()
   const [action, setAction] = createSignal('')
+  const [copied, setCopied] = createSignal<{ message: string }>()
+  const [copyError, setCopyError] = createSignal('')
   const [stopped, setStopped] = createSignal(false)
   const [waitingStopped, setWaitingStopped] = createSignal(false)
+  const locations = [
+    {
+      id: 'shared',
+      name: 'Shared models',
+      path: '/models/shared',
+      freeSpace: `${formatByteSize(freeBytes)} free`,
+    },
+    {
+      id: 'portable',
+      name: 'Portable models',
+      path: '/media/portable/models',
+      freeSpace: `${formatByteSize(portableFreeBytes)} free`,
+    },
+  ]
+  const [locationId, setLocationId] = createSignal('shared')
+  const destination = () =>
+    locations.find((location) => location.id === locationId())!
   const select = (id: string, checked: boolean) =>
     setSelected((current) => {
       const next = new Set(current)
@@ -110,23 +148,40 @@ function DownloadExample(props: {
     selected: selected().has(files[index]!.id),
     onSelect: (checked) => select(files[index]!.id, checked),
     detailsLabel: `Details for ${files[index]!.name}`,
-    initiallyExpanded: index === 0,
+    initiallyExpanded: false,
     facts: [
       {
         label: 'From',
-        value: 'Hugging Face, stabilityai/stable-diffusion-xl-base-1.0',
+        value: `example/models on ${index === 2 ? 'Civitai' : 'Hugging Face'}`,
       },
-      { label: 'Version', value: '462165984030deed462165984030deed46216598' },
-      { label: 'License', value: 'openrail++' },
-      { label: 'Saves to', value: '/home/you/Dinkster/models/checkpoints/' },
-      { label: 'Checked by', value: `SHA-256 ${'31e35c80fc4829d1'.repeat(4)}` },
+      { label: 'License', value: 'Apache-2.0' },
+      {
+        label: 'File',
+        value: `${destination().path}/${files[index]!.folder}/${files[index]!.name}`,
+      },
     ],
+    factsAction: {
+      label: 'Copy revision and checksum',
+      onClick: () => {
+        setCopyError('')
+        void navigator.clipboard
+          .writeText(
+            `Revision: 462165984030deed462165984030deed46216598\nSHA-256: ${'31e35c80fc4829d1'.repeat(4)}`,
+          )
+          .then(() => setCopied({ message: 'Revision and checksum copied' }))
+          .catch(() =>
+            setCopyError(
+              'Could not copy the revision and checksum. Try again.',
+            ),
+          )
+      },
+    },
   })
   const ready = (index: number): ProductModelDownloadRow => ({
     ...files[index]!,
     state: 'ready',
     readyLabel: 'Ready',
-    metadata: `${files[index]!.metadata} - ${index === 1 ? 'an identical file was already here' : 'saved to /home/you/Dinkster/models/'}`,
+    metadata: `${files[index]!.metadata}${index === 1 ? ' - an identical file was already here' : ''}`,
   })
   const needs = (id: string, reason: string, label: string) => ({
     id,
@@ -158,10 +213,10 @@ function DownloadExample(props: {
     if (props.scene === 'waiting')
       return [
         {
-          ...files[0],
+          ...files[0]!,
           state: 'downloading',
-          progress: 0.17,
-          progressLabel: 'Downloading - 1.2 GB of 6.9 GB',
+          progress: receivedBytes / files[0]!.bytes,
+          progressLabel: downloadProgressLabel,
           stop: {
             label: 'Stop',
             onClick: () => setAction('Stop requested for base'),
@@ -170,7 +225,7 @@ function DownloadExample(props: {
         waitingStopped()
           ? { ...available(1), selected: false }
           : {
-              ...files[1],
+              ...files[1]!,
               state: 'waiting',
               progressLabel: 'Waiting',
               stop: { label: 'Stop', onClick: () => setWaitingStopped(true) },
@@ -182,7 +237,7 @@ function DownloadExample(props: {
         ...available(index % files.length),
         id: `model-${index}`,
         name: `model-${index + 1}.safetensors`,
-        metadata: 'Checkpoint - 2.25 GiB - Hugging Face, example/models',
+        metadata: `${formatByteSize(manyModelBytes)} - Hugging Face`,
         selected: selected().has(`model-${index}`),
         onSelect: (checked: boolean) => select(`model-${index}`, checked),
         initiallyExpanded: index === 0,
@@ -260,27 +315,27 @@ function DownloadExample(props: {
       return [
         stopped()
           ? {
-              ...files[0],
+              ...files[0]!,
               state: 'failed',
               reason: 'The download was stopped.',
               action: { label: 'Try again', onClick: () => setStopped(false) },
             }
           : {
-              ...files[0],
+              ...files[0]!,
               state: 'downloading',
-              progress: 0.17,
-              progressLabel: 'Downloading - 1.2 GB of 6.9 GB',
+              progress: receivedBytes / files[0]!.bytes,
+              progressLabel: downloadProgressLabel,
               stop: { label: 'Stop', onClick: () => setStopped(true) },
             },
-        { ...files[1], state: 'checking', progressLabel: 'Checking the file' },
+        { ...files[1]!, state: 'checking', progressLabel: 'Checking the file' },
         ready(2),
       ]
     if (props.scene === 'failed')
       return [
         {
-          ...files[0],
+          ...files[0]!,
           state: 'failed',
-          reason: 'The download stopped at 1.2 GB.',
+          reason: `The download stopped at ${formatByteSize(receivedBytes)}.`,
           action: {
             label: 'Try again',
             onClick: () => setAction('Retry requested'),
@@ -293,7 +348,18 @@ function DownloadExample(props: {
   }
   const allReady = () => props.scene === 'run' || props.scene === 'done'
   const count = () => selected().size
-  const insufficient = () => props.scene === 'many' && count() > 8
+  const downloadBytes = () =>
+    props.scene === 'many'
+      ? count() * manyModelBytes
+      : files.reduce(
+          (total, file) => total + (selected().has(file.id) ? file.bytes : 0),
+          0,
+        )
+  const availableBytes = () =>
+    locationId() === 'portable' ? portableFreeBytes : freeBytes
+  const insufficient = () =>
+    (props.scene === 'many' || props.scene === 'ready') &&
+    downloadBytes() > availableBytes()
   const primary = () =>
     props.scene === 'ready' || props.scene === 'many'
       ? {
@@ -313,24 +379,45 @@ function DownloadExample(props: {
       <ProductModelDownloads
         rows={rows()}
         listLabel="Models"
+        notice={
+          <>
+            <Show when={copyError()}>
+              <ProductErrorBanner onDismiss={() => setCopyError('')}>
+                {copyError()}
+              </ProductErrorBanner>
+            </Show>
+            <ProductToast
+              notification={copied()}
+              onDismiss={() => setCopied(undefined)}
+            />
+          </>
+        }
+        destination={{
+          label: 'Save to',
+          selectedId: locationId(),
+          emptyLabel: 'Choose a folder',
+          freeSpace: `${formatByteSize(availableBytes())} free`,
+          locations,
+          onSelect: setLocationId,
+        }}
         summary={
           allReady()
             ? 'Image starter has every model it needs.'
             : `Image starter needs ${rows().filter((row) => row.state !== 'ready').length} models that are not ${props.scene === 'needs' || props.scene === 'access' ? 'ready on' : 'on'} this computer.`
         }
         footer={
-          action() ||
-          (insufficient()
-            ? `${count() * 2.25} GiB to download, 20 GiB free. Untick some models or free up space.`
-            : props.scene === 'downloading' || props.scene === 'waiting'
-              ? 'You can close this. Downloads keep going and show under tasks in the status bar.'
-              : allReady()
-                ? '3 models ready.'
-                : props.scene === 'ready'
-                  ? '6.8 GiB to download - 20 GiB free'
-                  : props.scene === 'failed'
-                    ? ''
-                    : 'Nothing can be downloaded yet.')
+          insufficient()
+            ? `${formatByteSize(downloadBytes())} to download, ${formatByteSize(availableBytes())} free. Save somewhere else or untick some models.`
+            : action() ||
+              (props.scene === 'downloading' || props.scene === 'waiting'
+                ? 'You can close this. Downloads keep going and show under tasks in the status bar.'
+                : allReady()
+                  ? '3 models ready.'
+                  : props.scene === 'ready'
+                    ? `${formatByteSize(downloadBytes())} to download`
+                    : props.scene === 'failed'
+                      ? ''
+                      : 'Nothing can be downloaded yet.')
         }
         footerWarning={insufficient()}
         closeLabel="Close"
