@@ -108,6 +108,48 @@ async function nativeSetup(): Promise<{ backend: Extract<Backend, { protocol: 'd
 }
 
 describe('Board card sources', () => {
+  it('resolves the exact selected file descriptor across catalog pages or authorized mounts without inventing fields', async () => {
+    const { backend } = await nativeSetup()
+    const { connection } = backend
+    const board = app.boards.open(emptyBoard(), 'Results', backend.baseUrl)
+    board.session.dispatch({ command: 'board.item.add', params: { items: [
+      { id: 'picture', kind: 'picture', asset: { digest: DIGEST, name: 'Old name.png', mediaType: 'image/png' },
+        rect: { x: 20, y: 30, width: 240, height: 150 } },
+    ] } })
+    const unchanged = board.session.doc
+    const ref = { digest: DIGEST, name: 'Renamed.png', size: 217, mediaType: 'image/png', virtualPath: 'pictures/Renamed.png' }
+    const available = vi.spyOn(connection, 'checkAssetAvailability').mockResolvedValue([{ digest: DIGEST, status: 'available' }])
+    const catalog = vi.spyOn(connection, 'listLocalAssets').mockImplementation(async (request) => request.cursor === undefined
+      ? { assets: [{ asset: { ...ref, digest: DIGEST2, name: 'Old name.png' }, aliases: [], observations: [] }], cursor: 'next' }
+      : { assets: [{ asset: ref, aliases: ['Old name.png'], observations: [] }] })
+    const guess = vi.spyOn(connection, 'guessAssets').mockResolvedValue([])
+    expect(await app.boards.resolveMediaAsset(board.id, 'picture')).toEqual(ref)
+    expect(guess).not.toHaveBeenCalled()
+
+    catalog.mockResolvedValue({ assets: [] })
+    const mounted = { ...ref, size: 935, virtualPath: 'mounted/Renamed.png', held: true, confidence: 'digest' as const }
+    const incomplete = { digest: DIGEST, name: ref.name, mediaType: ref.mediaType, virtualPath: mounted.virtualPath,
+      held: true, confidence: 'digest' as const }
+    guess.mockResolvedValue([{ query: 'Old name.png', candidates: [
+      { ...mounted, digest: DIGEST2 }, { ...mounted, held: false }, incomplete, mounted,
+    ] }])
+    expect(await app.boards.resolveMediaAsset(board.id, 'picture')).toEqual({ ...ref, size: 935, virtualPath: 'mounted/Renamed.png' })
+    expect(guess).toHaveBeenCalledWith(['Old name.png'], { 'Old name.png': DIGEST })
+    guess.mockResolvedValue([{ query: 'Old name.png', candidates: [{ ...mounted, held: false }, incomplete] }])
+    expect(await app.boards.resolveMediaAsset(board.id, 'picture')).toBeUndefined()
+    available.mockResolvedValueOnce([{ digest: DIGEST, status: 'missing' }])
+    expect(await app.boards.resolveMediaAsset(board.id, 'picture')).toBeUndefined()
+    expect(board.session.doc).toBe(unchanged)
+
+    let wanted = true
+    catalog.mockImplementationOnce(async () => {
+      wanted = false
+      return { assets: [{ asset: ref, aliases: [], observations: [] }] }
+    })
+    await expect(app.boards.resolveMediaAsset(board.id, 'picture', () => wanted)).rejects.toThrow('Board changed')
+    expect(board.session.doc).toBe(unchanged)
+  })
+
   it.each(['workflow', 'saved-blueprint', 'pack-blueprint'] as const)('continues into a new %s card without running or changing the source', async (kind) => {
     const { backend, tab } = await nativeSetup()
     const { connection, baseUrl } = backend

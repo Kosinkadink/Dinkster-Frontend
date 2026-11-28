@@ -6,9 +6,11 @@ import type { AssetUploadDestination, DinksterConnection, LibraryRecord } from '
 import type { CollabTransport } from './collab.js'
 import { buildParamRows } from './app-view-rows.js'
 import { isCompatible } from './asset-browser/helpers.js'
+import { assetGuessCandidateToRef } from './dialog-requests.js'
 
 type BoardConnection = Pick<DinksterConnection, 'uploadMediaAsset' | 'checkAssetAvailability' |
-  'uploadAsset' | 'createLibraryRecord' | 'patchLibraryRecord' | 'getLibraryRecord' | 'fetchAssetText'> &
+  'uploadAsset' | 'createLibraryRecord' | 'patchLibraryRecord' | 'getLibraryRecord' | 'fetchAssetText' |
+  'listLocalAssets' | 'guessAssets'> &
   Partial<Pick<DinksterConnection, 'fetchBlueprintBody'>>
 
 export interface BoardMediaFile {
@@ -291,6 +293,39 @@ export class BoardWorkspace {
       this.titles.set(JSON.stringify([entry.baseUrl, id]), title)
       this.entries.update((entries) => [...entries])
     }
+  }
+
+  /** Board media omits executable descriptor fields; recover them from this backend, never guesses. */
+  async resolveMediaAsset(id: string, itemId: string, stillWanted: () => boolean = () => true): Promise<AssetRef | undefined> {
+    const entry = this.mediaEntry(id)
+    const item = entry.session.doc.items[itemId]
+    if (!item || !('asset' in item)) throw new Error('The selected result is no longer on this Board')
+    const connection = this.options.mediaConnection(entry.baseUrl)
+    if (!connection) throw new Error('This Board\'s backend is unavailable')
+    const current = () => !this.disposed && stillWanted() && this.entries.get().includes(entry) &&
+      entry.session.doc.items[itemId] === item && this.options.mediaConnection(entry.baseUrl) === connection
+    const assertCurrent = () => { if (!current()) throw new Error('Board changed while resolving the selected result') }
+    assertCurrent()
+    const availability = await connection.checkAssetAvailability([item.asset.digest], { scope: 'local' })
+    assertCurrent()
+    if (!availability.some((row) => row.digest === item.asset.digest && row.status === 'available')) return undefined
+    let cursor: string | undefined
+    do {
+      const page = await connection.listLocalAssets({ scope: 'local', limit: 200,
+        ...(cursor === undefined ? {} : { cursor }) })
+      assertCurrent()
+      const found = page.assets.find((row) => row.asset.digest === item.asset.digest)?.asset
+      if (found) return boardMediaKindOf(found.mediaType) === item.kind ? { ...found } : undefined
+      cursor = page.cursor
+    } while (cursor !== undefined)
+    const matches = await connection.guessAssets([item.asset.name], { [item.asset.name]: item.asset.digest })
+    assertCurrent()
+    for (const candidate of matches.flatMap((match) => match.candidates)) {
+      if (!candidate.held || candidate.digest !== item.asset.digest) continue
+      const ref = assetGuessCandidateToRef(candidate)
+      if (ref && boardMediaKindOf(ref.mediaType) === item.kind) return { ...ref }
+    }
+    return undefined
   }
 
   /** Test the same source face that placement uses, without creating a card or running it. */
