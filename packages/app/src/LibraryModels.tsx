@@ -213,8 +213,12 @@ export function LibraryModels(props: {
     versions: model.variants.map((variant) => {
       const job = jobFor(model, variant)
       const installed = localRef(model, variant) !== undefined
+      const name = versionName(model, variant)
+      const file = localRef(model, variant)?.virtualPath.replace(/^(?:mounts|model-files)\/[^/]+\//, '') || job?.file || logicalModelVariantName(variant)
+      const aliases = [...new Set(model.aliases)].filter((alias) =>
+        !/^(?:mounts|model-files)\//.test(alias) && alias !== name && alias !== file && alias !== localRef(model, variant)?.name)
       return {
-        id: versionKey(variant), name: versionName(model, variant),
+        id: versionKey(variant), name,
         ...(variant.size !== undefined ? { size: formatByteSize(variant.size) } : {}),
         ...(variant.precision ? { precision: variant.precision } : {}),
         state: installed ? 'installed' : job?.status === 'failed' || job?.status === 'cancelled'
@@ -224,9 +228,9 @@ export function LibraryModels(props: {
           ? message('library.models.downloadProgress', { percent: Math.round(job.received / job.size * 100), ...formatByteProgress(job.received, job.size) })
           : formatByteSize(job.received) } : {}),
         facts: [
-          { label: message('library.models.file'), value: <FolderPath value={localRef(model, variant)?.virtualPath.replace(/^(?:mounts|model-files)\/[^/]+\//, '') || job?.file || logicalModelVariantName(variant)} /> },
+          { label: message('library.models.file'), value: <FolderPath value={file} /> },
           { label: message('library.models.folder'), value: providersFor(variant).map((location) => location.id).join(', '), monospace: true },
-          { label: message('library.models.aliases'), value: model.aliases.join(', ') },
+          ...(aliases.length ? [{ label: message('library.models.aliases'), value: <For each={aliases}>{(alias) => <FolderPath value={alias} />}</For> }] : []),
         ],
       }
     }),

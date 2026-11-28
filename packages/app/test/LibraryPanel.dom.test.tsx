@@ -35,7 +35,10 @@ describe('LibraryPanel', () => {
       const path = new URL(String(input), 'http://example.test').pathname
       if (path === '/api/models/settings') return Response.json({ settings: { version: 1, downloadLocation: null, locations }, locations, revision: 'one', project: 'studio', changesAllowed: true, restartRequired: false, pendingRemovals: [] })
       if (path === '/api/mounts') return Response.json({ mounts: locations.map((location) => ({ id: location.id, mode: 'read', state: 'ready', kind: 'model/checkpoint' })) })
-      if (path.endsWith('/entries')) return Response.json({ entries: path.includes('/studio/') || published ? [{ name: 'alpha.safetensors', virtualPath: 'alpha.safetensors', digest: path.includes('/studio/') ? digest : `blake3:${'b'.repeat(64)}`, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] : [] })
+      if (path.endsWith('/entries')) return Response.json({ entries: path.includes('/studio/') || published ? [
+        { name: 'alpha.safetensors', virtualPath: 'alpha.safetensors', digest: path.includes('/studio/') ? digest : `blake3:${'b'.repeat(64)}`, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' },
+        ...(path.includes('/studio/') ? [{ name: 'zeta-alias.safetensors', virtualPath: 'mounts/studio/zeta-alias.safetensors', digest, size: 1024, mediaType: 'application/x-safetensors', kind: 'model/checkpoint' }] : []),
+      ] : [] })
       throw new Error(`Unexpected route ${path}`)
     } })
     const selection = { project: 'studio', provider: 'huggingface' as const, source: 'https://huggingface.co/example/model/resolve/main/alpha.safetensors',
@@ -86,6 +89,8 @@ describe('LibraryPanel', () => {
       const facts = installed.closest('li')!.querySelector('dl')!
       expect(facts.querySelector('code')?.title).toBe('alpha.safetensors')
       expect([...facts.querySelectorAll('.dinkster-fact')].find((fact) => fact.querySelector('dt')?.textContent === 'Model folder')?.querySelector('dd')?.textContent).toBe('studio')
+      const aliases = [...facts.querySelectorAll('.dinkster-fact')].find((fact) => fact.querySelector('dt')?.textContent === 'Other names')!
+      expect([...aliases.querySelectorAll('code')].map((code) => code.title)).toEqual(['zeta-alias.safetensors'])
       expect(row('beta.safetensors').textContent).toContain('Not downloaded')
       root.querySelector<HTMLButtonElement>('[aria-label="Model kind"]')!.click()
       ;[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === 'All kinds')!.click()
