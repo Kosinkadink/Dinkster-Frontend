@@ -25,6 +25,9 @@ export interface CollectionEntry {
   readonly id: string
   readonly title: string
   readonly subtitle?: string
+  readonly description?: string
+  /** Diagnostic text available through Copy details, never rendered as facts. */
+  readonly diagnostics?: string
   /** Kind label shown only when the visible list contains different kinds. */
   readonly kind?: string
   /** Small status/type chips ('running', 'registry', '24 nodes'). */
@@ -149,10 +152,11 @@ export interface CollectionSource {
   page(req: CollectionPageRequest): Promise<CollectionPage>
 }
 
-/** Default weighted fields: title dominates, subtitle and badges assist. */
+/** Default weighted fields: title dominates, description and tags assist. */
 export const defaultEntryFields = (e: CollectionEntry): SearchField[] => [
   { text: e.title, weight: 3 },
   ...(e.subtitle !== undefined ? [{ text: e.subtitle, weight: 2 }] : []),
+  ...(e.description !== undefined ? [{ text: e.description, weight: 2 }] : []),
   ...(e.badges ?? []).map((b) => ({ text: b, weight: 1 })),
 ]
 

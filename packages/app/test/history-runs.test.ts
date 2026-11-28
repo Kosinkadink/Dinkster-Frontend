@@ -180,7 +180,7 @@ describe('groupNoOpHistoryRuns', () => {
     ])
   })
 
-  it('shows a running badge for a live execution', async () => {
+  it('shows a running state in the live execution line', async () => {
     const ref: ExecutionRef = {
       connection: asConnectionId('http://live'),
       prompt: asPromptId('still-running'),
@@ -188,12 +188,12 @@ describe('groupNoOpHistoryRuns', () => {
     app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
     const live = await historySource(app).page({ query: '', limit: 10 })
     expect(live.items).toHaveLength(1)
-    expect(live.items[0]!.badges).toContain('running')
+    expect(live.items[0]!.subtitle).toMatch(/^Running, /)
   })
 })
 
 describe('runsSource', () => {
-  it('keeps seconds in run details but not durable or live collection rows', async () => {
+  it('shows state and compact time without ids or seconds in durable and live runs', async () => {
     const { backend } = await nativeSetup()
     const today = new Date(2026, 10, 27, 16, 47, 17)
     const yesterday = new Date(2026, 10, 26, 23, 59, 43)
@@ -201,21 +201,21 @@ describe('runsSource', () => {
     vi.setSystemTime(new Date(2026, 10, 27, 18))
     try {
       vi.spyOn(backend.connection, 'listHistory').mockResolvedValue({ records: [
-        run({ runId: 'today', jobId: 'job-today', finishedAt: today.getTime() / 1000 }),
+        run({ runId: 'today', jobId: 'job-today', startedAt: today.getTime() / 1000, finishedAt: today.getTime() / 1000 }),
         run({ runId: 'yesterday', jobId: 'job-yesterday', finishedAt: yesterday.getTime() / 1000 }),
       ] })
       const time = today.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })
       const date = yesterday.toLocaleDateString('en', { year: 'numeric', month: 'numeric', day: 'numeric' })
       const rows = await runsSource(app).page({ query: '', limit: 24 })
       expect(rows.items.map((entry) => entry.subtitle)).toEqual([
-        `today, ${time} - job-today`, `${date} - job-yesterday`,
+        `Completed, today, ${time}`, `Completed, ${date}`,
       ])
-      expect(rows.items[0]!.details!.find((detail) => detail.label === 'finished')!.text).toContain(':17')
+      expect(rows.items[0]!.details!.find((detail) => detail.label === 'started')!.text).not.toContain(':17')
       const ref = { connection: backend.id, prompt: asPromptId('live-time') }
       app.store.apply({ kind: 'started', execution: ref, timestamp: today.getTime() })
       const live = await historySource(app).page({ query: '', limit: 24 })
-      expect(live.items[0]!.subtitle).toBe(`today, ${time} - live-time`)
-      expect(live.items[0]!.details!.find((detail) => detail.label === 'queued')!.text).toContain(':17')
+      expect(live.items[0]!.subtitle).toBe(`Running, today, ${time}`)
+      expect(live.items[0]!.details!.find((detail) => detail.label === 'started')!.text).not.toContain(':17')
     } finally {
       vi.useRealTimers()
     }
@@ -249,16 +249,10 @@ describe('runsSource', () => {
     expect(page.cursor).toBe(JSON.stringify([backend.id, 'c1']))
     expect(page.items.map((i) => i.id)).toEqual(['run-1', 'run-2'])
     const stamped = page.items[0]!
-    expect(stamped.badges).toContain('completed')
-    expect(stamped.badges).toContain('Durable record')
-    expect(stamped.badges).toContain('Source recorded')
-    expect(stamped.badges).toEqual(expect.arrayContaining(['queued by queue-agent', 'agent']))
-    expect(stamped.badges).toEqual(expect.arrayContaining(['1 Native', '1 ComfyUI']))
-    expect(stamped.badges).toEqual(expect.arrayContaining(['1 on local', '1 on render-box']))
-    expect(stamped.details).toContainEqual({
-      label: 'node sampler',
-      text: 'cached - ComfyUI - provider vision.depth.v3 - pack dinkster-vision-depth-anything-v3 - render-box',
-    })
+    expect(stamped.subtitle).toMatch(/^Completed, /)
+    expect(stamped.badges ?? []).toEqual([])
+    expect(JSON.parse(stamped.diagnostics!)).toMatchObject({ jobId: 'job-1', clientId: 'cid', sourceDocument: DIGEST })
+    expect(stamped.details?.map((detail) => detail.label)).not.toEqual(expect.arrayContaining(['run id', 'job id', 'client', 'source document']))
     // Stamped runs carry the explicit open action (click is select-only:
     // click-as-activation would make delete unreachable); unstamped runs
     // have nothing to open, so delete stands alone.
@@ -268,13 +262,8 @@ describe('runsSource', () => {
     ])
     const failed = page.items[1]!
     expect(failed.actions).toEqual([{ id: 'delete', label: 'Delete record' }])
-    expect(failed.badges).toContain('failed')
-    expect(failed.badges).not.toContain('stamped')
-    expect(failed.details).toContainEqual({ label: 'error', text: 'node blew up' })
-    expect(failed.details).toContainEqual({
-      label: 'source document',
-      text: 'none (unstamped submission)',
-    })
+    expect(failed.subtitle).toMatch(/^Failed, /)
+    expect(JSON.parse(failed.diagnostics!)).toMatchObject({ error: { message: 'node blew up' } })
   })
 
   it('projects a collapsed no-op row with a count and expandable individual entries', async () => {
@@ -287,14 +276,13 @@ describe('runsSource', () => {
     })
     const page = await runsSource(app).page({ query: '', limit: 24 })
     expect(page.items).toHaveLength(1)
-    expect(page.items[0]!.subtitle).toContain('job-new')
-    expect(page.items[0]!.badges).toContain('No-op group')
-    expect(page.items[0]!.badges).toContain('2 runs')
+    expect(page.items[0]!.subtitle).not.toContain('job-new')
+    expect(page.items[0]!.subtitle).toContain('2 runs')
     expect(page.items[0]!.children?.map((entry) => entry.id)).toEqual(['run-new', 'run-old'])
     expect(runIdOfEntry(page.items[0]!)).toBe('run-new')
   })
 
-  it('renders interrupted records with phase text and a stamped-only Resubmit action', async () => {
+  it('keeps interruption diagnostics and a stamped-only Resubmit action', async () => {
     const { backend } = (await nativeSetup())
     vi.spyOn(backend.connection, 'listHistory').mockResolvedValue({
       records: [
@@ -311,8 +299,8 @@ describe('runsSource', () => {
     const page = await runsSource(app).page({ query: '', limit: 24 })
     const wasRunning = page.items[0]!
     expect(wasRunning.title).toBe('Interrupted run')
-    expect(wasRunning.badges).toEqual(expect.arrayContaining(['interrupted', 'was running']))
-    expect(wasRunning.details).toContainEqual({ label: 'interrupted', text: 'was running' })
+    expect(wasRunning.subtitle).toMatch(/^Interrupted, /)
+    expect(JSON.parse(wasRunning.diagnostics!)).toMatchObject({ error: { phase: 'running' } })
     // Resubmit only on stamped records: unstamped ones have no document to resubmit.
     expect(wasRunning.actions).toEqual([
       { id: 'resubmit', label: 'Resubmit' },
@@ -320,8 +308,8 @@ describe('runsSource', () => {
       { id: 'delete', label: 'Delete record' },
     ])
     const neverStarted = page.items[1]!
-    expect(neverStarted.badges).toEqual(expect.arrayContaining(['interrupted', 'never started']))
-    expect(neverStarted.details).toContainEqual({ label: 'interrupted', text: 'never started' })
+    expect(neverStarted.subtitle).toMatch(/^Interrupted, /)
+    expect(JSON.parse(neverStarted.diagnostics!)).toMatchObject({ error: { phase: 'queued' } })
     expect(neverStarted.actions).toEqual([{ id: 'delete', label: 'Delete record' }])
   })
 

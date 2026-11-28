@@ -247,8 +247,8 @@ export interface ChosenRunFact {
 /**
  * Under a chosen finished run's pictures: why it stopped when it was
  * interrupted or failed, then Run again, Open workflow and a menu holding
- * Details, Inspect run, Copy job ID and Delete record. Details opens a few
- * plain lines; the job ID is copied from the menu, never shown in them.
+ * Details, Inspect run, Copy details and Delete record. Details opens a few
+ * plain lines; diagnostic values are copied from the menu, never shown in them.
  * Inspect run asks the owner to show the run's full inspection.
  */
 export function ChosenRun(props: {
@@ -264,7 +264,7 @@ export function ChosenRun(props: {
   readonly onInspect?: ((open: boolean) => void) | undefined
   readonly onRunAgain?: (() => void) | undefined
   readonly onOpenWorkflow?: (() => void) | undefined
-  readonly onCopyJobId: () => void
+  readonly onCopyDetails: () => void
   readonly onDelete?: (() => void) | undefined
   /**
    * Where the menu goes when the run has no buttons beside it, such as the
@@ -281,7 +281,7 @@ export function ChosenRun(props: {
         label: message(props.inspectOpen === true ? 'runs.chosen.hideInspect' : 'runs.chosen.inspect'),
         onSelect: () => props.onInspect?.(props.inspectOpen !== true),
       }]),
-      { label: message('runs.chosen.copyJob'), onSelect: () => props.onCopyJobId() },
+      { label: message('library.detail.copy'), onSelect: () => props.onCopyDetails() },
       ...(props.onDelete === undefined ? [] : [
         'separator' as const,
         { label: message('runs.chosen.delete'), intent: 'remove' as const, onSelect: () => props.onDelete?.() },

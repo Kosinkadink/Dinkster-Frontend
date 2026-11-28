@@ -133,9 +133,7 @@ describe('owned collection pages', () => {
     if (kind === 'workflow') expect(page.items[0]!.details).toContainEqual({ label: 'modified', text: '11/27/2026, 4:00 AM' })
     expect(page.items[0]!.badges).toContain('review')
     expect(page.items[0]!.badges).not.toContain('rev 1')
-    expect(page.items[0]!.details).toContainEqual({ label: 'revision', text: '1' })
-    expect(page.items[0]!.details).toContainEqual({ label: `${kind} id`, text: 'r1' })
-    expect(page.items[0]!.details).toContainEqual({ label: 'backend', text: 'A' })
+    expect(JSON.parse(page.items[0]!.diagnostics!)).toMatchObject({ revision: 1, id: 'r1', backend: 'A' })
     expect(page.cursor).toBeDefined()
 
     // Same backend: the continuation decodes back to the raw server cursor.
@@ -164,12 +162,7 @@ describe('owned collection pages', () => {
     const templates = await templatesSource(app).page({ query: '', limit: 24 })
     expect(templates.owner).toBe(a.id)
     expect(templates.items[0]!.owner).toBe(a.id)
-    expect(templates.items[0]!.details).toEqual([
-      { label: 'template id', text: 't1' },
-      { label: 'pack', text: 'core' },
-      { label: 'backend', text: 'A' },
-      { label: 'digest', text: 'sha256:x' },
-    ])
+    expect(JSON.parse(templates.items[0]!.diagnostics!)).toMatchObject({ id: 't1', pack: 'core', backend: 'A', digest: 'sha256:x' })
     // Empty pages carry the owner too - PAGE-scoped operations (clear all)
     // need a target even when the corpus is empty or the query matched
     // nothing.

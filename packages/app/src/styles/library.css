@@ -139,7 +139,7 @@
 }
 .library-detail-rail > * { flex: none; }
 .library-detail-header { display: flex; min-width: 0; align-items: flex-start; gap: var(--dinkster-space-8); }
-.library-detail-header > span:last-child { display: grid; min-width: 0; gap: var(--dinkster-space-4); }
+.library-detail-header > span:nth-child(2) { display: grid; flex: 1; min-width: 0; gap: var(--dinkster-space-4); }
 .library-detail-header strong,
 .library-detail-header small { overflow-wrap: anywhere; }
 .library-detail-header strong { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-bold); }

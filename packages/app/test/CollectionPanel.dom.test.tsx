@@ -71,7 +71,7 @@ describe('CollectionPanel folder navigation', () => {
     expect(root.textContent).not.toContain('private engine failure')
     expect(banner.querySelector('[data-testid="collection-retry"]')).not.toBeNull()
     expect(banner.querySelector('[aria-label="Dismiss error"]')).toBeNull()
-    expect(root.querySelector('[data-testid="collection-source"]')).not.toBeNull()
+    expect(root.querySelector('[data-testid="collection-source"]')).toBeNull()
     for (const id of ['collection-search', 'collection-mode', 'collection-source-action', 'collection-total']) {
       expect(root.querySelector(`[data-testid="${id}"]`)).toBeNull()
     }
@@ -149,7 +149,7 @@ describe('CollectionPanel folder navigation', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <CollectionPanel
-      sources={[source]}
+      sources={[source, { id: 'other', label: 'Other collection', page: async () => ({ items: [] }) }]}
       variant="select"
       searchPriority="primary"
       initialFilters={{ kind: 'RAW-image' }}
@@ -193,7 +193,7 @@ describe('CollectionPanel folder navigation', () => {
     expect(group.getAttribute('aria-selected')).toBe('true')
     expect(root.textContent).toContain('RAW grouped entry')
     expect(root.textContent).toContain('RAW child entry')
-    expect(root.textContent).toContain('RAW factRAW value')
+    expect(root.textContent).not.toContain('RAW factRAW value')
     expect(page).toHaveBeenCalledTimes(requestsBeforeLocale)
 
     const filterSelect = root.querySelector<HTMLButtonElement>('[data-testid="collection-filter-kind"]')!

@@ -618,7 +618,10 @@ export function CollectionPanel(props: {
           {message(expandedIds().has(p.entry.id) ? 'collection.action.hideRuns' : 'collection.action.showRuns')}
         </button>
       </Show>
-      <Show when={props.entryContent === undefined && p.entry.id === selectedId() && (p.entry.details ?? []).length > 0}>
+      <Show when={props.entryContent === undefined && props.detailRail === undefined && p.entry.id === selectedId() && p.entry.description}>
+        <p>{p.entry.description}</p>
+      </Show>
+      <Show when={props.variant !== 'select' && props.entryContent === undefined && props.detailRail === undefined && p.entry.id === selectedId() && (p.entry.details ?? []).length > 0}>
         <Details entry={p.entry} />
       </Show>
       <Show when={props.entryContent === undefined && p.entry.id === selectedId() && (p.entry.actions ?? []).length > 0}>
@@ -647,6 +650,7 @@ export function CollectionPanel(props: {
   }
 
   const SourceControl = () => (
+    <Show when={props.sources.length > 1 || props.sourceRail !== undefined}>
     <Show
       when={props.variant === 'select'}
       fallback={
@@ -680,6 +684,7 @@ export function CollectionPanel(props: {
         options={props.sources.map((entrySource) => ({ id: entrySource.id, label: entrySource.label, value: entrySource.id }))}
         onSelect={(option) => switchSource(option.value)}
       />
+    </Show>
     </Show>
   )
 
@@ -890,7 +895,9 @@ export function CollectionPanel(props: {
             </For>
           </div>
         </Show>
-        {props.detailRail?.(selectedEntry())}
+        <Show when={!loading() && !firstLoadFailed() || visibleItems().length > 0}>
+          {props.detailRail?.(selectedEntry())}
+        </Show>
       </div>
 
       <Show when={showCount() || cursor() !== undefined}>

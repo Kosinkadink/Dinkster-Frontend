@@ -98,12 +98,12 @@ describe('packsSource', () => {
 
     const core = page.items[0]!
     expect(core.title).toBe('Dinkster Core')
-    expect(core.subtitle).toBe('core')
-    expect(core.badges).toEqual(['v1.2.0', '2 nodes'])
+    expect(core.subtitle).toBeUndefined()
+    expect(core.badges).toBeUndefined()
     expect(core.thumbUrl).toBeUndefined()
 
     const vhs = page.items[1]!
-    expect(vhs.badges).toEqual(['VHS', 'v3.1.4', 'registry', '1 node', '1 asset'])
+    expect(vhs.badges).toBeUndefined()
     expect(vhs.thumbUrl).toBeUndefined()
     expect(vhs.thumbRender).toBeDefined()
     const icon = vi.spyOn(app.backends.get()[0]!.connection, 'fetchPackIcon').mockResolvedValue(new Blob(['icon pixels']))
@@ -113,40 +113,9 @@ describe('packsSource', () => {
     abort.abort()
     expect(resolveObjectURL(iconUrl)).toBeUndefined()
     icon.mockRestore()
-    expect(vhs.details).toContainEqual({ label: 'backend', text: app.backends.get()[0]!.label })
     expect(vhs.details).toContainEqual({ label: 'publisher', text: 'kosinkadink' })
-    expect(vhs.details).toContainEqual({ label: 'digest', text: 'sha256:' + 'b'.repeat(64) })
+    expect(JSON.parse(vhs.diagnostics!)).toMatchObject({ artifactDigest: 'sha256:' + 'b'.repeat(64), backend: app.backends.get()[0]!.label })
     expect(vhs.details).toContainEqual({ label: 'asset: Video VAE', text: 'model/vae - 1.5 MB' })
-  })
-
-  it('shows only a contested catalog storage choice in details and removes it on registry updates', async () => {
-    const source = packsSource(app)
-    for (const [provider, choices, visible] of [
-      ['vhs.video', ['owner.SEGS', 'other.SEGS', 'invalid', 42], true],
-      ['dev.local', ['owner.SEGS', 'other.SEGS'], true],
-      ['owner', undefined, false],
-      ['vhs.video', [], false],
-      ['vhs.video', 'owner.SEGS', false],
-    ] as const) {
-      const backend = app.backends.get()[0]!
-      backend.registry.set(buildDinksterRegistry(backend.id, {
-        ...nodesPayload,
-        packs: { ...nodesPayload.packs as object,
-          core: {
-            displayName: 'Dinkster Core',
-            typeStorage: { 'owner.SEGS': provider, 'other.SEGS': 'other-provider', invalid: 42 },
-            typeStorageChoices: choices,
-          },
-        },
-      }))
-      const core = (await source.page({ query: '', limit: 10 })).items.find((entry) => entry.id === 'core')!
-      expect(core.badges).toEqual(['2 nodes'])
-      expect(core.details?.filter((detail) => detail.label.endsWith(' values'))).toEqual(visible ? [
-        { label: 'SEGS values', text: "Stored other-provider's way", title: 'other.SEGS' },
-        { label: 'SEGS values', text: `Stored ${provider}'s way`, title: 'owner.SEGS' },
-      ] : [])
-      expect(core.details?.at(-1)?.title).toBe(visible ? 'owner.SEGS' : undefined)
-    }
   })
 
   it('ranks the whole corpus for a query, not a loaded page', async () => {
@@ -209,7 +178,7 @@ describe('templateAssetLines', () => {
 })
 
 describe('historySource', () => {
-  it('lists executions newest-first with status badges and key ids', async () => {
+  it('lists executions newest-first with state and keeps diagnostic values off screen', async () => {
     const first = runRef('p-early')
     const second = runRef('p-late')
     app.store.apply({ kind: 'started', execution: first, timestamp: 1000 })
@@ -224,17 +193,14 @@ describe('historySource', () => {
 
     const page = await historySource(app).page({ query: '', limit: 10 })
     expect(page.items.map((e) => e.id)).toEqual([executionKey(second), executionKey(first)])
-    expect(page.items[0]!.badges).toContain('running')
-    expect(page.items[1]!.badges).toContain('completed')
-    expect(page.items[1]!.subtitle).toContain('p-early')
-    expect(page.items[1]!.badges).toContain('External execution')
-    expect(page.items[1]!.badges).toContain('Snapshot unavailable')
-    expect(page.items[1]!.badges).not.toContain('Local snapshot')
-    expect(page.items[1]!.details).toContainEqual({ label: 'backend', text: app.connection.id })
-    expect(page.items[0]!.details).toContainEqual({ label: 'node sampler', text: 'running - Native - render-box' })
+    expect(page.items[0]!.subtitle).toMatch(/^Running, /)
+    expect(page.items[1]!.subtitle).toMatch(/^Completed, /)
+    expect(page.items[1]!.subtitle).not.toContain('p-early')
+    expect(page.items[1]!.badges).toBeUndefined()
+    expect(JSON.parse(page.items[0]!.diagnostics!)).toMatchObject({ nodes: { sampler: { worker: 'render-box' } } })
   })
 
-  it('surfaces error counts as a badge', async () => {
+  it('shows failed state and keeps errors in the copied diagnostics', async () => {
     const ref = runRef('p-err')
     app.store.apply({ kind: 'started', execution: ref, timestamp: 1 })
     app.store.apply({
@@ -244,7 +210,8 @@ describe('historySource', () => {
       detail: { exceptionType: 'RuntimeError', exceptionMessage: 'boom', traceback: [] },
     })
     const page = await historySource(app).page({ query: '', limit: 10 })
-    expect(page.items[0]!.badges).toContain('1 error')
+    expect(page.items[0]!.subtitle).toMatch(/^Failed, /)
+    expect(JSON.parse(page.items[0]!.diagnostics!).errors).toHaveLength(1)
   })
 
   it('labels an entry admitted from mid-run chatter unconfirmed instead of queued', async () => {
@@ -259,12 +226,11 @@ describe('historySource', () => {
     })
     const page = await historySource(app).page({ query: '', limit: 10 })
     const row = page.items.find((item) => item.id === executionKey(phantom))!
-    expect(row.badges).toContain('unconfirmed')
-    expect(row.badges).not.toContain('queued')
-    expect(row.details).toContainEqual({ label: 'status', text: 'unconfirmed' })
+    expect(row.subtitle).toMatch(/^Unconfirmed, /)
+    expect(row.details).toContainEqual({ label: 'state', text: 'Unconfirmed' })
     // An observed run start confirms the entry and restores real status.
     app.store.apply({ kind: 'started', execution: phantom, timestamp: 2 })
     const after = await historySource(app).page({ query: '', limit: 10 })
-    expect(after.items.find((item) => item.id === executionKey(phantom))!.badges).toContain('running')
+    expect(after.items.find((item) => item.id === executionKey(phantom))!.subtitle).toMatch(/^Running, /)
   })
 })

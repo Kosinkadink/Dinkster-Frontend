@@ -56,7 +56,7 @@ export function TemplatePicker(props: {
     ]
   })
   const shown = createMemo(() => props.catalog.entries.filter((entry) => inGroup(entry, group()) &&
-    normalizeTemplateSearch([entry.title, entry.subtitle, family(entry), ...(ref(entry).template.tags ?? [])].join(' ')).includes(normalizeTemplateSearch(search()))))
+    normalizeTemplateSearch([entry.title, entry.description, family(entry), ...(ref(entry).template.tags ?? [])].join(' ')).includes(normalizeTemplateSearch(search()))))
   const current = () => shown().find((entry) => entry.id === selected())
     ?? shown().find((entry) => ref(entry).template.pack === props.initial?.pack && ref(entry).template.id === props.initial.id)
     ?? shown()[0]
@@ -119,7 +119,7 @@ export function TemplatePicker(props: {
       loadingLabel={message('templateGallery.loading')} empty={message(props.catalog.entries.length === 0 ? 'templatesPage.empty' : 'templatesPage.noMatches')}>
       <Show when={current()}>{(entry) => <ProductTemplateDetail template={tile(entry())} drawing={drawing} view={view()} onView={setView}
         viewLabels={{ result: message('templatesPage.result'), workflow: message('templatesPage.workflow') }}
-        summary={family(entry())} description={entry().subtitle}
+        summary={family(entry())} description={entry().description}
         facts={[{ label: message('templatesPage.pack'), value: ref(entry()).template.pack }]}
         actions={<ProductButton fill="solid" pending={pending()} onClick={() => { void choose(entry()) }}>{message('templatesPage.use')}</ProductButton>} />}</Show>
     </ProductTemplatesPage>

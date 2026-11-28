@@ -1346,15 +1346,13 @@ export function App(props: {
       ? p.exec.errors.map((error) => error.message).join(' ') || undefined : undefined
     const facts = (): ChosenRunFact[] => {
       const nodes = Object.values(p.exec.nodes)
-      const backend = app.backendFor(p.exec.ref.connection)
       return [
-        { label: message('runs.chosen.workflow'), text: p.exec.workflowName ?? message('runs.chosen.workflowUnknown') },
-        ...(p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.finished'), text: formatCollectionDate(p.exec.endedAt) }]),
+        { label: message('runs.chosen.state'), text: executionStatusLabel(p.exec.status) },
+        ...(p.exec.startedAt === undefined ? [] : [{ label: message('runs.chosen.started'), text: formatCollectionDate(p.exec.startedAt) }]),
         ...(p.exec.startedAt === undefined || p.exec.endedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText((p.exec.endedAt - p.exec.startedAt) / 1000) }]),
         { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', {
           ran: nodes.filter((node) => node.state === 'done').length, cached: nodes.filter((node) => node.state === 'cached').length,
         }) },
-        ...(backend === undefined ? [] : [{ label: message('runs.chosen.ranOn'), text: backend.label }]),
       ]
     }
     return <RunRow entry={p.exec} name={runName(p.exec)} workflow={runName(p.exec)}
@@ -1383,7 +1381,7 @@ export function App(props: {
           />} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
           {...(pending() ? {} : { chosen: <ChosenRun name={runName(p.exec)} reason={reason()} facts={facts()}
             detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
-            menuMount={menuMount()} onCopyJobId={() => { void navigator.clipboard?.writeText(p.exec.ref.prompt) }} /> })} />
+            menuMount={menuMount()} onCopyDetails={() => { void navigator.clipboard?.writeText(JSON.stringify(p.exec, null, 2)) }} /> })} />
       </Show>
     </RunRow>
   }
@@ -1626,7 +1624,7 @@ export function App(props: {
       return asset !== undefined && backend?.protocol === 'dinkster'
         ? { url: backend.connection.assetUrl(asset.digest), mediaType: asset.mediaType } : undefined
     }
-    // The record's own facts (ids, client, source and each node's receipt), shown when the run is inspected.
+    // The record's user-facing facts, shown when the run is inspected.
     const Facts = () => <dl class="output-facts"><For each={p.entry.details}>{(detail) => <div><dt>{detail.label}</dt><dd>{detail.text}</dd></div>}</For></dl>
     const known = () => storedExecution(p.entry)
     const record = () => historyRunOfEntry(p.entry)
@@ -1652,14 +1650,11 @@ export function App(props: {
     const facts = (): ChosenRunFact[] => {
       const run = record()
       if (run === undefined) return []
-      backendsTick()
-      const backend = app.backends.get().find((candidate) => candidate.id === p.entry.owner)
       return [
-        { label: message('runs.chosen.workflow'), text: run.workflowName ?? message('runs.chosen.workflowUnknown') },
-        { label: message('runs.chosen.finished'), text: formatCollectionDate(run.finishedAt * 1000) },
+        { label: message('runs.chosen.state'), text: executionStatusLabel(run.state === 'failed' ? 'error' : run.state) },
+        ...(run.startedAt === undefined ? [] : [{ label: message('runs.chosen.started'), text: formatCollectionDate(run.startedAt * 1000) }]),
         ...(run.startedAt === undefined ? [] : [{ label: message('runs.chosen.took'), text: tookText(run.finishedAt - run.startedAt) }]),
         { label: message('runs.chosen.nodes'), text: message('runs.chosen.nodesText', { ran: run.executed, cached: run.cached }) },
-        ...(backend === undefined ? [] : [{ label: message('runs.chosen.ranOn'), text: backend.label }]),
       ]
     }
     // An interrupted run says when the engine stopped; a failed one says why.
@@ -1673,7 +1668,7 @@ export function App(props: {
       detailsOpen={detailsOpen()} onDetails={setDetailsOpen} inspectOpen={inspectOpen()} onInspect={setInspectOpen}
       onRunAgain={record()?.state === 'interrupted' && record()?.sourceDocument !== undefined ? act('resubmit') : undefined}
       onOpenWorkflow={record()?.sourceDocument !== undefined ? act('open') : undefined}
-      onCopyJobId={() => { const jobId = record()?.jobId; if (jobId !== undefined) void navigator.clipboard?.writeText(jobId) }}
+      onCopyDetails={() => { if (p.entry.diagnostics !== undefined) void navigator.clipboard?.writeText(p.entry.diagnostics) }}
       onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
       <div class="run-row-line">
