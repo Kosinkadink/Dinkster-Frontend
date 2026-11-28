@@ -40,10 +40,7 @@ import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { HostUiProviderHost } from './host-ui.js'
 import type { RowRepresentation } from './editors/RowFocusOverlay.js'
 import { useAppMessage } from './locale.js'
-import {
-  dynamicSelectorCommitCommand,
-  withMaterializeFrames,
-} from './widget-editor-command.js'
+import { widgetInputValueCommand } from './widget-editor-command.js'
 import {
   contrastingTextColor,
   editorScreenAnchor,
@@ -226,6 +223,8 @@ export interface WidgetEditorProps {
   bindClickAway?: (handler: (() => unknown) | undefined) => void
   /** Lets the canvas activate an exposed ASSET row after this modal closes. */
   onAssetBackdropPointerDown?: (event: PointerEvent) => void
+  /** Transfers a chosen file to work owned by the host, independent of this chooser. */
+  onAssetFileImport?: (file: File) => void
   onClose: () => void
 }
 
@@ -242,6 +241,7 @@ export interface WidgetEditorImplementationProps {
 }
 
 export interface WidgetEditorModalConfiguration {
+  title?: string
   displayType?: string
   help: JSX.Element
   dismissBlocked?: () => boolean
@@ -375,21 +375,7 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
       setCommitError(message('widgetEditor.writeWired', { row: wiredWrite }))
       return Promise.resolve(false)
     }
-    const selectorCommand = dynamicSelectorCommitCommand(ed, value)
-    if (selectorCommand !== undefined) {
-      return commitCommand(selectorCommand)
-    }
-    return commitCommand(
-      withMaterializeFrames(ed.target.familyOwner?.graphId ?? ed.graphId, ed.target.familyOwner?.nodeId ?? ed.target.nodeId, ed.target.materialize, {
-        command: 'node.setValue',
-        params: {
-          graphId: ed.target.familyOwner?.graphId ?? ed.graphId,
-          nodeId: ed.target.familyOwner?.nodeId ?? ed.target.nodeId,
-          inputId: ed.target.familyOwner?.valueKey ?? ed.target.valueKey,
-          value,
-        },
-      }),
-    )
+    return commitCommand(widgetInputValueCommand(ed.graphId, ed.target, value))
   }
 
   const clickAway = (): void => {
@@ -508,12 +494,12 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
           }
         >
           <ModalSurface
-                title={`${ed.label} ${modalDisplayType()}`}
-                ariaLabel={`Edit ${ed.label} ${modalDisplayType()}`}
-                describedBy="widget-editor-description"
+                title={props.modal?.title ?? `${ed.label} ${modalDisplayType()}`}
+                ariaLabel={props.modal?.title ?? `Edit ${ed.label} ${modalDisplayType()}`}
+                {...(props.modal?.help ? { describedBy: 'widget-editor-description' } : {})}
                 modalId={modalId}
                 testId="widget-modal-surface"
-                closeLabel={`Close ${ed.label} ${modalDisplayType()} editor`}
+                closeLabel={`Close ${props.modal?.title ?? `${ed.label} ${modalDisplayType()} editor`}`}
                 dismissBlocked={props.modal?.dismissBlocked?.() === true}
                 onRequestClose={() => {
                   if (props.modal?.onRequestClose !== undefined) {
@@ -526,9 +512,9 @@ export function WidgetEditorController(props: WidgetEditorControllerProps) {
                   ? { onBackdropPointerDown: props.onAssetBackdropPointerDown }
                   : {})}
               >
-                <p id="widget-editor-description" class="widget-modal-help">
-                  {props.modal?.help}
-                </p>
+                <Show when={props.modal?.help}>
+                  <p id="widget-editor-description" class="widget-modal-help">{props.modal?.help}</p>
+                </Show>
                 <Show when={commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
                 <div class="widget-commit-content" inert={commitPending()} aria-busy={commitPending()}><EditorContent /></div>
           </ModalSurface>

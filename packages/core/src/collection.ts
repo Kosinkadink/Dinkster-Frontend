@@ -121,6 +121,9 @@ export interface CollectionPageRequest {
    * paging exactly like a changed query.
    */
   readonly folder?: string
+  /** Optional source-owned folder depth and ordering; omission keeps source defaults. */
+  readonly recursive?: boolean
+  readonly sort?: 'path' | 'name' | 'newest'
   /**
    * Cancellation for the request. The shared browser aborts superseded
    * requests; sources SHOULD honor it (pass it to fetch) but a source

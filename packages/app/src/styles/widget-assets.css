@@ -3,6 +3,24 @@
  * enlarge the document. Only the options scroll; the type-ahead row remains
  * visible and focused while a long backend-provided list is explored.
  */
+.asset-quick-list { display: flex; box-sizing: border-box; flex-direction: column; min-height: 0; overflow-y: auto; padding: var(--dinkster-space-4); background: var(--dinkster-surface-panel); }
+.asset-quick-list .collection-panel { flex: 0 1 auto; min-height: var(--dinkster-space-32); padding: 0; }
+.asset-quick-list .collection-toolbar:empty { display: none; }
+.asset-quick-list .asset-view-controls { flex-wrap: wrap; margin-block: var(--dinkster-space-4); }
+.asset-quick-list .asset-scope { margin: 0; }
+.asset-quick-list .collection-content { flex-direction: column; flex-wrap: nowrap; }
+.asset-quick-list .collection-items { max-height: calc(var(--dinkster-space-32) * 6); }
+.asset-quick-list .collection-items.grid { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: max-content; }
+.asset-quick-list .collection-items.grid .collection-text { flex: none; width: 100%; }
+.asset-quick-list .collection-items.grid .collection-title { overflow-wrap: anywhere; }
+.asset-quick-list .collection-items.grid .collection-badges > * { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.asset-quick-caption { display: flex; flex: none; min-width: 0; gap: var(--dinkster-space-8); padding: var(--dinkster-space-4); font-size: var(--dinkster-type-metadata-size); }
+.asset-quick-caption > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-quick-caption > small { margin-left: auto; color: var(--dinkster-text-muted); font-size: inherit; }
+.asset-quick-list .collection-footer { display: none; }
+.asset-quick-list > .dinkster-button { flex: none; justify-content: flex-start; }
+.asset-quick-list > .dinkster-button .asset-scope { margin-left: auto; }
+
 .combo-dropdown {
   display: flex;
   flex-direction: column;
@@ -155,8 +173,7 @@
 .widget-modal-metadata dt { color: var(--dinkster-text-muted); }
 .widget-modal-metadata dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 
-/* ASSET widget presentation keeps browsing primary while preserving a fixed
-   action boundary and independent list overflow. */
+/* The dialog body owns scrolling; its heading and actions stay outside it. */
 .modal-surface[data-modal='widget-asset'] .widget-modal-help {
   flex: none;
   padding: var(--dinkster-space-8) var(--dinkster-space-16);
@@ -190,6 +207,9 @@
   flex-direction: column;
   gap: var(--dinkster-space-12);
   overflow-y: auto;
+  padding-bottom: var(--dinkster-space-12);
+  scroll-padding-block: var(--dinkster-space-12);
+  scrollbar-gutter: stable;
 }
 .asset-editor-context {
   display: flex;
@@ -288,7 +308,7 @@
   min-height: 0;
   flex-direction: column;
   gap: var(--dinkster-space-8);
-  overflow: auto;
+  overflow: visible;
 }
 .asset-selection-summary .asset-multi-selection { flex-direction: column; align-items: stretch; }
 .asset-preview {
@@ -301,6 +321,9 @@
   border: 1px solid var(--dinkster-border-subtle);
   border-radius: var(--dinkster-radius-control);
 }
+.asset-video-preview { overflow: hidden; border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
+.asset-video-preview .video-preview { height: auto; }
+.asset-video-preview .video-preview-picture { flex: none; height: calc(var(--dinkster-space-32) * 4); }
 .asset-preview-fallback {
   display: flex;
   flex-direction: column;
@@ -382,10 +405,10 @@
   flex: 1;
   flex-direction: column;
   gap: var(--dinkster-space-8);
-  overflow: hidden;
+  overflow: visible;
 }
 .asset-browser-section > .search-feedback { margin: 0; }
-.asset-editor .collection-panel { min-width: 0; min-height: 180px; flex: 1; padding: 0; }
+.asset-editor .collection-panel { min-width: 0; min-height: 180px; flex: none; padding: 0; overflow: visible; }
 .asset-editor .collection-items.grid {
   grid-auto-rows: max-content;
   grid-template-columns: repeat(auto-fill, minmax(min(144px, 100%), 1fr));
@@ -396,8 +419,27 @@
 .asset-editor .collection-toolbar .product-select { width: auto; min-width: 120px; flex: 0 1 180px; }
 .asset-editor .collection-toolbar button { width: auto; flex: none; }
 .asset-editor .collection-toolbar input { width: auto; flex: 1 1 160px; min-width: 100px; }
-.asset-editor .collection-content { flex-wrap: nowrap; overflow: hidden; }
-.asset-editor .collection-items { min-width: 0; min-height: 0; }
+.asset-editor .collection-panel[data-search-priority='primary'] .collection-toolbar { flex-wrap: nowrap; align-items: center; }
+.asset-editor .collection-panel[data-search-priority='primary'] .collection-search-field { flex-basis: 0; }
+.asset-browser-navigation { display: contents; }
+.asset-editor .asset-browser-navigation { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--dinkster-space-8); }
+.asset-editor .asset-source-select.product-select { flex: 1; min-width: 0; }
+.asset-editor .asset-view-controls { display: contents; }
+.asset-editor .asset-view-switch { grid-column: 2; grid-row: 1; }
+.asset-editor .asset-view-controls > .dinkster-segmented,
+.asset-editor .asset-scope { grid-column: 1 / -1; }
+.asset-editor .collection-badge { padding: 0; border-radius: 0; background: none; }
+.asset-browser-section > [data-testid='logical-model-refresh'] { align-self: flex-end; }
+.asset-editor .collection-content { flex: none; flex-wrap: nowrap; overflow: visible; }
+.asset-editor .collection-items,
+.asset-editor .collection-state-list { min-width: 0; min-height: 0; max-height: none; overflow: visible; }
+.asset-file-picker .asset-editor-body { min-height: 0; flex: 1; }
+.asset-file-picker .asset-browser-section { min-height: 0; overflow: hidden; }
+.asset-file-picker .asset-selection-summary { overflow-y: auto; }
+.asset-file-picker .collection-panel { min-height: 0; flex: 1; overflow: hidden; }
+.asset-file-picker .collection-content { flex: 0 1 auto; overflow: hidden; }
+.asset-file-picker .collection-items { max-height: calc(var(--dinkster-space-32) * 12); overflow-y: auto; }
+.asset-file-picker .asset-view-controls { flex-wrap: wrap; }
 .asset-browser-selection { width: min(220px, 50%); box-sizing: border-box; flex: none; max-height: 100%; }
 .asset-browser-selection .asset-section-heading { flex-wrap: wrap; }
 .asset-browser-selection .asset-section-heading > div { flex: 1 1 120px; }
@@ -406,6 +448,13 @@
 .assets-panel .collection-details { display: none; }
 .asset-editor .collection-footer { flex-wrap: wrap; flex: none; }
 .asset-editor > .product-action-footer { flex: none; padding-top: var(--dinkster-space-8); }
+.asset-editor > .product-action-footer .product-action-status { flex: 1; }
+.asset-editor > .product-action-footer .product-action-buttons { flex: none; }
+.asset-destination-settings { flex: none; }
+.asset-import-line { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: var(--dinkster-space-4) var(--dinkster-space-8); }
+.asset-destination-summary { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: var(--dinkster-space-8); }
+.asset-destination-summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-destination-summary > button { flex: none; }
 .asset-rail-summary { display: grid; gap: 2px; margin-bottom: var(--dinkster-space-8); }
 .asset-rail-summary strong { min-width: 0; overflow-wrap: anywhere; }
 .asset-rail-summary span { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); line-height: var(--dinkster-type-metadata-line); }
@@ -446,6 +495,7 @@
   .modal-surface[data-modal='widget-asset'] .asset-selection-summary,
   .modal-surface[data-modal='widget-asset'] .asset-browser-section { padding: var(--dinkster-space-8); }
   .modal-surface[data-modal='widget-asset'] .asset-preview { min-height: 64px; max-height: 80px; }
+  .asset-video-preview .video-preview-picture { height: calc(var(--dinkster-space-32) * 2 + var(--dinkster-space-16)); }
 }
 @media (max-width: 700px) {
   /* Narrow fallback: one column with the compact selection strip above
@@ -457,18 +507,26 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto;
   }
-  .asset-selection-summary { max-height: 30vh; }
   .assets-panel .collection-content:has(.model-visibility-action) { flex-direction: column; flex-wrap: nowrap; }
   .assets-panel .asset-browser-selection:has(.model-visibility-action) { width: 100%; max-height: 50vh; }
-  .asset-browser-section { min-height: min(440px, 60vh); }
-  .asset-editor .collection-content { min-height: 40vh; flex-direction: column; flex-wrap: nowrap; }
-  /* Definite cap so the list stays an internal scrollbox while the body
-     sizes to content (its min-content would otherwise include the whole
-     uncapped list). */
-  .asset-editor .collection-items { max-height: 60vh; }
+  .asset-editor .collection-content { flex-direction: column; flex-wrap: nowrap; }
   .asset-match-candidates button { grid-template-columns: minmax(0, 1fr); }
   .asset-match-candidate-size,
   .asset-match-candidates code { grid-column: 1; }
+}
+
+@media (width < 560px) {
+  .asset-file-picker > .asset-editor-scroll { overflow: hidden; }
+  .asset-file-picker .asset-editor-body { display: flex; flex-direction: column; overflow: hidden; }
+  .asset-file-picker .asset-browser-section { flex: 1 0 0; min-height: min-content; }
+  .asset-file-picker .collection-panel { min-height: min-content; }
+  .asset-file-picker .collection-content { flex: 1; min-height: calc(var(--dinkster-space-32) * 6); }
+  .asset-file-picker .collection-content:has(.collection-items.list) { min-height: calc(var(--dinkster-space-32) * 4); }
+  .asset-file-picker .collection-items { max-height: none; }
+  .asset-file-picker .asset-selection-summary { flex: 0 1 auto; max-height: min(410px, calc((100dvh - var(--dinkster-space-16)) / 2)); box-sizing: border-box; }
+  .asset-file-picker .asset-selection-summary[data-has-selection='false'] { display: none; }
+  .asset-file-picker .asset-selection-summary > * { flex: none; }
+  .asset-file-picker .asset-selection-summary > .asset-section-heading { position: sticky; top: calc(-1 * var(--dinkster-space-12)); z-index: 1; background: var(--dinkster-surface-raised); box-shadow: 0 calc(-1 * var(--dinkster-space-12)) 0 var(--dinkster-surface-raised); }
 }
 
 .color-editor {

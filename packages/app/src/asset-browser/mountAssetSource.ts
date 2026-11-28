@@ -9,31 +9,42 @@ export function normalizeMountEntry(adapterId: string, label: string, entry: Mou
   return {
     id: `${adapterId}:${entry.virtualPath}`, name: entry.name, digest: entry.digest, size: entry.size,
     mediaType: entry.mediaType, ...(entry.kind ? { kind: entry.kind } : {}), virtualPath: entry.virtualPath,
+    ...(entry.modifiedAt !== undefined ? { modifiedAt: entry.modifiedAt } : {}),
     source: { id: adapterId, label, path: entry.virtualPath }, rawRef: entry,
   }
 }
 
-export function mountAssetSource(connection: DinksterConnection, mountId: string): AssetSourceAdapter {
-  const id = `mount:${mountId}`
+export function mountAssetSource(connection: DinksterConnection, mount: string | readonly string[]): AssetSourceAdapter {
+  const mountId = typeof mount === 'string' ? mount : undefined
+  const mountIds = typeof mount === 'string' ? undefined : [...mount]
+  const id = mountId === undefined ? 'all-mounts' : `mount:${mountId}`
+  const label = mountId ?? 'All mounts'
   return {
-    id, label: mountId, sourceLabel: mountId,
-    capabilities: { folders: true, query: true, kindFilter: true, thumbnails: true, actions: false },
+    id, label, sourceLabel: label,
+    capabilities: { folders: mountId !== undefined, query: true, kindFilter: true, thumbnails: true, actions: false },
     async page(req) {
       const folder = req.folder ?? ''
       const searching = req.query.trim() !== ''
       const page = await connection.listMountEntries(mountId, {
+        ...(mountIds !== undefined ? { mountIds } : {}),
         ...(searching ? { q: req.query } : {}),
         path: folder,
-        recursive: req.recursive ?? searching,
+        recursive: req.recursive ?? (mountId === undefined || searching),
+        ...(req.sort !== undefined ? { sort: req.sort } : {}),
         ...(req.cursor ? { cursor: req.cursor } : {}),
         limit: req.limit,
         ...(req.kind ? { kind: req.kind } : {}),
         ...(req.signal !== undefined ? { signal: req.signal } : {}),
       })
-      const items = page.entries.map((entry) => normalizeMountEntry(id, mountId, entry))
-      const folders = page.folders?.map((name): AssetBrowserItem => {
+      const items = page.entries.map((entry) => {
+        const root = mountId ?? entry.virtualPath.split('/')[1]!
+        return normalizeMountEntry(`mount:${root}`, root, entry)
+      })
+      const folders = searching ? undefined : page.folders?.map((name): AssetBrowserItem => {
         const virtualPath = folder === '' ? name : `${folder}/${name}`
-        return { id: `${id}:${virtualPath}`, name, folder: true, virtualPath, source: { id, label: mountId, path: virtualPath } }
+        const childCount = page.folderCounts?.[name]
+        return { id: `${id}:${virtualPath}`, name, folder: true, virtualPath,
+          ...(typeof childCount === 'number' ? { childCount } : {}), source: { id, label, path: virtualPath } }
       })
       return { items, ...(folders !== undefined ? { folders } : {}), ...(page.cursor ? { cursor: page.cursor } : {}), ...(page.total !== undefined ? { total: page.total } : {}) }
     },
@@ -51,6 +62,7 @@ export async function mountAssetSources(
   // have already reached the live catalog.
   const mounts = (discoveredMounts ?? await connection.listMounts())
     .filter((mount) => mount.state === 'ready' || mount.state === 'scanning')
+    .filter((mount) => kind?.startsWith('model/') === true || !mount.kind?.startsWith('model/'))
   if (kind === undefined) return mounts.map((mount) => mountAssetSource(connection, mount.id))
   const scoped = await Promise.all(mounts.map(async (mount) => {
     if (mount.kind !== undefined) return kindMatches(mount.kind, kind) ? mount : undefined

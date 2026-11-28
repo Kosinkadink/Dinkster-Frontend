@@ -4,10 +4,13 @@ import {
 } from '@dinkster/core'
 import type { AssetUploadDestination, DinksterConnection, LibraryRecord } from '@dinkster/client'
 import type { CollabTransport } from './collab.js'
+import { assetUploadPolicy } from './asset-browser/helpers.js'
+import { importAssetFile } from './asset-browser/import-file.js'
 import { buildParamRows } from './app-view-rows.js'
 
 type BoardConnection = Pick<DinksterConnection, 'uploadMediaAsset' | 'checkAssetAvailability' |
-  'uploadAsset' | 'createLibraryRecord' | 'patchLibraryRecord' | 'getLibraryRecord' | 'fetchAssetText'> &
+  'uploadAsset' | 'createLibraryRecord' | 'patchLibraryRecord' | 'getLibraryRecord' | 'fetchAssetText' |
+  'fetchMountSettings' | 'uploadNamedAsset' | 'uploadLatentAsset'> &
   Partial<Pick<DinksterConnection, 'fetchBlueprintBody'>>
 
 export interface BoardMediaFile {
@@ -115,6 +118,7 @@ export class BoardWorkspace {
     readonly actorId: string
     readonly backend: () => string | undefined
     readonly mediaConnection: (baseUrl: string) => BoardConnection | undefined
+    readonly uploadLimits: (baseUrl: string) => Readonly<Record<string, number>> | null | undefined
     readonly onConflict: (id: string, message: string) => void
   }) {
     this.scope = `shared:board:${options.project}`
@@ -509,8 +513,6 @@ export class BoardWorkspace {
     const batch = files.map(({ file, width, height, duration }) => {
       const kind = boardMediaKindOf(file.type)
       if (!kind) throw new Error(`Unsupported Board media: ${file.name}`)
-      if (file.size > (kind === 'picture' ? 256 : 1024) * 1024 * 1024)
-        throw new Error(`File exceeds the Board media upload limit: ${file.name}`)
       return { file, kind, metadata: {
         ...(width !== undefined ? { width } : {}), ...(height !== undefined ? { height } : {}),
         ...(duration !== undefined ? { duration } : {}),
@@ -528,11 +530,17 @@ export class BoardWorkspace {
     try {
       for (const { file, kind, metadata } of batch) {
         this.assertMediaCurrent(entry, currentSignal, connection)
-        const asset = await connection.uploadMediaAsset(file, {
-          ...target, scope: 'local', name: file.name, signal: currentSignal,
-          kind: kind === 'picture' ? 'media/image' : kind === 'video' ? 'media/video' : 'media/audio',
+        const mediaKind = kind === 'picture' ? 'media/image' : kind === 'video' ? 'media/video' : 'media/audio'
+        const result = await importAssetFile(file, {
+          baseUrl: entry.baseUrl, connection, destination: target, signal: currentSignal,
+          kind: mediaKind, accept: [kind === 'picture' ? 'image/*' : kind === 'video' ? 'video/*' : 'audio/*'],
+          policy: assetUploadPolicy(mediaKind, this.options.uploadLimits(entry.baseUrl)),
+          current: () => !currentSignal.aborted && !this.disposed && this.entries.get().includes(entry) &&
+            this.options.mediaConnection(entry.baseUrl) === connection,
         })
         this.assertMediaCurrent(entry, currentSignal, connection)
+        if (!result) throw new Error('Board changed while importing; nothing was placed')
+        const asset = result.asset
         if (boardMediaKindOf(asset.mediaType) !== kind) throw new Error('Uploaded media has an unexpected kind')
         assets.push({ ...metadata, digest: asset.digest, mediaType: asset.mediaType, name: asset.name.slice(0, BOARD_MAX_NAME) })
       }

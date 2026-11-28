@@ -7,6 +7,7 @@ export function CollectionImage(props: {
   readonly class: string
   readonly alt: string
   readonly fallback: JSX.Element
+  readonly loading?: 'lazy' | 'eager'
   readonly onError?: () => void
   readonly onLoad?: JSX.EventHandler<HTMLImageElement, Event>
 }) {
@@ -27,7 +28,7 @@ export function CollectionImage(props: {
     )
   })
   return <Show when={!failed() ? props.entry.thumbUrl ?? rendered() : undefined} fallback={props.fallback}>
-    {(url) => <img class={props.class} src={url()} alt={props.alt} loading="lazy" decoding="async"
+    {(url) => <img class={props.class} src={url()} alt={props.alt} loading={props.loading ?? 'lazy'} decoding="async"
       onError={() => { setFailed(true); props.onError?.() }} onLoad={props.onLoad} />}
   </Show>
 }

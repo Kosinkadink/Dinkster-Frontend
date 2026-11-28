@@ -138,6 +138,46 @@ it('retires account caches and the event stream on verified identity changes, ne
   connection.disconnect()
 })
 
+it('rejects a progress upload retired by an account change and accepts a new upload', async () => {
+  let revision = 'local'
+  const requests: UploadRequest[] = []
+  class UploadRequest {
+    onload: (() => void) | null = null
+    onerror: (() => void) | null = null
+    onabort: (() => void) | null = null
+    upload = { onprogress: null }
+    status = 200
+    responseText = JSON.stringify({ kind: 'media/image', asset: { digest: `blake3:${'a'.repeat(64)}`, name: 'accepted.png',
+      size: 3, mediaType: 'image/png', virtualPath: 'mounts/input/accepted.png' } })
+    open() {}
+    setRequestHeader() {}
+    getResponseHeader() { return 'application/json' }
+    send() { requests.push(this) }
+    abort() { this.onabort?.() }
+  }
+  vi.stubGlobal('XMLHttpRequest', UploadRequest)
+  vi.stubGlobal('fetch', async () => jsonResponse(200, {
+    available: true, canStartSignIn: true, signInUnavailableReason: null, signedIn: revision !== 'local',
+    profile: null, signIn: { state: 'idle' }, principalRevision: revision,
+  }))
+  try {
+    const connection = new DinksterConnection({ id: C0, baseUrl: 'http://native', clientId: 'browser' })
+    await connection.accountStatus()
+    const file = new File(['png'], 'picked.png', { type: 'image/png' })
+    const options = { scope: 'local', kind: 'media/image' as const, name: file.name, onProgress: () => undefined }
+    const old = connection.uploadMediaAsset(file, options)
+    const refused = expect(old).rejects.toThrow('Account changed')
+    const late = requests[0]!.onload!
+    revision = 'verified-a'
+    await connection.accountStatus()
+    late()
+    await refused
+    const next = connection.uploadMediaAsset(file, options)
+    requests[1]!.onload!()
+    expect(await next).toMatchObject({ name: 'accepted.png', virtualPath: 'mounts/input/accepted.png', size: 3 })
+  } finally { vi.unstubAllGlobals() }
+})
+
 it('decodes and revalidates static registry import metadata without backend credentials or installed schemas', async () => {
   const row = { pack: 'dinkster-text', version: '0.0.1',
     rule: { from: 'StringLength', cases: [{ to: 'dinkster.text.string_length',
@@ -752,6 +792,32 @@ describe('shared model management', () => {
     expect(urls[0]?.searchParams.get('recursive')).toBe('false')
     expect(urls[1]?.searchParams.get('path')).toBe('nested')
   })
+
+  it('pages the requested mount scope in server order with modification times', async () => {
+    const calls: { url: URL; signal: AbortSignal | null | undefined }[] = []
+    const entry = { virtualPath: 'mounts/output/nested/a.png', name: 'a.png', digest: 'blake3:a', size: 7, mediaType: 'image/png', modifiedAt: 1700000123.75 }
+    let status = 200
+    const connection = new DinksterConnection({ id: C0, baseUrl: 'https://engine.example', clientId: 'test', project: 'work / client',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        calls.push({ url: new URL(url), signal: init?.signal })
+        return jsonResponse(status, { entries: [entry, { ...entry, modifiedAt: 'yesterday' }], cursor: 'next', total: 63 })
+      } })
+    const signal = new AbortController().signal
+    const page = await connection.listMountEntries(undefined, { q: 'a', recursive: true, sort: 'newest', limit: 60, signal })
+    expect(page).toEqual({ entries: [entry], cursor: 'next', total: 63 })
+    expect(calls[0]?.url.pathname).toBe('/api/mounts/entries')
+    expect(Object.fromEntries(calls[0]!.url.searchParams)).toEqual({ project: 'work / client', q: 'a', recursive: 'true', sort: 'newest', limit: '60' })
+    expect(calls[0]?.signal).toBe(signal)
+    await connection.listMountEntries('output / extra', { path: 'nested', recursive: false, sort: 'name', cursor: page.cursor! })
+    expect(calls[1]?.url.pathname).toBe('/api/mounts/output%20%2F%20extra/entries')
+    expect(Object.fromEntries(calls[1]!.url.searchParams)).toEqual({ project: 'work / client', path: 'nested', recursive: 'false', sort: 'name', cursor: 'next' })
+    await connection.listMountEntries(undefined, { mountIds: ['input / local', 'output'], sort: 'newest' })
+    expect(calls[2]?.url.searchParams.getAll('mount')).toEqual(['input / local', 'output'])
+    expect(await connection.listMountEntries(undefined, { mountIds: [] })).toEqual({ entries: [], total: 0 })
+    expect(calls).toHaveLength(3)
+    status = 400
+    await expect(connection.listMountEntries(undefined, { cursor: page.cursor! })).rejects.toMatchObject({ status: 400, path: '/api/mounts/entries' })
+  })
 })
 
 describe('mount listing decode', () => {
@@ -786,7 +852,7 @@ describe('mount listing decode', () => {
 
   it.each([200, 503])('answers an older mount read with the newer snapshot after a late HTTP %s response', async (status) => {
     let finish!: (response: Response) => void
-    const current = { mounts: [{ id: 'current', mode: 'readwrite', state: 'ready' }], mountChangesAllowed: true, outputMount: 'current' }
+    const current = { mounts: [{ id: 'current', mode: 'readwrite', state: 'ready' }], mountChangesAllowed: true, outputMount: 'current', importMount: 'incoming' }
     const fetchFn = vi.fn<FetchLike>()
       .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
       .mockResolvedValue(jsonResponse(200, current))

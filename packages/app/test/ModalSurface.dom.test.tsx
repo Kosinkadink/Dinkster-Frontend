@@ -3,11 +3,12 @@
 import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DinksterConnection, RequestFailure } from '@dinkster/client'
-import { asConnectionId, createSignal as createCoreSignal, setLocale, type NodeSchema } from '@dinkster/core'
+import { buildDinksterRegistry, DinksterConnection, RequestFailure } from '@dinkster/client'
+import { asConnectionId, createSignal as createCoreSignal, DINKSTER_SCHEMA_WIRE_VERSION, setLocale, type NodeSchema } from '@dinkster/core'
 import type { AppState, Tab } from '../src/app-state.js'
 import { ModalSurface } from '../src/ModalSurface.js'
 import { WidgetEditor, type WidgetEditorState } from '../src/WidgetEditor.js'
+import { createAssetFieldImports } from '../src/asset-field-imports.js'
 import { createWorkflowApp } from './fixtures/workflow-app.js'
 import { importLitegraph } from '@dinkster/core'
 
@@ -16,6 +17,14 @@ const assetLocationMethods = {
   fetchMountSettings: async () => ({ mounts: [], mountChangesAllowed: false }),
   fetchMountLocations: async () => ({ mounts: [], activeMounts: [], importMount: null }),
   onMountsChanged: () => () => {},
+}
+
+async function modelChoices(root: HTMLElement, count: number) {
+  await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="logical-model-refresh"]')?.disabled).toBe(false))
+  await vi.waitFor(() => expect(root.querySelector('.dinkster-models button')).not.toBeNull())
+  for (const group of root.querySelectorAll<HTMLButtonElement>('.dinkster-models button[aria-expanded="false"]')) group.click()
+  await vi.waitFor(() => expect(root.querySelectorAll('.dinkster-models button[aria-pressed]')).toHaveLength(count))
+  return root.querySelectorAll<HTMLButtonElement>('.dinkster-models button[aria-pressed]')
 }
 
 beforeEach(() => {
@@ -28,6 +37,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  delete window.dinksterDesktop
   document.body.replaceChildren()
   setLocale('en')
   vi.restoreAllMocks()
@@ -106,7 +116,7 @@ function mountWidget(ed: WidgetEditorState) {
   const root = document.createElement('div')
   document.body.append(root)
   const close = vi.fn()
-  const dispatchEditTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
+  const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
   const queue = { run: vi.fn() }
   let clickAway: (() => void) | undefined
   const [open, setOpen] = createSignal(true)
@@ -121,7 +131,7 @@ function mountWidget(ed: WidgetEditorState) {
         }),
       },
     }),
-    dispatchEditTo,
+    dispatchEditTo: dispatchTo,
     widgetRegistry: { kind: () => undefined },
     widgetRegistryForTab: () => app.widgetRegistry,
   } as unknown as AppState
@@ -136,7 +146,7 @@ function mountWidget(ed: WidgetEditorState) {
       />
     </Show>
   ), root)
-  return { root, close, dispatchEditTo, queue, setViewport, clickAway: () => clickAway?.(), unmount }
+  return { root, close, dispatchTo, queue, setViewport, clickAway: () => clickAway?.(), unmount }
 }
 
 describe('ModalSurface', () => {
@@ -170,10 +180,10 @@ describe('ModalSurface', () => {
         },
       })
       Object.assign(connection, assetLocationMethods)
-      const dispatchEditTo = vi.fn()
+      const dispatchTo = vi.fn()
       const app = { backendForTab: () => ({ protocol: 'dinkster', connection }), registryForTab: () => undefined,
         workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
-        dispatchEditTo } as unknown as AppState
+        dispatchEditTo: dispatchTo } as unknown as AppState
       const root = document.createElement('div'); document.body.append(root)
       const [open, setOpen] = createSignal(true)
       const unmount = render(() => <Show when={open()}><WidgetEditor app={app} ed={ed}
@@ -186,7 +196,7 @@ describe('ModalSurface', () => {
         expect(root.querySelector('dialog')).toBeNull()
         expect(requests).toEqual([local ? 'http://editor-source/api/assets/local/source-grant'
           : `http://editor-source/api/assets/blake3%3A${'a'.repeat(64)}`])
-        expect(dispatchEditTo).not.toHaveBeenCalled()
+        expect(dispatchTo).not.toHaveBeenCalled()
       } finally { finish?.(); unmount(); connection.disconnect() }
     },
   )
@@ -280,51 +290,94 @@ describe('ModalSurface', () => {
 })
 
 describe('ASSET widget modal integration', () => {
-  it('composes local and mounted media and retains local picks after mount failure', async () => {
-    const ref = (letter: string, name: string) => ({ digest: `blake3:${letter.repeat(64)}`, name, size: 12, mediaType: 'image/png', virtualPath: `images/${name}` })
-    const local = ref('a', 'local.png')
-    const mounted = ref('b', 'mounted.png')
-    const missing = ref('d', 'missing.png')
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'))
-    const connection = {
-      ...assetLocationMethods,
-      listMounts: vi.fn().mockResolvedValue([{ id: 'pictures', mode: 'read', state: 'ready', kind: 'media/image' }]),
-      listMountEntries: vi.fn().mockResolvedValue({ entries: [{ ...mounted, kind: 'media/image' }] }),
-      listLocalAssets: vi.fn().mockResolvedValue({ assets: [local, missing].map((asset) => ({ asset, aliases: [], observations: [{ kind: 'media/image', created: 1, origin: {} }] })) }),
-      checkAssetAvailability: vi.fn().mockResolvedValue([{ digest: local.digest, status: 'available' }, { digest: missing.digest, status: 'missing' }]),
-      assetUrl: (digest: string) => `/assets/${digest}`,
-      fetchAssetBytes: vi.fn().mockResolvedValue(undefined),
-    }
-    const dispatchEditTo = vi.fn()
+  it.each([1, 2])('browses scoped files, subfolders and scroll pages before committing with %s mounts', async (count) => {
+    localStorage.clear()
+    const ref = (name: string) => ({ digest: `blake3:${'b'.repeat(64)}`, name, size: 12,
+      mediaType: 'image/png', kind: 'media/image', virtualPath: `mounts/pictures/${name}` })
+    const requests: URL[] = []
+    const connection = new DinksterConnection({ id: asConnectionId('native'), baseUrl: 'http://native', clientId: 'picker-test',
+      fetchFn: async (url) => {
+        const request = new URL(url); requests.push(request)
+        if (request.pathname === '/api/mounts') return new Response(JSON.stringify({ mounts: [
+          { id: 'pictures', mode: 'read', state: 'ready', kind: 'media/image' },
+          ...(count === 2 ? [{ id: 'archive', mode: 'read', state: 'ready', kind: 'media/image' }] : []),
+          { id: 'absent', mode: 'read', state: 'failed', kind: 'media/image' },
+          { id: 'models', mode: 'read', state: 'ready', kind: 'model/checkpoint' },
+        ], mountChangesAllowed: false }))
+        if (request.pathname === '/api/mounts/entries') return new Response(JSON.stringify(request.searchParams.has('cursor')
+          ? { entries: [ref('older.png')], total: 61 }
+          : { entries: Array.from({ length: 60 }, (_, index) => ref(`recent-${index}.png`)), cursor: 'more', total: 61 }))
+        if (request.pathname === '/api/mounts/pictures/entries') {
+          const deep = request.searchParams.get('recursive') === 'true'
+          const path = request.searchParams.get('path')
+          const search = request.searchParams.has('q')
+          return new Response(JSON.stringify({
+            entries: search ? deep ? [ref('portraits/nested/final.png')] : [] : [ref(path ? 'portraits/direct.png' : 'root.png')],
+            folders: !deep && !search ? [path ? 'nested' : 'portraits'] : [],
+          }))
+        }
+        return new Response(JSON.stringify({ entries: [], assets: [], locations: [] }))
+      },
+    })
+    const dispatchTo = vi.fn()
     const backend = { protocol: 'dinkster', id: 'native', connection }
-    const app = { backendForTab: () => backend, retainPickerAssets: vi.fn().mockResolvedValue(undefined), dispatchEditTo, widgetRegistry: { kind: () => undefined } } as unknown as AppState
+    const app = { backendForTab: () => backend, retainPickerAssets: vi.fn().mockResolvedValue(undefined), dispatchEditTo: dispatchTo, widgetRegistry: { kind: () => undefined } } as unknown as AppState
     const ed: WidgetEditorState = {
-      ...widgetState('ASSET', { accept: ['image/png'] }, missing),
-      missingAssetDigest: missing.digest,
+      ...widgetState('ASSET', { accept: ['image/png'] }, null),
       spec: { widgetType: 'ASSET', kind: 'media/image', options: { accept: ['image/png'] } },
     }
-    for (const offline of [false, true]) {
-      if (offline) connection.listMounts.mockRejectedValue(new RequestFailure('GET', '/api/mounts', undefined, 'Mount discovery offline'))
-      const root = document.createElement('div')
-      document.body.append(root)
-      const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(offline ? 1 : 2))
-      expect(connection.fetchAssetBytes).not.toHaveBeenCalled()
-      const names = [...root.querySelectorAll('[data-testid="collection-entry"]')].map((entry) => entry.textContent)
-      expect(names.some((name) => name?.includes('local.png'))).toBe(true)
-      expect(names.some((name) => name?.includes('mounted.png'))).toBe(!offline)
-      if (offline) expect(root.textContent).toContain('Mount discovery offline')
-      const pick = [...root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')].find((entry) => entry.textContent?.includes(offline ? 'local.png' : 'mounted.png'))!
-      pick.click()
-      await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
-      root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-      expect(dispatchEditTo).toHaveBeenLastCalledWith(ed.tab, {
-        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: offline ? local : mounted },
-      })
-      dispose()
-      root.remove()
-      connection.fetchAssetBytes.mockClear()
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
+    const choose = (testId: string, id: string) => {
+      root.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!.click()
+      document.querySelector<HTMLElement>(`[data-option-id="${id}"]`)!.click()
     }
+    const depth = (value: boolean) => {
+      const input = root.querySelector<HTMLInputElement>(`[aria-label="Folder depth"] input[value="${value}"]`)!
+      input.checked = true; input.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    try {
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(60))
+      expect(root.querySelector('[data-testid="collection-search"]')?.getAttribute('aria-label')).toBe('Search images')
+      expect(root.querySelector('[data-testid="asset-apply"]')?.textContent).toContain('Use image')
+      const first = requests.find((request) => request.pathname === '/api/mounts/entries')!
+      expect(first.searchParams.getAll('mount')).toEqual(count === 1 ? ['pictures'] : ['pictures', 'archive'])
+      expect(first.searchParams.get('sort')).toBe('newest')
+      const viewport = root.querySelector<HTMLElement>('[data-testid="collection-items"]')!
+      expect(viewport.dataset.mode).toBe('grid')
+      expect(root.querySelector('[data-testid="collection-more"]')).toBeNull()
+      Object.defineProperties(viewport, { clientHeight: { value: 200 }, scrollHeight: { value: 1000 } })
+      viewport.scrollTop = 800; viewport.dispatchEvent(new Event('scroll'))
+      await vi.waitFor(() => expect(root.textContent).toContain('older.png'))
+      root.querySelector<HTMLButtonElement>('[data-testid="asset-source-select"]')!.click()
+      expect(document.querySelector('[data-option-id="mount:absent"]')).toBeNull()
+      expect(document.querySelector('[data-option-id="mount:models"]')).toBeNull()
+      document.querySelector<HTMLElement>('[data-option-id="mount:pictures"]')!.click()
+      depth(false)
+      await vi.waitFor(() => expect(root.querySelector('[data-entry="mount:pictures:portraits"]')).not.toBeNull())
+      root.querySelector<HTMLElement>('[data-entry="mount:pictures:portraits"]')!.click()
+      await vi.waitFor(() => expect(root.textContent).toContain('pictures/portraits, this folder only'))
+      const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
+      search.value = 'final'; search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      await vi.waitFor(() => expect(root.textContent).toContain('No images match "final".'))
+      depth(true)
+      await vi.waitFor(() => expect(root.textContent).toContain('portraits/nested/final.png'))
+      expect(search.value).toBe('final')
+      expect(root.textContent).toContain('pictures/portraits, with subfolders')
+      const names = root.querySelector<HTMLInputElement>('[aria-label="File view"] input[value="list"]')!
+      names.checked = true; names.dispatchEvent(new Event('change', { bubbles: true }))
+      expect(root.querySelector<HTMLElement>('[data-testid="collection-items"]')?.dataset.mode).toBe('list')
+      choose('asset-sort-select', 'name')
+      await vi.waitFor(() => expect(requests.at(-1)?.searchParams.get('sort')).toBe('name'))
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-entry"]')).not.toBeNull())
+      root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+      await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('final.png'))
+      expect(dispatchTo).not.toHaveBeenCalled()
+      root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+      expect(dispatchTo).toHaveBeenLastCalledWith(ed.tab, {
+        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: expect.objectContaining({ name: 'portraits/nested/final.png', virtualPath: 'mounts/pictures/portraits/nested/final.png' }) },
+      })
+    } finally { dispose(); connection.disconnect(); localStorage.clear() }
   })
 
   const catalogAssetEditor = (
@@ -332,11 +385,12 @@ describe('ASSET widget modal integration', () => {
     declaredType: WidgetEditorState['declaredType'] = { kind: 'concrete', name: 'ASSET' },
     initial: WidgetEditorState['initial'] = null,
     mountEditor = true,
+    inRow = false,
   ) => {
     const root = document.createElement('div')
     document.body.append(root)
     const close = vi.fn()
-    const dispatchEditTo = vi.fn()
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const digestA = `blake3:${'a'.repeat(64)}`
     const digestB = `blake3:${'b'.repeat(64)}`
     const connection = {
@@ -345,7 +399,7 @@ describe('ASSET widget modal integration', () => {
         { id: 'left', mode: 'read', state: 'ready', kind },
         { id: 'right', mode: 'read', state: 'ready', kind },
       ]),
-      listMountEntries: vi.fn(async (mountId: string) => ({
+      listMountEntries: vi.fn(async (mountId: string | undefined, _request?: { q?: string; cursor?: string }) => ({
         entries: mountId === 'left'
           ? [{ digest: digestA, name: 'shared.safetensors', size: 100, mediaType: 'application/x-safetensors', kind, virtualPath: 'a/shared.safetensors' }]
           : [{ digest: digestB, name: 'shared.safetensors', size: 200, mediaType: 'application/x-safetensors', kind, virtualPath: 'b/shared.safetensors' }],
@@ -362,43 +416,301 @@ describe('ASSET widget modal integration', () => {
       multiline: false,
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial,
+      ...(inRow ? { inRow: { look: 'original' as const, nodeTop: 0, nodeBottom: 100, storedAtOpen: initial } } : {}),
     }
     const backend = { protocol: 'dinkster', id: 'native', connection }
     const retainPickerAssets = vi.fn().mockResolvedValue(undefined)
     const app = {
       backendForTab: () => backend,
       retainPickerAssets,
-      dispatchEditTo,
+      dispatchEditTo: dispatchTo,
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = mountEditor
       ? render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
       : () => {}
-    return { root, close, dispatchEditTo, connection, ed, digestA, digestB, unmount, app, retainPickerAssets }
+    return { root, close, dispatchTo, connection, ed, digestA, digestB, unmount, app, retainPickerAssets }
   }
+
+  it('picks a scalar file directly from the row and refuses a pick after its document changes', async () => {
+    const mounted = catalogAssetEditor('file/binary', undefined, null, true, true)
+    try {
+      await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
+      expect(mounted.root.querySelector('[data-editor-surface="asset-quick-list"]')).not.toBeNull()
+      expect(mounted.root.querySelector('dialog')).toBeNull()
+      const input = mounted.root.querySelector<HTMLInputElement>('input[role="combobox"]')!
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await vi.waitFor(() => expect(mounted.close).toHaveBeenCalledOnce())
+      expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
+        command: 'node.setValue', params: {
+          graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: {
+            digest: mounted.digestB, name: 'shared.safetensors', size: 200,
+            mediaType: 'application/x-safetensors', virtualPath: 'b/shared.safetensors',
+          },
+        },
+      })
+    } finally { mounted.unmount() }
+
+    const changed = catalogAssetEditor('file/binary', undefined, null, true, true)
+    try {
+      await vi.waitFor(() => expect(changed.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
+      Object.assign(changed.ed.tab.store, { revision: 1 })
+      changed.root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+      expect(changed.dispatchTo).not.toHaveBeenCalled()
+      expect(changed.close).not.toHaveBeenCalled()
+      expect(changed.root.textContent).toContain('The field changed.')
+    } finally { changed.unmount() }
+  })
+
+  it('opens the system chooser and leaves cancellation unchanged', async () => {
+    const mounted = catalogAssetEditor('file/binary', undefined, null, true, true)
+    try {
+      const chooser = mounted.root.querySelector<HTMLInputElement>('input[type="file"]')!
+      const clicked = vi.spyOn(chooser, 'click').mockImplementation(() => {})
+      const add = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.startsWith('Upload a file'))!
+      add.click()
+      expect(clicked).toHaveBeenCalledOnce()
+      expect(mounted.root.querySelector('dialog')).toBeNull()
+      chooser.dispatchEvent(new Event('change', { bubbles: true }))
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+      expect(mounted.close).not.toHaveBeenCalled()
+      expect(mounted.root.querySelector('dialog')).toBeNull()
+    } finally { mounted.unmount() }
+  })
+
+  it.each([null, {
+    generic: 7 * 1024 * 1024, 'media/image': 9 * 1024 * 1024, 'media/audio': 12 * 1024 * 1024,
+    'media/video': 18 * 1024 * 1024, 'media/model3d': 5 * 1024 * 1024, 'data/latent': 15 * 1024 * 1024,
+  }])('shows the quick-list import policy before choosing a file: %j', async (policy) => {
+    const mounted = catalogAssetEditor('file/binary', undefined, null, false, true)
+    const registry = buildDinksterRegistry(asConnectionId('native'), {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION, nodes: {}, dinkster: { uploadLimits: policy },
+    })
+    Object.assign(mounted.app, { registryForTab: () => registry })
+    const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(mounted.app, mounted.ed)} ed={mounted.ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    try {
+      const add = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+        button.textContent?.includes(policy === null ? 'Add a file from this computer' : 'Upload a file'))
+      expect(add).toBeDefined()
+      expect(add!.textContent).toContain(policy === null ? 'Any size' : 'Up to 7 MB')
+      const clicked = vi.spyOn(mounted.root.querySelector<HTMLInputElement>('input[type="file"]')!, 'click').mockImplementation(() => {})
+      add!.click()
+      expect(clicked).toHaveBeenCalledOnce()
+      expect(mounted.root.querySelector('dialog')).toBeNull()
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+    } finally { dispose() }
+  })
+
+  it('shows the focused file without changing the saved quick-list selection', async () => {
+    const initial = { digest: `blake3:${'b'.repeat(64)}`, name: 'saved.safetensors', size: 20,
+      mediaType: 'application/x-safetensors', virtualPath: 'mounts/left/saved.safetensors' }
+    const mounted = catalogAssetEditor('file/binary', undefined, initial, false, true)
+    mounted.connection.listMountEntries.mockResolvedValue({ entries: [
+      { ...initial, kind: 'file/binary' },
+      { ...initial, digest: mounted.digestA, name: 'other.safetensors', kind: 'file/binary', virtualPath: 'mounts/right/other.safetensors' },
+    ] })
+    const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(mounted.app, mounted.ed)} ed={mounted.ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    try {
+      await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-quick-caption"]')?.textContent).toContain('mounts/left/saved.safetensors'))
+      const rows = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
+      rows[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      expect(mounted.root.querySelector('[data-testid="asset-quick-caption"]')?.textContent).toContain('mounts/right/other.safetensors')
+      expect(rows[0]!.getAttribute('aria-selected')).toBe('true')
+      expect(rows[1]!.getAttribute('aria-selected')).toBe('false')
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+      rows[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await vi.waitFor(() => expect(mounted.close).toHaveBeenCalledOnce())
+      expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
+        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: {
+          ...initial, digest: mounted.digestA, name: 'other.safetensors', virtualPath: 'mounts/right/other.safetensors',
+        } },
+      })
+    } finally { dispose() }
+  })
+
+  it.each([false, true])('keeps a host-owned copy alive after its chooser closes, stopped=%s', async (stopped) => {
+    const spec = { widgetType: 'ASSET', kind: 'file/binary', options: { accept: ['application/x-safetensors'] } }
+    const schema: NodeSchema = { type: 'CopyFixture', displayName: 'Copy', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'input', id: 'asset', optional: false, type: { kind: 'concrete', name: 'ASSET' }, widget: spec }],
+    }
+    const doc = importLitegraph({ nodes: [{ id: 1, type: schema.type, widgets_values: [null] }], links: [] }, () => schema).document!
+    const app = createWorkflowApp([schema])
+    await app.openDocument(doc, 'Copy')
+    const tab = app.activeTab()!
+    const initial = { digest: `blake3:${'b'.repeat(64)}`, name: 'saved.safetensors', size: 20,
+      mediaType: 'application/x-safetensors', virtualPath: 'mounts/input/saved.safetensors' }
+    const imported = { ...initial, digest: `blake3:${'a'.repeat(64)}`, name: 'chosen.safetensors', size: 3,
+      virtualPath: 'mounts/input/chosen.safetensors' }
+    expect((await app.dispatchEditTo(tab, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'n1', inputId: 'asset', value: initial,
+    } })).ok).toBe(true)
+    vi.spyOn(app.connection, 'listMounts').mockResolvedValue([])
+    vi.spyOn(app.connection, 'fetchMountSettings').mockResolvedValue({ mounts: [], mountChangesAllowed: false })
+    let finish!: (asset: typeof imported) => void
+    let signal!: AbortSignal
+    vi.spyOn(app.connection, 'uploadNamedAsset').mockImplementation((_file, options) => {
+      signal = options!.signal!
+      return new Promise((resolve) => { finish = resolve })
+    })
+    const ed: WidgetEditorState = { tab, graphId: 'g0', target: { kind: 'input', nodeId: 'n1', valueKey: 'asset' },
+      label: 'File', spec, declaredType: { kind: 'concrete', name: 'ASSET' }, initial, multiline: false,
+      rect: { x: 20, y: 20, width: 180, height: 24 },
+      inRow: { look: 'original', nodeTop: 0, nodeBottom: 100, storedAtOpen: initial },
+    }
+    const imports = createAssetFieldImports(app, () => true)
+    const [open, setOpen] = createSignal(true)
+    const root = document.createElement('div'); document.body.append(root)
+    let pending: Promise<void> | undefined
+    const dispose = render(() => <Show when={open()}><WidgetEditor app={app} ed={ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })}
+      onAssetFileImport={(file) => { pending = imports.start(ed, file) }} onClose={() => setOpen(false)} /></Show>, root)
+    const stored = () => tab.store.doc.graphs['g0']!.nodes['n1']!.values['asset']
+    try {
+      const chooser = root.querySelector<HTMLInputElement>('input[type="file"]')!
+      Object.defineProperty(chooser, 'files', { value: [new File(['abc'], 'chosen.safetensors', { type: 'application/x-safetensors' })] })
+      chooser.dispatchEvent(new Event('change', { bubbles: true }))
+      expect(open()).toBe(false)
+      expect(root.querySelector('[data-testid="widget-editor"]')).toBeNull()
+      expect(root.querySelector('dialog')).toBeNull()
+      await vi.waitFor(() => expect(finish).toBeDefined())
+      expect(signal.aborted).toBe(false)
+      expect(stored()).toEqual(initial)
+      expect([...imports.states().values()][0]?.phase).toBe('copying')
+      if (stopped) {
+        imports.stop(ed)
+        expect(signal.aborted).toBe(true)
+      }
+      finish(imported)
+      await pending
+      expect(stored()).toEqual(stopped ? initial : imported)
+      expect(imports.states().size).toBe(0)
+    } finally { imports.dispose(); dispose(); app.dispose(); vi.unstubAllGlobals() }
+  })
+
+  it.each([true, false])('commits an imported quick-list file without a host only after successful import: %s', async (accepted) => {
+    const initial = { digest: `blake3:${'b'.repeat(64)}`, name: 'saved.safetensors', size: 20,
+      mediaType: 'application/x-safetensors', virtualPath: 'mounts/left/saved.safetensors' }
+    const mounted = catalogAssetEditor('file/binary', undefined, initial, false, true)
+    const imported = { digest: mounted.digestA, name: 'chosen.safetensors', size: 3,
+      mediaType: 'application/x-safetensors', virtualPath: 'mounts/left/chosen.safetensors' }
+    const upload = vi.fn().mockResolvedValue(imported)
+    Object.assign(mounted.connection, {
+      uploadNamedAsset: upload, listLocalAssets: async () => ({ assets: [] }), checkAssetAvailability: async () => [],
+    })
+    const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(mounted.app, mounted.ed)} ed={mounted.ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    try {
+      const chooser = mounted.root.querySelector<HTMLInputElement>('input[type="file"]')!
+      Object.defineProperty(chooser, 'files', { value: [new File(['abc'], accepted ? 'chosen.safetensors' : 'wrong.txt', {
+        type: accepted ? 'application/x-safetensors' : 'text/plain',
+      })] })
+      chooser.dispatchEvent(new Event('change', { bubbles: true }))
+      expect(mounted.root.querySelector('dialog')).not.toBeNull()
+      if (accepted) {
+        await vi.waitFor(() => expect(mounted.close).toHaveBeenCalledOnce())
+        expect(upload).toHaveBeenCalledOnce()
+        expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
+          command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: imported },
+        })
+      } else {
+        await vi.waitFor(() => expect(mounted.root.textContent).toContain('Unsupported file type: text/plain'))
+        expect(upload).not.toHaveBeenCalled()
+        expect(mounted.dispatchTo).not.toHaveBeenCalled()
+        expect(mounted.close).not.toHaveBeenCalled()
+      }
+      expect(mounted.ed.initial).toEqual(initial)
+    } finally { dispose() }
+  })
+
+  it.each([1, 2])('keeps quick-list mount scope through filtering, views and scroll pages with %s mounts', async (count) => {
+    const scopeKey = 'dinkster.asset-quick-scope:file/binary'
+    const viewKey = 'dinkster.asset-quick-view:file/binary'
+    localStorage.removeItem(scopeKey); localStorage.removeItem(viewKey)
+    const mounted = catalogAssetEditor('file/binary', undefined, null, false, true)
+    mounted.connection.listMounts.mockResolvedValue([
+      { id: 'left', mode: 'read', state: 'ready', kind: 'file/binary' },
+      ...(count === 2 ? [{ id: 'right', mode: 'read', state: 'ready', kind: 'file/binary' }] : []),
+      { id: 'absent', mode: 'read', state: 'missing', kind: 'file/binary' },
+    ])
+    mounted.connection.listMountEntries.mockImplementation(async (_mountId, request) => ({
+      entries: [{ digest: mounted.digestA, name: request?.cursor ? 'older.safetensors' : 'newer.safetensors', size: 10,
+        mediaType: 'application/x-safetensors', kind: 'file/binary', virtualPath: `mounts/left/${request?.cursor ? 'older' : 'newer'}.safetensors` }],
+      ...(request?.cursor ? {} : { cursor: 'next' }),
+    }))
+    const dispose = render(() => <WidgetEditor app={prepareAssetEditorApp(mounted.app, mounted.ed)} ed={mounted.ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    try {
+      await vi.waitFor(() => expect(mounted.root.textContent).toContain('newer.safetensors'))
+      expect(mounted.connection.listMountEntries).toHaveBeenLastCalledWith(undefined, expect.objectContaining({
+        mountIds: count === 1 ? ['left'] : ['left', 'right'], recursive: true, sort: 'newest',
+      }))
+      const mount = mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-quick-mount"]')
+      if (count === 1) expect(mount).toBeNull()
+      else {
+        mount!.click()
+        expect(document.querySelector('[data-option-id="mount:absent"]')).toBeNull()
+        document.querySelector<HTMLElement>('[data-option-id="mount:right"]')!.click()
+        await vi.waitFor(() => expect(mounted.connection.listMountEntries).toHaveBeenLastCalledWith('right', expect.anything()))
+        expect(localStorage.getItem(scopeKey)).toBe('mount:right')
+      }
+      const field = mounted.root.querySelector<HTMLInputElement>('input[role="combobox"]')!
+      field.value = 'newer'; field.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      await vi.waitFor(() => expect(mounted.connection.listMountEntries).toHaveBeenLastCalledWith(count === 1 ? undefined : 'right', expect.objectContaining({ q: 'newer', recursive: true, sort: 'newest' })))
+      const pictures = mounted.root.querySelector<HTMLInputElement>('input[type="radio"][value="grid"]')!
+      pictures.click()
+      expect(mounted.root.querySelector('.collection-items.grid')).not.toBeNull()
+      expect(localStorage.getItem(viewKey)).toBe('grid')
+      const viewport = mounted.root.querySelector<HTMLElement>('[data-testid="collection-items"]')!
+      Object.defineProperties(viewport, { clientHeight: { value: 200 }, scrollHeight: { value: 1000 } })
+      viewport.scrollTop = 800; viewport.dispatchEvent(new Event('scroll'))
+      await vi.waitFor(() => expect(mounted.root.textContent).toContain('older.safetensors'))
+      expect(mounted.connection.listMountEntries).toHaveBeenLastCalledWith(count === 1 ? undefined : 'right', expect.objectContaining({ q: 'newer', cursor: 'next', recursive: true, sort: 'newest' }))
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+      dispose()
+      const reopened = render(() => <WidgetEditor app={mounted.app} ed={mounted.ed}
+        viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+      try {
+        await vi.waitFor(() => expect(mounted.root.textContent).toContain('newer.safetensors'))
+        expect(mounted.connection.listMountEntries).toHaveBeenLastCalledWith(count === 1 ? undefined : 'right', expect.not.objectContaining({ q: 'newer' }))
+        expect(mounted.root.querySelector('.collection-items.grid')).not.toBeNull()
+      } finally { reopened() }
+    } finally { dispose(); localStorage.removeItem(scopeKey); localStorage.removeItem(viewKey) }
+  })
 
   it('uses grouped model variants with kind-scoped scans and commits an exact variant ref', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
+    const choices = await modelChoices(mounted.root, 2)
 
     // Model kinds show no upload-limit copy: the generic 16 MiB enforcement
     // bound is not an authoritative model limit.
-    expect(mounted.root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).not.toContain('per file')
-    expect(mounted.root.querySelectorAll('[data-testid="collection-group"]')).toHaveLength(1)
+    expect(mounted.root.textContent).not.toContain('per file')
     expect(mounted.root.querySelectorAll('[data-testid="logical-model-conflict"]')).toHaveLength(0)
-    expect(mounted.root.querySelector('[data-testid="collection-panel"]')).not.toBeNull()
-    expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')?.disabled).toBe(true)
+    expect(mounted.root.querySelector('input[aria-label="Search models"]')).not.toBeNull()
+    expect(mounted.root.querySelector('[data-testid="asset-upload-trigger"]')).toBeNull()
     expect(mounted.connection.listMountEntries).toHaveBeenCalledWith('left', expect.objectContaining({
       kind: 'model/checkpoint', recursive: true,
     }))
-    const choices = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
     choices[1]!.click()
-    await vi.waitFor(() => expect(choices[1]!.classList.contains('selected')).toBe(true))
+    await vi.waitFor(() => expect(choices[1]!.getAttribute('aria-pressed')).toBe('true'))
     expect(mounted.root.querySelectorAll('[data-testid="logical-model-conflict"]')).toHaveLength(1)
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    choices[0]!.focus()
+    expect(choices[1]!.getAttribute('aria-pressed')).toBe('true')
+    expect(choices[0]!.getAttribute('aria-pressed')).toBe('false')
+    expect(mounted.root.querySelector('[data-testid="logical-model-variant-details"]')?.textContent).toContain('a/shared.safetensors')
+    const search = mounted.root.querySelector<HTMLInputElement>('input[aria-label="Search models"]')!
+    search.value = 'absent-model'
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(mounted.root.textContent).toContain('No matching models')
+    expect(mounted.root.querySelector('.dinkster-models button')).toBeNull()
+    search.value = 'shared'
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+    await modelChoices(mounted.root, 2)
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(mounted.ed.tab, {
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
       command: 'node.setValue',
       params: {
         graphId: 'g0', nodeId: 'n0', inputId: 'asset',
@@ -414,6 +726,38 @@ describe('ASSET widget modal integration', () => {
     mounted.unmount()
   })
 
+  it('scopes model grouping to the chosen folder without changing the staged file', async () => {
+    const mounted = catalogAssetEditor('model/checkpoint', undefined, null, false)
+    const right = { digest: mounted.digestA, name: 'shared.safetensors', size: 100,
+      mediaType: 'application/x-safetensors', kind: 'model/checkpoint', virtualPath: 'z/shared.safetensors' }
+    mounted.connection.listMountEntries.mockImplementation(async (mount) => ({ entries: [
+      mount === 'right' ? right : { ...right, virtualPath: 'a/shared.safetensors' },
+    ] }))
+    const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(mounted.app, mounted.ed)} ed={mounted.ed}
+      viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
+    try {
+      await modelChoices(mounted.root, 1)
+      const folder = () => mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-model-folder"]')!
+      expect(folder()?.textContent).toContain('All model folders')
+      folder().click()
+      document.querySelector<HTMLElement>('[data-option-id="mount:right"]')!.click()
+      const choices = await modelChoices(mounted.root, 1)
+      choices[0]!.click()
+      await vi.waitFor(() => expect(choices[0]!.getAttribute('aria-pressed')).toBe('true'))
+      expect(mounted.root.querySelector('[data-testid="logical-model-variant-details"]')?.textContent).toContain('z/shared.safetensors')
+      folder().click()
+      document.querySelector<HTMLElement>('[data-option-id="mount:left"]')!.click()
+      await modelChoices(mounted.root, 1)
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
+      mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
+      expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
+        command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset',
+          value: { digest: mounted.digestA, name: right.name, size: right.size,
+            mediaType: right.mediaType, virtualPath: right.virtualPath } },
+      })
+    } finally { unmount() }
+  })
+
   it('does not commit a pending pick after cancellation', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
     let complete!: () => void
@@ -427,7 +771,7 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.close).toHaveBeenCalledOnce()
     complete()
     await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     unmount()
   })
 
@@ -447,6 +791,7 @@ describe('ASSET widget modal integration', () => {
       vi.spyOn(app.connection, 'listMounts').mockResolvedValue([{ id: 'models', mode: 'read', state: 'ready', kind: 'model/checkpoint' }])
       vi.spyOn(app.connection, 'listMountEntries').mockResolvedValue({ entries: [{ ...ref, kind: 'model/checkpoint' }] })
       vi.spyOn(app.connection, 'fetchAssetLocations').mockResolvedValue([])
+      const dispatch = vi.spyOn(app, 'dispatchEditTo')
       const root = document.createElement('div'); document.body.append(root)
       const mountPicker = () => render(() => <WidgetEditor app={app} ed={{ tab, graphId: 'g0',
         target: { kind: 'input', nodeId: 'n1', valueKey: 'asset' }, label: 'Model',
@@ -456,8 +801,8 @@ describe('ASSET widget modal integration', () => {
       }} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
       let unmount = mountPicker()
       try {
-        await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
-        if (!stored) root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+        const choices = await modelChoices(root, 1)
+        if (!stored) choices[0]!.click()
         await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain(ref.name))
         await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
         if (scenario === 'edited') expect((await app.dispatchEditTo(tab, { command: 'node.setValue', params: {
@@ -475,86 +820,54 @@ describe('ASSET widget modal integration', () => {
           app.connection.connect()
           app.dispose()
         }
-        const before = tab.store.doc
+        dispatch.mockClear()
         root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
         if (scenario === 'live') {
-          await vi.waitFor(() => expect(tab.store.doc.graphs.g0!.nodes.n1!.values.asset).toEqual(ref))
+          await vi.waitFor(() => expect(dispatch).toHaveBeenCalledWith(tab, expect.objectContaining({
+            command: 'node.setValue', params: expect.objectContaining({ value: ref }),
+          })))
         } else {
           expect(root.querySelector('.asset-error')?.textContent)
             .toContain('The edit was not accepted. Retry or cancel to keep the stored value.')
-          expect(tab.store.doc).toEqual(before)
+          expect(dispatch).not.toHaveBeenCalled()
         }
       } finally { unmount(); app.dispose(); vi.unstubAllGlobals() }
     },
   )
 
-  it('stages an empty selection through Remove and only commits at the footer', async () => {
+  it('stages an empty selection through Clear selection and only commits at the footer', async () => {
     const mounted = catalogAssetEditor('model/checkpoint')
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
+    const choices = await modelChoices(mounted.root, 2)
 
     expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).toBeNull()
-    mounted.root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+    choices[0]!.click()
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).not.toBeNull())
     const remove = mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-selection-remove"]')
     expect(remove).not.toBeNull()
+    expect(remove?.textContent).toContain('Clear selection')
     remove!.click()
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-selection-remove"]')).toBeNull())
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(mounted.ed.tab, {
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'asset', value: null },
     })
     mounted.unmount()
   })
 
-  it('offers media source facets by adapter ID while retaining unclassified assets only in All assets', async () => {
-    const mounted = catalogAssetEditor('media/image', undefined, null, false)
-    mounted.connection.listMounts.mockResolvedValue([
-      { id: 'comfy-input', mode: 'read', state: 'ready', kind: 'media/image' },
-      { id: 'comfy-output', mode: 'read', state: 'ready', kind: 'media/image' },
-      { id: 'archive', mode: 'read', state: 'ready', kind: 'media/image' },
-    ])
-    mounted.connection.listMountEntries.mockImplementation(async (mountId: string) => ({ entries: [{
-      digest: `blake3:${mountId === 'comfy-input' ? '1' : mountId === 'comfy-output' ? '2' : '3'}`.padEnd(71, mountId === 'archive' ? '3' : '0'),
-      name: `${mountId}.png`, size: 10, mediaType: 'application/x-safetensors', kind: 'media/image', virtualPath: `${mountId}.png`,
-    }] }))
-    const root = document.createElement('div')
-    document.body.append(root)
-    const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(({ backendForTab: () => ({ protocol: 'dinkster', id: 'native', connection: mounted.connection }), dispatchEditTo: vi.fn(), widgetRegistry: { kind: () => undefined } } as unknown as AppState), mounted.ed)} ed={mounted.ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
-    await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(3))
-    expect(root.textContent).toContain('archive.png')
-    const source = root.querySelector<HTMLButtonElement>('[data-testid="collection-source-select"]')!
-    expect(source.textContent).toContain('All assets')
-    source.click()
-    expect(document.body.textContent).toContain('Imported')
-    expect(document.body.textContent).toContain('Generated')
-    Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent === 'Imported')!.click()
-    await vi.waitFor(() => expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1))
-    expect(root.textContent).toContain('comfy-input.png')
-    expect(root.textContent).not.toContain('archive.png')
-    root.querySelector<HTMLButtonElement>('[data-testid="collection-source-select"]')!.click()
-    Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]')).find((option) => option.textContent === 'Generated')!.click()
-    await vi.waitFor(() => expect(root.textContent).toContain('comfy-output.png'))
-    expect(root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(1)
-    expect(root.textContent).toContain('comfy-output.png')
-    expect(root.textContent).not.toContain('comfy-input.png')
-    expect(root.textContent).not.toContain('archive.png')
-    unmount()
-  })
-
   it('stages exact grouped variant refs for one multi-select Apply command', async () => {
     const mounted = catalogAssetEditor('model/checkpoint', {
       kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.MODEL' } },
     })
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
-    mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')[1]!.click()
+    const choices = await modelChoices(mounted.root, 2)
+    choices[1]!.click()
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="asset-chip"]')?.textContent).toContain('shared.safetensors'))
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo.mock.calls[0]?.[1]).toMatchObject({
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
       command: 'node.setValue',
       params: { value: [{
         digest: mounted.digestB,
@@ -578,18 +891,16 @@ describe('ASSET widget modal integration', () => {
     const mounted = catalogAssetEditor('model/checkpoint', {
       kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.MODEL' } },
     }, [aliasRef])
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
-    const canonical = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')[0]!
+    const canonical = (await modelChoices(mounted.root, 2))[0]!
 
-    expect(canonical.getAttribute('aria-selected')).toBe('true')
-    expect(canonical.classList.contains('selected')).toBe(true)
+    expect(canonical.getAttribute('aria-pressed')).toBe('true')
     expect(mounted.root.querySelector('[data-testid="logical-model-variant-details"]')).not.toBeNull()
     canonical.click()
     await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(0))
     canonical.click()
     await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="asset-chip"]')).toHaveLength(1))
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    const value = (mounted.dispatchEditTo.mock.calls[0]?.[1] as { params: { value: readonly typeof aliasRef[] } }).params.value
+    const value = (mounted.dispatchTo.mock.calls[0]?.[1] as { params: { value: readonly typeof aliasRef[] } }).params.value
     expect(value).toHaveLength(1)
     expect(value[0]).toEqual({
       digest: aliasRef.digest,
@@ -614,10 +925,10 @@ describe('ASSET widget modal integration', () => {
     const mounted = catalogAssetEditor('model/checkpoint', {
       kind: 'list', element: { kind: 'asset', element: { kind: 'concrete', name: 'comfy.MODEL' } },
     }, [first, second])
-    await vi.waitFor(() => expect(mounted.root.querySelector('[data-testid="collection-panel"]')).not.toBeNull())
+    await modelChoices(mounted.root, 2)
 
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    const value = (mounted.dispatchEditTo.mock.calls[0]?.[1] as { params: { value: readonly typeof first[] } }).params.value
+    const value = (mounted.dispatchTo.mock.calls[0]?.[1] as { params: { value: readonly typeof first[] } }).params.value
     expect(value).toEqual([first])
     mounted.unmount()
   })
@@ -631,7 +942,7 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.root.textContent).not.toContain('loading grouped models...')
     expect(refresh.disabled).toBe(false)
     refresh.click()
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(2))
+    await modelChoices(mounted.root, 2)
     mounted.unmount()
   })
 
@@ -644,7 +955,7 @@ describe('ASSET widget modal integration', () => {
     const root = document.createElement('div')
     document.body.append(root)
     const close = vi.fn()
-    const dispatchEditTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const connection = {
       ...assetLocationMethods,
       listMounts: vi.fn().mockResolvedValue([]),
@@ -671,7 +982,7 @@ describe('ASSET widget modal integration', () => {
       backendsTick: createCoreSignal(0),
       backendForTab: () => backend,
       retainPickerAssets: vi.fn().mockResolvedValue(undefined),
-      dispatchEditTo,
+      dispatchEditTo: dispatchTo,
       widgetRegistry: { kind: () => undefined },
       widgetRegistryForTab: () => app.widgetRegistry,
       ...overrides,
@@ -679,7 +990,7 @@ describe('ASSET widget modal integration', () => {
     const unmount = render(() => (
       <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />
     ), root)
-    return { root, close, dispatchEditTo, connection, ed, unmount }
+    return { root, close, dispatchTo, connection, ed, unmount }
   }
 
   it('commits one source name from the native selection dialog without guessing a file', async () => {
@@ -688,11 +999,11 @@ describe('ASSET widget modal integration', () => {
     })
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-entry="taesd"]')).not.toBeNull())
     mounted.root.querySelector<HTMLElement>('[data-entry="taesd"]')!.click()
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     const apply = [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === 'Use selection')!
     apply.click()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo.mock.calls[0]?.[1]).toMatchObject({
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
       command: 'node.setValue', params: { value: 'taesd' },
     })
     await vi.waitFor(() => expect(mounted.close).toHaveBeenCalledOnce())
@@ -713,8 +1024,8 @@ describe('ASSET widget modal integration', () => {
     button('Browse files').click()
     button('Back to source options').click()
     button('Use selection').click()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo.mock.calls[0]?.[1]).toMatchObject({ command: 'node.setValue', params: { value: 'taesd' } })
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({ command: 'node.setValue', params: { value: 'taesd' } })
     mounted.unmount()
   })
 
@@ -726,23 +1037,22 @@ describe('ASSET widget modal integration', () => {
       backendsTick: createCoreSignal(0),
       backendForTab: () => backend,
       retainPickerAssets: mounted.retainPickerAssets,
-      dispatchEditTo: mounted.dispatchEditTo, widgetRegistry: { kind: () => undefined },
+      dispatchEditTo: mounted.dispatchTo, widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const ed: WidgetEditorState = { ...mounted.ed, spec: { ...mounted.ed.spec!, selection: true } }
     const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={mounted.close} />, mounted.root)
     const button = (text: string) => [...mounted.root.querySelectorAll<HTMLButtonElement>('button')].find((entry) => entry.textContent === text)!
     await vi.waitFor(() => expect(mounted.root.querySelector('[data-entry="pixel_space"]')).not.toBeNull())
     button('Browse files').click()
-    await vi.waitFor(() => expect(mounted.root.querySelectorAll('[data-testid="collection-entry"]')).toHaveLength(3))
-    const files = mounted.root.querySelectorAll<HTMLElement>('[data-testid="collection-entry"]')
+    const files = await modelChoices(mounted.root, 2)
     files[1]!.click()
     await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
     button('Back to source options').click()
     button('Browse files').click()
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo.mock.calls[0]?.[1]).toMatchObject({
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo.mock.calls[0]?.[1]).toMatchObject({
       command: 'node.setValue', params: { value: { digest: mounted.digestB, virtualPath: 'b/shared.safetensors' } },
     })
     unmount()
@@ -760,9 +1070,9 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.root.querySelector('[data-testid="asset-selection-editor"]')).toBeNull()
     expect(mounted.root.textContent).toContain('vae.safetensors')
     expect(mounted.connection.listAssetSelections).not.toHaveBeenCalled()
-    mounted.root.querySelector<HTMLButtonElement>('[aria-label="Close Checkpoint asset editor"]')!.click()
+    mounted.root.querySelector<HTMLButtonElement>('[aria-label="Close Choose model"]')!.click()
     expect(mounted.close).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     expect(initial.virtualPath).toBe('vae/vae.safetensors')
     mounted.unmount()
   })
@@ -790,15 +1100,15 @@ describe('ASSET widget modal integration', () => {
     expect(mounted.root.querySelectorAll('[data-testid="asset-match-candidate"]')).toHaveLength(1)
     expect(row.textContent).toContain(candidate.name)
     expect(row.textContent).toContain(candidate.virtualPath)
-    expect(row.querySelector('.asset-match-candidate-size')!.textContent).toBe('121 KB')
+    expect(row.querySelector('.asset-match-candidate-size')?.textContent).toBe('121 KB')
     expect(row.textContent).toContain(candidate.digest)
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     row.click()
     await vi.waitFor(() => expect(mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(mounted.ed.tab, {
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(mounted.ed.tab, {
       command: 'node.setValue',
       params: {
         graphId: 'g0', nodeId: 'n0', inputId: 'ckpt_name',
@@ -824,7 +1134,7 @@ describe('ASSET widget modal integration', () => {
     dialog.dispatchEvent(new Event('cancel', { cancelable: true }))
     dialog.dispatchEvent(new Event('close'))
     expect(mounted.close).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.unmount()
   })
 
@@ -836,7 +1146,7 @@ describe('ASSET widget modal integration', () => {
     let resolveUpload!: (asset: typeof canonical) => void
     const pendingUpload = new Promise<typeof canonical>((resolve) => { resolveUpload = resolve })
     const uploadNamedAsset = vi.fn((_body: File, _options: unknown) => pendingUpload)
-    const dispatchEditTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const close = vi.fn()
     const ed: WidgetEditorState = {
       tab: {} as Tab,
@@ -849,11 +1159,17 @@ describe('ASSET widget modal integration', () => {
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: null,
     }
-    const backend = { protocol: 'dinkster', baseUrl: '', connection: { ...assetLocationMethods, uploadNamedAsset }, registry: { listCollections: () => [] } }
+    const backend = { protocol: 'dinkster', baseUrl: '', connection: {
+      ...assetLocationMethods,
+      listMounts: async () => [],
+      fetchMountSettings: async () => ({ mounts: [{ id: 'capture', mode: 'readwrite' }], mountChangesAllowed: false, importMount: 'capture' }),
+      fetchMountLocations: async () => ({ mounts: [], activeMounts: [{ id: 'capture', mode: 'readwrite', state: 'ready', path: '/imports' }], importMount: 'capture' }),
+      uploadNamedAsset,
+    }, registry: { listCollections: () => [] } }
     const app = {
       backendForTab: () => backend,
       retainPickerAssets: vi.fn().mockResolvedValue(undefined),
-      dispatchEditTo,
+      dispatchEditTo: dispatchTo,
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = render(() => (
@@ -861,15 +1177,16 @@ describe('ASSET widget modal integration', () => {
     ), root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
 
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('16 MB per file')
+    expect(root.querySelector('.asset-import-line')?.textContent).toContain('16 MB per file')
     const bytes = new Uint8Array([0, 1, 2, 3, 0, 255, 17])
     const file = new File([bytes], 'byte-proof.bin', { type: 'application/octet-stream' })
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
     const trigger = root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')!
     expect(trigger).not.toBeNull()
     expect(trigger.type).toBe('button')
-    expect(trigger.getAttribute('aria-label')).toBe('Upload file')
+    expect(trigger.textContent).toBe('Add a file from this computer')
     expect(trigger.disabled).toBe(false)
+    expect(root.querySelector('[data-testid="upload-destination"]')).toBeNull()
     expect(input.hidden).toBe(true)
     expect(input.accept).toBe('application/octet-stream')
     expect(input.multiple).toBe(false)
@@ -881,6 +1198,27 @@ describe('ASSET widget modal integration', () => {
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     expect(document.activeElement).toBe(trigger)
 
+    const change = () => root.querySelector<HTMLButtonElement>('[data-testid="upload-destination-summary"] button')!
+    change().click()
+    const folder = root.querySelector<HTMLInputElement>('[data-testid="upload-destination-folder"]')!
+    folder.value = '../outside'; folder.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(folder.getAttribute('aria-invalid')).toBe('true')
+    expect(trigger.disabled).toBe(true)
+    expect(document.getElementById(folder.getAttribute('aria-describedby')!)?.textContent).toContain('Enter a folder inside this Mount.')
+    expect(root.querySelector('.asset-error')).toBeNull()
+    folder.value = 'scene/reference'; folder.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(folder.hasAttribute('aria-invalid')).toBe(false)
+    expect(trigger.disabled).toBe(false)
+    expect(root.querySelector('[data-testid="upload-destination-summary"]')?.textContent).toContain('copied to capture/scene/reference/')
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    folder.dispatchEvent(escape)
+    expect(escape.defaultPrevented).toBe(true)
+    expect(root.querySelector('[data-testid="upload-destination"]')).toBeNull()
+    expect(close).not.toHaveBeenCalled()
+    change().click()
+    expect(root.querySelector<HTMLInputElement>('[data-testid="upload-destination-folder"]')?.value).toBe('scene/reference')
+    change().click()
+
     trigger.blur()
     Object.defineProperty(input, 'value', { configurable: true, writable: true, value: 'C:\\fakepath\\byte-proof.bin' })
     Object.defineProperty(input, 'files', { configurable: true, value: [file] })
@@ -889,23 +1227,24 @@ describe('ASSET widget modal integration', () => {
 
     expect(input.value).toBe('')
     expect(trigger.disabled).toBe(true)
-    expect(uploadNamedAsset).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(uploadNamedAsset).toHaveBeenCalledOnce())
     expect(uploadNamedAsset.mock.calls[0]?.[0]).toBe(file)
-    expect(uploadNamedAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', name: 'byte-proof.bin' })
+    expect(uploadNamedAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', name: 'byte-proof.bin', mount: 'capture', folder: 'scene/reference' })
     expect(new Uint8Array(await (uploadNamedAsset.mock.calls[0]?.[0] as File).arrayBuffer())).toEqual(bytes)
-    expect(dispatchEditTo).not.toHaveBeenCalled()
+    expect(dispatchTo).not.toHaveBeenCalled()
     expect(close).not.toHaveBeenCalled()
 
     resolveUpload(canonical)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     // The upload stages into the selection panel; Apply commits.
     expect(close).not.toHaveBeenCalled()
-    expect(dispatchEditTo).not.toHaveBeenCalled()
+    expect(dispatchTo).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('byte-proof.bin'))
+    await vi.waitFor(() => expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.disabled).toBe(false))
     root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
-    expect(dispatchEditTo).toHaveBeenCalledOnce()
-    expect(dispatchEditTo).toHaveBeenCalledWith(ed.tab, {
+    expect(dispatchTo).toHaveBeenCalledOnce()
+    expect(dispatchTo).toHaveBeenCalledWith(ed.tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'file', value: {
         digest: canonical.digest,
@@ -915,7 +1254,7 @@ describe('ASSET widget modal integration', () => {
         virtualPath: 'mounts/capture/byte-proof.bin',
       } },
     })
-    expect(dispatchEditTo.mock.invocationCallOrder[0]).toBeGreaterThan(uploadNamedAsset.mock.invocationCallOrder[0]!)
+    expect(dispatchTo.mock.invocationCallOrder[0]).toBeGreaterThan(uploadNamedAsset.mock.invocationCallOrder[0]!)
     unmount()
   })
 
@@ -931,7 +1270,7 @@ describe('ASSET widget modal integration', () => {
     }
     const uploadLatentAsset = vi.fn(async () => canonical)
     const uploadAsset = vi.fn()
-    const dispatchEditTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const close = vi.fn()
     const ed: WidgetEditorState = {
       tab: {} as Tab,
@@ -961,7 +1300,7 @@ describe('ASSET widget modal integration', () => {
           uploadLatentAsset,
         },
       }),
-      dispatchEditTo,
+      dispatchEditTo: dispatchTo,
       widgetRegistry: { kind: () => undefined },
     } as unknown as AppState
     const unmount = render(() => (
@@ -970,12 +1309,16 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(root.querySelector('[data-testid="collection-search"]')).not.toBeNull())
 
     const dialog = root.querySelector<HTMLDialogElement>('[data-modal="widget-asset"]')!
-    expect(dialog.getAttribute('aria-label')).toBe('Edit Samples latent asset')
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('Single latent')
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GB per file')
+    expect(dialog.getAttribute('aria-label')).toBe('Choose latent')
+    expect(root.querySelector('.widget-modal-help')).toBeNull()
+    expect(root.querySelector('.asset-section-eyebrow')).toBeNull()
+    await vi.waitFor(() => expect(root.textContent).toContain('No latents found.'))
+    expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toBe('Nothing selected')
+    expect(root.querySelector('.asset-import-line')?.textContent).toContain('1 GB per file')
     expect(root.querySelector('.asset-browser-section')?.getAttribute('aria-label')).toBe('Latents')
     expect(root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')?.getAttribute('aria-label')).toBe('Search latents')
-    expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')?.textContent).toContain('Upload latent')
+    expect(root.querySelector<HTMLButtonElement>('[data-testid="asset-upload-trigger"]')?.textContent).toBe('Add a file from this computer')
+    expect(root.querySelector('[data-testid="upload-destination-summary"]')).toBeNull()
 
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
     const incompatible = new File([new Uint8Array([1, 2, 3])], 'wrong.png', { type: 'image/png' })
@@ -983,7 +1326,7 @@ describe('ASSET widget modal integration', () => {
     input.dispatchEvent(new Event('change', { bubbles: true }))
     await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('Unsupported file type: image/png'))
     expect(uploadLatentAsset).not.toHaveBeenCalled()
-    expect(dispatchEditTo).not.toHaveBeenCalled()
+    expect(dispatchTo).not.toHaveBeenCalled()
     expect(close).not.toHaveBeenCalled()
 
     const file = new File([new Uint8Array([1, 2, 3])], 'chosen.safetensors')
@@ -998,10 +1341,10 @@ describe('ASSET widget modal integration', () => {
       name: 'chosen.safetensors',
       signal: expect.any(AbortSignal),
     })
-    expect(dispatchEditTo).not.toHaveBeenCalled()
+    expect(dispatchTo).not.toHaveBeenCalled()
     root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
-    expect(dispatchEditTo).toHaveBeenCalledWith(ed.tab, {
+    expect(dispatchTo).toHaveBeenCalledWith(ed.tab, {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'latent', inputId: 'samples', value: canonical },
     })
@@ -1011,6 +1354,14 @@ describe('ASSET widget modal integration', () => {
   it('renders selected video bytes through an owned blob with controls and a download fallback', async () => {
     const root = document.createElement('div')
     document.body.append(root)
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(async function (this: HTMLMediaElement) {
+      Object.defineProperty(this, 'paused', { configurable: true, value: false })
+      this.dispatchEvent(new Event('play'))
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (this: HTMLMediaElement) {
+      Object.defineProperty(this, 'paused', { configurable: true, value: true })
+      this.dispatchEvent(new Event('pause'))
+    })
     const digest = `blake3:${'e'.repeat(64)}`
     const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:video-preview')
     const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
@@ -1039,12 +1390,27 @@ describe('ASSET widget modal integration', () => {
     const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={() => {}} />, root)
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-video-preview"]')).not.toBeNull())
 
-    const video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"]')!
+    const video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"] video')!
     expect(video).not.toBeNull()
-    expect(video.controls).toBe(true)
+    expect(video.controls).toBe(false)
     expect(video.preload).toBe('metadata')
     expect(video.getAttribute('src')).toBe('blob:video-preview')
     expect(createObjectUrl).toHaveBeenCalledOnce()
+    expect(video.autoplay).toBe(false)
+    expect(play).not.toHaveBeenCalled()
+    Object.defineProperties(video, { videoWidth: { value: 317 }, videoHeight: { value: 181 } })
+    video.dispatchEvent(new Event('loadedmetadata'))
+    expect(root.querySelector('.asset-preview-caption')?.textContent).toContain('317')
+    expect(root.querySelector('.asset-preview-caption')?.textContent).toContain('181')
+    root.querySelector<HTMLButtonElement>('[aria-label="Play video"]')!.click()
+    await vi.waitFor(() => expect(root.querySelector('[aria-label="Pause video"]')).not.toBeNull())
+    expect(video.paused).toBe(false)
+    root.querySelector<HTMLButtonElement>('[aria-label="Pause video"]')!.click()
+    expect(video.paused).toBe(true)
+    root.querySelector<HTMLButtonElement>('[aria-label="Loop video"]')!.click()
+    expect(video.loop).toBe(true)
+    root.querySelector<HTMLButtonElement>('[aria-label="Mute video"]')!.click()
+    expect(video.muted).toBe(true)
 
     video.dispatchEvent(new Event('error'))
     const fallback = root.querySelector<HTMLElement>('[data-testid="asset-video-fallback"]')!
@@ -1098,14 +1464,24 @@ describe('ASSET widget modal integration', () => {
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:image-preview')
   })
 
-  it('routes a native typed video widget through classified media upload without sourceFilename', async () => {
+  it.each([
+    { transport: 'stream', policy: undefined, label: '1 GB per file', maximum: 1024 * 1024 * 1024 },
+    { transport: 'stream', policy: null, label: undefined, maximum: undefined },
+    { transport: 'stream', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MB per file', maximum: 32 * 1024 * 1024 },
+    { transport: 'native', policy: null, label: undefined, maximum: undefined },
+    { transport: 'native', policy: undefined, label: '1 GB per file', maximum: 1024 * 1024 * 1024 },
+    { transport: 'native', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MB per file', maximum: 32 * 1024 * 1024 },
+    { transport: 'refused', policy: null, label: undefined, maximum: undefined },
+    { transport: 'refused', policy: { generic: 1024, 'media/image': 2048, 'media/audio': 4096, 'media/video': 32 * 1024 * 1024, 'media/model3d': 8192, 'data/latent': 16384 }, label: '32 MB per file', maximum: 32 * 1024 * 1024 },
+    { transport: 'error', policy: null, label: undefined, maximum: undefined },
+  ])('routes a typed video widget by $transport using engine upload policy $label', async ({ transport, policy, label, maximum }) => {
     const root = document.createElement('div')
     document.body.append(root)
     const digest = `blake3:${'f'.repeat(64)}`
     const canonical = {
       digest,
       name: 'large.webm',
-      size: 17 * 1024 * 1024,
+      size: maximum === undefined ? 1024 * 1024 * 1024 + 1 : transport === 'native' ? maximum + 1 : 17 * 1024 * 1024,
       mediaType: 'video/webm',
       virtualPath: '',
     }
@@ -1115,7 +1491,7 @@ describe('ASSET widget modal integration', () => {
     )
     const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:video-upload')
     const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    const dispatchEditTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
+    const dispatchTo = vi.fn().mockReturnValue({ ok: true, diagnostics: [] })
     const close = vi.fn()
     const ed: WidgetEditorState = {
       tab: {} as Tab,
@@ -1128,6 +1504,22 @@ describe('ASSET widget modal integration', () => {
       rect: { x: 20, y: 20, width: 180, height: 24 },
       initial: null,
     }
+    const registry = buildDinksterRegistry(asConnectionId('native'), {
+      schemaVersion: DINKSTER_SCHEMA_WIRE_VERSION,
+      nodes: {},
+      dinkster: { ...(policy !== undefined ? { uploadLimits: policy } : {}) },
+    })
+    const importFile = vi.fn(async () => {
+      if (transport === 'error') throw new Error('/private/source.webm')
+      return transport === 'refused'
+        ? { status: 'refused' as const, reason: 'not-native-file' as const }
+        : { status: 'imported' as const, asset: canonical }
+    })
+    if (transport !== 'stream') window.dinksterDesktop = {
+      fileCapabilities: async () => ({ nativeFolderChoice: false, reveal: false }),
+      chooseDirectory: async () => undefined,
+      importFile,
+    }
     const app = {
       retainPickerAssets: vi.fn().mockResolvedValue(undefined),
       backendForTab: vi.fn().mockReturnValue({ protocol: 'dinkster', id: 'native', connection: {
@@ -1135,12 +1527,15 @@ describe('ASSET widget modal integration', () => {
         uploadMediaAsset,
         listMounts: vi.fn().mockResolvedValue([]),
       } }),
-      dispatchEditTo,
+      dispatchEditTo: dispatchTo,
       widgetRegistry: { kind: () => undefined },
+      registryForTab: () => registry,
     } as unknown as AppState
     const unmount = render(() => <WidgetEditor app={prepareAssetEditorApp(app, ed)} ed={ed} viewport={() => ({ x: 0, y: 0, scale: 1 })} onClose={close} />, root)
     await new Promise<void>((resolve) => queueMicrotask(resolve))
-    expect(root.querySelector('[data-testid="asset-schema-metadata"]')?.textContent).toContain('1 GB per file')
+    const importLine = root.querySelector('.asset-import-line')?.textContent
+    if (label !== undefined) expect(importLine).toContain(label)
+    else expect(importLine).not.toContain('per file')
     const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
     expect(input.accept).toBe('video/*')
 
@@ -1150,31 +1545,49 @@ describe('ASSET widget modal integration', () => {
     await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('Unsupported file type: image/png'))
     expect(uploadMediaAsset).not.toHaveBeenCalled()
 
-    const oversized = new File(['video'], 'too-large.webm', { type: 'video/webm' })
-    Object.defineProperty(oversized, 'size', { configurable: true, value: 1024 * 1024 * 1024 + 1 })
-    Object.defineProperty(input, 'files', { configurable: true, value: [oversized] })
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('File exceeds the 1 GB upload limit'))
-    expect(uploadMediaAsset).not.toHaveBeenCalled()
+    if (maximum !== undefined && transport !== 'native') {
+      for (const [size, sizeLabel] of [[maximum + 1, maximum === 1024 ** 3 ? '1 GB' : '32 MB'], [Math.ceil(3.2 * 1024 ** 3), '3.2 GB']] as const) {
+        const oversized = new File(['video'], 'too-large.webm', { type: 'video/webm' })
+        Object.defineProperty(oversized, 'size', { configurable: true, value: size })
+        Object.defineProperty(input, 'files', { configurable: true, value: [oversized] })
+        input.dispatchEvent(new Event('change', { bubbles: true }))
+        await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain(`too-large.webm is ${sizeLabel}. This engine takes videos up to ${label!.replace(' per file', '')}. Its owner can turn on No upload size limit.`))
+        expect(uploadMediaAsset).not.toHaveBeenCalled()
+      }
+    }
 
     const file = new File(['webm bytes'], 'large.webm', { type: 'video/webm' })
     Object.defineProperty(file, 'size', { configurable: true, value: canonical.size })
     Object.defineProperty(input, 'files', { configurable: true, value: [file] })
     input.dispatchEvent(new Event('change', { bubbles: true }))
-    await vi.waitFor(() => expect(uploadMediaAsset).toHaveBeenCalledOnce())
-    expect(uploadMediaAsset.mock.calls[0]?.[0]).toBe(file)
-    expect(uploadMediaAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', kind: 'media/video', name: 'large.webm' })
-    const video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"]')!
+    if (transport === 'error') {
+      await vi.waitFor(() => expect(root.querySelector('.asset-error')?.textContent).toContain('Could not import the native file. No byte upload was attempted.'))
+      expect(root.textContent).not.toContain('/private/source.webm')
+      expect(uploadMediaAsset).not.toHaveBeenCalled()
+      expect(dispatchTo).not.toHaveBeenCalled()
+      unmount()
+      return
+    }
+    if (transport !== 'native') {
+      await vi.waitFor(() => expect(uploadMediaAsset).toHaveBeenCalledOnce())
+      expect(uploadMediaAsset.mock.calls[0]?.[0]).toBe(file)
+      expect(uploadMediaAsset.mock.calls[0]?.[1]).toMatchObject({ scope: 'local', kind: 'media/video', name: 'large.webm' })
+    }
+    const video = root.querySelector<HTMLVideoElement>('[data-testid="asset-video-preview"] video')!
     expect(video.getAttribute('src')).toBe('blob:video-upload')
-    expect(video.controls).toBe(true)
+    expect(video.controls).toBe(false)
 
-    resolveUpload(canonical)
+    if (transport !== 'native') resolveUpload(canonical)
     await vi.waitFor(() => expect(root.querySelector('[data-testid="asset-selection-summary"]')?.textContent).toContain('large.webm'))
+    if (transport !== 'stream') expect(importFile).toHaveBeenCalledWith(`${window.location.origin}/`, file, {
+      name: 'large.webm', mediaType: 'video/webm', kind: 'media/video',
+    })
+    if (transport === 'native') expect(uploadMediaAsset).not.toHaveBeenCalled()
     expect(close).not.toHaveBeenCalled()
-    expect(dispatchEditTo).not.toHaveBeenCalled()
+    expect(dispatchTo).not.toHaveBeenCalled()
     root.querySelector<HTMLButtonElement>('[data-testid="asset-apply"]')!.click()
     await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
-    expect(dispatchEditTo).toHaveBeenCalledWith(ed.tab, expect.objectContaining({
+    expect(dispatchTo).toHaveBeenCalledWith(ed.tab, expect.objectContaining({
       command: 'node.setValue', params: expect.objectContaining({ value: canonical }),
     }))
     unmount()
@@ -1198,14 +1611,12 @@ describe('registered interactive widget expanded-editor integration', () => {
     }
     const backend = { protocol: 'dinkster', id: 'native', connection: {
       ...assetLocationMethods, fetchAssetBytes,
-      listLocalAssets: async () => ({ assets: [{
-        asset: { ...ref, digest: `blake3:${'b'.repeat(64)}`, name: 'replacement.png' },
-        aliases: ['replacement.png'], observations: [{ kind: 'media/image', created: 1, origin: {} }],
+      listMountEntries: async () => ({ entries: [{
+        ...ref, digest: `blake3:${'b'.repeat(64)}`, name: 'replacement.png', virtualPath: 'mounts/input/replacement.png', kind: 'media/image',
       }] }),
-      checkAssetAvailability: async () => [{ digest: `blake3:${'b'.repeat(64)}`, status: 'available' }],
       fetchAssetMetadata: async () => undefined,
       assetUrl: (digest: string) => `/api/assets/${encodeURIComponent(digest)}`,
-      listMounts: async () => [],
+      listMounts: async () => [{ id: 'input', mode: 'read', state: 'ready', kind: 'media/image' }],
     } }
     const app = { backendForTab: () => backend, dispatchEditTo: vi.fn(),
       workflowAssetReader: () => ({ key: 'fixture', current: () => true, read: async <T,>(consume: () => Promise<T>) => consume() }),
@@ -1255,10 +1666,10 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(field.value).toBe('## Notes\n\n**original**')
     field.value = '# Draft'
     field.dispatchEvent(new Event('input', { bubbles: true }))
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.clickAway()
     expect(mounted.close).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.unmount()
   })
 
@@ -1268,7 +1679,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(mounted.root.querySelector('h2')?.textContent).toBe('Read only')
     expect(mounted.root.querySelector('textarea')).toBeNull()
     expect(Array.from(mounted.root.querySelectorAll('button')).map((button) => button.textContent)).toEqual(['Cancel'])
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.unmount()
   })
 
@@ -1311,14 +1722,14 @@ describe('registered interactive widget expanded-editor integration', () => {
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     unchanged.root.querySelector<HTMLTextAreaElement>('textarea')!.dispatchEvent(new FocusEvent('blur'))
     expect(unchanged.close).toHaveBeenCalledOnce()
-    expect(unchanged.dispatchEditTo).not.toHaveBeenCalled()
+    expect(unchanged.dispatchTo).not.toHaveBeenCalled()
 
     const blurred = mountWidget(widgetState('STRING', { multiline: true }, 'old', true))
     await new Promise<void>((resolve) => queueMicrotask(resolve))
     const blurField = blurred.root.querySelector<HTMLTextAreaElement>('textarea')!
     blurField.value = 'blurred\nvalue'
     blurField.dispatchEvent(new FocusEvent('blur'))
-    expect(blurred.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), {
+    expect(blurred.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
       command: 'text.splice',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'string', offset: 0, deleteCount: 3, insert: 'blurred\nvalue' },
     })
@@ -1327,7 +1738,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     const enterField = entered.root.querySelector<HTMLTextAreaElement>('textarea')!
     enterField.value = 'entered\nvalue'
     enterField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
-    expect(entered.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), {
+    expect(entered.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
       command: 'text.splice',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'string', offset: 0, deleteCount: 3, insert: 'entered\nvalue' },
     })
@@ -1338,7 +1749,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     const cancelField = cancelled.root.querySelector<HTMLTextAreaElement>('textarea')!
     cancelField.value = 'discard me'
     cancelled.unmount()
-    expect(cancelled.dispatchEditTo).not.toHaveBeenCalled()
+    expect(cancelled.dispatchTo).not.toHaveBeenCalled()
   })
 
   it('rebases a multiline STRING commit over a stored remote edit', async () => {
@@ -1350,7 +1761,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     const field = mounted.root.querySelector<HTMLTextAreaElement>('textarea')!
     field.value = 'hello brave world'
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
-    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(ed.tab, {
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(ed.tab, {
       command: 'text.splice',
       params: {
         graphId: 'g0',
@@ -1372,7 +1783,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     const field = mounted.root.querySelector<HTMLTextAreaElement>('textarea')!
     field.value = 'hello brave world'
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
-    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(ed.tab, {
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(ed.tab, {
       command: 'node.setValue',
       params: {
         graphId: 'g0',
@@ -1393,10 +1804,10 @@ describe('registered interactive widget expanded-editor integration', () => {
     const cancelButton = mounted.root.querySelector<HTMLButtonElement>('.color-editor-footer button')!
     cancelButton.focus()
     expect(document.activeElement).toBe(cancelButton)
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     cancelButton.click()
     expect(mounted.close).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
   })
 
   it('does not commit numeric edits on blur or Cancel, but Enter still validates and commits', async () => {
@@ -1408,15 +1819,15 @@ describe('registered interactive widget expanded-editor integration', () => {
     field.value = '7'
     field.dispatchEvent(new InputEvent('input', { bubbles: true }))
     field.blur()
-    expect(cancelled.dispatchEditTo).not.toHaveBeenCalled()
+    expect(cancelled.dispatchTo).not.toHaveBeenCalled()
     cancelled.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-cancel"]')!.click()
-    expect(cancelled.dispatchEditTo).not.toHaveBeenCalled()
+    expect(cancelled.dispatchTo).not.toHaveBeenCalled()
 
     const committed = mountWidget(widgetState('INT', { min: 0, max: 10, step: 1 }, 3))
     const commitField = committed.root.querySelector<HTMLInputElement>('[data-testid="widget-editor"] input')!
     commitField.value = '8'
     commitField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    expect(committed.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(committed.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       command: 'node.setValue',
       params: expect.objectContaining({ value: 8 }),
     }))
@@ -1429,15 +1840,15 @@ describe('registered interactive widget expanded-editor integration', () => {
     mounted.clickAway()
 
     await vi.waitFor(() => expect(mounted.close).toHaveBeenCalledOnce())
-    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       command: 'node.setValue',
       params: expect.objectContaining({ value: 7 }),
     }))
 
     field.dispatchEvent(new FocusEvent('blur'))
     mounted.clickAway()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledOnce()
+    expect(mounted.dispatchTo).toHaveBeenCalledOnce()
   })
 
   it.each([
@@ -1450,7 +1861,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     mounted.clickAway()
 
     expect(mounted.close).toHaveBeenCalledOnce()
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
   })
 
   it('applies click-away commit-or-drop semantics to COLOR and raw JSON', async () => {
@@ -1459,7 +1870,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     colorField.value = '#abcdef'
     colorField.dispatchEvent(new InputEvent('input', { bubbles: true }))
     color.clickAway()
-    expect(color.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(color.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: '#abcdef' }),
     }))
 
@@ -1469,7 +1880,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     invalidColorField.dispatchEvent(new InputEvent('input', { bubbles: true }))
     invalidColor.clickAway()
     await vi.waitFor(() => expect(invalidColor.close).toHaveBeenCalledOnce())
-    expect(invalidColor.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(invalidColor.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: 'invalid' }),
     }))
 
@@ -1478,7 +1889,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     const rawField = raw.root.querySelector<HTMLTextAreaElement>('textarea')!
     rawField.value = '{"stored":false}'
     raw.clickAway()
-    expect(raw.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(raw.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: { stored: false } }),
     }))
   })
@@ -1489,7 +1900,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     field.value = 'composing draft'
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true }))
     expect(mounted.close).not.toHaveBeenCalled()
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
   })
 
   it('edits primitive arrays as JSON and rejects scalar or nested drafts before writing', () => {
@@ -1500,12 +1911,12 @@ describe('registered interactive widget expanded-editor integration', () => {
     for (const invalid of ['"red"', '[["red"]]', '[7]']) {
       field.value = invalid
       mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
-      expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+      expect(mounted.dispatchTo).not.toHaveBeenCalled()
       expect(field.getAttribute('aria-invalid')).toBe('true')
     }
     field.value = '["blue,green","line\\nnext",""]'
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
-    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), {
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
       command: 'node.setValue',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'list', value: ['blue,green', 'line\nnext', ''] },
     })
@@ -1524,9 +1935,9 @@ describe('registered interactive widget expanded-editor integration', () => {
     expect(mounted.root.querySelector('[data-testid="widget-editor-increase"]')).toBeNull()
     field.value = draft
     field.dispatchEvent(new InputEvent('input', { bubbles: true }))
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       command: 'node.setValue',
       params: expect.objectContaining({ value: committedValue }),
     }))
@@ -1538,9 +1949,9 @@ describe('registered interactive widget expanded-editor integration', () => {
     slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     expect(mounted.root.querySelector<HTMLInputElement>('#widget-editor-value')!.value).toBe('0.25')
     expect(slider.getAttribute('aria-valuenow')).toBe('0.25')
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ params: expect.objectContaining({ value: 0.25 }) }))
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ params: expect.objectContaining({ value: 0.25 }) }))
     mounted.unmount()
   })
 
@@ -1551,17 +1962,17 @@ describe('registered interactive widget expanded-editor integration', () => {
     const field = mounted.root.querySelector<HTMLInputElement>('#widget-editor-value')!
     slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     expect(field.value).toBe('0.75')
-    expect(mounted.dispatchEditTo).not.toHaveBeenCalled()
+    expect(mounted.dispatchTo).not.toHaveBeenCalled()
     slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
     expect(field.value).toBe('2.5')
     mounted.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-commit"]')!.click()
-    expect(mounted.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ params: expect.objectContaining({ value: 2.5 }) }))
+    expect(mounted.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ params: expect.objectContaining({ value: 2.5 }) }))
     mounted.unmount()
 
     const cancelled = mountWidget(state)
     cancelled.root.querySelector<HTMLElement>('[role="slider"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
     cancelled.root.querySelector<HTMLButtonElement>('[data-testid="widget-editor-cancel"]')!.click()
-    expect(cancelled.dispatchEditTo).not.toHaveBeenCalled()
+    expect(cancelled.dispatchTo).not.toHaveBeenCalled()
     expect(cancelled.close).toHaveBeenCalledOnce()
     cancelled.unmount()
 
@@ -1579,7 +1990,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     const textarea = string.root.querySelector<HTMLTextAreaElement>('textarea')!
     textarea.value = 'new\nvalue'
     textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
-    expect(string.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), {
+    expect(string.dispatchTo).toHaveBeenCalledWith(expect.anything(), {
       command: 'text.splice',
       params: { graphId: 'g0', nodeId: 'n0', inputId: 'string', offset: 0, deleteCount: 3, insert: 'new\nvalue' },
     })
@@ -1590,7 +2001,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     colorField.dispatchEvent(new InputEvent('input', { bubbles: true }))
     colorField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     expect(color.root.querySelector('[data-testid="color-error"]')).toBeNull()
-    expect(color.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(color.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: 'not-a-color' }),
     }))
 
@@ -1599,7 +2010,7 @@ describe('registered interactive widget expanded-editor integration', () => {
     const search = combo.root.querySelector<HTMLInputElement>('[data-testid="combo-search"]')!
     search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
     search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    expect(combo.dispatchEditTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    expect(combo.dispatchTo).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       params: expect.objectContaining({ value: 'two' }),
     }))
   })

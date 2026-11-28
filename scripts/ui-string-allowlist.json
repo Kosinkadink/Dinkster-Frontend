@@ -359,11 +359,15 @@
     "attribute:title:Play preview from its playback time, not the indexed inspection frame",
     "attribute:title:Previous frame (,)",
     "attribute:title:Reported FPS; not used to convert time and frame index",
+    "text:Frame stepping starts at 0 after playback or time seek.",
     "text:Loading video...",
     "text:Next",
     "text:Preview color:",
     "text:Previous",
-    "text:Thumbnails:"
+    "text:Thumbnails:",
+    "text:fps",
+    "text:s",
+    "text:s"
   ],
   "WidgetEditorController.tsx": [
     "attribute:aria-label:Edit output descriptors"

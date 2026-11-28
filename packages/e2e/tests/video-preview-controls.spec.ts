@@ -132,7 +132,7 @@ for (const appView of [false, true]) test(`VIDEO scrub, frames, outputs and pers
   await expect(controls.getByTestId('video-timing')).toContainText('Frame 1 / 24')
   const slider = controls.getByRole('slider', { name: 'Video position' })
   await slider.click({ position: { x: (await slider.boundingBox())!.width / 2, y: 8 } })
-  await expect(controls.getByTestId('video-timing')).toContainText('0.50s / 1.00s | Frame unknown / 24 (exact)')
+  await expect(controls.getByTestId('video-timing')).toContainText('0.50s / 1.00s | 24 frames (exact)')
   await expect(controls.locator('.video-preview-frame')).toBeVisible()
   const downloaded = await controls.getByRole('link', { name: 'Download preview' }).evaluate(async (element) =>
     Array.from(new Uint8Array(await (await fetch((element as HTMLAnchorElement).href)).arrayBuffer())))
@@ -157,7 +157,8 @@ for (const appView of [false, true]) test(`VIDEO scrub, frames, outputs and pers
       await expect(controls.locator('video')).toHaveJSProperty('muted', scale < 0.75)
       await expect(controls.locator('video')).toHaveJSProperty('loop', false)
       await controls.getByRole('button', { name: 'Next frame', exact: true }).click()
-      await expect(controls.getByTestId('video-timing')).toContainText('Time unknown')
+      await expect(controls.getByTestId('video-timing')).toContainText(/Frame \d+ \/ 24/)
+      await expect(controls.getByTestId('video-timing')).not.toContainText('unknown')
       const panel = (await controls.boundingBox())!
       const download = (await controls.getByRole('link', { name: 'Download preview' }).boundingBox())!
       expect(download.y + download.height).toBeLessThanOrEqual(panel.y + panel.height)
@@ -241,20 +242,20 @@ for (const appView of [false, true]) for (const unknown of [false, true]) test(`
   const controls = page.getByRole('group', { name: 'Video preview controls', exact: true })
   const readout = controls.getByTestId('video-timing')
   if (unknown) {
-    await expect(readout).toContainText('Duration unknown | Frame unknown / count unknown | FPS unknown')
+    await expect(readout).toHaveText(/^\d+\.\d{2}s$/)
     const firstFrame = waitForFrameResponse(page, '0')
     await controls.getByRole('button', { name: 'Next frame', exact: true }).click()
     await firstFrame
-    await expect(readout).toContainText('Time unknown / Duration unknown | Frame 0 / count unknown | FPS unknown')
+    await expect(readout).toHaveText('Frame 0')
     const secondFrame = waitForFrameResponse(page, '1')
     await page.keyboard.press('.')
     await secondFrame
-    await expect(readout).toContainText('Frame 1 / count unknown')
+    await expect(readout).toHaveText('Frame 1')
   } else {
     const slider = controls.getByRole('slider', { name: 'Video position' })
     await slider.focus()
     await page.keyboard.press('End')
-    await expect(readout).toContainText('Frame unknown / 1 (estimated)')
+    await expect(readout).toContainText('1 frame (estimated)')
     await expect(readout).toContainText('24.000 fps')
     await expect(readout.getByTitle('Reported FPS; not used to convert time and frame index')).toBeVisible()
     await page.keyboard.press('Home')
@@ -264,7 +265,7 @@ for (const appView of [false, true]) for (const unknown of [false, true]) test(`
     await expect(readout).toContainText('Frame 1 / 1 (estimated)')
     await page.keyboard.press('.')
     await expect(readout).toContainText('Frame 2 / 1 (estimated)')
-    await expect(readout).toContainText('Time unknown')
+    await expect(readout).not.toContainText('unknown')
   }
   expect(requests.map((url) => url.searchParams.get('frame')).filter((frame) => frame !== null && !frame.endsWith('s')))
     .toEqual(unknown ? ['0', '1'] : ['0', '1', '2'])

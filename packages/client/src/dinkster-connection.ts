@@ -53,6 +53,7 @@ import {
   graphFeaturesFromDinksterWire,
   mergeableTypesFromDinksterWire,
   serverInfoFromDinksterWire,
+  uploadLimitsFromDinksterWire,
   parseOccurrenceKey,
   schemaForEditorRole,
   validateDinksterGraph,
@@ -999,6 +1000,7 @@ export interface MountLocations {
 
 export interface MountSettings {
   readonly mounts: readonly MountDescriptor[]
+  readonly importMount?: string
   readonly revision?: string
   readonly outputMount?: string
   readonly activeOutputMount?: string
@@ -1104,6 +1106,8 @@ export interface MountEntry {
   readonly digest: string
   readonly size: number
   readonly mediaType: string
+  /** Filesystem modification time in Unix seconds. */
+  readonly modifiedAt?: number
   readonly kind?: string
 }
 
@@ -1111,6 +1115,7 @@ export interface MountEntryPage {
   readonly entries: readonly MountEntry[]
   /** Immediate subfolder names, present only on a non-recursive first page. */
   readonly folders?: readonly string[]
+  readonly folderCounts?: Readonly<Record<string, number>>
   readonly cursor?: string
   readonly total?: number
 }
@@ -1153,6 +1158,12 @@ export interface MediaAssetRef extends JsonObject {
 export interface AssetUploadDestination {
   readonly mount?: string
   readonly folder?: string
+}
+
+/** Browser-transmitted bytes, not server validation or publication progress. */
+export interface AssetUploadProgress {
+  readonly sent: number
+  readonly total: number | null
 }
 
 /** Ingest history is advisory metadata, not authority to resolve a location. */
@@ -2015,6 +2026,7 @@ export class DinksterConnection {
   private readonly project: string | undefined
   private readonly keepSchemas: ((payload: DinksterNodesPayload) => void) | undefined
   private readonly fetchFn: FetchLike
+  private readonly browserUploadProgress: boolean
   private readonly registryFetchFn: FetchLike
   private readonly registryStaticUrl: () => string
   private readonly normalizer: DinksterNormalizer
@@ -2076,6 +2088,8 @@ export class DinksterConnection {
     const authenticatedFetch = config.token !== undefined || config.actorKind !== undefined
       ? credentialFetch(config, fetchFn)
       : fetchFn
+    // XHR cannot enforce redirect:error or replace a caller's transport.
+    this.browserUploadProgress = config.fetchFn === undefined && config.token === undefined && config.actorKind === undefined
     this.fetchFn = async (url, init) => {
       const principal = this.principalRequests.signal
       const signal = init?.signal === undefined || init.signal === null
@@ -3198,20 +3212,74 @@ export class DinksterConnection {
     return requested.map((digest) => assets.get(digest)!)
   }
 
+  private async uploadAssetBytes(url: string, file: File, headers: HeadersInit, options: {
+    readonly signal?: AbortSignal
+    readonly onProgress?: (progress: AssetUploadProgress) => void
+  }): Promise<Response> {
+    options.signal?.throwIfAborted()
+    if (!options.onProgress || !this.browserUploadProgress || typeof XMLHttpRequest === 'undefined') {
+      return this.fetchFn(url, {
+        method: 'POST', headers, body: file,
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      })
+    }
+    const principal = this.principalRequests.signal
+    const signal = options.signal ? AbortSignal.any([principal, options.signal]) : principal
+    return new Promise<Response>((resolve, reject) => {
+      const request = new XMLHttpRequest()
+      const abort = () => request.abort()
+      const cleanup = () => {
+        signal.removeEventListener('abort', abort)
+        request.onload = request.onerror = request.onabort = null
+        request.upload.onprogress = null
+      }
+      const fail = (error: unknown) => { cleanup(); reject(error) }
+      request.onload = () => {
+        try {
+          signal.throwIfAborted()
+          const response = new Response(request.responseText || null, {
+            status: request.status,
+            headers: { 'Content-Type': request.getResponseHeader('Content-Type') ?? 'application/json' },
+          })
+          cleanup()
+          resolve(response)
+        } catch (error) { fail(error) }
+      }
+      request.onerror = () => fail(new Error('File upload failed'))
+      request.onabort = () => fail(signal.reason ?? new DOMException('File upload cancelled', 'AbortError'))
+      request.upload.onprogress = (event) => {
+        if (signal.aborted) return
+        try { options.onProgress?.({ sent: event.loaded, total: event.lengthComputable ? event.total : null }) }
+        catch (error) { fail(error); request.abort() }
+      }
+      try {
+        request.open('POST', url)
+        new Headers(headers).forEach((value, name) => request.setRequestHeader(name, value))
+        signal.addEventListener('abort', abort, { once: true })
+        signal.throwIfAborted()
+        request.send(file)
+      } catch (error) { fail(error) }
+    })
+  }
+
   /** Import a named file into the current project's writable folder, not the workflow vault. */
   async uploadNamedAsset(
     file: File,
-    options: AssetUploadDestination & { readonly scope: string; readonly name: string; readonly signal?: AbortSignal },
+    options: AssetUploadDestination & {
+      readonly scope: string
+      readonly name: string
+      readonly signal?: AbortSignal
+      /** Available on the default browser transport; absent events mean indeterminate progress. */
+      readonly onProgress?: (progress: AssetUploadProgress) => void
+    },
   ): Promise<MediaAssetRef> {
     const query = new URLSearchParams({ scope: options.scope, name: options.name,
       ...(this.project !== undefined ? { project: this.project } : {}),
       ...(options.mount !== undefined ? { mount: options.mount } : {}),
       ...(options.folder !== undefined ? { folder: options.folder } : {}),
     })
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets?${query}`, {
-      method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file,
-      ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    })
+    const res = await this.uploadAssetBytes(`${this.baseUrl}/api/assets?${query}`, file,
+      { 'Content-Type': file.type || 'application/octet-stream' }, options)
     if (!res.ok) throw await requestFailure(res)
     const payload: unknown = await res.json()
     const asset = uploadedAssetRef(payload, undefined, 'POST /api/assets')
@@ -3305,6 +3373,8 @@ export class DinksterConnection {
       readonly name: string
       readonly expectedDigest?: string
       readonly signal?: AbortSignal
+      /** Available on the default browser transport; absent events mean indeterminate progress. */
+      readonly onProgress?: (progress: AssetUploadProgress) => void
     },
   ): Promise<MediaAssetRef> {
     const query = new URLSearchParams({ scope: options.scope, kind: options.kind, name: options.name,
@@ -3314,12 +3384,7 @@ export class DinksterConnection {
     })
     const headers = new Headers({ 'Content-Type': file.type })
     if (options.expectedDigest !== undefined) headers.set('X-Dinkster-Digest', options.expectedDigest)
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets/media?${query}`, {
-      method: 'POST',
-      headers,
-      body: file,
-      ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    })
+    const res = await this.uploadAssetBytes(`${this.baseUrl}/api/assets/media?${query}`, file, headers, options)
     if (!res.ok) throw await requestFailure(res)
     return uploadedAssetRef(await res.json(), options.kind, 'POST /api/assets/media')
   }
@@ -3327,15 +3392,17 @@ export class DinksterConnection {
   /** Upload a validated safetensors latent and adopt the server-authored AssetRef. */
   async uploadLatentAsset(
     file: File,
-    options: { readonly scope: string; readonly name: string; readonly signal?: AbortSignal },
+    options: {
+      readonly scope: string
+      readonly name: string
+      readonly signal?: AbortSignal
+      /** Available on the default browser transport; absent events mean indeterminate progress. */
+      readonly onProgress?: (progress: AssetUploadProgress) => void
+    },
   ): Promise<MediaAssetRef> {
     const query = new URLSearchParams({ scope: options.scope, name: options.name })
-    const res = await this.fetchFn(`${this.baseUrl}/api/assets/latent?${query}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-comfy-latent' },
-      body: file,
-      ...(options.signal !== undefined ? { signal: options.signal } : {}),
-    })
+    const res = await this.uploadAssetBytes(`${this.baseUrl}/api/assets/latent?${query}`, file,
+      { 'Content-Type': 'application/x-comfy-latent' }, options)
     if (!res.ok) throw await requestFailure(res)
     return uploadedAssetRef(await res.json(), 'data/latent', 'POST /api/assets/latent')
   }
@@ -3794,7 +3861,7 @@ export class DinksterConnection {
     const query = this.project && this.project !== 'default' ? `?${new URLSearchParams({ project: this.project })}` : ''
     const res = await this.fetchFn(`${this.baseUrl}/api/mounts${query}`, { signal })
     if (!res.ok) throw await requestFailure(res)
-    const payload = await res.json() as { mounts?: unknown; revision?: unknown; outputMount?: unknown; activeOutputMount?: unknown; mountChangesAllowed?: unknown; restartRequired?: unknown; pendingRemovals?: unknown }
+    const payload = await res.json() as { mounts?: unknown; importMount?: unknown; revision?: unknown; outputMount?: unknown; activeOutputMount?: unknown; mountChangesAllowed?: unknown; restartRequired?: unknown; pendingRemovals?: unknown }
     // Compatibility: a response without the field (older backend) decodes
     // as false - read-only; a present non-boolean is a protocol error.
     if (payload.mountChangesAllowed !== undefined && typeof payload.mountChangesAllowed !== 'boolean') {
@@ -3824,6 +3891,7 @@ export class DinksterConnection {
         (row['source'] === undefined || typeof row['source'] === 'string') &&
         (row['entryCount'] === undefined || (typeof row['entryCount'] === 'number' && Number.isSafeInteger(row['entryCount']) && row['entryCount'] >= 0)) && validProgress
     })
+    if (payload.importMount !== undefined && (typeof payload.importMount !== 'string' || payload.importMount === '')) throw new Error('GET /api/mounts: malformed import mount')
     if (payload.revision !== undefined && typeof payload.revision !== 'string') throw new Error('GET /api/mounts: malformed revision')
     if (payload.outputMount != null && typeof payload.outputMount !== 'string') throw new Error('GET /api/mounts: malformed output mount')
     if (payload.activeOutputMount != null && typeof payload.activeOutputMount !== 'string') throw new Error('GET /api/mounts: malformed active output mount')
@@ -3833,6 +3901,7 @@ export class DinksterConnection {
       mounts,
       ...(typeof payload.revision === 'string' ? { revision: payload.revision } : {}),
       mountChangesAllowed: payload.mountChangesAllowed === undefined ? false : payload.mountChangesAllowed,
+      ...(typeof payload.importMount === 'string' ? { importMount: payload.importMount } : {}),
       ...(typeof payload.outputMount === 'string' ? { outputMount: payload.outputMount } : {}),
       ...(typeof payload.activeOutputMount === 'string' ? { activeOutputMount: payload.activeOutputMount } : {}),
       ...(typeof payload.restartRequired === 'boolean' ? { restartRequired: payload.restartRequired } : {}),
@@ -3974,27 +4043,36 @@ export class DinksterConnection {
     if (!res.ok) throw await requestFailure(res)
   }
 
-  async listMountEntries(mountId: string, req: { readonly q?: string; readonly path?: string; readonly recursive?: boolean; readonly cursor?: string; readonly limit?: number; readonly kind?: string; readonly signal?: AbortSignal } = {}): Promise<MountEntryPage> {
+  async listMountEntries(mountId: string | undefined, req: { readonly mountIds?: readonly string[]; readonly q?: string; readonly path?: string; readonly recursive?: boolean; readonly sort?: 'path' | 'name' | 'newest'; readonly cursor?: string; readonly limit?: number; readonly kind?: string; readonly signal?: AbortSignal } = {}): Promise<MountEntryPage> {
+    if (req.mountIds?.length === 0) return { entries: [], total: 0 }
     const params = new URLSearchParams({ project: this.project ?? 'default' })
+    for (const id of req.mountIds ?? []) params.append('mount', id)
     if (req.q) params.set('q', req.q)
     if (req.path !== undefined) params.set('path', req.path)
     if (req.recursive !== undefined) params.set('recursive', req.recursive ? 'true' : 'false')
+    if (req.sort !== undefined) params.set('sort', req.sort)
     if (req.cursor) params.set('cursor', req.cursor)
     if (req.limit !== undefined) params.set('limit', String(req.limit))
     if (req.kind) params.set('kind', req.kind)
-    const res = await this.fetchFn(`${this.baseUrl}/api/mounts/${encodeURIComponent(mountId)}/entries?${params}`, req.signal !== undefined ? { signal: req.signal } : undefined)
+    const route = mountId === undefined ? '/api/mounts/entries' : `/api/mounts/${encodeURIComponent(mountId)}/entries`
+    const res = await this.fetchFn(`${this.baseUrl}${route}?${params}`, req.signal !== undefined ? { signal: req.signal } : undefined)
     if (!res.ok) throw await requestFailure(res)
-    const payload = await res.json() as { entries?: unknown; folders?: unknown; cursor?: unknown; total?: unknown }
+    const payload = await res.json() as { entries?: unknown; folders?: unknown; folderCounts?: unknown; cursor?: unknown; total?: unknown }
     const entries = Array.isArray(payload.entries) ? payload.entries.filter((value): value is MountEntry => {
       if (typeof value !== 'object' || value === null) return false
       const row = value as Record<string, unknown>
       return typeof row['virtualPath'] === 'string' && typeof row['name'] === 'string' && typeof row['digest'] === 'string' &&
-        typeof row['size'] === 'number' && typeof row['mediaType'] === 'string' && (row['kind'] === undefined || typeof row['kind'] === 'string')
+        typeof row['size'] === 'number' && typeof row['mediaType'] === 'string' && (row['kind'] === undefined || typeof row['kind'] === 'string') &&
+        (row['modifiedAt'] === undefined || (typeof row['modifiedAt'] === 'number' && Number.isFinite(row['modifiedAt'])))
     }) : []
     const folders = Array.isArray(payload.folders) ? payload.folders.filter((value): value is string => typeof value === 'string') : undefined
+    const folderCounts = typeof payload.folderCounts === 'object' && payload.folderCounts !== null && !Array.isArray(payload.folderCounts)
+      ? Object.fromEntries(Object.entries(payload.folderCounts).filter((pair): pair is [string, number] => Number.isSafeInteger(pair[1]) && pair[1] >= 0))
+      : undefined
     return {
       entries,
       ...(folders !== undefined ? { folders } : {}),
+      ...(folderCounts !== undefined ? { folderCounts } : {}),
       ...(typeof payload.cursor === 'string' ? { cursor: payload.cursor } : {}),
       ...(typeof payload.total === 'number' ? { total: payload.total } : {}),
     }
@@ -4852,6 +4930,7 @@ export function buildDinksterRegistry(
   const server = serverInfoFromDinksterWire(raw)
   const graphFeatures = graphFeaturesFromDinksterWire(raw)
   const mergeableTypes = mergeableTypesFromDinksterWire(raw)
+  const uploadLimits = uploadLimitsFromDinksterWire(raw)
   // Additive fields, absent on older backends: epoch is a positive int
   // (surface generation), composing is present-only-when-true.
   const epoch =
@@ -4869,6 +4948,7 @@ export function buildDinksterRegistry(
     ...(server !== undefined ? { server } : {}),
     ...(graphFeatures !== undefined ? { graphFeatures } : {}),
     ...(mergeableTypes !== undefined ? { mergeableTypes } : {}),
+    ...(uploadLimits !== undefined ? { uploadLimits } : {}),
     ...(extensionSnapshotPair !== undefined ? { extensionSnapshotPair } : {}),
     ...(epoch !== undefined ? { epoch } : {}),
     ...(raw.composing === true ? { composing: true as const } : {}),

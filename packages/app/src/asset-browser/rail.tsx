@@ -11,6 +11,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
 import { formatByteSize, type CollectionEntry } from '@dinkster/core'
 import type { DinksterConnection } from '@dinkster/client'
+import { ProductDisclosure } from '@dinkster/ui'
 import { AssetFileLocation } from '../AssetFileLocation.js'
 import { CollectionImage } from '../CollectionImage.js'
 import { activeProjectId } from '../projects.js'
@@ -23,7 +24,7 @@ import type { AssetBrowserItem, AssetSourceAdapter } from './types.js'
 import { committableAssetRef, isBrowserPreviewable } from './helpers.js'
 import { inspectAssetMetadata, METADATA_INSPECTION_UNSUPPORTED } from './metadata.js'
 import { assetEntryKindOf, assetItemOf, assetKindOf } from './collection-adapter.js'
-import { DigestValue } from './presentation.js'
+import { AssetModifiedTime, DigestValue } from './presentation.js'
 import {
   logicalModelVariantName,
   type LogicalModelPickDetail,
@@ -76,11 +77,10 @@ function AssetFacts(props: {
   return (
     <>
       <dl>
-        <dt>{message('assets.fact.name')}</dt><dd>{props.item.name}</dd>
         <dt>{message('assets.fact.kind')}</dt><dd>{assetKindOf(props.item) ?? message('assets.value.unknown')}</dd>
         <dt>{message('assets.fact.mediaType')}</dt><dd>{props.item.mediaType ?? message('assets.value.unknown')}</dd>
-        <Show when={props.dimensions}>{(dimensions) => <><dt>{message('assets.fact.resolution')}</dt><dd>{dimensions().width} x {dimensions().height}</dd></>}</Show>
-        <dt>{message('assets.fact.size')}</dt><dd>{props.item.size === undefined ? 'unknown' : formatByteSize(props.item.size)}</dd>
+        <Show when={props.dimensions}>{(dimensions) => <><dt>{message('assets.fact.resolution')}</dt><dd>{message('assets.selection.dimensions', { width: dimensions().width, height: dimensions().height })}</dd></>}</Show>
+        <dt>{message('assets.fact.size')}</dt><dd>{props.item.size === undefined ? message('assets.value.unknown') : formatByteSize(props.item.size)}</dd>
         <dt>{message('assets.fact.source')}</dt><dd>{props.item.source.id === 'all-assets' ? message('assets.source.all') : props.item.source.label}</dd>
         <Show when={props.item.source.id.startsWith('mount:')}><dt>{message('assets.fact.mount')}</dt><dd>{props.item.source.id.slice('mount:'.length)}</dd></Show>
         <dt>{message('assets.fact.virtualPath')}</dt><dd>{props.item.virtualPath ?? ''}</dd>
@@ -109,32 +109,35 @@ function AssetEntrySelectionContent(props: {
   readonly adapters: readonly AssetSourceAdapter[]
   readonly backendId: string
   readonly additionalFacts: NonNullable<CollectionEntry['details']>
+  readonly actions: JSX.Element
 }) {
   const message = useAppMessage()
   const [dimensions, setDimensions] = createSignal<AssetDimensions>()
   const [previewFailed, setPreviewFailed] = createSignal(false)
   return (
     <>
-      <header class="asset-section-heading">
-        <div>
-          <span class="asset-section-eyebrow">{message('assets.selection.title')}</span>
-          <h3>{props.item.name}</h3>
-        </div>
-        <Show when={props.item.size !== undefined}><span>{formatByteSize(props.item.size!)}</span></Show>
-      </header>
       <Show when={props.preview}>
-        {(entry) => <CollectionImage entry={entry()} class="asset-preview"
+        {(entry) => <CollectionImage entry={entry()} class="asset-preview" loading="eager"
           alt={message('assets.preview.alt', { name: props.item.name })}
           fallback={<Show when={previewFailed()}><div class="asset-preview asset-preview-fallback" data-testid="asset-image-fallback" role="status">{message('assets.preview.unavailable')}</div></Show>}
-          onError={() => setPreviewFailed(true)}
+          onError={() => { setPreviewFailed(true); setDimensions(undefined) }}
           onLoad={(event) => {
             const { naturalWidth, naturalHeight } = event.currentTarget
             if (naturalWidth > 0 && naturalHeight > 0) setDimensions({ width: naturalWidth, height: naturalHeight })
           }} />}
       </Show>
-      <Show when={!previewFailed() ? dimensions() : undefined}>
-        {(value) => <div class="asset-preview-caption" data-testid="asset-preview-caption">{value().width} x {value().height}</div>}
-      </Show>
+      <header class="asset-section-heading"><h3>{props.item.name}</h3></header>
+      <dl class="asset-selection-facts">
+        <Show when={dimensions()}>{(value) => <><dt>{message('assets.selection.picture')}</dt><dd data-testid="asset-preview-caption">{message('assets.selection.dimensions', { width: value().width, height: value().height })}</dd></>}</Show>
+        <dt>{message('assets.fact.size')}</dt><dd>{props.item.size === undefined ? message('assets.value.unknown') : formatByteSize(props.item.size)}</dd>
+        <Show when={props.item.modifiedAt !== undefined}><dt>{message('assets.selection.made')}</dt><dd><AssetModifiedTime value={props.item.modifiedAt!} /></dd></Show>
+        <dt>{message('assets.selection.folder')}</dt><dd class="asset-selection-folder">{props.item.virtualPath?.replace(/^mounts\//, '').split('/').slice(0, -1).join('/')}</dd>
+      </dl>
+      <div class="asset-selection-quiet-facts">
+        <Show when={dimensions()}>{(value) => <span>{message('assets.selection.dimensions', { width: value().width, height: value().height })}, </span>}</Show>
+        {props.item.size === undefined ? message('assets.value.unknown') : formatByteSize(props.item.size)}<Show when={props.item.modifiedAt !== undefined}>, <AssetModifiedTime value={props.item.modifiedAt!} /></Show>
+      </div>
+      {props.actions}
       <AssetSelectionDetails item={props.item} dimensions={dimensions()} adapters={props.adapters} backendId={props.backendId} additionalFacts={props.additionalFacts} />
     </>
   )
@@ -220,11 +223,11 @@ export function AssetEntrySelection(props: {
             <Show when={props.visibilityConnection && selected.kind?.startsWith('model/') && selected.virtualPath && selected.rawRef && (selected.digest || (typeof selected.rawRef === 'object' && 'localBinding' in selected.rawRef)) ? props.visibilityConnection : undefined}>{(visibility) => <ModelVisibilityAction
               item={selected} connection={visibility()} onChanged={props.onVisibilityChanged}
               isCurrent={() => props.connection === connection && props.backendUrl === backendUrl && activeProjectId() === project} />}</Show>
-            <AssetEntrySelectionContent item={selected} preview={isBrowserPreviewable(selected) ? props.entry : undefined} adapters={props.adapters} backendId={props.backendId} additionalFacts={selectionDetailsOf(props.entry)} />
-            <Show when={committableAssetRef(selected)}>{(ref) => <AssetFileLocation
+            <AssetEntrySelectionContent item={selected} preview={isBrowserPreviewable(selected) ? props.entry : undefined} adapters={props.adapters} backendId={props.backendId} additionalFacts={selectionDetailsOf(props.entry)}
+              actions={<Show when={committableAssetRef(selected)}>{(ref) => <AssetFileLocation compact
               connection={connection} backendUrl={backendUrl} backendLabel={props.backendLabel}
-              digest={ref().digest} project={project}
-              isCurrent={() => props.connection === connection && props.backendUrl === backendUrl && activeProjectId() === project} />}</Show>
+              digest={ref().digest} project={project} path={selected.virtualPath}
+              isCurrent={() => props.connection === connection && props.backendUrl === backendUrl && activeProjectId() === project} />}</Show>} />
           </>
         }}
       </Show>
@@ -268,10 +271,11 @@ export function AssetSelectionDetails(props: {
   }
   const canInspect = (): boolean => props.adapters.some((adapter) => adapter.id === props.item.source.id)
   return (
-    <details class="asset-rail-details" data-testid="asset-rail-details">
-      <summary aria-label={message('assets.details.forAsset', { name: props.item.name })}>{message('assets.details.title')}</summary>
+    <div class="asset-rail-details" data-testid="asset-rail-details">
+      <ProductDisclosure title={message('assets.details.title')}>
       <AssetFacts item={props.item} dimensions={props.dimensions} metadata={metadata()} metadataState={metadataState()} inspect={canInspect() ? inspect : undefined} additionalFacts={props.additionalFacts} />
-    </details>
+      </ProductDisclosure>
+    </div>
   )
 }
 

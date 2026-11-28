@@ -15,6 +15,7 @@ export function ProductSelect<T>(props: {
   readonly options: readonly ProductSelectOption<T>[]
   readonly selectedId: string
   readonly onSelect?: (option: ProductSelectOption<T>) => void
+  readonly onReselect?: () => void
   readonly onSelectAsync?: (option: ProductSelectOption<T>, stillWanted: () => boolean) => Promise<boolean>
   readonly id?: string
   readonly class?: string
@@ -139,6 +140,7 @@ export function ProductSelect<T>(props: {
     const option = props.options[index]
     if (!option || option.disabled === true) return
     if (option.id === props.selectedId) {
+      props.onReselect?.()
       close(true)
       return
     }

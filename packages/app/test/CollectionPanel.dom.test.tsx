@@ -3,9 +3,11 @@ import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CollectionEntry, CollectionPageRequest, CollectionSource } from '@dinkster/core'
-import { registerCatalog, setLocale } from '@dinkster/core'
+import { asConnectionId, registerCatalog, setLocale } from '@dinkster/core'
+import { DinksterConnection, RequestFailure } from '@dinkster/client'
 import { CollectionPanel } from '../src/CollectionPanel.js'
-import { RequestFailure } from '@dinkster/client'
+import { mountAssetSource } from '../src/asset-browser/mountAssetSource.js'
+import { assetCollectionSource } from '../src/asset-browser/collection-adapter.js'
 
 const folder = (path: string): CollectionEntry => ({ id: `folder:${path}`, title: path.split('/').at(-1)!, folder: { path } })
 const file = (id: string): CollectionEntry => ({ id, title: `${id}.png`, ref: { id } })
@@ -21,6 +23,128 @@ afterEach(() => {
 })
 
 describe('CollectionPanel folder navigation', () => {
+  it('filters from its canvas row without picking old results during a pending search', async () => {
+    const root = document.createElement('div'); document.body.append(root)
+    const picked = vi.fn()
+    const [query, setQuery] = createSignal('')
+    const [input, setInput] = createSignal<HTMLInputElement>()
+    let finish!: () => void
+    const source: CollectionSource = {
+      id: 'output', label: 'Output', page: async (request) => {
+        if (request.query !== '') await new Promise<void>((resolve) => { finish = resolve })
+        return { items: [file(request.query === '' ? 'old' : 'match')], total: 1 }
+      },
+    }
+    const dispose = render(() => <>
+      <input ref={setInput} value={query()} onInput={(event) => setQuery(event.currentTarget.value)} />
+      <CollectionPanel sources={[{ id: 'other', label: 'Other', page: async () => ({ items: [file('wrong-scope')] }) }, source]}
+        initialSourceId="output" search={{ query, input }} pick={{ pickable: () => true, onPick: picked }} />
+    </>, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('old.png'))
+      expect(root.textContent).not.toContain('wrong-scope')
+      expect(root.querySelector('[data-testid="collection-search"]')).toBeNull()
+      const field = input()!
+      expect(field.getAttribute('role')).toBe('combobox')
+      field.value = 'match'; field.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      root.querySelector<HTMLElement>('[data-testid="collection-entry"]')!.click()
+      expect(picked).not.toHaveBeenCalled()
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+      finish()
+      await vi.waitFor(() => expect(root.textContent).toContain('match.png'))
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      expect(picked).toHaveBeenCalledOnce()
+      expect(picked.mock.calls[0]![0].id).toBe('match')
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      expect(field.value).toBe('')
+    } finally { dispose() }
+  })
+
+  it('keeps selected mount scope and order through scroll pages and explicit shallow search', async () => {
+    const requests: URL[] = []
+    const connection = new DinksterConnection({
+      id: asConnectionId('native'), baseUrl: 'http://native', clientId: 'test',
+      fetchFn: async (url) => {
+        const request = new URL(url); requests.push(request)
+        const name = request.searchParams.has('cursor') ? 'older.bin' : 'newer.bin'
+        return new Response(JSON.stringify({
+          entries: [{ name, virtualPath: `mounts/output/folder/${name}`, digest: 'blake3:a', size: 7, mediaType: 'application/octet-stream' }],
+          ...(request.searchParams.has('cursor') ? {} : { cursor: 'next' }), total: 2,
+        }))
+      },
+    })
+    const all = assetCollectionSource(mountAssetSource(connection, ['input', 'output']))
+    const one = assetCollectionSource(mountAssetSource(connection, 'output'))
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <CollectionPanel sources={[{ ...all, page: (request) => all.page({ ...request, sort: 'newest', recursive: true }) },
+      { ...one, page: (request) => one.page({ ...request, sort: 'name', recursive: false }) }]} pagination="scroll" />, root)
+    try {
+      await vi.waitFor(() => expect(root.textContent).toContain('newer.bin'))
+      expect(requests[0]!.pathname).toBe('/api/mounts/entries')
+      expect(requests[0]!.searchParams.getAll('mount')).toEqual(['input', 'output'])
+      expect(requests[0]!.searchParams.get('sort')).toBe('newest')
+      expect(requests[0]!.searchParams.get('recursive')).toBe('true')
+      const viewport = root.querySelector<HTMLElement>('[data-testid="collection-items"]')!
+      Object.defineProperties(viewport, { clientHeight: { value: 200 }, scrollHeight: { value: 1000 } })
+      viewport.scrollTop = 800; viewport.dispatchEvent(new Event('scroll'))
+      await vi.waitFor(() => expect([...root.querySelectorAll('.collection-title')].map((row) => row.textContent)).toEqual(['newer.bin', 'older.bin']))
+      expect(requests.at(-1)!.searchParams.getAll('mount')).toEqual(['input', 'output'])
+      root.querySelector<HTMLButtonElement>('[data-source="mount:output"]')!.click()
+      const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
+      search.value = 'newer'; search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      await vi.waitFor(() => expect(requests.at(-1)!.searchParams.get('q')).toBe('newer'))
+      expect(requests.at(-1)!.pathname).toBe('/api/mounts/output/entries')
+      expect(requests.at(-1)!.searchParams.getAll('mount')).toEqual([])
+      expect(requests.at(-1)!.searchParams.get('recursive')).toBe('false')
+      expect(requests.at(-1)!.searchParams.get('sort')).toBe('name')
+      expect(requests.at(-1)!.searchParams.has('cursor')).toBe(false)
+    } finally { dispose() }
+  })
+
+  it('continues a scroll page once and discards it when the search changes', async () => {
+    let finish!: () => void
+    const requests: CollectionPageRequest[] = []
+    const source: CollectionSource = {
+      id: 'mounts', label: 'All mounts',
+      page: async (request) => {
+        requests.push(request)
+        if (request.query === 'new') return { items: [file('new-match')], total: 1 }
+        if (request.cursor) {
+          await new Promise<void>((resolve) => { finish = resolve })
+          if (request.cursor === 'next') return { items: [file('continued')], cursor: 'last', total: 62 }
+          return { items: [file('obsolete-continuation')], total: 61 }
+        }
+        return { items: Array.from({ length: request.limit }, (_, index) => file(`original-${index}`)), cursor: 'next', total: 62 }
+      },
+    }
+    const root = document.createElement('div'); document.body.append(root)
+    const dispose = render(() => <CollectionPanel sources={[source]} pageSize={60} pagination="scroll" />, root)
+    try {
+      await vi.waitFor(() => expect(root.querySelectorAll('[data-entry]')).toHaveLength(60))
+      expect(root.querySelector('[data-testid="collection-more"]')).toBeNull()
+      const viewport = root.querySelector<HTMLElement>('[data-testid="collection-items"]')!
+      Object.defineProperties(viewport, { clientHeight: { value: 200 }, scrollHeight: { value: 1000 } })
+      viewport.scrollTop = 800
+      viewport.dispatchEvent(new Event('scroll'))
+      viewport.dispatchEvent(new Event('scroll'))
+      await vi.waitFor(() => expect(requests.filter((request) => request.cursor === 'next')).toHaveLength(1))
+      finish()
+      await vi.waitFor(() => expect(root.textContent).toContain('continued.png'))
+      expect(root.querySelectorAll('[data-entry]')).toHaveLength(61)
+      viewport.dispatchEvent(new Event('scroll'))
+      await vi.waitFor(() => expect(requests.at(-1)?.cursor).toBe('last'))
+      const search = root.querySelector<HTMLInputElement>('[data-testid="collection-search"]')!
+      search.value = 'new'
+      search.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      finish()
+      await vi.waitFor(() => expect(root.textContent).toContain('new-match.png'))
+      expect(root.textContent).not.toContain('obsolete-continuation')
+      expect(root.querySelectorAll('[data-entry]')).toHaveLength(1)
+      expect(requests.at(-1)?.cursor).toBeUndefined()
+    } finally { dispose() }
+  })
+
   it('shows kind labels only for mixed results and a count only while more matches remain', async () => {
     const source: CollectionSource = {
       id: 'choices', label: 'Choices',
@@ -294,17 +418,18 @@ describe('CollectionPanel folder navigation', () => {
       id: 'mount:input', label: 'input', folders: true,
       page: vi.fn(async (req) => {
         requests.push(req)
-        if (req.cursor === 'root-next') return { items: [file('root-page-two')] }
+        if (req.cursor === 'root-next') return { items: [file('root-page-two')], total: 2 }
         if (req.query !== '') return { items: [file('search-result')], cursor: 'search-next' }
         if (req.folder === 'photos/trips') return { items: [file('trip')] }
         if (req.folder === 'photos') return { items: [folder('photos/trips'), file('photo')], cursor: 'photos-next' }
-        return { items: [folder('photos'), file('root-file')], cursor: 'root-next' }
+        return { items: [folder('photos'), file('root-file')], cursor: 'root-next', total: 2 }
       }),
     }
     const root = document.createElement('div')
     document.body.append(root)
     const unmount = render(() => <CollectionPanel sources={[source]} />, root)
     await settle()
+    expect(root.querySelector('[data-testid="collection-total"]')?.textContent).toBe('Showing 1 of 2')
     const rootFile = root.querySelector<HTMLElement>('[data-entry="root-file"]')!
     expect(rootFile.getAttribute('data-tooltip-label')).toBe('root-file.png')
     expect(rootFile.querySelector('.collection-title')?.getAttribute('title')).toBeNull()
@@ -312,6 +437,8 @@ describe('CollectionPanel folder navigation', () => {
 
     root.querySelector<HTMLButtonElement>('[data-testid="collection-more"]')!.click()
     await vi.waitFor(() => expect(requests.at(-1)?.cursor).toBe('root-next'))
+    await vi.waitFor(() => expect(root.querySelector('[data-entry="root-page-two"]')).not.toBeNull())
+    expect(root.querySelector('[data-testid="collection-total"]')).toBeNull()
     await vi.waitFor(() => expect(root.querySelectorAll('[data-entry="folder:photos"]')).toHaveLength(1))
     root.querySelector<HTMLElement>('[data-entry="folder:photos"]')!.click()
     await vi.waitFor(() => expect(requests.at(-1)?.folder).toBe('photos'))

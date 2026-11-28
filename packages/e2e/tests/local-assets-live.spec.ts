@@ -91,7 +91,7 @@ test('reopened workflow checks exact asset presence without acquiring or rewriti
     finishLocation = async () => {
       await route.fulfill({ response })
       expect(body.locations.length).toBeGreaterThan(0)
-      for (const location of body.locations) await expect(page.getByTestId('asset-file-location')).toContainText(location.path)
+      for (const location of body.locations) await expect(page.getByTestId('asset-file-location').getByTitle(location.path, { exact: true })).toBeVisible()
     }
   }, { times: 1 })
   await problem.getByRole('button', { name: 'Locate or replace', exact: true }).click()

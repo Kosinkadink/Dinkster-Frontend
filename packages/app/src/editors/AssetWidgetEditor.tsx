@@ -1,24 +1,29 @@
-import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component } from 'solid-js'
-import { assetMultiSelect, formatByteSize, type CollectionEntry, type JsonObject } from '@dinkster/core'
+import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component, type JSX } from 'solid-js'
+import { assetMultiSelect, formatByteSize, rankSearch, type CollectionEntry, type CollectionPageRequest, type Json, type JsonObject } from '@dinkster/core'
+import { ProductModelList, ProductTextButton, ProductTextInput, type ProductModel, type ProductModelVersion } from '@dinkster/ui'
 import type { AssetGuessCandidate } from '@dinkster/client'
 import { failureMessage } from '../request-failure.js'
-import { Check, RotateCw, Upload, X } from 'lucide-solid'
+import { FileImportError } from '../desktop-bridge.js'
+import { Check, RotateCw, X } from 'lucide-solid'
+import { AssetBrowserNavigation } from '../asset-browser/AssetBrowserNavigation.js'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
-import { assetSourcesStatus, committableAssetRef, mediaAcceptsFile, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
-import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
+import { assetSourcesStatus, assetUploadPolicy, committableAssetRef, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
+import { importAssetFile } from '../asset-browser/import-file.js'
+import { mountAssetSource, mountAssetSources } from '../asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../asset-browser/localAssetSource.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
 import { ingestLogicalModels } from '../asset-browser/logical-model-merge.js'
-import { allAssetsCollectionSource, mountPresentationClass } from '../asset-browser/cross-mount-collection-source.js'
-import type { LogicalModel } from '../asset-browser/logical-model.js'
-import { logicalModelAssetRefOf, logicalModelCollectionSource, logicalModelEntrySelectable, logicalModelEntryVisible, logicalModelPickDetailOf, type LogicalModelPickDetail } from '../asset-browser/logical-model-collection-source.js'
-import { AssetEntryFallback } from '../asset-browser/presentation.js'
+import type { LogicalModel, LogicalModelVariant } from '../asset-browser/logical-model.js'
+import { logicalModelVariantName, type LogicalModelPickDetail } from '../asset-browser/logical-model-collection-source.js'
+import { AssetEntryContent, AssetEntryFallback } from '../asset-browser/presentation.js'
 import { isModel3dMime, model3dMimeFor } from '../model3d-mime.js'
 import { Model3dPosterImage } from '../Model3dPosterImage.js'
 import { PreviewDownload } from '../PreviewDownload.js'
+import { VideoPreview } from '../VideoPreview.js'
 import { AudioRecorder } from '../AudioRecorder.js'
 import { ProductActionFooter, ProductNotice } from '../ProductForm.js'
-import { ProductButton } from '../ProductControls.js'
+import { ProductButton, ProductFileInput } from '../ProductControls.js'
+import { ProductSelect } from '../ProductSelect.js'
 import { ProductEmptyState } from '../ProductSurfaces.js'
 import { AssetSelectionDetails, LogicalModelVariantFacts } from '../asset-browser/rail.js'
 import type { AssetBrowserItem, AssetSourceAdapter } from '../asset-browser/types.js'
@@ -32,9 +37,13 @@ import { UploadDestination } from '../UploadDestination.js'
 import { activeProjectId } from '../projects.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
 import { AssetFileLocation } from '../AssetFileLocation.js'
-import { resolveDroppedAsset } from '../desktop-bridge.js'
+import { ModalSurface } from '../ModalSurface.js'
 import { useAppMessage } from '../locale.js'
 import { tabDocumentUnchanged } from '../widget-editor-anchor.js'
+import { AssetQuickList, assetQuickListAllowed, type AssetQuickListProps } from './AssetQuickList.js'
+import type { Backend } from '../app-state.js'
+import type { WidgetEditorState } from '../WidgetEditorController.js'
+import { rowPlacement, visibleCanvas } from './row-placement.js'
 
 interface AssetRef extends JsonObject {
   readonly digest: string
@@ -56,36 +65,30 @@ function AssetVideoPreview(props: {
   readonly onError: (error?: unknown) => void
   readonly onDimensions: (dimensions: { width: number; height: number }) => void
 }) {
-  let video!: HTMLVideoElement
-  onCleanup(() => { video.pause(); video.removeAttribute('src'); video.load() })
-  return <video ref={video} class="asset-preview" data-testid="asset-video-preview" src={props.preview.src}
-    controls playsinline preload="metadata"
-    onError={() => props.onError()}
-    onLoadedMetadata={() => {
-      if (video.videoWidth > 0 && video.videoHeight > 0) props.onDimensions({ width: video.videoWidth, height: video.videoHeight })
-    }}>
-    <PreviewDownload class="" download={props.preview} label="Download video" />
-  </video>
+  const [preferences, setPreferences] = createSolidSignal({ autoplay: false, muted: false, loop: false })
+  return <div class="asset-video-preview" data-testid="asset-video-preview">
+    <VideoPreview media={{ kind: 'video', src: props.preview.src, ...(props.preview.mime ? { mime: props.preview.mime } : {}) }}
+      preferences={preferences()} onPreferences={setPreferences} onMediaError={() => props.onError()}
+      onDimensions={(dimensions) => {
+        if (dimensions.width > 0 && dimensions.height > 0) props.onDimensions(dimensions)
+      }} />
+  </div>
 }
-
-const GENERIC_UPLOAD_MAX_BYTES = 16 * 1024 * 1024
-const IMAGE_UPLOAD_MAX_BYTES = 256 * 1024 * 1024
-const MEDIA_UPLOAD_MAX_BYTES = 1024 * 1024 * 1024
-const LATENT_UPLOAD_MAX_BYTES = 1024 * 1024 * 1024
 
 interface AssetPickerVocabulary {
   readonly singular: string
   readonly plural: string
   readonly titlePlural: string
-  readonly modalType: string
-  readonly uploadSingular: string
-  readonly uploadPlural: string
 }
 
 const withArticle = (noun: string): string => (/^[aeiou]/i.test(noun) ? `an ${noun}` : `a ${noun}`)
-const GENERIC_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'asset', plural: 'assets', titlePlural: 'Assets', modalType: 'asset', uploadSingular: 'file', uploadPlural: 'files' }
-const LATENT_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'latent', plural: 'latents', titlePlural: 'Latents', modalType: 'latent asset', uploadSingular: 'latent', uploadPlural: 'latents' }
-const MODEL_ASSET_VOCABULARY: AssetPickerVocabulary = { singular: 'model', plural: 'models', titlePlural: 'Models', modalType: 'asset', uploadSingular: 'model file', uploadPlural: 'model files' }
+
+const assetPickerNoun = (kind: string | undefined): string =>
+  kind?.startsWith('model/') === true ? 'model'
+    : kind === 'data/latent' ? 'latent'
+      : kind === 'media/image' ? 'image'
+        : kind === 'media/video' ? 'video'
+          : kind === 'media/audio' ? 'audio' : 'file'
 
 const isAssetRef = (value: unknown): value is AssetRef => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -100,36 +103,34 @@ export function unresolvedAssetBasename(requested: string): string {
 
 export { mediaAcceptsFile } from '../asset-browser/helpers.js'
 
-function assetPickerState(state: CollectionPanelState, vocabulary: AssetPickerVocabulary) {
+function assetPickerState(state: CollectionPanelState, vocabulary: AssetPickerVocabulary, noun: string) {
   if (state.kind === 'loading') return <SearchState kind="loading" title={`Loading ${vocabulary.plural}`} detail={`Searching ${state.sourceLabel}.`} />
-  if (state.kind === 'no-compatible') return <SearchState kind="empty" title={`No available ${vocabulary.plural}`} detail="Choose another source or adjust the picker requirements." />
-  if (state.kind === 'no-match') return <SearchState kind="empty" title={`No matching ${vocabulary.plural}`} detail="Try another search or remove an active filter." />
-  return <SearchState kind="empty" title={`No ${vocabulary.plural} yet`} detail={`No matching ${vocabulary.plural} are available in ${state.sourceLabel}.`} />
+  const plural = noun === 'audio' ? noun : `${noun}s`
+  return <ProductEmptyState title={state.query ? `No ${plural} match "${state.query}".` : `No ${plural} found.`} />
 }
 
-function mediaUploadName(name: string): string {
-  const basename = unresolvedAssetBasename(name).trim().replace(/[\u0000-\u001f\u007f]/g, '')
-  const bounded = Array.from(basename).slice(0, 255).join('')
-  return bounded === '' || bounded === '.' || bounded === '..' ? 'upload' : bounded
-}
-
-interface AssetImplementationProps extends WidgetEditorImplementationProps {
+export interface AssetFilePickerProps {
+  readonly state: Pick<WidgetEditorState, 'spec' | 'declaredType' | 'mergeableTypes' | 'sourceFilename' | 'initial' | 'missingAssetDigest' | 'stagedFile'>
+  readonly backend: () => Backend
+  readonly uploadLimits?: Readonly<Record<string, number>> | null
+  /** The host still owns the selection on the same backend. */
+  readonly current: () => boolean
+  /** An automatic import may commit only while its original target is unchanged. */
+  readonly unchanged: () => boolean
+  readonly close: () => void
+  readonly commitValue: (value: Json) => Promise<boolean>
   setDismissBlocked: (blocked: () => boolean) => void
   setRequestClose: (handler: (close: () => void) => void) => void
+  commitImportedFile?: boolean | undefined
 }
 
-const AssetEditorImplementation: Component<AssetImplementationProps> = (implementationProps) => {
-  const props = implementationProps.editor
+export const AssetFilePicker: Component<AssetFilePickerProps> = (props) => {
   const message = useAppMessage()
-  const ed = props.ed
-  const close = implementationProps.close
-  const commitEditorValue = implementationProps.commitValue
+  const ed = props.state
+  const close = props.close
+  const commitEditorValue = props.commitValue
   let live = true
   onCleanup(() => { live = false })
-  // The tab owns backend affinity, so asset bytes use that tab's native
-  // connection uses the editing tab's native client. Never fall back to the
-  // default backend: identical digests are not proof that two
-  // configured servers share a vault.
   const [assetPreview, setAssetPreview] = createSolidSignal<AssetPreview | undefined>(undefined)
   const [assetPreviewFailed, setAssetPreviewFailed] = createSolidSignal(false)
   /** Natural pixel size of the previewed media, measured on load; feeds the
@@ -143,25 +144,23 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
    * from the logical model picker: feeds the Details disclosure. */
   const [assetSelectedModel, setAssetSelectedModel] = createSolidSignal<LogicalModelPickDetail | undefined>(undefined)
   const [assetError, setAssetError] = createSolidSignal<string | undefined>(undefined)
+  let assetScroll: HTMLDivElement | undefined
+  createEffect(() => {
+    if (assetError() === undefined) return
+    queueMicrotask(() => {
+      if (live) assetScroll?.querySelector('.asset-error')?.scrollIntoView({ block: 'nearest' })
+    })
+  })
   const [assetUploading, setAssetUploading] = createSolidSignal(false)
-  const uploadBackend = props.app.backendForTab(ed.tab)
+  const uploadBackend = props.backend()
   const project = activeProjectId()
-  const openedTab = ed.tab
-  const openedStore = openedTab.store
-  const openedDocument = openedStore.doc
-  const openedRevision = openedStore.revision
-  const openedRegistry = props.app.registryForTab(openedTab)
   let connectionChanged = false
   const unsubscribeConnection = uploadBackend.connection.status.subscribe(() => { connectionChanged = true })
   onCleanup(unsubscribeConnection)
   const pickerContextCurrent = (): boolean =>
-    live && !connectionChanged && openedTab.store === openedStore &&
-    openedStore.doc === openedDocument && openedStore.revision === openedRevision &&
-    (ed.tab === openedTab || props.app.liveTabContinuing(openedStore) === ed.tab) &&
-    tabDocumentUnchanged(openedTab, openedRevision, ed.tab) &&
-    props.app.tabs.get().includes(ed.tab) && props.app.backendForTab(ed.tab) === uploadBackend &&
-    props.app.registryForTab(ed.tab) === openedRegistry && activeProjectId() === project
+    live && !connectionChanged && props.unchanged() && activeProjectId() === project
   const [destination, setDestination] = createSolidSignal(readUploadDestination(String(uploadBackend.id), project))
+  const [destinationOpen, setDestinationOpen] = createSolidSignal(false)
   const [uploadedLocation, setUploadedLocation] = createSolidSignal('')
   let assetUploadInput: HTMLInputElement | undefined
   let assetUploadTrigger: HTMLButtonElement | undefined
@@ -181,11 +180,16 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   onCleanup(() => assetUploadAbort?.abort())
   // undefined = discovery not settled; [] = settled with nothing browsable.
   const [assetSources, setAssetSources] = createSolidSignal<readonly AssetSourceAdapter[] | undefined>(undefined)
+  const [recursive, setRecursive] = createSolidSignal(true)
+  const [sort, setSort] = createSolidSignal<NonNullable<CollectionPageRequest['sort']>>('newest')
   const [assetSourcesError, setAssetSourcesError] = createSolidSignal<string | undefined>(undefined)
   const [mountDiscoveryError, setMountDiscoveryError] = createSolidSignal<string | undefined>(undefined)
   const [logicalModels, setLogicalModels] = createSolidSignal<readonly LogicalModel[] | undefined>(undefined)
   const [logicalModelsError, setLogicalModelsError] = createSolidSignal<string | undefined>(undefined)
   const [logicalModelsLoading, setLogicalModelsLoading] = createSolidSignal(false)
+  const [modelQuery, setModelQuery] = createSolidSignal('')
+  const [modelFolder, setModelFolder] = createSolidSignal('')
+  const [inspectedModel, setInspectedModel] = createSolidSignal<{ modelId: string; versionId: string }>()
   const unresolvedAsset = ed.spec?.selection !== true && typeof ed.initial === 'string' ? ed.initial : undefined
   const [assetMatchCandidates, setAssetMatchCandidates] = createSolidSignal<readonly AssetGuessCandidate[]>([])
   const [assetMatchPending, setAssetMatchPending] = createSolidSignal(false)
@@ -202,10 +206,11 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     return typeof kind === 'string' && kind !== '' ? kind : undefined
   }
   const assetBrowseKind = (): string | undefined => assetKind() ?? mediaKindForAccept(assetAccept())
-  const assetVocabulary = (): AssetPickerVocabulary =>
-    assetBrowseKind()?.startsWith('model/') === true
-      ? MODEL_ASSET_VOCABULARY
-      : assetBrowseKind() === 'data/latent' ? LATENT_ASSET_VOCABULARY : GENERIC_ASSET_VOCABULARY
+  const assetVocabulary = (): AssetPickerVocabulary => {
+    const singular = assetPickerNoun(assetBrowseKind())
+    const plural = singular === 'audio' ? singular : `${singular}s`
+    return { singular, plural, titlePlural: plural[0]!.toUpperCase() + plural.slice(1) }
+  }
   // Multi-select (typed-assets pin (5)): the declared outer type gates it -
   // list<asset<T>> / list<ASSET> pick N descriptors committed as ONE
   // array value, and a scalar concrete T with a registered batch-merge
@@ -223,20 +228,8 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     ? uploadKind
     : undefined
   const classifiedLatent = ed.spec?.widgetType === 'ASSET' && uploadKind === 'data/latent'
-  const assetUploadMaxBytes = classifiedMediaKind === 'media/image'
-    ? IMAGE_UPLOAD_MAX_BYTES
-    : classifiedMediaKind !== undefined
-      ? MEDIA_UPLOAD_MAX_BYTES
-      : classifiedLatent ? LATENT_UPLOAD_MAX_BYTES : GENERIC_UPLOAD_MAX_BYTES
-  // Display copy exists only for kinds with a deliberate, user-facing limit.
-  // Model kinds fall into the generic enforcement bucket, whose 16 MiB bound
-  // is not an authoritative model limit, so they render no limit copy
-  // (enforcement still applies through assetUploadMaxBytes).
-  const assetUploadLimitLabel = classifiedMediaKind === 'media/image'
-    ? `${formatByteSize(IMAGE_UPLOAD_MAX_BYTES)} per file`
-    : classifiedMediaKind !== undefined || classifiedLatent
-      ? `${formatByteSize(MEDIA_UPLOAD_MAX_BYTES)} per file`
-      : uploadKind?.startsWith('model/') === true ? undefined : `${formatByteSize(GENERIC_UPLOAD_MAX_BYTES)} per file`
+  const policy = assetUploadPolicy(uploadKind, props.uploadLimits)
+  const assetUploadLimitLabel = policy.label === undefined ? undefined : `${policy.label} per file`
   // The SCALAR MERGE arm specifically (multi-select whose declaration is
   // NOT list-outer): an empty selection cannot commit `[]` there - the
   // declared type is scalar T, and a bare empty array would compile as raw
@@ -252,7 +245,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     change: (current: readonly AssetRef[]) => readonly AssetRef[],
     published: () => void = () => {},
   ): Promise<boolean> => {
-    if (!live || props.app.backendForTab(ed.tab) !== uploadBackend || activeProjectId() !== project) return false
+    if (!live || !props.current() || activeProjectId() !== project) return false
     setAssetSelection(change(assetSelection()))
     setAssetError(undefined)
     published()
@@ -324,7 +317,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       clearAssetPreview()
       return
     }
-    const backend = props.app.backendForTab(ed.tab)
+    const backend = props.backend()
     if (backend.protocol !== 'dinkster') {
       clearAssetPreview()
       setAssetError('Asset previews require a native Dinkster backend')
@@ -337,7 +330,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     try {
       const bytes = await backend.connection.fetchAssetBytes(ref.digest, abort.signal)
       if (!live || request !== assetPreviewRequest || abort.signal.aborted || bytes === undefined ||
-        props.app.backendForTab(ed.tab) !== backend || activeProjectId() !== project) return
+        props.backend() !== backend || activeProjectId() !== project) return
       const url = URL.createObjectURL(new Blob([bytes], { type: ref.mediaType }))
       replaceAssetPreview({ kind, src: url, name: ref.name,
         ...(kind === 'model3d' ? { mime: ref.mediaType } : {}),
@@ -366,7 +359,8 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     setLogicalModelsError(undefined)
     try {
       const sourceErrors: string[] = []
-      const localAdapter = await localMountScanAdapter(sources, kind, assetAccept(), {
+      const scoped = modelFolder() === '' ? sources : sources.filter((source) => source.id === modelFolder())
+      const localAdapter = await localMountScanAdapter(scoped, kind, assetAccept(), {
         signal: abort.signal,
         onSourceError: (message) => sourceErrors.push(message),
       })
@@ -383,7 +377,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   }
 
   if (ed.spec?.widgetType === 'ASSET') {
-    const backend = props.app.backendForTab(ed.tab)
+    const backend = props.backend()
     const asset = isAssetRef(ed.initial) ? ed.initial : isAssetRefArray(ed.initial) ? ed.initial[0] : undefined
     if (asset !== undefined && backend.protocol === 'dinkster') {
       void stageAssetSelection((current) => current, () => {
@@ -393,17 +387,18 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     if (backend.protocol !== 'dinkster') {
       setAssetSourcesError('Asset browsing requires a native Dinkster backend')
     } else {
-      const local = localAssetSource(backend.connection)
-      setAssetSources([local])
+      const local = usesLogicalModelSource() ? [localAssetSource(backend.connection)] : []
+      if (local.length > 0) setAssetSources(local)
       void mountAssetSources(backend.connection, assetBrowseKind()).then((sources) => {
         if (!live) return
-        const combined = [local, ...sources]
+        const combined = [...local, ...sources]
         setAssetSources(combined)
         void loadLogicalModels(combined)
       }).catch((reason: unknown) => {
         if (!live) return
+        setAssetSources(local)
         setMountDiscoveryError(failureMessage(reason, 'Folders could not be loaded.'))
-        void loadLogicalModels([local])
+        void loadLogicalModels(local)
       })
     }
   }
@@ -415,65 +410,26 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
    * The CALLER owns the assetUploading flag so a multi-file batch stays
    * busy end to end instead of flickering between files.
    */
-  const pickAsset = async (file: File): Promise<boolean> => {
+  const pickAsset = async (file: File, signal: AbortSignal): Promise<boolean> => {
     if (ed.spec?.widgetType !== 'ASSET') return false
-    const accept = Array.isArray(ed.spec.options['accept'])
-      ? ed.spec.options['accept'].filter((value): value is string => typeof value === 'string')
-      : []
-    // Browsers do not reliably assign a MIME type to .latent or .safetensors;
-    // the classified upload route validates their bytes authoritatively.
-    // 3D files (.glb, .ply) get their type inferred from the name so accept
-    // validation and the committed ref carry a previewable media type.
-    const effectiveType = model3dMimeFor(file.name, file.type) ?? file.type
-    const backend = props.app.backendForTab(ed.tab)
+    const backend = props.backend()
     if (backend.protocol !== 'dinkster') {
       setAssetError('Asset uploads require a native Dinkster backend')
       return false
     }
-    if (backend !== uploadBackend) return false
+    if (!props.current()) return false
     setAssetError(undefined)
     publishLocalAssetPreview(file)
-    const current = (): boolean => live && !assetUploadAbort?.signal.aborted &&
-      props.app.backendForTab(ed.tab) === backend && activeProjectId() === project
+    const current = (): boolean => live && !signal.aborted &&
+      props.backend() === backend && activeProjectId() === project
     try {
-      const existing = await resolveDroppedAsset(backend.baseUrl, file, current)
-      if (!current()) return false
-      if (existing && accept.length > 0 && !mediaAcceptsFile(accept, existing.mediaType, existing.name)) {
-        setAssetError('The existing file is not compatible with this input. Nothing was uploaded.')
-        return false
-      }
-      if (!existing && accept.length > 0 && !mediaAcceptsFile(accept, effectiveType, file.name) && !(classifiedLatent && file.type === '')) {
-        setAssetError(`Unsupported file type: ${effectiveType || 'unknown'}`)
-        return false
-      }
-      if (!existing && file.size > assetUploadMaxBytes) {
-        setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatByteSize(assetUploadMaxBytes)} upload limit`)
-        return false
-      }
       const choice = destination()
-      const uploadDestination = {
-        ...(choice.mount ? { mount: choice.mount } : {}),
-        ...(choice.folder ? { folder: choice.folder } : {}),
-      }
-      const ref = existing ?? (classifiedMediaKind !== undefined
-        ? await backend.connection.uploadMediaAsset(file, {
-            scope: 'local',
-            kind: classifiedMediaKind,
-            name: mediaUploadName(file.name),
-            ...uploadDestination,
-            ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
-          })
-        : classifiedLatent
-          ? await backend.connection.uploadLatentAsset(file, {
-              scope: 'local',
-              name: mediaUploadName(file.name),
-              ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
-            })
-        : await backend.connection.uploadNamedAsset(file, {
-            scope: 'local', name: mediaUploadName(file.name), ...uploadDestination,
-            ...(assetUploadAbort !== undefined ? { signal: assetUploadAbort.signal } : {}),
-          }))
-      if (!current()) return false
+      const result = await importAssetFile(file, {
+        baseUrl: backend.baseUrl, connection: backend.connection, accept: assetAccept(), kind: uploadKind,
+        policy, destination: choice, current, signal,
+      })
+      if (result === undefined) return false
+      const { asset: ref, existing } = result
       if (!classifiedLatent || existing) {
         setUploadedLocation(`${existing ? 'Using existing file; no copy made. ' : ''}${backend.label}: ${ref.virtualPath}`)
         if (!existing) {
@@ -493,7 +449,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       return true
     } catch (error) {
       if (current()) {
-        setAssetError(failureMessage(error))
+        setAssetError(error instanceof FileImportError ? error.message : failureMessage(error))
       }
       return false
     }
@@ -512,7 +468,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       setAssetUploading(true)
       try {
         for (const file of assetMulti ? files : files.slice(0, 1)) {
-          if (!live || abort.signal.aborted || !(await pickAsset(file))) break
+          if (!live || abort.signal.aborted || !(await pickAsset(file, abort.signal))) break
+          if (props.commitImportedFile && !assetMulti && pickerContextCurrent()) {
+            await commitEditorValue(assetSelection()[0]!)
+          }
         }
       } finally {
         if (assetUploadAbort === abort) assetUploadAbort = undefined
@@ -571,24 +530,9 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     )
   }
 
-  const pickLogicalModelEntry = (detail: LogicalModelPickDetail): void => {
-    const ref = detail.variant.localRef
-    if (ref !== undefined) {
-      pickLogicalModelRef(ref, detail)
-      return
-    }
-    if (assetUploading()) return
-    setAssetSelectedItem(undefined)
-    setAssetSelectedModel(detail)
-    if (!assetMulti) {
-      void stageAssetSelection(() => [])
-      clearAssetPreview()
-    }
-  }
-
   const retryAssetMatch = async (): Promise<void> => {
     if (unresolvedAsset === undefined) return
-    const backend = props.app.backendForTab(ed.tab)
+    const backend = props.backend()
     if (backend.protocol !== 'dinkster') {
       setAssetMatchError('Retry matching requires a native Dinkster backend')
       return
@@ -618,7 +562,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   }
   const selectionDetailModel = (): LogicalModelPickDetail | undefined => {
     const detail = assetSelectedModel()
-    if (detail !== undefined && detail.variant.localRef === undefined) return detail
     const digest = detail?.variant.localRef?.digest
     const selection = assetSelection()
     if (digest !== undefined && selection.some((ref) => ref.digest === digest)) return detail
@@ -630,11 +573,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     }
     return undefined
   }
-  const selectedUncommittableModel = (): LogicalModelPickDetail | undefined => {
-    const detail = assetSelectedModel()
-    return detail?.variant.localRef === undefined ? detail : undefined
-  }
-
   const pickMatchedAsset = (candidate: AssetGuessCandidate): void => {
     const ref = assetGuessCandidateToRef(candidate)
     if (ref === undefined) return
@@ -653,7 +591,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   // refs), and the widget's MIME accept + semantic kind become the pick
   // predicate. Details render in the editor's own selection rail.
   const assetUrlOf = (): ((digest: string) => string) | undefined => {
-    const backend = props.app.backendForTab(ed.tab)
+    const backend = props.backend()
     return backend.protocol === 'dinkster' ? (digest) => backend.connection.assetUrl(digest) : undefined
   }
   const assetPanelSources = createMemo(() => {
@@ -661,33 +599,49 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     const assetUrl = assetUrlOf()
 
     const fixedKind = assetBrowseKind()
-    if (usesLogicalModelSource()) {
-      return logicalModels() === undefined ? [] : [logicalModelCollectionSource(() => logicalModels() ?? [])]
-    }
-    if (fixedKind?.startsWith('media/') === true) {
-      const imported = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'input')
-      const generated = adapters.filter((adapter) => mountPresentationClass({ id: adapter.id.replace(/^mount:/, ''), kind: fixedKind }) === 'output')
-      return [
-        allAssetsCollectionSource(adapters, [], assetUrl, { fixedKind, failWhenAllSourcesFail: true }),
-        ...(imported.length > 0 ? [allAssetsCollectionSource(imported, [], assetUrl, { id: 'imported-assets', label: 'Imported', fixedKind, failWhenAllSourcesFail: true })] : []),
-        ...(generated.length > 0 ? [allAssetsCollectionSource(generated, [], assetUrl, { id: 'generated-assets', label: 'Generated', fixedKind, failWhenAllSourcesFail: true })] : []),
-      ]
-    }
-    return [
-      ...adapters.map((adapter) =>
-      assetCollectionSource(adapter, {
+    if (usesLogicalModelSource()) return []
+    if (adapters.length === 0) return []
+    const connection = props.backend().connection
+    return [mountAssetSource(connection, adapters.map((adapter) => adapter.id.slice('mount:'.length))), ...adapters].map((adapter) => ({
+      ...assetCollectionSource(adapter, {
         ...(assetUrl !== undefined ? { assetUrl } : {}),
         ...(fixedKind !== undefined ? { fixedKind } : {}),
-      }
-      )),
-    ]
+      }),
+      label: adapter.id === 'all-mounts' ? message('assets.mounts.all') : adapter.label,
+      filters: [],
+    }))
   })
+  const modelId = (model: LogicalModel): string => JSON.stringify([model.kind, model.logicalId])
+  const modelVersionId = (variant: LogicalModelVariant): string => JSON.stringify([variant.variantId, variant.digest ?? null])
+  const modelRows = createMemo<readonly ProductModel[]>(() => rankSearch(modelQuery(), logicalModels() ?? [], (model) => [
+    { text: model.displayName, weight: 3 },
+    ...model.aliases.map((text) => ({ text, weight: 2 })),
+    ...model.variants.map((variant) => ({ text: logicalModelVariantName(variant), weight: 3 })),
+  ]).filter((model) => model.variants.length > 0).map((model) => ({
+    id: modelId(model), name: model.displayName, kind: model.kind,
+    versions: model.variants.map((variant): ProductModelVersion => ({
+      id: modelVersionId(variant), name: logicalModelVariantName(variant),
+      state: variant.localRef !== undefined ? 'installed'
+        : variant.availability === 'downloadable' ? 'not-downloaded'
+          : variant.availability === 'resolving' ? 'checking' : 'unavailable',
+      ...(variant.size !== undefined ? { size: formatByteSize(variant.size) } : {}),
+      ...(variant.precision !== undefined ? { precision: variant.precision } : {}),
+    })),
+  })))
+  const modelDetail = (id: string, versionId: string): LogicalModelPickDetail | undefined => {
+    const model = logicalModels()?.find((candidate) => modelId(candidate) === id)
+    const variant = model?.variants.find((candidate) => modelVersionId(candidate) === versionId)
+    return model !== undefined && variant !== undefined
+      ? { modelName: model.displayName, aliases: model.aliases, variant } : undefined
+  }
+  const inspectedModelDetail = (): LogicalModelPickDetail | undefined => {
+    const keys = inspectedModel()
+    return keys !== undefined ? modelDetail(keys.modelId, keys.versionId) : undefined
+  }
+  const selectedModelKeys = createMemo(() => (logicalModels() ?? []).flatMap((model) => model.variants
+    .filter((variant) => variant.localRef !== undefined && assetSelection().some((ref) => ref.digest === variant.localRef?.digest))
+    .map((variant) => ({ modelId: modelId(model), versionId: modelVersionId(variant) }))))
   const pickAssetEntry = (entry: CollectionEntry): void => {
-    if (usesLogicalModelSource()) {
-      const detail = logicalModelPickDetailOf(entry)
-      if (detail !== undefined) pickLogicalModelEntry(detail)
-      return
-    }
     const item = assetItemOf(entry)
     if (item) pickBrowsedAsset(item)
   }
@@ -702,22 +656,52 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
     return item?.digest === current.digest && (current.virtualPath === '' || item?.virtualPath === current.virtualPath)
   }
   const matchesCurrentAsset = (entry: CollectionEntry): boolean => {
-    if (usesLogicalModelSource()) {
-      const ref = logicalModelAssetRefOf(entry)
-      if (ref !== undefined && assetSelection().some((selected) => selected.digest === ref.digest)) return true
-      const detail = logicalModelPickDetailOf(entry)
-      const selected = selectedUncommittableModel()
-      return !assetMulti && detail !== undefined && selected !== undefined &&
-        detail.variant.logicalId === selected.variant.logicalId &&
-        detail.variant.variantId === selected.variant.variantId &&
-        detail.variant.digest === selected.variant.digest
-    }
     return assetSelection().some((ref) => matchesRef(entry, ref))
   }
 
 
-  implementationProps.setDismissBlocked(assetUploading)
-  implementationProps.setRequestClose((finish) => { assetUploadAbort?.abort(); finish() })
+  props.setDismissBlocked(assetUploading)
+  props.setRequestClose((finish) => { assetUploadAbort?.abort(); finish() })
+  const renderFooter = (summary?: JSX.Element, validFolder: () => boolean = () => true) => <ProductActionFooter
+    status={<div class="asset-import-line">
+      <Show when={!usesLogicalModelSource()}>
+        <ProductTextButton data-testid="asset-upload-trigger" ref={(element) => { assetUploadTrigger = element }}
+          label={assetUploading() ? 'Uploading...' : message('assets.quickList.add')}
+          disabled={assetUploading() || !validFolder()} onClick={() => assetUploadInput?.click()} />
+        {summary}
+        <Show when={assetUploadLimitLabel}>{(label) => <span>{message('uploadDestination.limit', { limit: label() })}</span>}</Show>
+      </Show>
+    </div>}>
+    <ProductFileInput ref={(element) => { assetUploadInput = element }} multiple={assetMulti}
+      accept={Array.isArray(ed.spec?.options['accept']) ? (ed.spec!.options['accept'] as string[]).join(',') : ''}
+      disabled={assetUploading() || usesLogicalModelSource() || !validFolder()}
+      onCancel={() => { setDestination(readUploadDestination(String(uploadBackend.id), project)); restoreAssetUploadFocus() }}
+      onChange={(event) => {
+        const files = Array.from(event.currentTarget.files ?? [])
+        event.currentTarget.value = ''
+        uploadFiles(files)
+      }} />
+    <button type="button" onClick={abortAssetUploadAndClose}>Cancel</button>
+    <button type="button" class="primary" data-testid="asset-apply" disabled={assetUploading()}
+      onClick={() => {
+        if (!pickerContextCurrent()) { setAssetError(message('widgetEditor.commitRefused')); return }
+        const selection = assetSelection()
+        if (!assetMulti) { commitEditorValue(selection[0] ?? null); return }
+        const committed = usesLogicalModelSource()
+          ? selection.filter((ref, index) => selection.findIndex((candidate) => candidate.digest === ref.digest) === index)
+          : selection
+        commitEditorValue(assetScalarMerge && committed.length === 0 ? null : [...committed])
+      }}>
+      <Icon icon={Check} /> {assetMulti
+        ? `Use ${assetSelection().length} ${assetSelection().length === 1 ? assetVocabulary().singular : assetVocabulary().plural}`
+        : `Use ${assetVocabulary().singular}`}
+    </button>
+  </ProductActionFooter>
+  const destinationPicker = {
+    get expanded() { return destinationOpen() },
+    onToggle: () => setDestinationOpen((open) => !open),
+    footer: renderFooter,
+  }
   return (
     <>
           {/* Escape and outside dismissal refuse while an upload batch runs;
@@ -725,16 +709,14 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               upload before closing. The host's window-capture dismissal runs
               before this body sees the event, so the refusal is advertised
               through data-dismiss-blocked. */}
-          <div class="widget-editor asset-editor widget-modal-editor" data-testid="asset-editor" data-dismiss-blocked={assetUploading() ? 'uploading' : undefined}>
-            <div class="asset-editor-scroll">
-            <div class="asset-editor-context" data-testid="asset-schema-metadata" aria-label="Asset requirements">
-              <strong>{assetMulti ? `Multiple ${assetVocabulary().plural}` : `Single ${assetVocabulary().singular}`}</strong>
-              <Show when={assetBrowseKind()}>{(kind) => <span>{kind()}</span>}</Show>
-              <Show when={assetAccept().length > 0}>
-                <span>{assetAccept().join(', ')}</span>
-              </Show>
-              <Show when={assetUploadLimitLabel}>{(label) => <span>{label()}</span>}</Show>
-            </div>
+          <div class="widget-editor asset-editor widget-modal-editor" classList={{ 'asset-file-picker': !usesLogicalModelSource() }} data-testid="asset-editor" data-dismiss-blocked={assetUploading() ? 'uploading' : undefined}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && !event.defaultPrevented && destinationOpen()) {
+                event.preventDefault(); event.stopPropagation(); setDestinationOpen(false)
+                queueMicrotask(() => assetUploadTrigger?.parentElement?.querySelector<HTMLButtonElement>('[aria-expanded]')?.focus())
+              }
+            }}>
+            <div class="asset-editor-scroll" ref={assetScroll}>
             <Show when={unresolvedAsset !== undefined}>
               <section class="asset-unresolved-import" data-testid="asset-unresolved-import" aria-label="Missing model resolution">
                 <header class="asset-section-heading">
@@ -784,17 +766,11 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
             <Show when={assetError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
             <div class="asset-editor-body">
             <section class="asset-browser-section" aria-label={assetVocabulary().titlePlural}>
-              <header class="asset-section-heading">
-                <div>
-                  <span class="asset-section-eyebrow">Browse</span>
-                  <h3>{assetVocabulary().titlePlural}</h3>
-                </div>
-                <Show when={usesLogicalModelSource()}>
-                  <button type="button" data-testid="logical-model-refresh" disabled={logicalModelsLoading()} onClick={() => { void loadLogicalModels(assetSources() ?? []) }}>
-                    <Icon icon={RotateCw} /> Refresh
-                  </button>
-                </Show>
-              </header>
+              <Show when={usesLogicalModelSource()}>
+                <ProductButton data-testid="logical-model-refresh" disabled={logicalModelsLoading()} onClick={() => { void loadLogicalModels(assetSources() ?? []) }}>
+                  <Icon icon={RotateCw} /> Refresh
+                </ProductButton>
+              </Show>
               <Show when={assetSourcesError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
               <Show when={mountDiscoveryError()}>{(message) => <ProductNotice tone="error" class="asset-error">{message()}</ProductNotice>}</Show>
               <Show when={assetSourcesStatus(assetSources(), assetSourcesError()) === 'loading'}>
@@ -816,49 +792,76 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                     <SearchState kind="loading" title="Loading models" detail="Grouping variants from available sources." />
                   </Show>
                 }>
-                  <CollectionPanel
+                  <Show when={usesLogicalModelSource()} fallback={<CollectionPanel
                     variant="select"
                     sources={assetPanelSources()}
+                    pageSize={60}
+                    pagination="scroll"
+                    recursive={recursive()}
+                    sort={sort()}
+                    navigation={({ selectedId, select, folder, navigate, mode, setMode, firstLoadFailed }) =>
+                        <AssetBrowserNavigation sources={assetPanelSources()} selectedId={selectedId()} select={select}
+                          folder={folder()} navigate={navigate} recursive={recursive()} setRecursive={setRecursive}
+                          mode={mode()} setMode={setMode} firstLoadFailed={firstLoadFailed()} />}
+                    entryContent={(entry) => <AssetEntryContent entry={entry()} />}
+                    toolbarActions={<ProductSelect testId="asset-sort-select"
+                      ariaLabel={message('assets.order.label')} selectedId={sort()}
+                      options={(['newest', 'name', 'path'] as const).map((value) => ({ id: value, label: message(`assets.order.${value}`), value }))}
+                      onSelect={(option) => setSort(option.value)} />}
                     pick={{
-                      pickable: usesLogicalModelSource()
-                        ? logicalModelEntrySelectable
-                        : assetEntryPickable(assetAccept(), assetBrowseKind()),
+                      pickable: assetEntryPickable(assetAccept(), assetBrowseKind()),
                       onPick: pickAssetEntry,
-                      ...(usesLogicalModelSource() ? { visible: logicalModelEntryVisible } : {}),
                       selected: matchesCurrentAsset,
                       multi: assetMulti,
                     }}
                     initialSelection={matchesCurrentAsset}
-                    modeKey={usesLogicalModelSource() ? `${VIEW_PREFERENCE_KEY}.models` : VIEW_PREFERENCE_KEY}
-                    defaultMode={usesLogicalModelSource()
-                      ? 'list'
-                      : assetBrowseKind()?.startsWith('media/') === true ? 'grid' : 'list'}
+                    modeKey={VIEW_PREFERENCE_KEY}
+                    defaultMode={assetBrowseKind()?.startsWith('media/') === true ? 'grid' : 'list'}
                     searchPriority="primary"
                     searchLabel={`Search ${assetVocabulary().plural}`}
                     searchPlaceholder={`Search ${assetVocabulary().plural}`}
-                    renderState={(state) => assetPickerState(state, assetVocabulary())}
+                    renderState={(state) => assetPickerState(state, assetVocabulary(), assetPickerNoun(assetBrowseKind()))}
                     entryFallback={(entry) => <AssetEntryFallback entry={entry} />}
-                  />
+                  />}>
+                    <ProductTextInput type="search" aria-label={message('assets.models.search')} placeholder={message('assets.models.search')} value={modelQuery()}
+                      onInput={(event) => setModelQuery(event.currentTarget.value)} />
+                    <ProductSelect testId="asset-model-folder" ariaLabel={message('assets.models.folder')} selectedId={modelFolder()}
+                      options={[
+                        { id: '', value: '', label: message('assets.models.allFolders') },
+                        ...(assetSources() ?? []).filter((source) => source.id.startsWith('mount:'))
+                          .map((source) => ({ id: source.id, value: source.id, label: source.label })),
+                      ]}
+                      onSelect={(option) => {
+                        setModelFolder(option.value)
+                        setLogicalModels(undefined)
+                        setInspectedModel(undefined)
+                        void loadLogicalModels(assetSources() ?? [])
+                      }} />
+                    <ProductModelList label={message('assets.models.title')} models={modelRows()} selected={selectedModelKeys()} inlineDetails={false}
+                      onSelect={(modelId, versionId) => setInspectedModel({ modelId, versionId })}
+                      onChoose={(id, versionId) => {
+                        const detail = modelDetail(id, versionId)
+                        if (detail?.variant.localRef !== undefined) pickLogicalModelRef(detail.variant.localRef, detail)
+                      }} />
+                    <Show when={modelRows().length === 0 && !logicalModelsLoading()}>
+                      <SearchState kind="empty" title={modelQuery().trim() ? 'No matching models' : 'No models yet'}
+                        detail={modelQuery().trim() ? 'Try another search.' : 'No mounted models are available.'} />
+                    </Show>
+                  </Show>
                 </Show>
               </Show>
             </section>
-            <section class="asset-selection-summary" data-testid="asset-selection-summary" aria-label="Selection">
+            <section class="asset-selection-summary" data-testid="asset-selection-summary" aria-label="Selection" data-has-selection={assetSelection().length > 0}>
               <header class="asset-section-heading">
                 <div>
-                  <span class="asset-section-eyebrow">Selection</span>
-                  <h3>{assetMulti
+                  <h3>{assetMulti && assetSelection().length > 0
                     ? `${assetSelection().length} selected`
-                    : assetSelection()[0]?.name ?? selectedUncommittableModel()?.modelName ?? 'Nothing selected'}</h3>
+                    : assetSelection()[0]?.name ?? 'Nothing selected'}</h3>
                 </div>
-                <Show when={!assetMulti ? assetSelection()[0]?.size ?? selectedUncommittableModel()?.variant.size : undefined}>
+                <Show when={!assetMulti ? assetSelection()[0]?.size : undefined}>
                   {(size) => <span>{formatByteSize(size())}</span>}
                 </Show>
               </header>
-              <Show when={!assetMulti && assetSelection().length === 0 && selectedUncommittableModel() === undefined}>
-                <ProductEmptyState testId="asset-selection-empty" title={usesLogicalModelSource()
-                    ? `Click ${withArticle(assetVocabulary().singular)} in the list to select it.`
-                    : `Click ${withArticle(assetVocabulary().singular)} in the list to select it, or upload ${withArticle(assetVocabulary().uploadSingular)}.`} />
-              </Show>
               <Show when={assetPreview()}>
                 {(preview) => (
                   <Show when={preview().kind !== 'model3d'} fallback={
@@ -909,11 +912,6 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
               </Show>
               <Show when={assetMulti}>
                 <div class="asset-multi-selection" data-testid="asset-multi-selection">
-                  <Show when={assetSelection().length === 0}>
-                    <ProductEmptyState title={usesLogicalModelSource()
-                        ? `No ${assetVocabulary().plural} selected. Click items in the list.`
-                        : `No ${assetVocabulary().plural} selected. Click items in the list or upload ${assetVocabulary().uploadPlural}.`} />
-                  </Show>
                   <For each={assetSelection()}>
                     {(ref, index) => (
                       <span class="asset-chip" data-testid="asset-chip">
@@ -932,13 +930,18 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 </div>
               </Show>
               <Show when={selectionDetailItem()} keyed>
-                {(item) => <AssetSelectionDetails item={item} dimensions={assetPreviewDims()} adapters={assetSources() ?? []} backendId={String(props.app.backendForTab(ed.tab).id)} />}
+                {(item) => <AssetSelectionDetails item={item} dimensions={assetPreviewDims()} adapters={assetSources() ?? []} backendId={String(props.backend().id)} />}
               </Show>
-              <Show when={selectionDetailModel()} keyed>
+              <Show when={inspectedModelDetail() ?? selectionDetailModel()} keyed>
                 {(detail) => <LogicalModelVariantFacts detail={detail} />}
               </Show>
-              <Show when={assetSelection().length > 0 || selectedUncommittableModel() !== undefined}>
-                {/* Remove only stages an empty selection: nothing commits
+              <Show when={uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined} keyed>
+                {(backend) => <Show when={assetSelection()[0]} keyed>{(ref) => <AssetFileLocation compact connection={backend.connection}
+                  backendUrl={backend.baseUrl} digest={ref.digest} project={project}
+                  isCurrent={() => live && props.backend() === backend && activeProjectId() === project} />}</Show>}
+              </Show>
+              <Show when={assetSelection().length > 0}>
+                {/* Clearing only stages an empty selection: nothing commits
                     before the footer commit, Cancel restores the stored
                     value. */}
                 <button
@@ -946,24 +949,19 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                   class="asset-selection-remove"
                   data-testid="asset-selection-remove"
                   disabled={assetUploading()}
-                  onClick={() => { void stageAssetSelection(() => [], () => { setAssetSelectedItem(undefined); setAssetSelectedModel(undefined); clearAssetPreview() }) }}
+                  onClick={() => { void stageAssetSelection(() => [], () => { setAssetSelectedItem(undefined); setAssetSelectedModel(undefined); setInspectedModel(undefined); clearAssetPreview() }) }}
                 >
-                  <Icon icon={X} /> Remove
+                  <Icon icon={X} /> {message('assets.selection.clear')}
                 </button>
               </Show>
             </section>
             </div>
-            <Show when={uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined} keyed>
-              {(backend) => <For each={assetSelection()}>{(ref) => <AssetFileLocation connection={backend.connection}
-                backendUrl={backend.baseUrl} digest={ref.digest} project={project}
-                isCurrent={() => live && props.app.backendForTab(ed.tab) === backend && activeProjectId() === project} />}</For>}
-            </Show>
             <Show when={classifiedMediaKind === 'media/audio' && ed.spec?.allowUpload === true}>
               <AudioRecorder disabled={assetUploading()} onSave={async (file) => {
                 const abort = new AbortController()
                 assetUploadAbort = abort
                 setAssetUploading(true)
-                try { return await pickAsset(file) }
+                try { return await pickAsset(file, abort.signal) }
                 finally {
                   if (assetUploadAbort === abort) assetUploadAbort = undefined
                   if (live) {
@@ -973,151 +971,145 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                 }
               }} />
             </Show>
-            <Show when={!classifiedLatent && !usesLogicalModelSource() && uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined} keyed>
-              {(backend) => <UploadDestination connection={backend.connection} machine={backend.label} value={destination()}
-                disabled={assetUploading()} onChange={setDestination} />}
-            </Show>
             <Show when={uploadedLocation()}><ProductNotice tone="status">{uploadedLocation()}</ProductNotice></Show>
             </div>
-            <ProductActionFooter
-              status={<span role="status">{assetUploading() ? `Uploading ${assetVocabulary().uploadPlural}...` : assetUploadLimitLabel !== undefined ? `Uploads up to ${assetUploadLimitLabel}` : ''}</span>}
-            >
-              <button
-                ref={(element) => { assetUploadTrigger = element }}
-                type="button"
-                class="asset-upload-trigger"
-                data-testid="asset-upload-trigger"
-                aria-label={`Upload ${assetVocabulary().uploadSingular}`}
-                disabled={assetUploading() || usesLogicalModelSource()}
-                onClick={() => assetUploadInput?.click()}
-              >
-                <Icon icon={Upload} /> {assetUploading() ? 'Uploading...' : assetMulti ? `Upload ${assetVocabulary().uploadPlural}...` : `Upload ${assetVocabulary().uploadSingular}...`}
-              </button>
-              <input
-                ref={(element) => { assetUploadInput = element }}
-                type="file"
-                hidden
-                multiple={assetMulti}
-                accept={Array.isArray(ed.spec?.options['accept']) ? (ed.spec!.options['accept'] as string[]).join(',') : ''}
-                disabled={assetUploading() || usesLogicalModelSource()}
-                onCancel={() => {
-                  setDestination(readUploadDestination(String(uploadBackend.id), project))
-                  restoreAssetUploadFocus()
-                }}
-                onChange={(event) => {
-                  const files = Array.from(event.currentTarget.files ?? [])
-                  event.currentTarget.value = ''
-                  uploadFiles(files)
-                }}
-              />
-              {/* Cancel stays enabled DURING an upload as the lock's escape
-                  hatch: it aborts the pending batch, then closes (staging
-                  discarded, stored value untouched). */}
-              <button type="button" onClick={abortAssetUploadAndClose}>Cancel</button>
-              <button
-                type="button"
-                class="primary"
-                data-testid="asset-apply"
-                disabled={assetUploading() || (!assetMulti && selectedUncommittableModel() !== undefined)}
-                onClick={() => {
-                  if (!pickerContextCurrent()) {
-                    setAssetError(message('widgetEditor.commitRefused'))
-                    return
-                  }
-                  const selection = assetSelection()
-                  if (!assetMulti) {
-                    commitEditorValue(selection[0] ?? null)
-                    return
-                  }
-                  const committed = usesLogicalModelSource()
-                    ? selection.filter((ref, index) => selection.findIndex((candidate) => candidate.digest === ref.digest) === index)
-                    : selection
-                  commitEditorValue(assetScalarMerge && committed.length === 0 ? null : [...committed])
-                }}
-              >
-                <Icon icon={Check} /> {assetMulti
-                  ? `Use ${assetSelection().length} ${assetSelection().length === 1 ? assetVocabulary().singular : assetVocabulary().plural}`
-                  : `Use ${assetVocabulary().singular}`}
-              </button>
-            </ProductActionFooter>
+            <Show when={!classifiedLatent && !usesLogicalModelSource() && uploadBackend.protocol === 'dinkster' ? uploadBackend : undefined}
+              keyed fallback={renderFooter()}>
+              {(backend) => <UploadDestination connection={backend.connection} machine={backend.label} value={destination()}
+                disabled={assetUploading()} onChange={setDestination} picker={destinationPicker} />}
+            </Show>
           </div>
 
     </>
   )
 }
 
-export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
+export interface AssetPickerProps extends Omit<AssetFilePickerProps,
+  'state' | 'setDismissBlocked' | 'setRequestClose' | 'commitImportedFile'> {
+  readonly state: AssetFilePickerProps['state'] & Pick<WidgetEditorState, 'label'>
+  readonly quickList?: Omit<AssetQuickListProps,
+    'state' | 'backend' | 'uploadLimits' | 'close' | 'commitValue' | 'commitPending' | 'commitError' | 'browse' | 'add'>
+  readonly commitPending: () => boolean
+  readonly commitError: () => string | undefined
+  readonly sourceAuthority?: () => unknown
+  readonly onFileImport?: (file: File) => void
+  readonly onBackdropPointerDown?: (event: PointerEvent) => void
+}
+
+/** The shared quick list, Browse all modal, and system-file handoff. */
+export const AssetPicker: Component<AssetPickerProps> = (props) => {
+  const ed = props.state
+  const [picker, setPicker] = createSolidSignal(props.quickList === undefined || ed.stagedFile !== undefined ||
+    !assetQuickListAllowed(ed.spec, ed.declaredType, ed.mergeableTypes))
+  const [file, setFile] = createSolidSignal<File>()
   const accept = (): readonly string[] => {
-    const value = props.ed.spec?.options['accept']
+    const value = ed.spec?.options['accept']
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
   }
-  const kind = () => typeof props.ed.spec?.kind === 'string' && props.ed.spec.kind !== '' ? props.ed.spec.kind : mediaKindForAccept(accept())
-  const vocabulary = () => kind()?.startsWith('model/') === true ? MODEL_ASSET_VOCABULARY : kind() === 'data/latent' ? LATENT_ASSET_VOCABULARY : GENERIC_ASSET_VOCABULARY
+  const kind = () => typeof ed.spec?.kind === 'string' && ed.spec.kind !== '' ? ed.spec.kind : mediaKindForAccept(accept())
   const [dismissBlocked, setDismissBlocked] = createSolidSignal(false)
-  const fileSelectionAllowed = () => kind() === 'model/vae' && props.ed.declaredType?.kind === 'union' &&
-    props.ed.declaredType.names.includes('ASSET')
-  const initialFiles = props.ed.spec?.selection !== true || (fileSelectionAllowed() && isAssetRef(props.ed.initial))
+  const fileSelectionAllowed = () => kind() === 'model/vae' && ed.declaredType?.kind === 'union' &&
+    ed.declaredType.names.includes('ASSET')
+  const initialFiles = ed.spec?.selection !== true || (fileSelectionAllowed() && isAssetRef(ed.initial))
   const [browseFiles, setBrowseFiles] = createSolidSignal(initialFiles)
   const [filesVisited, setFilesVisited] = createSolidSignal(initialFiles)
   const [sourceVisited, setSourceVisited] = createSolidSignal(!initialFiles)
-  const [backendTick, setBackendTick] = createSolidSignal(0)
-  if (props.ed.spec?.selection === true) {
-    setBackendTick(props.app.backendsTick.get())
-    const unsubscribe = props.app.backendsTick.subscribe(setBackendTick)
-    onCleanup(unsubscribe)
-  }
-  const sourceBackend = createMemo(() => {
-    backendTick()
-    return props.app.backendForTab(props.ed.tab)
-  })
-  const sourceAuthority = () => {
-    backendTick()
-    return sourceBackend().scopedClient.remoteChoiceAuthority()
-  }
   let requestClose: (close: () => void) => void = (close) => close()
-  const Implementation: Component<WidgetEditorImplementationProps> = (implementationProps) => {
-    const bindDismissBlocked = (blocked: () => boolean): void => {
-      createEffect(() => setDismissBlocked(blocked()))
-    }
-    return (
-      <>
+  const bindDismissBlocked = (blocked: () => boolean): void => {
+    createEffect(() => setDismissBlocked(blocked()))
+  }
+  const title = () => `Choose ${assetPickerNoun(kind())}`
+  return <Show when={picker()} fallback={
+    <AssetQuickList {...props.quickList!} state={ed} backend={props.backend()}
+      {...(props.uploadLimits === undefined ? {} : { uploadLimits: props.uploadLimits })}
+      close={props.close} commitValue={props.commitValue} commitPending={props.commitPending} commitError={props.commitError}
+      browse={() => setPicker(true)} add={(chosen) => {
+        if (props.onFileImport !== undefined) {
+          props.onFileImport(chosen)
+          props.close()
+        } else {
+          setFile(chosen)
+          setPicker(true)
+        }
+      }} />
+  }>
+    <ModalSurface title={title()} ariaLabel={title()} modalId="widget-asset" testId="widget-modal-surface"
+      closeLabel={`Close ${title()}`} dismissBlocked={dismissBlocked()}
+      onRequestClose={() => requestClose(props.close)}
+      {...(props.onBackdropPointerDown === undefined ? {} : { onBackdropPointerDown: props.onBackdropPointerDown })}>
+      <Show when={props.commitError()}>{(error) => <ProductNotice tone="error" testId="widget-commit-error">{error()}</ProductNotice>}</Show>
+      <div class="widget-commit-content" inert={props.commitPending()} aria-busy={props.commitPending()}>
       <Show when={filesVisited()}><div class="asset-editor-mode" hidden={!browseFiles()}>
-        <Show when={props.ed.spec?.selection === true}>
+        <Show when={ed.spec?.selection === true}>
           <ProductButton onClick={() => { setSourceVisited(true); setBrowseFiles(false) }}>Back to source options</ProductButton>
         </Show>
-        <AssetEditorImplementation
-          {...implementationProps}
+        <AssetFilePicker {...props} state={file() === undefined ? ed : { ...ed, stagedFile: file()! }}
+          commitImportedFile={file() !== undefined}
           setDismissBlocked={bindDismissBlocked}
           setRequestClose={(handler) => { requestClose = handler }}
         />
       </div></Show>
       <Show when={sourceVisited()}><div class="asset-editor-mode" hidden={browseFiles()}>
-        <Show when={sourceBackend().connection} fallback={<ProductNotice tone="error">Source selections require a native Dinkster backend.</ProductNotice>}>
+        <Show when={props.backend().connection} fallback={<ProductNotice tone="error">Source selections require a native Dinkster backend.</ProductNotice>}>
           {(connection) =>
           <AssetSelectionEditor
             connection={connection()}
-            kind={kind()!} initial={props.ed.initial}
-            authority={sourceAuthority} project={activeProjectId()}
-            commit={implementationProps.commitValue} close={implementationProps.close}
+            kind={kind()!} initial={ed.initial}
+            authority={props.sourceAuthority} project={activeProjectId()}
+            commit={props.commitValue} close={props.close}
             browseFiles={fileSelectionAllowed() ? () => { setFilesVisited(true); setBrowseFiles(true) } : undefined}
           />
           }
         </Show>
       </div></Show>
-      </>
-    )
+      </div>
+    </ModalSurface>
+  </Show>
+}
+
+export const AssetWidgetEditor: Component<WidgetEditorProps> = (props) => {
+  const Implementation: Component<WidgetEditorImplementationProps> = (implementation) => {
+    const ed = props.ed
+    const backend = props.app.backendForTab(ed.tab)
+    const openedTab = ed.tab
+    const store = openedTab.store
+    const document = store.doc
+    const revision = store.revision
+    const registry = props.app.registryForTab(openedTab)
+    const current = (): boolean => props.app.backendForTab(ed.tab) === backend
+    const unchanged = (): boolean => openedTab.store === store && store.doc === document && store.revision === revision &&
+      (ed.tab === openedTab || props.app.liveTabContinuing(store) === ed.tab) &&
+      tabDocumentUnchanged(openedTab, revision, ed.tab) && props.app.tabs.get().includes(ed.tab) &&
+      current() && props.app.registryForTab(ed.tab) === registry
+    const [backendTick, setBackendTick] = createSolidSignal(0)
+    if (ed.spec?.selection === true) {
+      setBackendTick(props.app.backendsTick.get())
+      const unsubscribe = props.app.backendsTick.subscribe(setBackendTick)
+      onCleanup(unsubscribe)
+    }
+    const sourceBackend = () => {
+      backendTick()
+      return props.app.backendForTab(ed.tab)
+    }
+    const bounds = visibleCanvas(props.boundary)
+    const inRow = ed.inRow
+    const quickList = inRow === undefined ? undefined : {
+      current: unchanged,
+      placement: () => rowPlacement({ rect: ed.rect, ...inRow }, props.viewport(), bounds(), { width: 0, height: 0 }),
+      bounds, look: inRow.look,
+      ...(inRow.handOff === undefined ? {} : { handOff: inRow.handOff }),
+      ...(props.bindClickAway === undefined ? {} : { bindClickAway: props.bindClickAway }),
+      focusRow: () => { if (ed.target.kind === 'input') props.focusRow?.(ed.target) },
+      moveRow: (direction: 1 | -1) => { if (ed.target.kind === 'input') props.moveRow?.(ed.target, direction) },
+    }
+    return <AssetPicker state={ed} backend={sourceBackend} current={current} unchanged={unchanged}
+      {...(registry?.uploadLimits === undefined ? {} : { uploadLimits: registry.uploadLimits })}
+      {...(quickList === undefined ? {} : { quickList })}
+      sourceAuthority={() => { backendTick(); return sourceBackend().scopedClient.remoteChoiceAuthority() }}
+      {...(props.onAssetFileImport === undefined ? {} : { onFileImport: props.onAssetFileImport })}
+      {...(props.onAssetBackdropPointerDown === undefined ? {} : { onBackdropPointerDown: props.onAssetBackdropPointerDown })}
+      close={implementation.close} commitValue={implementation.commitValue}
+      commitPending={implementation.commitPending} commitError={implementation.commitError} />
   }
-  return (
-    <WidgetEditorController
-      {...props}
-      implementation={Implementation}
-      modal={{
-        type: 'ASSET',
-        displayType: kind() === 'data/latent' && props.ed.label.toLowerCase().includes('latent') ? 'asset' : vocabulary().modalType,
-        dismissBlocked,
-        onRequestClose: (close) => requestClose(close),
-        help: <>{props.ed.spec?.selection === true ? `Choose a source option for ${props.ed.label}.` : kind()?.startsWith('model/') === true ? `Browse models for ${props.ed.label}.` : `Browse or upload ${withArticle(vocabulary().singular)}${kind() === 'data/latent' ? '.' : ` for ${props.ed.label}.`}`} {' '}Cancel or close leaves the stored value unchanged.</>,
-      }}
-    />
-  )
+  return <WidgetEditorController {...props} implementation={Implementation} />
 }

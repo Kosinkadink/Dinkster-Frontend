@@ -42,6 +42,8 @@ export interface SchemaRegistry {
    * only under/over-offers multi-select until refetch.
    */
   readonly mergeableTypes?: readonly string[]
+  /** Live engine admission policy; null is uncapped, absent retains older-client defaults. */
+  readonly uploadLimits?: Readonly<Record<string, number>> | null
   /** Native extension generation atomically paired with this schema table. */
   readonly extensionSnapshotPair?: {
     readonly digest: string

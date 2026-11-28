@@ -114,6 +114,7 @@ interface PositionedSceneCacheEntry {
   readonly widgetMeasure: WidgetMeasure
   readonly generation: unknown
   readonly editorControls: BuildSceneInput['editorControls']
+  readonly fieldStatus: BuildSceneInput['fieldStatus']
   readonly scene: Scene
 }
 
@@ -780,6 +781,8 @@ export interface BuildSceneInput {
   readonly layoutGeneration?: unknown
   /** Measured editor controls, by scene node and value key. */
   readonly editorControls?: Readonly<Record<string, Readonly<Record<string, number>>>>
+  /** Host-owned status heights, by scene node and value key. */
+  readonly fieldStatus?: Readonly<Record<string, Readonly<Record<string, number>>>>
   /** Concrete drilled owner plus the integration capability gate. */
   readonly occurrence?: {
     readonly owner: OccurrenceRef
@@ -1024,7 +1027,8 @@ export function buildScene(input: BuildSceneInput): Scene {
       positioned.seedControllerEnabled === input.seedControllerEnabled &&
       positioned.buttonNoticeHeights === input.buttonNoticeHeights &&
       positioned.tokens === input.tokens && positioned.measure === input.measure && positioned.widgetMeasure === input.widgetMeasure &&
-      positioned.generation === input.layoutGeneration && positioned.editorControls === input.editorControls && onlyNodePositionsChanged(positioned.view, view)) {
+      positioned.generation === input.layoutGeneration && positioned.editorControls === input.editorControls &&
+      positioned.fieldStatus === input.fieldStatus && onlyNodePositionsChanged(positioned.view, view)) {
     const scene = repositionScene(positioned.scene, def, view)
     positionedSceneCache.set(def, { ...positioned, view, scene })
     return scene
@@ -1309,6 +1313,7 @@ export function buildScene(input: BuildSceneInput): Scene {
             : {}),
           ...(view?.pictureHeights ? { pictureHeights: view.pictureHeights } : {}),
           ...(input.editorControls?.[node.id] === undefined ? {} : { editorControls: input.editorControls[node.id]! }),
+          ...(input.fieldStatus?.[node.id] === undefined ? {} : { fieldStatus: input.fieldStatus[node.id]! }),
           ...(view?.histogramVisibility ? { histogramVisibility: view.histogramVisibility } : {}),
           ...(input.buttonNoticeHeights?.[node.id] === undefined ? {} : { buttonNoticeHeights: input.buttonNoticeHeights[node.id] }),
           ...(connectedByNode.has(node.id) ? { connectedPorts: connectedByNode.get(node.id)! } : {}),
@@ -1956,6 +1961,7 @@ export function buildScene(input: BuildSceneInput): Scene {
         const label = boundaryLabel(item, spec?.displayName, defaults, roles)
         const fields = side === 'inputs' ? outsideRows.get(item.id) : undefined
         const editorSpaces = fields === undefined ? undefined : outsideSpaces.get(item.id)
+        const fieldStatus = fields === undefined ? undefined : input.fieldStatus?.[boundarySceneId('inputs')]
         const pinless = side === 'inputs' && item.wireHidden === true
         if (pinless) markLabels.set(item.id, label)
         return {
@@ -1965,6 +1971,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           ...(spec?.kind === 'input' && spec.acceptsList ? { acceptsList: true as const } : {}),
           ...(fields !== undefined ? { fields: pinless ? fields.map((field, index) => index === 0 ? { ...field, subgraphMark: { item: item.id, label } } : field) : fields } : {}),
           ...(editorSpaces !== undefined ? { editorSpaces } : {}),
+          ...(fieldStatus !== undefined ? { fieldStatus } : {}),
           ...(pinless ? { pinless: true as const } : {}),
         }
       })
@@ -2221,6 +2228,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       widgetMeasure: input.widgetMeasure,
       generation: input.layoutGeneration,
       editorControls: input.editorControls,
+      fieldStatus: input.fieldStatus,
       scene: result,
     })
   }

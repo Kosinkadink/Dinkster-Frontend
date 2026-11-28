@@ -8,6 +8,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { Check, ChevronLeft, ChevronRight, CircleAlert } from 'lucide-solid'
+import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { canvasPaintTokens } from '@dinkster/canvas'
 import {
   CanvasRowField,
@@ -17,6 +18,38 @@ import {
   type CanvasSidePlace,
   type CanvasSideSize,
 } from './canvas-field.js'
+
+/**
+ * A separate file-list surface below a field. Boxes are in screen pixels;
+ * the caller positions and scales the parent at the row's top left.
+ */
+export function CanvasRowPopup(props: {
+  readonly row: CanvasBox
+  readonly bounds: CanvasBox
+  readonly scale: number
+  readonly children: JSX.Element
+}) {
+  let popup!: HTMLDivElement
+  createEffect(() => {
+    const zoom = Math.max(1, props.scale)
+    const row = props.row
+    const bounds = props.bounds
+    const placed = placeFloatingSurface({
+      surface: { width: Math.max(340 * zoom, row.width), height: 0 },
+      anchor: { left: row.x, top: row.y, right: row.x + row.width, bottom: row.y + row.height },
+      bounds: { left: bounds.x, top: bounds.y, right: bounds.x + bounds.width, bottom: bounds.y + bounds.height },
+      direction: 'block',
+      preferredHeight: 0,
+      margin: 0,
+      gap: 0,
+    })
+    popup.style.left = `${(placed.left - row.x) / zoom}px`
+    popup.style.top = `${(placed.top - row.y) / zoom}px`
+    popup.style.width = `${placed.width / zoom}px`
+    popup.style.maxHeight = `${placed.maxHeight / zoom}px`
+  })
+  return <div ref={popup} class="dinkster-canvas-row-popup">{props.children}</div>
+}
 
 /** One entry of a list opened in a row. */
 export interface CanvasListOption {

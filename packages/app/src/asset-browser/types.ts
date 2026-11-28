@@ -4,6 +4,7 @@ export interface AssetBrowserItem {
   readonly kind?: string
   readonly mediaType?: string
   readonly size?: number
+  readonly modifiedAt?: number
   readonly digest?: string
   readonly availability?: 'available' | 'missing' | 'unavailable'
   readonly source: { readonly id: string; readonly label: string; readonly path?: string }
@@ -19,7 +20,7 @@ export interface AssetSourceAdapter {
   readonly label: string
   readonly sourceLabel: string
   readonly capabilities: { readonly folders: boolean; readonly query: boolean; readonly kindFilter: boolean; readonly thumbnails: boolean; readonly actions: boolean }
-  page(req: { readonly query: string; readonly kind?: string; readonly folder?: string; readonly cursor?: string; readonly limit: number; readonly recursive?: boolean; readonly signal?: AbortSignal }): Promise<{ readonly items: readonly AssetBrowserItem[]; readonly folders?: readonly AssetBrowserItem[]; readonly cursor?: string; readonly total?: number }>
+  page(req: { readonly query: string; readonly kind?: string; readonly folder?: string; readonly cursor?: string; readonly limit: number; readonly recursive?: boolean; readonly sort?: 'path' | 'name' | 'newest'; readonly signal?: AbortSignal }): Promise<{ readonly items: readonly AssetBrowserItem[]; readonly folders?: readonly AssetBrowserItem[]; readonly cursor?: string; readonly total?: number }>
   listFolder?(req: { readonly folder: string; readonly signal?: AbortSignal }): Promise<{ readonly folders: readonly AssetBrowserItem[] }>
   loadMetadata?(item: AssetBrowserItem, signal?: AbortSignal): Promise<unknown | undefined>
 }

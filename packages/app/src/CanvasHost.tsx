@@ -75,9 +75,11 @@ import { PreviewDownload } from './PreviewDownload.js'
 import { ExecutedImageViewer, executionOutputProvenance, type ExecutionOutputProvenance } from './ExecutedImageViewer.js'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { colorFieldHasOpacity, colorKind, isCurveValue, resolveColorText, type CurveValue } from '@dinkster/widgets'
-import { CanvasColorArriving, CanvasRowAbsence, CanvasSidePart } from '@dinkster/ui'
+import { CanvasColorArriving, CanvasEditorNote, CanvasEditorSpace, CanvasFileCopy, CanvasRowAbsence, CanvasSeedModeIcon, CanvasSidePart } from '@dinkster/ui'
 import {
   defaultValuesOf,
+  formatByteProgress,
+  formatByteSize,
   hasKnownLinkDropAnchorType,
   initialGroupMembership,
   buildRerouteIndex,
@@ -162,7 +164,8 @@ import { drawnAnewInputs, RunStandingMemory, runStandingFor } from './run-proble
 import { createGlslMirrorRunner } from './mirror-glsl-runner.js'
 import { createMirrorImageEstimator } from './mirror-image-previews.js'
 import { assetRowThumbnails, createPreviewLoader, validateBrowserMediaRendition, type PreviewSource } from './node-previews.js'
-import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive } from './widget-editor-anchor.js'
+import { inRowValueKept, tabDocumentUnchanged, widgetEditorAnchorAlive, widgetEditorTarget } from './widget-editor-anchor.js'
+import { createAssetFieldImports } from './asset-field-imports.js'
 import { RowFocusOverlay, type RowFocusState, type RowRepresentation } from './editors/RowFocusOverlay.js'
 import type { RowBox } from './editors/row-placement.js'
 import type { ExecutedImagePreview } from './scene-overlays.js'
@@ -193,14 +196,16 @@ import { NamePrompt } from './NamePrompt.js'
 import { nodeHeaderTooltipImmediate, type TooltipController } from './tooltips.js'
 import { deprecationBadgeInfo, subgraphBadgeInfo } from './badge-info.js'
 import { isInNodeTextEditor, unresolvedAssetBasename, WidgetEditor, withMaterializeFrames, type EditorTarget, type WidgetEditorState } from './WidgetEditor.js'
+import { assetQuickListAllowed } from './editors/AssetQuickList.js'
 import { GLSL_EDITOR_KIND, type EditorHostContext } from './editors.js'
 import { commitExtract, extractInvocation, flattenInvocation, hasExtractSelection, isFlattenSelection, type LifecycleSelectionSnapshot } from './subgraph-lifecycle.js'
-import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
+import { classifyDroppedFile, insertDroppedMedia, insertDroppedLatent, singleUseFileDropChoice, startCanvasFileDrop, watchFileDropGraphOwner } from './file-drop.js'
 import type { LatentMetadata } from './latent-metadata.js'
 import { ModalSurface } from './ModalSurface.js'
 import { UploadDestination } from './UploadDestination.js'
 import { AssetFileLocation } from './AssetFileLocation.js'
-import { resolveDroppedAsset } from './desktop-bridge.js'
+import { assetUploadPolicy, assetUploadSizeProblem } from './asset-browser/helpers.js'
+import { desktopFileBridge, importNativeAsset, resolveDroppedAsset } from './desktop-bridge.js'
 import { activeProjectId } from './projects.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
 import { palettePreviewLayout, placementSchemaKey } from './palette-node-preview.js'
@@ -222,7 +227,6 @@ import { readEditorCurve } from './in-node-editor-source.js'
 import { openLoad3dSource } from './load3d-source.js'
 import { boundedVisibleOverlayKeys, mediaScreenRect, overlayClipStyle, retainActiveOverlayKeys, type EditorWorldRect } from './widget-editor-position.js'
 import { bindFocusedCanvasTestBridge } from './test-bridge.js'
-import { formatByteSize } from './collections.js'
 import { boundaryItems } from '@dinkster/core'
 
 type WidgetLayoutRow = Extract<Hit, { kind: 'widget' }>['row']
@@ -953,6 +957,14 @@ export function reportBoundaryExposureRefusal(args: {
   )])
 }
 
+function NodeMediaWorld(props: { readonly rect: EditorWorldRect; readonly scale: number; readonly children: JSX.Element }) {
+  return <div class="node-media-world" style={{
+    width: `${props.rect.width / props.scale}px`,
+    height: `${props.rect.height / props.scale}px`,
+    transform: `scale(${props.scale})`,
+  }}>{props.children}</div>
+}
+
 export function NodeMediaOverlay(props: {
   readonly ownerId?: string
   readonly media: NodePreview & { readonly kind: 'video' | 'audio'; readonly src: string }
@@ -981,7 +993,7 @@ export function NodeMediaOverlay(props: {
   }
   return (
     <div class="node-media-overlay" data-node-id={props.ownerId} data-media-kind={props.media.kind} style={style()} onWheel={forwardWheel}>
-      <div class="node-media-world" style={{ width: `${props.rect.width / props.scale}px`, height: `${props.rect.height / props.scale}px`, transform: `scale(${props.scale})` }}>
+      <NodeMediaWorld rect={props.rect} scale={props.scale}>
         <Show when={props.media.kind !== 'video' && props.media.download}>
           {(download) => <PreviewDownload class="node-output-download" download={download()} label="Download" />}
         </Show>
@@ -991,7 +1003,7 @@ export function NodeMediaOverlay(props: {
           <VideoPreview media={props.media} preferences={props.videoPreferences} onPreferences={props.onVideoPreferences}
             onActiveChange={props.onActiveChange} onMediaError={props.onMediaError} />
         </Show>
-      </div>
+      </NodeMediaWorld>
     </div>
   )
 }
@@ -1066,7 +1078,7 @@ export function NodeModel3dOverlay(props: {
       data-media-kind="model3d"
       style={overlayClipStyle(props.rect, props.canvas)}
     >
-      <div class="node-media-world" style={{ width: `${props.rect.width / props.scale}px`, height: `${props.rect.height / props.scale}px`, transform: `scale(${props.scale})` }}>
+      <NodeMediaWorld rect={props.rect} scale={props.scale}>
         <Show when={active()} fallback={
           <div class="node-model3d-actions">
             <Show when={props.media.download}>
@@ -1095,7 +1107,7 @@ export function NodeModel3dOverlay(props: {
             </Show>
           </div>
         </Show>
-      </div>
+      </NodeMediaWorld>
     </div>
   )
 }
@@ -1585,7 +1597,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
     return offset === undefined ? box : { ...box, x: box.x + offset.dx, y: box.y + offset.dy }
   }
   /** The screen rectangles of nodes the canvas draws in front of an editor that overlap its space. */
-  const editorCovers = (item: EditorSpaceItem): readonly EditorWorldRect[] => {
+  const editorCovers = (item: Pick<EditorSpaceItem, 'nodeId' | 'node' | 'space'>): readonly EditorWorldRect[] => {
     const boxes = nodeBoxes()
     const at = boxes.findIndex((entry) => entry.id === item.nodeId)
     if (at < 0) return []
@@ -1764,7 +1776,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [rowHandedOff, setRowHandedOff] = createSolidSignal<WidgetEditorState | undefined>(undefined)
   // The row the keyboard is on while nothing is open; only the keyboard sets it.
   const [rowFocus, setRowFocus] = createSolidSignal<RowFocusState | undefined>(undefined)
-  const editorRestoresCanvasFocus = (state: WidgetEditorState): boolean => state.spec?.widgetType !== 'ASSET'
+  const editorRestoresCanvasFocus = (state: WidgetEditorState): boolean => state.spec?.widgetType !== 'ASSET' || state.inRow !== undefined
   let editorDocumentRevision: number | undefined
   let editorExtensionsGeneration: number | undefined
   // Reduce the open widget editor to app-level focus facts for the Context
@@ -1801,6 +1813,33 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [linkConfirm, setLinkConfirm] = createSolidSignal<{ place: ButtonPlace; url: string; answer: (open: boolean) => void }>()
   const [buttonHover, setButtonHover] = createSolidSignal<{ place: ButtonPlace; box: ButtonBox }>()
   const [sceneVersion, setSceneVersion] = createSolidSignal(0)
+  let assetFieldTargetCurrent = (_editor: WidgetEditorState): boolean => false
+  const assetFieldImports = createAssetFieldImports(props.app, (ed) => assetFieldTargetCurrent(ed))
+  onCleanup(() => assetFieldImports.dispose())
+  const shownAssetImports = createMemo(() => {
+    docTick()
+    const tab = activeTab()
+    return [...assetFieldImports.states()].filter(([, state]) => tab === state.editor.tab &&
+      currentGraphId(tab) === state.editor.graphId &&
+      JSON.stringify(viewInstancePath(tab) ?? []) === JSON.stringify(state.editor.instancePath ?? []))
+  })
+  const assetFieldStatusHeights = createMemo(() => {
+    const heights: Record<string, Record<string, number>> = {}
+    for (const [, state] of shownAssetImports()) {
+      const target = state.editor.target
+      if (target.kind === 'input') (heights[target.nodeId] ??= {})[target.valueKey] =
+        defaultTokens.rowHeight * (state.phase === 'refused' ? 1 : 2) + canvasPaintTokens.node.editorSpace.pad * 2
+    }
+    return heights
+  }, undefined, { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) })
+  let assetImportSpaceOf = (_editor: WidgetEditorState): Pick<EditorSpaceItem, 'nodeId' | 'node' | 'space'> | undefined => undefined
+  const assetImportSpaces = createMemo(() => {
+    sceneVersion()
+    return shownAssetImports().flatMap(([key, state]) => {
+      const place = assetImportSpaceOf(state.editor)
+      return place === undefined ? [] : [{ key, state, ...place }]
+    })
+  })
   let clientRectToWorld = (_rect: DOMRect): { x: number; y: number; width: number; height: number } | undefined => undefined
   /** A button's line in world space; a menu button's is its whole node. */
   let buttonWorldRect = (_place: ButtonPlace, _notice = false): { x: number; y: number; width: number; height: number } | undefined => undefined
@@ -2101,6 +2140,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
   const [canvasImportChoice, setCanvasImportChoice] = createSolidSignal<{
     readonly backend: Extract<Backend, { protocol: 'dinkster' }>
     readonly name: string
+    readonly video: boolean
+    readonly maxBytes?: number
     readonly confirm: (destination: UploadDestinationChoice) => void
     readonly cancel: () => void
     readonly valid: () => boolean
@@ -2810,6 +2851,12 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         const item = editorSpaceByKey().get(key)
         if (item === undefined || item.wired || item.field.readOnly || item.field.disabled) continue
         summaries[draft.nodeId] = { ...summaries[draft.nodeId], [draft.valueKey]: { value: draft.value } }
+      }
+      for (const [, state] of shownAssetImports()) {
+        const target = state.editor.target
+        if (target.kind !== 'input' || state.phase === 'refused') continue
+        // The pending name is presentation only; the stored asset stays authoritative.
+        summaries[target.nodeId] = { ...summaries[target.nodeId], [target.valueKey]: { text: state.filename } }
       }
       renderer.setEditorSummaries(summaries)
     })
@@ -4701,6 +4748,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       readonly lookupGeneration: number
       readonly keptNumberRows: ReadonlySet<string>
       readonly buttonNoticeHeights: ReturnType<typeof buttonNoticeHeights>
+      readonly fieldStatus: ReturnType<typeof assetFieldStatusHeights>
       readonly editorControls: Readonly<Record<string, Readonly<Record<string, number>>>> | undefined
     } | undefined
     // A frozen tab's run records what its automatic fields used; the record
@@ -4796,6 +4844,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       const previousBuild = sceneBuildContext
       const keptRows = keptNumberRows()
       const noticeHeights = buttonNoticeHeights()
+      const fieldStatus = assetFieldStatusHeights()
       const graphNodes = new Map(Object.entries(doc.graphs[graphId]?.nodes ?? {}))
       const canReuseScene = previousBuild !== undefined &&
         previousBuild.key === key &&
@@ -4810,6 +4859,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         previousBuild.lookupGeneration === lookupGeneration &&
         previousBuild.keptNumberRows === keptRows &&
         previousBuild.buttonNoticeHeights === noticeHeights &&
+        previousBuild.fieldStatus === fieldStatus &&
         previousBuild.editorControls === editorControls
       const valuesUpdated = canReuseScene && path.length === 0
         ? updateSceneNodeValues(scene, previousBuild.sourceDocument, doc, graphId, (type) => shown?.resolve(type), lookupAnswers)
@@ -4829,6 +4879,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           document: doc,
           seedControllerEnabled,
           buttonNoticeHeights: noticeHeights,
+          fieldStatus,
           ...(lookupAnswers === undefined ? {} : { lookupAnswers }),
           graphId,
           resolve,
@@ -4880,6 +4931,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         lookupGeneration,
         keptNumberRows: keptRows,
         buttonNoticeHeights: noticeHeights,
+        fieldStatus,
         editorControls,
       }
       // A rebuild can produce a scene identical to the installed one: a
@@ -4920,6 +4972,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // something Solid guarantees, so the rebuild calls the helper directly
       // (untracked: the scene effect must not subscribe to overlay signals).
       untrack(() => refreshSceneOverlays(tab))
+      untrack(() => assetFieldImports.reconcile())
       untrack(() => refreshButtonPaint(tab))
       if (replaced) setSceneVersion((version) => version + 1)
       // Solver + widget-value diagnostics are derived per-build; replace
@@ -5922,7 +5975,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       if (renderer.getDesignTokens().widgetEditing !== 'in-row') return false
       // The select view belongs to COMBO alone.
       const choice = row.viewId === 'core.select' && row.spec.remote === undefined
-      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor', 'core.saveTarget'].includes(row.viewId) && !choice) return false
+      const file = row.viewId === 'core.asset' && assetQuickListAllowed(row.spec, row.type, registry()?.mergeableTypes)
+      if (!['core.number', 'core.slider', 'core.line', 'core.color', 'core.integerColor', 'core.saveTarget'].includes(row.viewId) && !choice && !file) return false
       if (widgetRegistry().kind(row.spec.widgetType) === undefined) return false
       if (widgetRegistry().viewsFor(row.spec.widgetType).find((view) => view.id === row.viewId)?.editorUi !== undefined) return false
       // Single-line text that holds a line break opens in the multiline editor,
@@ -5953,6 +6007,30 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       // Selector choices have a separate stored value even when their parent input is wired.
       return row.selector === undefined && (companionInputs.get(nodeId)?.has(row.address.port) === true ||
         Object.hasOwn(rowNodeOf(nodeId)?.wired ?? {}, row.valueKey))
+    }
+
+    assetFieldTargetCurrent = (ed) => {
+      const tab = activeTab()
+      if (ed.target.kind !== 'input' || tab === undefined || tab !== ed.tab || currentGraphId(tab) !== ed.graphId ||
+          JSON.stringify(viewInstancePath(tab) ?? []) !== JSON.stringify(ed.instancePath ?? [])) return false
+      const node = rowNodeOf(ed.target.nodeId)?.node
+      const match = node === undefined ? undefined : widgetEditorTarget(ed, [node])
+      return match !== undefined && !rowIsDriven(match.node.id, match.row)
+    }
+
+    assetImportSpaceOf = (ed) => {
+      const target = ed.target
+      if (target.kind !== 'input') return undefined
+      const node = rowNodeOf(target.nodeId)?.node
+      if (node === undefined || node.layout.minimized) return undefined
+      const row = node.layout.rows.find((row) => row.kind === 'fieldStatus' && row.valueKey === target.valueKey)
+      if (row?.kind !== 'fieldStatus') return undefined
+      const pad = canvasPaintTokens.node.editorSpace.pad
+      return {
+        nodeId: node.id,
+        node: { x: node.x, y: node.y, width: node.layout.width, height: node.layout.height },
+        space: { x: row.inset - pad, y: row.y, width: node.layout.width - row.inset * 2 + pad * 2, height: row.height },
+      }
     }
 
     // Tab never leaves the node: past its last stop it goes to the first. A
@@ -6491,6 +6569,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         props.app.reportProblems(tab.id, [diag('warning', 'import', code, message)])
         presentFileDropResult({ state: 'error', title, detail: message })
       }
+      const uploadLimit = (kind: 'media/image' | 'media/video' | 'data/latent'): number | undefined => {
+        return assetUploadPolicy(kind, props.app.registryForTab(tab)?.uploadLimits).maxBytes
+      }
+      const withinUploadLimit = (kind: 'media/image' | 'media/video' | 'data/latent'): boolean => {
+        if (desktopFileBridge()?.importFile) return true
+        const problem = assetUploadSizeProblem(file, kind, assetUploadPolicy(kind, props.app.registryForTab(tab)?.uploadLimits))
+        if (problem === undefined) return true
+        finish()
+        report('fileDrop.tooLarge', problem)
+        return false
+      }
       const openWorkflow = async (document: unknown, originalPrompt?: JsonObject): Promise<void> => {
         if (!ownerLive()) { finish(); return }
         setFileDropSurface({
@@ -6504,6 +6593,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       }
       const loadLatent = async (metadata: LatentMetadata, existing?: AssetRef): Promise<void> => {
         if (!ownerLive()) { finish(); return }
+        if (!existing && !withinUploadLimit('data/latent')) return
+        let sizeProblem: string | undefined
         setFileDropSurface({
           state: 'uploading',
           title: 'Adding latent',
@@ -6521,9 +6612,19 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           document: () => tab.store.doc,
           schemas: () => props.app.registryForTab(tab)?.schemas.values(),
           predictedNodeId: () => tab.store.predictedNodeId(graphId),
-          upload: (body) => existing ? Promise.resolve(existing) : backend.protocol === 'dinkster'
-            ? backend.connection.uploadLatentAsset(body, { scope: 'local', name: 'dropped-latent.latent', signal: abort.signal })
-            : Promise.reject(new Error('latent upload requires a Dinkster backend')),
+          upload: async (body) => {
+            if (existing) return existing
+            if (backend.protocol !== 'dinkster') throw new Error('latent upload requires a Dinkster backend')
+            const imported = await importNativeAsset(backend.baseUrl, file, {
+              name: body.name, mediaType: 'application/x-comfy-latent', kind: 'data/latent',
+            }, ownerLive, { signal: abort.signal })
+            if (!ownerLive()) throw new Error('File import cancelled')
+            if (!imported) {
+              sizeProblem = assetUploadSizeProblem(file, 'data/latent', assetUploadPolicy('data/latent', props.app.registryForTab(tab)?.uploadLimits))
+              if (sizeProblem !== undefined) throw new Error(sizeProblem)
+            }
+            return imported ?? backend.connection.uploadLatentAsset(body, { scope: 'local', name: body.name, signal: abort.signal })
+          },
           dispatch: async (invocation) => (await props.app.dispatchEditTo(tab, invocation)).ok,
           onInserted: (nodeId) => { if (activeTab() === tab) controller.setSelection([nodeId]) },
         })
@@ -6543,7 +6644,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             ...(existing && backend.protocol === 'dinkster' ? { location: { backend, digest: existing.digest, project } } : {}),
             ...(facts.length === 0 ? {} : { facts }),
           })
-        } else if (outcome === 'upload-failed') report('fileDrop.latentUploadFailed', 'Dropped latent upload failed; no node was inserted', 'Latent could not be added')
+        } else if (outcome === 'upload-failed') report(sizeProblem ? 'fileDrop.tooLarge' : 'fileDrop.latentUploadFailed', sizeProblem ?? 'Dropped latent upload failed; no node was inserted', 'Latent could not be added')
         else if (outcome === 'invalid-asset') report('fileDrop.invalidLatentAsset', 'Latent upload returned an incomplete asset reference; no node was inserted', 'Latent could not be added')
         else if (outcome === 'schema-missing') report('fileDrop.loadLatentUnavailable', 'The active catalog has no canonical Load Latent ASSET node; no node was inserted', 'Load Latent unavailable')
         else if (outcome === 'rejected') report('fileDrop.insertLatentRejected', 'Load Latent insertion was rejected atomically', 'Latent could not be added')
@@ -6564,17 +6665,24 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         if (imported || !ownerLive()) finish()
         else await loadLatent(metadata)
       }
-      const uploadImage = async (mediaType: 'image/png' | 'image/jpeg' | 'image/webp', destination?: UploadDestinationChoice, existing?: AssetRef): Promise<void> => {
+      const uploadMedia = async (mediaType: string, destination?: UploadDestinationChoice, existing?: AssetRef): Promise<void> => {
         if (!ownerLive()) { finish(); return }
         const project = activeProjectId()
+        const video = mediaType.startsWith('video/')
+        const noun = video ? 'video' : 'image'
+        const titleNoun = video ? 'Video' : 'Image'
+        const loaderName = video ? 'Load Video' : 'Load Image'
+        const kind = video ? 'media/video' : 'media/image'
+        if (!existing && !withinUploadLimit(kind)) return
         let uploaded: AssetRef | undefined
+        let sizeProblem: string | undefined
         setFileDropSurface({
           state: 'uploading',
-          title: 'Adding image',
-          detail: existing ? 'Using the existing file and preparing Load Image.' : 'Uploading the image and preparing Load Image.',
+          title: `Adding ${noun}`,
+          detail: existing ? `Using the existing file and preparing ${loaderName}.` : `Importing the ${noun} and preparing ${loaderName}.`,
           cancelable: true,
         })
-        const outcome = await insertDroppedImage({
+        const outcome = await insertDroppedMedia({
           file,
           mediaType,
           graphId,
@@ -6589,12 +6697,20 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           upload: async (body) => {
             if (backend.protocol !== 'dinkster') throw new Error('asset upload requires a Dinkster backend')
             if (existing) { uploaded = existing; return existing }
-            uploaded = await backend.connection.uploadMediaAsset(
+            const target = {
+              kind, name: body.name, mediaType,
+              ...(destination?.mount ? { mount: destination.mount } : {}),
+              ...(destination?.folder ? { folder: destination.folder } : {}),
+            }
+            const imported = await importNativeAsset(backend.baseUrl, file, target, ownerLive, { signal: abort.signal })
+            if (!ownerLive()) throw new Error('File import cancelled')
+            if (!imported) {
+              sizeProblem = assetUploadSizeProblem(file, kind, assetUploadPolicy(kind, props.app.registryForTab(tab)?.uploadLimits))
+              if (sizeProblem !== undefined) throw new Error(sizeProblem)
+            }
+            uploaded = imported ?? await backend.connection.uploadMediaAsset(
               body.type === mediaType ? body : new File([body], body.name, { type: mediaType }),
-              { scope: 'local', kind: 'media/image', name: body.name, signal: abort.signal,
-                ...(destination?.mount ? { mount: destination.mount } : {}),
-                ...(destination?.folder ? { folder: destination.folder } : {}),
-              },
+              { ...target, scope: 'local', kind, signal: abort.signal },
             )
             return uploaded
           },
@@ -6610,27 +6726,31 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           }
           presentFileDropResult({
             state: 'success',
-            title: 'Image added',
-            detail: existing ? 'Using existing file; no copy made. Load Image was inserted without running the workflow.' : 'Load Image was inserted without running the workflow.',
+            title: `${titleNoun} added`,
+            detail: `${existing ? 'Using existing file; no copy made. ' : ''}${loaderName} was inserted without running the workflow.`,
             facts: [{ label: message('canvasImport.machine'), value: backend.label }, { label: message('canvasImport.file'), value: uploaded.virtualPath }],
             location: { backend, digest: uploaded.digest, project },
           })
         }
-        else if (outcome === 'upload-failed') report('fileDrop.uploadFailed', `${origin === 'drop' ? 'Dropped' : 'Pasted'} image upload failed; no node was inserted`, 'Image could not be added')
-        else if (outcome === 'invalid-asset') report('fileDrop.invalidAsset', 'Image upload returned an incomplete asset reference; no node was inserted', 'Image could not be added')
-        else if (outcome === 'schema-missing') report('fileDrop.loadImageUnavailable', 'The active catalog has no canonical Load Image ASSET node; no node was inserted', 'Load Image unavailable')
-        else if (outcome === 'rejected') report('fileDrop.insertRejected', 'Load Image insertion was rejected atomically', 'Image could not be added')
+        else if (outcome === 'upload-failed') report(sizeProblem ? 'fileDrop.tooLarge' : 'fileDrop.uploadFailed', sizeProblem ?? `${origin === 'drop' ? 'Dropped' : 'Pasted'} ${noun} import failed; no node was inserted`, `${titleNoun} could not be added`)
+        else if (outcome === 'invalid-asset') report('fileDrop.invalidAsset', `${titleNoun} import returned an incomplete asset reference; no node was inserted`, `${titleNoun} could not be added`)
+        else if (outcome === 'schema-missing') report('fileDrop.loaderUnavailable', `The active catalog has no loader accepting this ${noun}; no node was inserted`, `${loaderName} unavailable`)
+        else if (outcome === 'rejected') report('fileDrop.insertRejected', `${loaderName} insertion was rejected atomically`, `${titleNoun} could not be added`)
       }
-      const loadImage = async (mediaType: 'image/png' | 'image/jpeg' | 'image/webp'): Promise<void> => {
+      const loadMedia = async (mediaType: string): Promise<void> => {
         if (!ownerLive()) { finish(); return }
         setEmbeddedDropChoice(undefined)
         if (backend.protocol !== 'dinkster') { finish(); report('fileDrop.uploadFailed', 'Asset uploads require a native Dinkster backend'); return }
+        const video = mediaType.startsWith('video/')
+        const kind = video ? 'media/video' : 'media/image'
+        if (!withinUploadLimit(kind)) return
+        const maxBytes = uploadLimit(kind)
         setFileDropSurface(undefined)
         setCanvasDestination(readUploadDestination(String(backend.id), activeProjectId()))
         const choice = singleUseFileDropChoice(() => setCanvasImportChoice(undefined))
         setCanvasImportChoice({
-          backend, name: file.name, valid: ownerLive,
-          confirm: (destination) => { choice.run(() => { void uploadImage(mediaType, destination) }) },
+          backend, name: file.name, video, ...(maxBytes === undefined ? {} : { maxBytes }), valid: ownerLive,
+          confirm: (destination) => { choice.run(() => { void uploadMedia(mediaType, destination) }) },
           cancel: () => { choice.run(finish) },
         })
       }
@@ -6644,13 +6764,13 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           }
           if (!ownerLive()) return
           if (existing) {
-            if (existing.mediaType === 'image/png' || existing.mediaType === 'image/jpeg' || existing.mediaType === 'image/webp') {
-              await uploadImage(existing.mediaType, undefined, existing)
+            if (existing.mediaType === 'image/png' || existing.mediaType === 'image/jpeg' || existing.mediaType === 'image/webp' || existing.mediaType.startsWith('video/')) {
+              await uploadMedia(existing.mediaType, undefined, existing)
             } else if (existing.mediaType === 'application/x-comfy-latent') {
               await loadLatent({}, existing)
             } else {
               finish()
-              report('fileDrop.unsupportedNativeAsset', 'The existing file is not a supported image or latent; no node was inserted. Nothing was uploaded.')
+              report('fileDrop.unsupportedNativeAsset', 'The existing file is not a supported image, video or latent; no node was inserted. Nothing was uploaded.')
             }
             return
           }
@@ -6676,17 +6796,17 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           void openWorkflow(classification.document)
         } else if (classification.kind === 'latent') {
           void recoverLatentWorkflow(classification.metadata)
-        } else if (classification.embeddedWorkflow !== undefined) {
+        } else if (classification.kind === 'image' && classification.embeddedWorkflow !== undefined) {
           const choice = singleUseFileDropChoice(() => setEmbeddedDropChoice(undefined))
           const cancel = (): void => { choice.run(finish) }
           setEmbeddedDropChoice({
-            loadImage: () => { choice.run(() => { void loadImage(classification.mediaType) }) },
+            loadImage: () => { choice.run(() => { void loadMedia(classification.mediaType) }) },
             openWorkflow: () => { choice.run(() => { void openWorkflow(classification.embeddedWorkflow, classification.embeddedPrompt) }) },
             cancel,
             valid: ownerLive,
           })
         } else {
-          void loadImage(classification.mediaType)
+          void loadMedia(classification.mediaType)
         }
       }, () => {
         if (fileDropRequest !== request || !ownerLive()) {
@@ -7503,6 +7623,57 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           </Show>
         )
       }}</For>
+      <For each={assetImportSpaces().map((item) => item.key)}>{(key) => {
+        const item = () => assetImportSpaces().find((item) => item.key === key)
+        const projected = () => {
+          const current = item()
+          return current === undefined ? undefined
+            : mediaScreenRect(dragged(current.node, current.nodeId), current.space, editorViewport(), canvasClientRect())
+        }
+        const refusal = () => {
+          const state = item()?.state
+          return state?.phase === 'refused' ? state : undefined
+        }
+        const copyState = () => {
+          const state = item()!.state
+          if (state.phase === 'checking') return { phase: 'checking' as const,
+            label: message('assets.import.checking'), shortLabel: message('assets.import.checkingShort') }
+          const stop = { stopLabel: message('assets.import.stop'), onStop: () => assetFieldImports.stop(state.editor) }
+          if (state.phase === 'waiting') return { phase: 'waiting' as const,
+            label: message('assets.import.waiting'), shortLabel: message('assets.import.waitingShort'), ...stop }
+          const amount = state.phase === 'copying' && state.total !== null && state.total > 0
+            ? { received: state.received, total: state.total } : undefined
+          const formatted = amount === undefined ? undefined : formatByteProgress(amount.received, amount.total)
+          return {
+            phase: 'copying' as const,
+            label: state.mount === undefined ? message('assets.import.copying') : message('assets.import.copyingTo', { mount: '' }).trimEnd(),
+            mount: state.mount,
+            amount: formatted === undefined ? undefined : message('assets.import.amount', formatted),
+            description: formatted === undefined
+              ? state.mount === undefined ? message('assets.import.copying') : message('assets.import.copyingTo', { mount: state.mount })
+              : message(state.mount === undefined ? 'assets.import.copyingAmount' : 'assets.import.copyingToAmount', {
+                mount: state.mount ?? '', ...formatted,
+              }),
+            value: amount === undefined ? undefined : Math.min(1, amount.received / amount.total),
+            ...stop,
+          }
+        }
+        return <Show when={projected()}>{(rect) => <div class="node-editor-space-overlay"
+          data-testid="asset-field-import-status" data-phase={item()!.state.phase}
+          style={overlayClipStyle(rect(), canvasEl, editorCovers(item()!))}
+          onWheel={(event) => forwardOverlayWheel(event, canvasEl)}>
+          <div class="node-editor-space-world" style={{ width: `${item()!.space.width}px`, height: `${item()!.space.height}px`, transform: `scale(${editorViewport().scale})` }}>
+            <CanvasEditorSpace ref={(element) => { element.style.inset = '0' }}>
+              <Show when={refusal()} fallback={<CanvasFileCopy state={copyState()} />}>
+                {(state) => <CanvasEditorNote tone="problem" details={{ label: message('runs.details'), title: message('assets.import.refused'),
+                  body: state().message }}>
+                  {message('assets.import.refused')}
+                </CanvasEditorNote>}
+              </Show>
+            </CanvasEditorSpace>
+          </div>
+        </div>}</Show>
+      }}</For>
       <For each={visibleEditorSpaceKeys()}>{(key) => {
         const item = () => editorSpaceByKey().get(key)
         const readOnly = () => item()?.field.readOnly === true || item()?.field.disabled === true
@@ -7926,15 +8097,16 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       </Show>
       <CanvasPreviewA11y targets={previewA11yTargets()} />
       <Show when={canvasImportChoice()} keyed>{(choice) => <ModalSurface
-        title={message('canvasImport.title')} modalId="canvas-import" testId="canvas-import-dialog"
+        title={message(choice.video ? 'canvasImport.videoTitle' : 'canvasImport.title')} modalId="canvas-import" testId="canvas-import-dialog"
         onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); choice.cancel() } }}
         closeLabel={message('canvasImport.cancel')} onRequestClose={choice.cancel}>
         <div class="canvas-import-choice">
           <p>{message('canvasImport.description', { name: choice.name })}</p>
+          <Show when={choice.maxBytes !== undefined}><p data-testid="canvas-import-limit">{message('canvasImport.limit', { size: formatByteSize(choice.maxBytes!) })}</p></Show>
           <UploadDestination connection={choice.backend.connection} machine={choice.backend.label}
             value={canvasDestination()} onChange={setCanvasDestination} />
           <ProductActionFooter>
-            <ProductButton type="button" variant="primary" data-testid="canvas-import-confirm" onClick={() => choice.confirm(canvasDestination())}>{message('canvasImport.confirm')}</ProductButton>
+            <ProductButton type="button" variant="primary" data-testid="canvas-import-confirm" onClick={() => choice.confirm(canvasDestination())}>{message(choice.video ? 'canvasImport.videoTitle' : 'canvasImport.confirm')}</ProductButton>
             <ProductButton type="button" onClick={choice.cancel}>{message('canvasImport.cancel')}</ProductButton>
           </ProductActionFooter>
         </div>
@@ -8377,6 +8549,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
               focusRow: (from: { readonly nodeId: string; readonly valueKey: string }) => focusEditorRow(from),
             } : {})}
             onAssetBackdropPointerDown={(event) => openAssetWidgetAt(event.clientX, event.clientY)}
+            onAssetFileImport={(file) => { void assetFieldImports.start(ed, file) }}
             onClose={() => {
               setEditor(undefined)
               if (editorRestoresCanvasFocus(ed)) queueMicrotask(() => canvasEl.focus())

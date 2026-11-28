@@ -35,9 +35,12 @@ import {
 } from '@dinkster/widgets'
 import {
   CanvasListSideLink,
+  CanvasRowField,
   CanvasRowFocus,
   CanvasRowList,
+  CanvasRowPopup,
   CanvasSidePart,
+  ProductButton,
   ProductSection,
   canvasListLayout,
   canvasListBox,
@@ -763,6 +766,7 @@ export function RowListsGallery(props: { theme: 'dark' | 'light' }) {
   const registry = createWidgetRegistry()
   registerCoreWidgets(widgetRegistrationDoors(registry))
   return (
+    <>
     <For each={groups}>
       {(group) => (
         <ProductSection title={group.title}>
@@ -774,5 +778,33 @@ export function RowListsGallery(props: { theme: 'dark' | 'light' }) {
         </ProductSection>
       )}
     </For>
+    <ProductSection title="A file list wider than its field">
+      <div class="dinkster-canvas-examples">
+        <For each={[{ x: 16, scale: 1 }, { x: 180, scale: 1.25 }]}>{(example) => {
+          const [query, setQuery] = createSignal('')
+          const row = { x: example.x, y: 16, width: 140 * example.scale, height: 26 * example.scale }
+          return <figure class="dinkster-canvas-example">
+            <div class="dinkster-canvas-example-stage dinkster-canvas-popup-stage">
+              <div class="dinkster-canvas-popup-example" ref={(element) => {
+                element.style.left = `${row.x}px`
+                element.style.top = `${row.y}px`
+                element.style.scale = String(example.scale)
+              }}>
+                <CanvasRowField rowWidth={140} place="right" label="File" value={query()} onInput={setQuery} inputLabel="Find a file" />
+                <CanvasRowPopup row={row} bounds={{ x: 0, y: 0, width: 360, height: 280 }} scale={example.scale}>
+                  <div class="dinkster-canvas-list-entries">
+                    <For each={['portrait-reference.png', 'portrait_00013.png', 'portrait_00012.png']}>{(name) => <div class="dinkster-canvas-list-option"><span class="dinkster-canvas-list-label">{name}</span></div>}</For>
+                  </div>
+                  <ProductButton>Browse folders</ProductButton>
+                  <ProductButton intent="add">Add a file from this computer<span class="dinkster-metadata">Any size</span></ProductButton>
+                </CanvasRowPopup>
+              </div>
+            </div>
+            <figcaption class="dinkster-metadata">The field stays aligned; the separate file list shifts left at the canvas edge.</figcaption>
+          </figure>
+        }}</For>
+      </div>
+    </ProductSection>
+    </>
   )
 }

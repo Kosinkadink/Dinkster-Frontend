@@ -1,5 +1,5 @@
 import type { CommandInvocation, Json, MaterializeFrame } from '@dinkster/core'
-import type { WidgetEditorState } from './WidgetEditorController.js'
+import type { EditorTarget } from './WidgetEditorController.js'
 
 /** Materialization and its triggering write must remain one undoable command. */
 export function withMaterializeFrames(
@@ -27,25 +27,37 @@ export function withMaterializeFrames(
   } as CommandInvocation
 }
 
-export function dynamicSelectorCommitCommand(
-  ed: WidgetEditorState,
+/** Build an input write independently of an editor's mounted lifetime. */
+export function widgetInputValueCommand(
+  graphId: string,
+  target: Extract<EditorTarget, { kind: 'input' }>,
   value: Json,
-): CommandInvocation | undefined {
-  if (ed.target.kind !== 'input' || ed.target.selector === undefined) return undefined
+): CommandInvocation {
+  const owner = target.familyOwner
+  if (target.selector === undefined) {
+    return withMaterializeFrames(owner?.graphId ?? graphId, owner?.nodeId ?? target.nodeId, target.materialize, {
+      command: 'node.setValue',
+      params: {
+        graphId: owner?.graphId ?? graphId,
+        nodeId: owner?.nodeId ?? target.nodeId,
+        inputId: owner?.valueKey ?? target.valueKey,
+        value,
+      },
+    })
+  }
   // A choice shown whole on a subgraph node is picked on that node.
-  const owner = ed.target.familyOwner
   if (owner?.valueKey !== undefined) {
     return {
       command: 'dynamic.selectOption',
       params: { graphId: owner.graphId, nodeId: owner.nodeId, construct: owner.valueKey, option: String(value) },
     }
   }
-  return withMaterializeFrames(ed.graphId, ed.target.nodeId, ed.target.materialize, {
+  return withMaterializeFrames(graphId, target.nodeId, target.materialize, {
     command: 'dynamic.selectOption',
     params: {
-      graphId: ed.graphId,
-      nodeId: ed.target.nodeId,
-      construct: ed.target.selector.construct,
+      graphId,
+      nodeId: target.nodeId,
+      construct: target.selector.construct,
       option: String(value),
     },
   })

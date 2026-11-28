@@ -1,4 +1,5 @@
 import type { AssetBrowserItem } from './types.js'
+import { formatByteSize } from '@dinkster/core'
 
 /**
  * The asset picker's persisted grid/list mode key, shared across all its
@@ -76,4 +77,29 @@ export function assetSourcesStatus(sources: readonly unknown[] | undefined, erro
   if (error !== undefined) return 'error'
   if (sources === undefined) return 'loading'
   return sources.length === 0 ? 'empty' : 'ready'
+}
+
+/** Both the chooser entry point and import validation use the opened engine's policy. */
+export function assetUploadPolicy(kind: string | undefined, limits: Readonly<Record<string, number>> | null | undefined): {
+  readonly maxBytes: number | undefined
+  readonly label: string | undefined
+} {
+  const media = kind === 'media/image' || kind === 'media/audio' || kind === 'media/video'
+  const gibibyte = 1024 * 1024 * 1024
+  const legacyMaxBytes = kind === 'media/image' ? 256 * 1024 * 1024
+    : media || kind === 'data/latent' ? gibibyte : 16 * 1024 * 1024
+  const maxBytes = limits === null ? undefined : limits === undefined ? legacyMaxBytes
+    : limits[media || kind === 'data/latent' ? kind! : 'generic']
+  const label = maxBytes === undefined || (limits === undefined && kind?.startsWith('model/') === true)
+    ? undefined : formatByteSize(maxBytes)
+  return { maxBytes, label }
+}
+
+/** This policy applies to byte uploads, not authorized native copies or mounted files. */
+export function assetUploadSizeProblem(file: Pick<File, 'name' | 'size'>, kind: string | undefined, policy: ReturnType<typeof assetUploadPolicy>): string | undefined {
+  if (policy.maxBytes === undefined || file.size <= policy.maxBytes) return undefined
+  const files = kind === 'media/image' ? 'images' : kind === 'media/video' ? 'videos'
+    : kind === 'media/audio' ? 'audio files' : kind === 'media/model3d' ? '3D models'
+      : kind === 'data/latent' ? 'latents' : 'files'
+  return `${file.name} is ${formatByteSize(file.size)}. This engine takes ${files} up to ${policy.label ?? formatByteSize(policy.maxBytes)}. Its owner can turn on No upload size limit.`
 }

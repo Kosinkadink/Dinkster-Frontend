@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AssetRef, CommandInvocation, NodeSchema, WorkflowDocument } from '@dinkster/core'
-import { classifyDroppedFile, insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, watchFileDropGraphOwner } from '../src/file-drop.js'
+import { classifyDroppedFile, insertDroppedMedia as insertDroppedImage, insertDroppedLatent, singleUseFileDropChoice, watchFileDropGraphOwner } from '../src/file-drop.js'
 import { readLatentMetadata } from '../src/latent-metadata.js'
 
 const file = (bytes: Uint8Array, name = 'drop.bin') => new File([new Uint8Array(bytes).buffer], name)
@@ -46,11 +46,46 @@ const hint = (entries: Record<string, unknown>): string => JSON.stringify(Object
 describe('safe file-drop classification', () => {
   it('recognizes workflow JSON by UTF-8 bytes, not its filename or MIME metadata', async () => {
     await expect(classifyDroppedFile(file(new TextEncoder().encode(' {"version":1}')))).resolves.toEqual({ kind: 'workflow', document: { version: 1 } })
+    await expect(classifyDroppedFile(file(new TextEncoder().encode(`${' '.repeat(64 * 1024)}{"version":2}`)))).resolves.toEqual({ kind: 'workflow', document: { version: 2 } })
   })
 
   it('recognizes JPEG and WebP signatures and rejects script-shaped bytes', async () => {
     await expect(classifyDroppedFile(file(Uint8Array.from([0xff, 0xd8, 0xff, 0x00])))).resolves.toMatchObject({ kind: 'image', mediaType: 'image/jpeg' })
-    await expect(classifyDroppedFile(file(new TextEncoder().encode('<script>alert(1)</script>')))).resolves.toMatchObject({ kind: 'rejected', code: 'fileDrop.unsupported' })
+    await expect(classifyDroppedFile(file(new TextEncoder().encode('<script>alert(1)</script>'), 'fake.mp4'))).resolves.toMatchObject({ kind: 'rejected', code: 'fileDrop.unsupported' })
+  })
+
+  it('classifies large media without materializing the file and still validates complete PNG framing', async () => {
+    for (const [bytes, expected] of [
+      [Uint8Array.from([0xff, 0xd8, 0xff, 0x00]), { kind: 'image', mediaType: 'image/jpeg' }],
+      [Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3, 0x87, 0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6d]), { kind: 'video', mediaType: 'video/webm' }],
+      [Uint8Array.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]), { kind: 'video', mediaType: 'video/mp4' }],
+    ] as const) {
+      const source = file(bytes, 'untrusted.bin')
+      Object.defineProperty(source, 'size', { value: 500_000_000 })
+      source.arrayBuffer = async () => { throw new Error('Whole-file read forbidden') }
+      source.slice = (start = 0, end = source.size) => {
+        if (end - start > 64 * 1024) throw new Error('Unbounded classification read forbidden')
+        return Blob.prototype.slice.call(source, start, end)
+      }
+      await expect(classifyDroppedFile(source)).resolves.toEqual(expected)
+    }
+
+    const framed = file(png(chunk('tEXt', new TextEncoder().encode('workflow\0{"nodes":[]}'))))
+    framed.arrayBuffer = async () => { throw new Error('Whole-file read forbidden') }
+    await expect(classifyDroppedFile(framed)).resolves.toMatchObject({ kind: 'image', embeddedWorkflow: { nodes: [] } })
+  })
+
+  it('checks large and many PNG image-data chunks in bounded reads without imposing a metadata admission cap', async () => {
+    const source = file(png(
+      chunk('IDAT', new Uint8Array(16 * 1024 * 1024 + 1)),
+      ...Array.from({ length: 512 }, () => chunk('IDAT', new Uint8Array())),
+    ))
+    source.arrayBuffer = async () => { throw new Error('Whole-file read forbidden') }
+    source.slice = (start = 0, end = source.size) => {
+      if (end - start > 64 * 1024) throw new Error('Unbounded PNG read forbidden')
+      return Blob.prototype.slice.call(source, start, end)
+    }
+    await expect(classifyDroppedFile(source)).resolves.toEqual({ kind: 'image', mediaType: 'image/png' })
   })
 
   it('extracts bounded uncompressed Comfy workflow text from PNG', async () => {
@@ -108,6 +143,17 @@ describe('safe file-drop classification', () => {
     })
     expect(slice).toHaveBeenCalledTimes(2)
     expect(slice.mock.calls).toEqual([[0, 8], [8, 8 + Number(new DataView(bytes.buffer).getBigUint64(0, true))]])
+  })
+
+  it('validates large latent extents without a transport cap or reading tensor bodies', async () => {
+    const bodyBytes = 8 * 1024 * 1024 * 1024 + 4
+    const header = safetensors({ latent_tensor: tensor('F32', [bodyBytes / 4], 0, bodyBytes) }, {}, new Uint8Array())
+    const source = file(header, 'large.latent')
+    Object.defineProperty(source, 'size', { value: header.length + bodyBytes, configurable: true })
+    source.arrayBuffer = async () => { throw new Error('Tensor body read forbidden') }
+    await expect(classifyDroppedFile(source)).resolves.toEqual({ kind: 'latent', metadata: {} })
+    Object.defineProperty(source, 'size', { value: header.length + bodyBytes - 1 })
+    await expect(classifyDroppedFile(source)).resolves.toMatchObject({ kind: 'rejected', code: 'fileDrop.invalidLatent' })
   })
 
   it('rejects latent uint64, header extent, UTF-8, duplicate-key, tensor, and retained metadata violations', async () => {
@@ -370,20 +416,20 @@ describe('dropped image insertion', () => {
     expect(p.dispatch).not.toHaveBeenCalled()
   })
 
-  it('chooses a synthetic catalog loader whose ASSET input exactly accepts the dropped MIME type', async () => {
+  it.each(['image/jpeg', 'video/webm'])('chooses a catalog loader whose ASSET input exactly accepts %s', async (mediaType) => {
     const pngOnly = {
       ...schema,
       body: [{ ...schema.body[0]!, widget: { widgetType: 'ASSET', options: { accept: ['image/png'] } } }],
     } as NodeSchema
     const synthetic = {
       ...schema,
-      type: 'pack.synthetic_jpeg_loader',
-      body: [{ ...schema.body[0]!, id: 'source', widget: { widgetType: 'ASSET', options: { accept: ['image/jpeg'] } } }],
+      type: 'pack.synthetic_media_loader',
+      body: [{ ...schema.body[0]!, id: 'source', widget: { widgetType: 'ASSET', options: { accept: [mediaType] } } }],
     } as NodeSchema
-    const p = { ...base(), mediaType: 'image/jpeg' as const, upload: async () => ({ ...asset, mediaType: 'image/jpeg' }), schemas: () => [pngOnly, synthetic] }
+    const p = { ...base(), mediaType, upload: async () => ({ ...asset, mediaType }), schemas: () => [pngOnly, synthetic] }
     await expect(insertDroppedImage(p)).resolves.toBe('inserted')
     expect(p.dispatch.mock.calls[0]![0]).toMatchObject({ command: 'batch', params: { invocations: [{
-      command: 'node.add', params: { type: 'pack.synthetic_jpeg_loader', values: { source: { mediaType: 'image/jpeg' } } },
+      command: 'node.add', params: { type: 'pack.synthetic_media_loader', values: { source: { mediaType } } },
     }] } })
   })
 

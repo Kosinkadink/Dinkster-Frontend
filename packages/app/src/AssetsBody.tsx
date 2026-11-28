@@ -1,16 +1,15 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from 'solid-js'
 import { failureMessage } from './request-failure.js'
 import type { DinksterConnection, MountDescriptor } from '@dinkster/client'
-import { formatByteSize, type CollectionSource, type MessageParams } from '@dinkster/core'
+import type { CollectionPageRequest, CollectionSource, MessageParams } from '@dinkster/core'
+import { ProductErrorBanner, ProductNotice, ProductProgress, ProductTextButton } from '@dinkster/ui'
 import { CollectionPanel, type CollectionPanelState } from './CollectionPanel.js'
+import { AssetBrowserNavigation } from './asset-browser/AssetBrowserNavigation.js'
 import { assetCollectionSource } from './asset-browser/collection-adapter.js'
-import { allAssetsCollectionSource, mountPresentationKey, type AssetSourceFailure } from './asset-browser/cross-mount-collection-source.js'
 import { VIEW_PREFERENCE_KEY } from './asset-browser/helpers.js'
-import { mountAssetSources } from './asset-browser/mountAssetSource.js'
-import { localAssetSource } from './asset-browser/localAssetSource.js'
-import { AssetEntryFallback } from './asset-browser/presentation.js'
+import { mountAssetSource } from './asset-browser/mountAssetSource.js'
+import { AssetEntryContent } from './asset-browser/presentation.js'
 import { AssetEntrySelection } from './asset-browser/rail.js'
-import type { AssetSourceAdapter } from './asset-browser/types.js'
 import { useAppMessage } from './locale.js'
 import { ProductSelect } from './ProductSelect.js'
 import { ProductButton } from './ProductControls.js'
@@ -19,304 +18,147 @@ import { activeProjectId } from './projects.js'
 import { ASSET_DRAG_TYPE, draggableMediaAsset, type AssetDrag } from './asset-browser/drag.js'
 
 type AssetMessage = (key: string, params?: MessageParams) => string
-type SourceSectionKey = 'assets.source.section.models' | 'assets.source.section.media' | 'assets.source.section.inputOutput' | 'assets.source.section.other'
 
-interface MountPresentation {
-  readonly mount: MountDescriptor
-  readonly label: string
-  readonly labelKey?: string
-  readonly ordinal: number
-  readonly sectionKey: SourceSectionKey
-}
-
-const errorText = (reason: unknown): string => failureMessage(reason, 'Files could not be loaded.')
-const MOUNT_SCAN_POLL_MS = 1000
-
-const mountDetail = (mount: MountDescriptor, message: AssetMessage): string => {
-  const progress = mount.scanProgress
-  if (progress === undefined) return message('assets.source.mountDetail', { id: mount.id })
-  return message('assets.source.scanProgress', {
-    filesDone: progress.filesDone,
-    filesTotal: progress.filesTotal,
-    bytesDone: formatByteSize(progress.bytesDone),
-    bytesTotal: formatByteSize(progress.bytesTotal),
-    elapsed: Math.floor(progress.elapsedSeconds),
-  })
-}
-
-const titleWord = (value: string): string => value.split(/[-_]/).filter(Boolean)
-  .map((part) => part.length <= 4 ? part.toUpperCase() : `${part[0]!.toUpperCase()}${part.slice(1)}`)
-  .join(' ')
-
-const kindPresentation = (kind: string): { readonly label: string; readonly key?: string } => {
-  const leaf = kind.split('/').at(-1) ?? kind
-  const labels: Readonly<Record<string, readonly [string, string]>> = {
-    checkpoint: ['Checkpoints', 'assets.source.kind.checkpoint'], lora: ['LoRAs', 'assets.source.kind.lora'], vae: ['VAEs', 'assets.source.kind.vae'], controlnet: ['ControlNets', 'assets.source.kind.controlnet'],
-    image: ['Images', 'assets.source.kind.image'], video: ['Videos', 'assets.source.kind.video'], audio: ['Audio', 'assets.source.kind.audio'], input: ['Input', 'assets.source.kind.input'], output: ['Output', 'assets.source.kind.output'],
-  }
-  const known = labels[leaf]
-  return known === undefined ? { label: `${titleWord(leaf)}s` } : { label: known[0], key: known[1] }
-}
-
-const presentationSectionKey = (key: string): SourceSectionKey => key.startsWith('model/')
-  ? 'assets.source.section.models'
-  : key.startsWith('media/')
-    ? 'assets.source.section.media'
-    : key.startsWith('io/')
-      ? 'assets.source.section.inputOutput'
-      : 'assets.source.section.other'
-
-const mountPresentations = (mounts: readonly MountDescriptor[]): readonly MountPresentation[] => {
-  const seen = new Map<string, number>()
-  return mounts.map((mount) => {
-    const key = mountPresentationKey(mount)
-    const count = (seen.get(key) ?? 0) + 1
-    seen.set(key, count)
-    const base = key.startsWith('io/') ? kindPresentation(key) : mount.kind !== undefined ? kindPresentation(mount.kind) : { label: titleWord(mount.id) }
-    return { mount, label: count === 1 ? base.label : `${base.label} ${count}`, ...(base.key !== undefined ? { labelKey: base.key } : {}), ordinal: count, sectionKey: presentationSectionKey(key) }
-  })
-}
-
-const presentationLabel = (row: MountPresentation, message: AssetMessage): string => row.labelKey === undefined
-  ? row.label
-  : `${message(row.labelKey)}${row.ordinal === 1 ? '' : ` ${row.ordinal}`}`
-
-const relabelAdapter = (adapter: AssetSourceAdapter, label: string): AssetSourceAdapter => ({
-  ...adapter,
-  label,
-  page: async (req) => {
-    const page = await adapter.page(req)
-    const relabel = (item: Awaited<ReturnType<AssetSourceAdapter['page']>>['items'][number]) => ({
-      ...item,
-      source: { ...item.source, label },
-    })
-    return {
-      ...page,
-      items: page.items.map(relabel),
-      ...(page.folders !== undefined ? { folders: page.folders.map(relabel) } : {}),
-    }
-  },
-})
-
-interface AssetSourceFailurePresentation {
-  readonly label: string
-  readonly message: string
-}
-
-function AssetSourceControl(props: {
-  readonly sources: readonly CollectionSource[]
-  readonly presentations: readonly MountPresentation[]
-  readonly failures: Readonly<Record<string, AssetSourceFailurePresentation>>
-  readonly selectedId: () => string
-  readonly select: (id: string) => void
-  readonly mountFocus?: { readonly mountId: string } | undefined
-  readonly message: AssetMessage
-}) {
-  let appliedFocus: { readonly mountId: string } | undefined
-  createEffect(() => {
-    const request = props.mountFocus
-    if (request === undefined || request === appliedFocus) return
-    const id = `mount:${request.mountId}`
-    if (!props.sources.some((source) => source.id === id)) return
-    appliedFocus = request
-    untrack(() => props.select(id))
-  })
-  const sourceById = () => new Map(props.sources.map((source) => [source.id, source]))
-  const ready = () => props.presentations.filter(({ mount }) => (mount.state === 'ready' && mount.entryCount !== 0) || props.selectedId() === `mount:${mount.id}`)
-  const sourceOptions = () => [
-    ...(props.sources[0] ? [{ id: props.sources[0].id, label: props.sources[0].id === 'all-assets' ? props.message('assets.source.all') : props.sources[0].label, value: props.sources[0].id }] : []),
-    ...props.sources.slice(1).filter((source) => !source.id.startsWith('mount:')).map((source) => ({
-      id: source.id, label: source.id === 'local-assets' ? props.message('assets.source.local') : source.label,
-      value: source.id,
-    })),
-    ...ready().flatMap((row) => {
-      const source = sourceById().get(`mount:${row.mount.id}`)
-      return source ? [{ id: source.id, label: `${props.message(row.sectionKey)} / ${presentationLabel(row, props.message)}`, value: source.id }] : []
-    }),
-  ]
-  const issues = () => {
-    const mountIds = new Set(props.presentations.map((row) => `mount:${row.mount.id}`))
-    return [
-      ...props.presentations.flatMap((row) => {
-        const id = `mount:${row.mount.id}`
-        const failure = props.failures[id]
-        if (failure !== undefined) return [{ id, label: presentationLabel(row, props.message), state: 'error', detail: failure.message }]
-        if (row.mount.state !== 'ready') return [{ id, label: presentationLabel(row, props.message), state: row.mount.state, detail: mountDetail(row.mount, props.message) }]
-        if (row.mount.entryCount === 0) return [{ id, label: presentationLabel(row, props.message), state: 'empty', detail: props.message('assets.source.mountDetail', { id: row.mount.id }) }]
-        return []
-      }),
-      ...Object.entries(props.failures).flatMap(([id, failure]) =>
-        mountIds.has(id) ? [] : [{ id, label: id === 'all-assets' ? props.message('assets.source.all') : failure.label, state: 'error', detail: failure.message }]),
-    ]
-  }
-  return <div class="asset-source-control" data-testid="asset-source-control">
-    <div class="asset-source-picker">
-      <span class="asset-source-label">{props.message('assets.source.label')}</span>
-      <ProductSelect
-        class="asset-source-select"
-        testId="asset-source-select"
-        ariaLabel={props.message('assets.source.ariaLabel')}
-        selectedId={props.selectedId()}
-        options={sourceOptions()}
-        disabled={sourceOptions().length <= 1}
-        onSelect={(option) => props.select(option.value)}
-      />
-    </div>
-    <details class="asset-source-health" data-testid="asset-source-health" data-state={issues().length > 0 ? 'issues' : 'healthy'}>
-      <summary>
-        <span>{props.message('assets.source.health.title')}</span>
-        <span role="status">{issues().length > 0 ? props.message('assets.source.health.issues', { count: issues().length }) : props.message('assets.source.health.available')}</span>
-      </summary>
-      <Show when={issues().length > 0} fallback={<p>{props.message('assets.source.health.allAvailable')}</p>}>
-        <ul>
-          <For each={issues()}>{(issue) => <li data-source={issue.id} data-state={issue.state}>
-            <strong>{issue.label}</strong>
-            <span>{issue.state}</span>
-            <small>{issue.detail}</small>
-          </li>}</For>
-        </ul>
-      </Show>
-    </details>
-  </div>
-}
-
-function assetState(state: CollectionPanelState, message: AssetMessage) {
-  const source = state.sourceLabel === 'All assets' ? message('assets.source.all') : state.sourceLabel
-  if (state.kind === 'loading') return <ProductEmptyState tone="loading" title={message('assets.state.loading.title')} hint={message('assets.state.loading.detail', { source })} />
-  if (state.kind === 'no-compatible') return <ProductEmptyState title={message('assets.state.noCompatible.title')} hint={message('assets.state.noCompatible.detail')} />
-  if (state.kind === 'no-match') return <ProductEmptyState title={message('assets.state.noMatch.title')} hint={message('assets.state.noMatch.detail')} />
-  return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source })} />
+function assetState(state: CollectionPanelState, message: AssetMessage, widen?: () => void, widerLabel?: string) {
+  if (state.kind === 'loading') return <ProductEmptyState tone="loading" title={message('assets.state.loading.title')} />
+  if (state.kind === 'no-match') return <ProductEmptyState title={message('assets.state.noMatch.title')} hint={message('assets.state.noMatch.detail')}
+    action={widen && widerLabel ? <ProductTextButton label={widerLabel} onClick={widen} /> : undefined} />
+  return <ProductEmptyState title={message('assets.state.empty.title')} hint={message('assets.state.empty.detail', { source: state.sourceLabel })} />
 }
 
 export function AssetsBody(props: { readonly connection: DinksterConnection; readonly backendId: string; readonly baseUrl?: string; readonly backendLabel?: string; readonly onOpenStorage?: () => void; readonly mountFocus?: { readonly mountId: string } | undefined }) {
   const message = useAppMessage()
   const project = activeProjectId()
-  const [adapters, setAdapters] = createSignal<readonly AssetSourceAdapter[]>()
   const [mounts, setMounts] = createSignal<readonly MountDescriptor[]>([])
+  const [loading, setLoading] = createSignal(true)
   const [discoveryError, setDiscoveryError] = createSignal<string>()
   const [retryTick, setRetryTick] = createSignal(0)
+  const [refreshTick, setRefreshTick] = createSignal(0)
   const [outputUnconfigured, setOutputUnconfigured] = createSignal(false)
-  const [sourceFailures, setSourceFailures] = createSignal<Readonly<Record<string, AssetSourceFailurePresentation>>>({})
-  let live = true
-  let discoveryGeneration = 0
-  onCleanup(() => { live = false })
+  const [recursive, setRecursive] = createSignal(true)
+  const [sort, setSort] = createSignal<NonNullable<CollectionPageRequest['sort']>>('newest')
+  const [widenSearch, setWidenSearch] = createSignal<(() => void)>()
+  const [widerLabel, setWiderLabel] = createSignal<string>()
+
   createEffect(() => {
     retryTick()
     const connection = props.connection
-    const generation = ++discoveryGeneration
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let outputTimer: ReturnType<typeof setTimeout> | undefined
     let active = true
-    let scanPolling = false
-    const local = localAssetSource(connection)
-    setAdapters([local])
-    setMounts([])
-    setOutputUnconfigured(false)
-    setDiscoveryError(undefined)
-    setSourceFailures({})
-
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let generation = 0
+    let scanning = false
+    setMounts([]); setLoading(true); setDiscoveryError(undefined); setOutputUnconfigured(false)
     const discover = async (): Promise<void> => {
+      const request = ++generation
+      if (timer !== undefined) clearTimeout(timer)
       try {
         const settings = await connection.fetchMountSettings()
-        const descriptors = settings.mounts
-        const browsable = await mountAssetSources(connection, undefined, descriptors)
-        if (!live || !active || generation !== discoveryGeneration) return
-        setAdapters([local, ...browsable])
-        setMounts(descriptors)
+        if (!active || request !== generation) return
+        const available = settings.mounts.filter((mount) => !mount.kind?.startsWith('model/')
+          && (mount.state === 'ready' || mount.state === 'scanning'))
+        setMounts(available)
         setOutputUnconfigured(settings.outputMount === undefined)
         setDiscoveryError(undefined)
-        scanPolling = descriptors.some((mount) => mount.state === 'pending' || mount.state === 'scanning')
-        if (scanPolling) {
-          timer = setTimeout(() => { void discover() }, MOUNT_SCAN_POLL_MS)
+        setLoading(false)
+        scanning = settings.mounts.some((mount) => !mount.kind?.startsWith('model/')
+          && (mount.state === 'pending' || mount.state === 'scanning'))
+        if (scanning) {
+          timer = setTimeout(() => { void discover() }, 1000)
         }
       } catch (reason: unknown) {
-        if (!live || !active || generation !== discoveryGeneration) return
-        setDiscoveryError(errorText(reason))
-        if (scanPolling) timer = setTimeout(() => { void discover() }, MOUNT_SCAN_POLL_MS)
+        if (!active || request !== generation) return
+        setDiscoveryError(failureMessage(reason, 'Folders could not be loaded.'))
+        setLoading(false)
+        if (scanning) timer = setTimeout(() => { void discover() }, 1000)
       }
     }
     const unsubscribe = connection.onEvent((event) => {
-      if (event.kind !== 'nodeOutput' && event.kind !== 'completed') return
-      if (outputTimer !== undefined) clearTimeout(outputTimer)
-      outputTimer = setTimeout(() => { void discover() }, 0)
+      if (event.kind === 'nodeOutput' || event.kind === 'completed') setRefreshTick((tick) => tick + 1)
     })
-    const unsubscribeMounts = connection.onMountsChanged(() => {
-      if (timer !== undefined) clearTimeout(timer)
-      void discover()
-    })
+    const unsubscribeMounts = connection.onMountsChanged(() => { void discover() })
     void discover()
     onCleanup(() => {
       active = false
-      unsubscribe()
-      unsubscribeMounts()
+      unsubscribe(); unsubscribeMounts()
       if (timer !== undefined) clearTimeout(timer)
-      if (outputTimer !== undefined) clearTimeout(outputTimer)
     })
   })
-  const unavailable = createMemo(() => mounts().filter((mount) => mount.state !== 'ready' && mount.state !== 'scanning'))
-  const failures = createMemo(() => ({
-    ...sourceFailures(),
-    ...(discoveryError() ? { 'mount-discovery': { label: message('projectFolders.title'), message: discoveryError()! } } : {}),
-  }))
-  const presentations = createMemo(() => mountPresentations(mounts()))
-  const presentedAdapters = createMemo(() => {
-    const labels = new Map(presentations().map((row) => [`mount:${row.mount.id}`, row.label]))
-    return (adapters() ?? []).map((adapter) => relabelAdapter(adapter, labels.get(adapter.id) ?? adapter.label))
-  })
-  const sources = createMemo((): readonly CollectionSource[] => {
-    const browsable = presentedAdapters()
-    const connection = props.connection
-    const baseUrl = props.baseUrl ?? ''
-    const assetUrl = (digest: string): string => connection.assetUrl(digest)
-    const healthGeneration = discoveryGeneration
-    const reportFailures = (failures: readonly AssetSourceFailure[]): void => {
-      if (!live || healthGeneration !== discoveryGeneration) return
-      setSourceFailures(Object.fromEntries(failures.map((failure) => [failure.sourceId, { label: failure.label, message: failure.message }])))
+  const adapters = createMemo(() => [
+    mountAssetSource(props.connection, mounts().map((mount) => mount.id)),
+    ...mounts().map((mount) => mountAssetSource(props.connection, mount.id)),
+  ])
+  const sources = createMemo((): readonly CollectionSource[] => adapters().map((adapter) => {
+    const source = assetCollectionSource(adapter, { assetUrl: (digest) => props.connection.assetUrl(digest) })
+    const owner = props.baseUrl ?? ''
+    return {
+      ...source,
+      label: adapter.id === 'all-mounts' ? message('assets.mounts.all') : adapter.label,
+      filters: [],
+      page: async (request) => ({ ...await source.page(request), owner }),
     }
-    const local = allAssetsCollectionSource(browsable, unavailable(), assetUrl, {
-      onSourceFailures: reportFailures,
-    })
-    return [
-      local,
-      ...browsable.map((adapter) => assetCollectionSource(adapter, { assetUrl })),
-    ].map((source) => ({ ...source, page: async (request) => ({ ...await source.page(request), owner: baseUrl }) }))
-  })
+  }))
 
-  return (
-    <div class="assets-panel" data-testid="assets-overlay">
-      <Show when={outputUnconfigured()}>
-        <ProductEmptyState testId="assets-output-unconfigured" title={message('outputMountSettings.none')} hint={message('outputMountSettings.configureHint')} action={
-          <ProductButton type="button" onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton>
-        } />
-      </Show>
-      <ProductButton type="button" onClick={() => props.onOpenStorage?.()}>{message('storagePanel.title')}</ProductButton>
-            <CollectionPanel
-              sources={sources()}
-              drag={{
-                enabled: (entry, owner) => owner === (props.baseUrl ?? '') && activeProjectId() === project && draggableMediaAsset(entry) !== undefined,
-                start: (entry, event, owner) => {
-                  const asset = draggableMediaAsset(entry)
-                  if (!asset || !event.dataTransfer || owner !== (props.baseUrl ?? '') || activeProjectId() !== project) { event.preventDefault(); return }
-                  const data: AssetDrag = { project, baseUrl: owner, asset }
-                  event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(data))
-                  event.dataTransfer.effectAllowed = 'copy'
-                },
-              }}
-              sourceRail={({ selectedId, select }) => <>
-                <AssetSourceControl sources={sources()} presentations={presentations()} failures={failures()} selectedId={selectedId} select={select} mountFocus={props.mountFocus} message={message} />
-                <Show when={discoveryError()}>
-                  <ProductButton type="button" data-testid="assets-retry" onClick={() => setRetryTick((tick) => tick + 1)}>{message('templateGallery.retry')}</ProductButton>
-                </Show>
-              </>}
-              modeKey={VIEW_PREFERENCE_KEY}
-              searchPriority="primary"
-              searchLabel={message('assets.search')}
-              searchPlaceholder={message('assets.search')}
-              renderState={(state) => assetState(state, message)}
-              entryFallback={(entry) => <AssetEntryFallback entry={entry} />}
-              detailRail={(entry) => <AssetEntrySelection entry={entry} adapters={presentedAdapters()} backendId={props.backendId}
-                connection={props.connection} visibilityConnection={props.connection} onVisibilityChanged={() => setRetryTick((tick) => tick + 1)} backendUrl={props.baseUrl ?? ''} backendLabel={props.backendLabel} />}
-            />
-    </div>
-  )
+  return <div class="assets-panel" data-testid="assets-overlay">
+    <Show when={outputUnconfigured()}>
+      <div data-testid="assets-output-unconfigured"><ProductNotice>
+        {message('assets.output.none')}{' '}
+        <ProductTextButton label={message('assets.storage.open')} onClick={() => props.onOpenStorage?.()} />
+      </ProductNotice></div>
+    </Show>
+    <Show when={discoveryError()}>
+      <div data-testid="assets-error"><ProductErrorBanner onDismiss={() => setDiscoveryError(undefined)}>
+        {discoveryError()}{' '}
+        <ProductButton data-testid="assets-retry" onClick={() => setRetryTick((tick) => tick + 1)}>{message('templateGallery.retry')}</ProductButton>
+      </ProductErrorBanner></div>
+    </Show>
+    <For each={mounts().filter((mount) => mount.state === 'scanning')}>{(mount) => {
+      const label = `${mount.id}: ${mount.scanProgress
+        ? message('projectFolders.scanning', { done: mount.scanProgress.filesDone, total: mount.scanProgress.filesTotal })
+        : message('assets.readingFolder')}`
+      return <div class="asset-scan-progress" data-testid="assets-reading-folder" role="status">
+        <span>{label}</span>
+        <ProductProgress label={label} value={mount.scanProgress && mount.scanProgress.filesTotal > 0
+          ? mount.scanProgress.filesDone / mount.scanProgress.filesTotal : undefined} />
+      </div>
+    }}</For>
+      <CollectionPanel sources={sources()} pageSize={60} pagination="scroll" recursive={recursive()} sort={sort()}
+        drag={{
+          enabled: (entry, owner) => owner === (props.baseUrl ?? '') && activeProjectId() === project && draggableMediaAsset(entry) !== undefined,
+          start: (entry, event, owner) => {
+            const asset = draggableMediaAsset(entry)
+            if (!asset || !event.dataTransfer || owner !== (props.baseUrl ?? '') || activeProjectId() !== project) { event.preventDefault(); return }
+            const data: AssetDrag = { project, baseUrl: owner, asset }
+            event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(data))
+            event.dataTransfer.effectAllowed = 'copy'
+          },
+        }}
+        refreshTick={refreshTick} modeKey={VIEW_PREFERENCE_KEY} searchPriority="primary"
+        searchLabel={message('assets.search')} searchPlaceholder={message('assets.search')}
+        toolbarActions={<ProductSelect testId="asset-sort-select" ariaLabel={message('assets.order.label')} selectedId={sort()}
+          options={(['newest', 'name', 'path'] as const).map((value) => ({ id: value, label: message(`assets.order.${value}`), value }))}
+          onSelect={(option) => setSort(option.value)} />}
+        navigation={({ selectedId, select, folder, navigate, mode, setMode, firstLoadFailed }) => {
+          let appliedFocus: { readonly mountId: string } | undefined
+          createEffect(() => {
+            const request = props.mountFocus
+            if (request === undefined || request === appliedFocus) return
+            const id = `mount:${request.mountId}`
+            if (!sources().some((source) => source.id === id)) return
+            appliedFocus = request
+            untrack(() => select(id))
+          })
+          createEffect(() => {
+            setWidenSearch(() => selectedId() === 'all-mounts' ? undefined : !recursive()
+              ? () => setRecursive(true) : () => { setRecursive(true); select('all-mounts') })
+            setWiderLabel(selectedId() === 'all-mounts' ? undefined : message(!recursive() ? 'assets.search.subfolders' : 'assets.search.allMounts'))
+          })
+          return <AssetBrowserNavigation sources={sources()} selectedId={selectedId()} select={select}
+            folder={folder()} navigate={navigate} recursive={recursive()} setRecursive={setRecursive}
+            mode={mode()} setMode={setMode} firstLoadFailed={firstLoadFailed()} />
+        }}
+        renderState={(state) => assetState(loading() ? { ...state, kind: 'loading' } : state, message, widenSearch(), widerLabel())} entryContent={(entry) => <AssetEntryContent entry={entry()} />}
+        detailPlacement="inline" detailRail={(entry) => <Show when={entry}>{(selected) => <AssetEntrySelection entry={selected()} adapters={adapters()}
+          backendId={props.backendId} connection={props.connection} backendUrl={props.baseUrl ?? ''} backendLabel={props.backendLabel} />}</Show>}
+      />
+  </div>
 }

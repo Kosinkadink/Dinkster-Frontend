@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
+import { build } from 'vite'
+import solid from 'vite-plugin-solid'
+import { fileURLToPath } from 'node:url'
 import { chooseOption } from '../../e2e/choices.js'
 import {
   canvasGalleryPages,
@@ -27,6 +30,107 @@ async function choosePage(page: Page, id: string) {
 /** Opens a page by its own link; the light theme is reached by `theme=light`. */
 const openPage = (page: Page, id: string, theme: 'dark' | 'light' = 'dark') =>
   page.goto(`/?page=${id}${theme === 'light' ? '&theme=light' : ''}#canvas`)
+
+test('import wording follows phase changes without resizing the node', async ({ page }) => {
+  const bundle = await build({
+    configFile: false,
+    logLevel: 'error',
+    plugins: [solid()],
+    build: { write: false, lib: {
+      entry: fileURLToPath(new URL('./fixtures/file-copy.tsx', import.meta.url)),
+      name: 'fileCopyFixture', formats: ['iife'],
+    } },
+  })
+  const output = Array.isArray(bundle) ? bundle[0] : bundle
+  if (!output || !('output' in output)) throw new Error('Missing file-copy fixture bundle')
+  const script = output.output.find((item) => item.type === 'chunk')
+  if (!script) throw new Error('Missing file-copy fixture script')
+  await openPage(page, 'row-file-previews')
+  await page.addScriptTag({ content: script.code })
+  await page.evaluate(() => {
+    const browser = window as typeof window & {
+      fileCopyFixture: { mount: typeof import('./fixtures/file-copy.js').mount }
+      fileCopyState?: ReturnType<typeof import('./fixtures/file-copy.js').mount>
+    }
+    browser.fileCopyState = browser.fileCopyFixture.mount()
+  })
+  const state = (phase: 'waiting' | 'checking') => page.evaluate((phase) => {
+    (window as typeof window & { fileCopyState: ReturnType<typeof import('./fixtures/file-copy.js').mount> }).fileCopyState.setPhase(phase)
+  }, phase)
+  await expect(page.getByText('Checking the file', { exact: true })).toBeVisible()
+  for (let transition = 0; transition < 2; transition++) {
+    await state('waiting')
+    await expect(page.getByText('Waiting', { exact: true })).toBeVisible()
+    await expect(page.getByRole('progressbar')).toHaveAccessibleName('Waiting for another file')
+    await expect(page.locator('[title="Waiting for another file"]')).toBeVisible()
+    await state('checking')
+    await expect(page.getByText('Checking the file', { exact: true })).toBeVisible()
+  }
+  await state('waiting')
+  await page.evaluate(() => {
+    (window as typeof window & { fileCopyState: ReturnType<typeof import('./fixtures/file-copy.js').mount> }).fileCopyState.setWidth(176)
+  })
+  await expect(page.getByText('Waiting for another file', { exact: true })).toBeVisible()
+})
+
+test('copy amounts and Stop stay readable without widening the node', async ({ page }) => {
+  await openPage(page, 'row-file-previews')
+  let copyHeight = 0
+  for (const title of ['Copying a video', 'Copying in a narrow node']) {
+    const card = page.locator('figure').filter({ has: page.locator('figcaption', { hasText: title }) })
+    const canvas = card.locator('canvas')
+    await expect(canvas).toHaveAttribute('data-ready', /-dark$/)
+    const before = await canvas.boundingBox()
+    copyHeight = (await card.getByRole('status').boundingBox())!.height
+    const amount = card.getByText('210 of 512 MB', { exact: true })
+    const stop = card.getByRole('button', { name: 'Stop', exact: true })
+    await expect(amount).toBeVisible()
+    await expect(stop).toBeVisible()
+    expect(await amount.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    const amountBox = (await amount.boundingBox())!
+    const stopBox = (await stop.boundingBox())!
+    expect(stopBox.y).toBeGreaterThanOrEqual(amountBox.y + amountBox.height)
+    expect(amountBox.x).toBeGreaterThanOrEqual(before!.x)
+    expect(amountBox.x + amountBox.width).toBeLessThanOrEqual(before!.x + before!.width)
+    await stop.click()
+    await expect(card.getByRole('status')).toHaveCount(0)
+    const after = (await canvas.boundingBox())!
+    expect(after.width).toBe(before!.width)
+    expect(after.height).toBeLessThan(before!.height)
+  }
+  for (const title of ['Waiting to publish a video', 'Waiting in a narrow node', 'Checking a video', 'Checking in a narrow node']) {
+    const card = page.locator('figure').filter({ has: page.getByText(title, { exact: true }) })
+    const canvas = card.locator('canvas')
+    await expect(canvas).toHaveAttribute('data-ready', /-dark$/)
+    const before = (await canvas.boundingBox())!
+    const status = (await card.getByRole('status').boundingBox())!
+    expect(status.height).toBe(copyHeight)
+    const fullLabel = title.startsWith('Waiting') ? 'Waiting for another file' : 'Checking the file'
+    const label = card.getByText(title === 'Waiting in a narrow node' ? 'Waiting' : fullLabel, { exact: true }).filter({ visible: true })
+    await expect(label).toBeVisible()
+    const labelBox = (await label.boundingBox())!
+    expect(labelBox.x + labelBox.width).toBeLessThanOrEqual(status.x + status.width)
+    await expect(card.getByRole('progressbar')).toHaveAccessibleName(fullLabel)
+    const progress = (await card.getByRole('progressbar').boundingBox())!
+    expect(progress.y).toBeGreaterThanOrEqual(labelBox.y + labelBox.height)
+    const stop = card.getByRole('button', { name: 'Stop', exact: true })
+    if (title.startsWith('Checking')) {
+      await expect(stop).toHaveCount(0)
+      expect(progress.x).toBe(status.x)
+      expect(progress.width).toBe(status.width)
+    } else {
+      await expect(stop).toBeVisible()
+      const stopBox = (await stop.boundingBox())!
+      expect(stopBox.x + stopBox.width).toBeLessThanOrEqual(status.x + status.width)
+      expect(stopBox.y).toBeGreaterThanOrEqual(labelBox.y + labelBox.height)
+      await stop.click()
+      await expect(card.getByRole('status')).toHaveCount(0)
+      const after = (await canvas.boundingBox())!
+      expect(after.width).toBe(before.width)
+      expect(after.height).toBeLessThan(before.height)
+    }
+  }
+})
 
 test('choosing a fixes Review entry selects its named example on the canvas', async ({
   page,

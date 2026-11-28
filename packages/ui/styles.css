@@ -1146,6 +1146,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-canvas-field[data-side-past='true'][data-place='left'] .dinkster-canvas-field-panel[data-place='below'] { border-bottom-left-radius: 0; }
 .dinkster-canvas-field[data-panel='below'][data-side='true'][data-place='below-field'] .dinkster-canvas-field-panel { border-radius: 0; }
 .dinkster-canvas-field[data-panel='above'][data-side='true'][data-place='above-field'] .dinkster-canvas-field-panel { border-radius: 0; }
+.dinkster-canvas-row-popup { position: absolute; z-index: 2; display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-panel); box-shadow: var(--dinkster-elevation-high); color: var(--dinkster-text-primary); font-family: var(--dinkster-font-family); font-size: var(--dinkster-type-canvas-size); line-height: var(--dinkster-type-canvas-line); }
 .dinkster-canvas-list { position: relative; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; background: var(--dinkster-surface-panel); }
 .dinkster-canvas-list[data-scroll='whole'] { overflow-y: auto; }
 .dinkster-canvas-list-entries { position: relative; flex: 0 1 auto; overflow-y: auto; padding: var(--dinkster-space-4) 0; }
@@ -1218,6 +1219,8 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-canvas-example-stage { position: relative; overflow: hidden; border: var(--dinkster-border-width) solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); background: var(--dinkster-surface-canvas); }
 .dinkster-canvas-example-stage canvas { display: block; }
 .dinkster-canvas-example-stage[data-fixed-surfaces='true'] { transform: translate(0); }
+.dinkster-canvas-popup-example { position: absolute; transform-origin: top left; }
+.dinkster-canvas-popup-stage { width: 360px; height: 280px; }
 /* A declared button's result, skip or reason box: under its line, its icon in the text. */
 .button-box {
   position: fixed;
@@ -1403,6 +1406,23 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-canvas-editor-line, .dinkster-canvas-editor-note, .dinkster-canvas-editor-buttons, .dinkster-canvas-recorder, .dinkster-canvas-editor-section > summary { display: flex; flex: none; align-items: center; gap: var(--dinkster-space-8); box-sizing: border-box; min-width: 0; height: calc(var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width)); }
 .dinkster-canvas-editor-line > *, .dinkster-canvas-editor-buttons > * { min-width: 0; }
 .dinkster-canvas-editor-line[data-dimmed='true'], .dinkster-canvas-editor[data-state='dimmed'] .dinkster-canvas-editor-line { opacity: 0.45; pointer-events: none; }
+.dinkster-canvas-file-copy { display: flex; flex-direction: column; align-items: stretch; gap: 0; min-width: 0; height: calc(2 * (var(--dinkster-input-canvas-height) + 2 * var(--dinkster-border-width))); color: var(--dinkster-text-secondary); }
+.dinkster-canvas-file-copy-heading, .dinkster-canvas-file-copy-controls { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; }
+.dinkster-canvas-file-copy > * { flex: 1; }
+.dinkster-canvas-file-copy-label { display: flex; min-width: 0; overflow: hidden; white-space: nowrap; }
+.dinkster-canvas-file-copy-prefix, .dinkster-canvas-file-copy-amount { flex: none; white-space: nowrap; }
+/* ResizeObserver needs a box when waiting/checking text changes without a resize. */
+.dinkster-canvas-file-copy-prefix { display: inline-block; }
+/* Keep the full label measurable so the short form cannot oscillate on resize. */
+.dinkster-canvas-file-copy-prefix[data-measuring='true'] { position: absolute; visibility: hidden; width: max-content; }
+.dinkster-canvas-file-copy-mount { min-width: 1em; overflow: hidden; text-overflow: ellipsis; margin-left: 0.25em; }
+.dinkster-canvas-file-copy-amount { margin-left: auto; }
+.dinkster-canvas-file-copy-amount:empty { display: none; }
+.dinkster-canvas-file-copy-label[data-hidden='true'] { flex: none; width: 0; }
+.dinkster-canvas-file-copy-controls { flex: 1; min-width: min-content; }
+.dinkster-canvas-file-copy-controls > .dinkster-product-progress { flex: 1; min-width: var(--dinkster-space-16); height: calc(var(--dinkster-border-width) * 2); }
+.dinkster-canvas-file-copy-controls > .dinkster-canvas-side-link { flex: none; white-space: nowrap; }
+.dinkster-canvas-file-copy:not([data-phase='copying']) .dinkster-canvas-file-copy-label { display: block; text-overflow: ellipsis; }
 .dinkster-canvas-editor-note { padding: 0 calc(var(--dinkster-space-4) * 1.5); overflow: hidden; color: var(--dinkster-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
 .dinkster-canvas-editor-note[data-tone='problem'] { color: var(--dinkster-danger-foreground); }
 .dinkster-canvas-editor-note[data-tone='warning'] { color: var(--dinkster-warning-foreground); }

@@ -46,17 +46,23 @@ describe('import destination', () => {
 
   it('offers only active writable project members, not configured paths or the selected output', async () => {
     const mount = (id: string, mode: 'read' | 'readwrite' = 'readwrite') => ({ id, mode, state: 'ready', path: `/active/${id}` })
+    let loaded!: () => void
+    const pending = new Promise<void>((resolve) => { loaded = resolve })
     const connection = {
       onMountsChanged: () => () => {},
-      fetchMountSettings: async () => ({ mountChangesAllowed: false, restartRequired: true, outputMount: 'output', mounts: [mount('plates'), mount('pending'), mount('readonly', 'read'), mount('denied-live'), { ...mount('denied-pending'), saveError: 'Cannot save here: Permission denied' }] }),
-      fetchMountLocations: async () => ({ mounts: [{ id: 'plates', path: '/configured/NOT-ACTIVE' }], activeMounts: [mount('plates'), { ...mount('pending'), state: 'pending' }, mount('other-project'), mount('readonly', 'read'), { ...mount('denied-live'), saveError: 'Cannot save here: Permission denied' }, mount('denied-pending')] }),
+      fetchMountSettings: async () => { await pending; return { mountChangesAllowed: false, restartRequired: true, outputMount: 'output', mounts: [mount('plates'), mount('pending'), mount('readonly', 'read'), mount('denied-live'), { ...mount('denied-pending'), saveError: 'Cannot save here: Permission denied' }] } },
+      fetchMountLocations: async () => { await pending; return { mounts: [{ id: 'plates', path: '/configured/NOT-ACTIVE' }], activeMounts: [mount('plates'), { ...mount('pending'), state: 'pending' }, mount('other-project'), mount('readonly', 'read'), { ...mount('denied-live'), saveError: 'Cannot save here: Permission denied' }, mount('denied-pending')] } },
     }
-    const [value, setValue] = createSignal<UploadDestinationChoice>({ remember: false })
+    const [value, setValue] = createSignal<UploadDestinationChoice>({ mount: 'plates', folder: 'previous', remember: false })
     const root = document.createElement('div')
     document.body.append(root)
     const dispose = render(() => <UploadDestination connection={connection} machine="Studio machine" value={value()} onChange={setValue} />, root)
     try {
+      expect(root.textContent).not.toContain('is not an active writable folder')
+      loaded()
       await vi.waitFor(() => expect(root.textContent).toContain('Only active writable project folders'))
+      expect(root.textContent).not.toContain('is not an active writable folder')
+      setValue({ remember: false })
       root.querySelector<HTMLButtonElement>('[data-testid="upload-destination-mount"]')!.click()
       expect([...document.querySelectorAll('[data-option-id]')].map((item) => item.getAttribute('data-option-id'))).toEqual(['', 'plates'])
       document.querySelector<HTMLElement>('[data-option-id="plates"]')!.click()
@@ -67,6 +73,8 @@ describe('import destination', () => {
       expect(value().remember).toBe(true)
       expect(localStorage.length).toBe(0)
       expect(root.textContent).toContain('Studio machine')
+      setValue({ mount: 'other-project', remember: false })
+      expect(root.textContent).toContain('Destination other-project is not an active writable folder')
     } finally { dispose() }
   })
 })

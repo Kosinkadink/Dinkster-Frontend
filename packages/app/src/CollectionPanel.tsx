@@ -23,7 +23,7 @@
  */
 
 import { batch, createEffect, createSignal as createSolidSignal, createUniqueId, For, onCleanup, Show, type JSX } from 'solid-js'
-import type { CollectionEntry, CollectionSource } from '@dinkster/core'
+import type { CollectionEntry, CollectionPageRequest, CollectionSource } from '@dinkster/core'
 import { requestWithDeadline } from '@dinkster/client'
 import { ProductErrorBanner } from '@dinkster/ui'
 // Barrel import, NOT lucide-solid/icons/* deep imports: this module is
@@ -54,11 +54,31 @@ export interface CollectionPanelState {
 
 export function CollectionPanel(props: {
   readonly sources: readonly CollectionSource[]
+  readonly initialSourceId?: string
+  /** A canvas row can own the filter input while this panel owns its results. */
+  readonly search?: {
+    readonly query: () => string
+    readonly input: () => HTMLInputElement | undefined
+  }
   /** Optional host-owned source rail. The default flat tabs remain unchanged. */
   readonly sourceRail?: (controls: {
     readonly selectedId: () => string
     readonly select: (id: string) => void
   }) => JSX.Element
+  /** A host-owned path replaces the default source, breadcrumb and view controls. */
+  readonly navigation?: (controls: {
+    readonly selectedId: () => string
+    readonly select: (id: string) => void
+    readonly folder: () => string
+    readonly navigate: (path: string) => void
+    readonly query: () => string
+    readonly mode: () => CollectionViewMode
+    readonly setMode: (mode: CollectionViewMode) => void
+    readonly firstLoadFailed: () => boolean
+  }) => JSX.Element
+  readonly toolbarActions?: JSX.Element
+  readonly recursive?: boolean
+  readonly sort?: CollectionPageRequest['sort']
   /** Optional entry activation (open frozen view, insert blueprint, ...). */
   readonly onActivate?: (sourceId: string, entry: CollectionEntry) => void
   /** Hosts own the transfer format; collections only expose the row gesture. */
@@ -80,6 +100,9 @@ export function CollectionPanel(props: {
   readonly onSourceAction?: (sourceId: string, actionId: string, owner?: string) => void
   /** Bump to re-fetch the current page (live corpus changed upstream). */
   readonly refreshTick?: () => number
+  readonly pageSize?: number
+  /** Scroll continuation is opt-in; other hosts retain the Load more control. */
+  readonly pagination?: 'button' | 'scroll'
   /**
    * Source picker presentation: 'tabs' (default, panel hosts) or 'select'
    * (compact embeddings like widget popups, aria-label "Source").
@@ -141,18 +164,21 @@ export function CollectionPanel(props: {
    * Receives the selected entry; re-renders on every selection change.
    */
   readonly detailRail?: (entry: CollectionEntry | undefined) => JSX.Element
+  /** Inline in name view, below the grid in picture view; other hosts keep a rail. */
+  readonly detailPlacement?: 'rail' | 'inline'
   /** Escape pressed anywhere inside the panel. */
   readonly onEscape?: () => void
 }) {
   const message = useAppMessage()
   const storage = safeLocalStorage()
-  const [sourceId, setSourceId] = createSolidSignal(props.sources[0]?.id ?? '')
+  const [sourceId, setSourceId] = createSolidSignal(props.initialSourceId ?? props.sources[0]?.id ?? '')
   const [mode, setModeSignal] = createSolidSignal<CollectionViewMode>(
     props.listOnly === true ? 'list' : props.modeKey !== undefined
       ? readCollectionViewMode(storage, props.modeKey, props.defaultMode ?? 'list')
       : props.defaultMode ?? 'list',
   )
-  const [query, setQuery] = createSolidSignal('')
+  const [localQuery, setQuery] = createSolidSignal('')
+  const query = () => props.search?.query() ?? localQuery()
   const [folder, setFolder] = createSolidSignal('')
   const [filters, setFilters] = createSolidSignal<Readonly<Record<string, string>>>(props.initialFilters ?? {})
   const [items, setItems] = createSolidSignal<readonly CollectionEntry[]>([])
@@ -174,9 +200,10 @@ export function CollectionPanel(props: {
   let rootEl: HTMLDivElement | undefined
   let searchEl: HTMLInputElement | undefined
   const clearSearch = (): void => {
-    if (searchEl === undefined || searchEl.value === '') return
-    searchEl.value = ''
-    searchEl.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    const input = props.search?.input() ?? searchEl
+    if (input === undefined || input.value === '') return
+    input.value = ''
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }))
   }
 
   const source = (): CollectionSource | undefined => props.sources.find((s) => s.id === sourceId())
@@ -267,7 +294,7 @@ export function CollectionPanel(props: {
   }
 
   const firstLoadFailed = (): boolean => error() !== undefined && visibleItems().length === 0
-  const showCount = (): boolean => !firstLoadFailed() && total() !== undefined && items().length < total()!
+  const showCount = (): boolean => !firstLoadFailed() && total() !== undefined && items().filter((entry) => entry.folder === undefined).length < total()!
 
   const searchDescription = (): string => {
     const state = panelState()
@@ -325,13 +352,15 @@ export function CollectionPanel(props: {
     const cur = append ? cursor() : undefined
     const req = {
       query: query().trim(),
-      limit: PAGE_SIZE,
+      limit: props.pageSize ?? PAGE_SIZE,
       filters: filters(),
       signal: controller.signal,
+      ...(props.recursive !== undefined ? { recursive: props.recursive } : {}),
+      ...(props.sort !== undefined ? { sort: props.sort } : {}),
       ...(src.folders === true && folder() !== '' ? { folder: folder() } : {}),
       ...(cur !== undefined ? { cursor: cur } : {}),
     }
-    const scope = JSON.stringify([src.id, req.query, req.filters, req.folder])
+    const scope = JSON.stringify([src.id, req.query, req.filters, req.folder, req.recursive, req.sort])
     setLoading(true)
     setError(undefined)
     if (!append) setPageOwner(undefined)
@@ -389,6 +418,8 @@ export function CollectionPanel(props: {
     const s = sourceId()
     const f = JSON.stringify(filters())
     folder()
+    props.recursive
+    props.sort
     props.refreshTick?.()
     const typed = q !== lastQuery && s === lastSource
     void f
@@ -431,13 +462,14 @@ export function CollectionPanel(props: {
     if (id === undefined) return
     const entry = rootEl?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(id)}"]`)
     if (entry == null) return
-    entry.focus({ preventScroll: true })
     const viewport = entry.closest<HTMLElement>('.collection-items')
-    if (viewport === null) return
+    const scrolls = viewport !== null && /^(auto|scroll)$/.test(getComputedStyle(viewport).overflowY)
+    entry.focus({ preventScroll: scrolls })
+    if (viewport === null || !scrolls) return
     const entryRect = entry.getBoundingClientRect()
     const viewportRect = viewport.getBoundingClientRect()
-    if (entryRect.bottom > viewportRect.bottom) viewport.scrollTop += entryRect.bottom - viewportRect.bottom
-    else if (entryRect.top < viewportRect.top) viewport.scrollTop -= viewportRect.top - entryRect.top
+    if (entryRect.bottom > viewportRect.bottom) viewport.scrollTop = Math.ceil(viewport.scrollTop + entryRect.bottom - viewportRect.bottom)
+    else if (entryRect.top < viewportRect.top) viewport.scrollTop = Math.floor(viewport.scrollTop + entryRect.top - viewportRect.top)
   }
 
   // Roving tab index: exactly one row is Tab-reachable - the selected row,
@@ -454,6 +486,7 @@ export function CollectionPanel(props: {
    * pickable entry to onPick immediately; panel mode toggles selection +
    * onActivate. */
   const activate = (entry: CollectionEntry): void => {
+    if (props.search !== undefined && loading()) return
     if (entry.folder !== undefined) {
       navigateFolder(entry.folder.path)
       return
@@ -563,6 +596,7 @@ export function CollectionPanel(props: {
         'dinkster-list-row': mode() === 'list',
         'collection-child': p.child === true,
         selected: highlighted(p.entry),
+        'collection-entry-open': props.detailPlacement === 'inline' && mode() === 'list' && p.entry.id === selectedId(),
         folder: p.entry.folder !== undefined,
         disabled: props.pick !== undefined && p.entry.folder === undefined && !props.pick.pickable(p.entry),
       }}
@@ -583,6 +617,7 @@ export function CollectionPanel(props: {
       tabindex={p.entry.id === rovingId() ? '0' : '-1'}
       onClick={() => activate(p.entry)}
     >
+      <Show when={props.detailPlacement === 'inline' && mode() === 'list' && p.entry.id === selectedId()} fallback={<>
       <Show when={props.entryContent} fallback={<>
       <Thumb entry={p.entry} />
       <div class="collection-text">
@@ -623,6 +658,9 @@ export function CollectionPanel(props: {
       </Show>
       <Show when={props.entryContent === undefined && p.entry.id === selectedId() && (p.entry.actions ?? []).length > 0}>
         <Actions entry={p.entry} />
+      </Show>
+      </>}>
+        <div class="collection-inline-detail" onClick={(event) => event.stopPropagation()}>{props.detailRail?.(p.entry)}</div>
       </Show>
     </div>
   )
@@ -727,6 +765,7 @@ export function CollectionPanel(props: {
   )
 
   const searchKeyDown = (event: KeyboardEvent): void => {
+    if (event.isComposing) return
     if (event.key === 'Escape' && event.currentTarget instanceof HTMLInputElement && event.currentTarget.value !== '') {
       event.preventDefault()
       event.stopPropagation()
@@ -737,9 +776,26 @@ export function CollectionPanel(props: {
       event.preventDefault()
       focusEntry(rovingId())
     }
+    if (event.key === 'Enter' && props.search !== undefined && navigableItems().length > 0) {
+      event.preventDefault()
+      const entry = navigableItems().find((item) => item.id === rovingId())
+      if (entry !== undefined) activate(entry)
+    }
   }
 
-  const SearchControl = () => (
+  createEffect(() => {
+    const input = props.search?.input()
+    if (input === undefined) return
+    input.setAttribute('role', 'combobox')
+    input.setAttribute('aria-expanded', 'true')
+    input.setAttribute('aria-controls', resultsId)
+    input.setAttribute('aria-autocomplete', 'list')
+    input.setAttribute('aria-busy', String(loading()))
+    input.addEventListener('keydown', searchKeyDown)
+    onCleanup(() => input.removeEventListener('keydown', searchKeyDown))
+  })
+
+  const SearchControl = () => <Show when={props.search === undefined}>
     <span class="collection-search-field">
       <SearchInput
         value={query()}
@@ -751,7 +807,7 @@ export function CollectionPanel(props: {
         ariaLabel={props.searchLabel ?? message('collection.search.label')}
         testId="collection-search"
         clearTestId="collection-search-clear"
-        variant={props.searchPriority === 'primary' ? 'surface' : 'toolbar'}
+        variant={props.navigation !== undefined || props.searchPriority !== 'primary' ? 'toolbar' : 'surface'}
         inputRef={(element) => { searchEl = element }}
         onClear={clearSearch}
         onInput={(event) => setQuery(event.currentTarget.value)}
@@ -759,7 +815,7 @@ export function CollectionPanel(props: {
       />
       <span id={descriptionId} class="collection-search-description">{searchDescription()}</span>
     </span>
-  )
+  </Show>
 
   const Controls = () => props.searchPriority === 'primary'
     ? <>
@@ -774,7 +830,7 @@ export function CollectionPanel(props: {
             )}</For>
           </div>
         </Show>
-        <SourceControl />
+        <Show when={props.navigation === undefined}><SourceControl /></Show>
         <Show when={(source()?.filters ?? []).length > 0}>
           <details class="collection-filter-disclosure">
             <summary>{message('collection.filter.title')}</summary>
@@ -782,7 +838,7 @@ export function CollectionPanel(props: {
           </details>
         </Show>
       </>
-    : <><SourceControl /><FilterControls /><SearchControl /></>
+    : <><Show when={props.navigation === undefined}><SourceControl /></Show><FilterControls /><SearchControl /></>
 
   return (
     <div
@@ -790,12 +846,14 @@ export function CollectionPanel(props: {
       data-testid="collection-panel"
       data-layout={visibleItems().length <= 3 && cursor() === undefined ? 'sparse' : 'filled'}
       data-search-priority={props.searchPriority ?? 'toolbar'}
+      data-detail-placement={props.detailPlacement ?? 'rail'}
       ref={rootEl}
       onKeyDown={keydown}
     >
       <div class="collection-toolbar">
-        <Show when={!firstLoadFailed()} fallback={<SourceControl />}>
+        <Show when={!firstLoadFailed()} fallback={<Show when={props.navigation === undefined}><SourceControl /></Show>}>
         <Controls />
+        {props.toolbarActions}
         <For each={(props.sourceActions ?? []).filter((a) => a.sourceId === sourceId())}>
           {(a) => (
             <button
@@ -809,7 +867,7 @@ export function CollectionPanel(props: {
             </button>
           )}
         </For>
-        <Show when={props.listOnly !== true}><button
+        <Show when={props.listOnly !== true && props.navigation === undefined}><button
           class="collection-mode"
           data-testid="collection-mode"
           data-tooltip-label={message(mode() === 'list' ? 'collection.mode.grid' : 'collection.mode.list')}
@@ -823,7 +881,8 @@ export function CollectionPanel(props: {
         </Show>
       </div>
 
-      <Show when={source()?.folders === true && !firstLoadFailed()}>
+      {props.navigation?.({ selectedId: sourceId, select: switchSource, folder, navigate: navigateFolder, query, mode, setMode, firstLoadFailed })}
+      <Show when={source()?.folders === true && props.navigation === undefined && !firstLoadFailed()}>
         <nav class="collection-folders" data-testid="collection-folders" aria-label={message('collection.folder.ariaLabel')}>
           <button type="button" aria-current={folder() === '' ? 'page' : undefined} onClick={() => navigateFolder('')}>{message('collection.folder.root')}</button>
           <For each={folder().split('/').filter(Boolean)}>
@@ -864,6 +923,11 @@ export function CollectionPanel(props: {
             data-testid="collection-items"
             data-mode={mode()}
             role="listbox"
+            onScroll={(event) => {
+              const viewport = event.currentTarget
+              if (props.pagination === 'scroll' && !loading() && cursor() !== undefined
+                && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= viewport.clientHeight / 2) runPage(true)
+            }}
             aria-label={message('collection.result.ariaLabel', { source: source()?.label ?? message('collection.result.collectionFallback') })}
             aria-multiselectable={props.pick?.multi === true ? 'true' : undefined}
           >
@@ -890,17 +954,17 @@ export function CollectionPanel(props: {
             </For>
           </div>
         </Show>
-        {props.detailRail?.(selectedEntry())}
+        <Show when={props.detailPlacement !== 'inline' || mode() === 'grid'}>{props.detailRail?.(selectedEntry())}</Show>
       </div>
 
-      <Show when={showCount() || cursor() !== undefined}>
+      <Show when={showCount() || (props.pagination !== 'scroll' && cursor() !== undefined)}>
       <div class="collection-footer" data-count={showCount() ? '' : undefined}>
         <Show when={showCount()}>
           <span class="collection-total" data-testid="collection-total">
-            {message('collection.result.total', { count: items().length, total: total()! })}
+            {message('collection.result.total', { count: items().filter((entry) => entry.folder === undefined).length, total: total()! })}
           </span>
         </Show>
-        <Show when={cursor() !== undefined}>
+        <Show when={props.pagination !== 'scroll' && cursor() !== undefined}>
           <button
             class="collection-more"
             data-testid="collection-more"

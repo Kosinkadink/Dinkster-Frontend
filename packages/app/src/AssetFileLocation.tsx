@@ -1,5 +1,6 @@
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import type { DinksterConnection } from '@dinkster/client'
+import { ProductTextButton } from '@dinkster/ui'
 import { desktopFileBridge } from './desktop-bridge.js'
 import { ProductButton } from './ProductControls.js'
 import { ProductNotice } from './ProductForm.js'
@@ -12,6 +13,8 @@ export function AssetFileLocation(props: {
   readonly backendLabel?: string | undefined
   readonly digest: string
   readonly project: string
+  readonly compact?: boolean
+  readonly path?: string | undefined
   readonly isCurrent?: () => boolean
 }) {
   const message = useAppMessage()
@@ -61,12 +64,16 @@ export function AssetFileLocation(props: {
     }
   }
   return <section class="runtime-settings-body asset-file-location" data-testid="asset-file-location">
-    <Show when={props.backendLabel}>{(machine) => <p>{message('assetLocation.machine', { machine: machine() })}</p>}</Show>
+    <Show when={!props.compact && props.backendLabel}>{(machine) => <p>{message('assetLocation.machine', { machine: machine() })}</p>}</Show>
     <Show when={error()}><ProductNotice tone="error">{error()}</ProductNotice></Show>
-    <Show when={canReveal()}><ProductButton type="button" disabled={busy()} onClick={() => void act()}>{message('assetLocation.reveal')}</ProductButton></Show>
-    <For each={paths()}>{(path) => <div class="asset-file-location-path">
-      <code>{path}</code>
-      <ProductButton type="button" disabled={busy()} onClick={() => void act(path)}>{message('assetLocation.copy')}</ProductButton>
+    <Show when={canReveal()}><Show when={props.compact} fallback={<ProductButton type="button" disabled={busy()} onClick={() => void act()}>{message('assetLocation.reveal')}</ProductButton>}>
+      <ProductTextButton label={message('assets.selection.reveal')} disabled={busy()} onClick={() => void act()} />
+    </Show></Show>
+    <For each={paths().length > 0 ? paths() : props.path ? [props.path] : []}>{(path) => <div class="asset-file-location-path">
+      <Show when={props.compact} fallback={<>
+        <code>{path}</code>
+        <ProductButton type="button" disabled={busy()} onClick={() => void act(path)}>{message('assetLocation.copy')}</ProductButton>
+      </>}><ProductTextButton label={message('assets.selection.copyPath')} title={path} disabled={busy()} onClick={() => void act(path)} /></Show>
     </div>}</For>
   </section>
 }

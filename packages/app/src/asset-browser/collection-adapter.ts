@@ -151,6 +151,8 @@ export function assetCollectionSource(
           limit: req.limit,
           ...(kind !== undefined && kind !== '' ? { kind } : {}),
           ...(folder !== '' ? { folder } : {}),
+          ...(req.recursive !== undefined ? { recursive: req.recursive } : {}),
+          ...(req.sort !== undefined ? { sort: req.sort } : {}),
           ...(req.cursor !== undefined ? { cursor: req.cursor } : {}),
           ...(req.signal !== undefined ? { signal: req.signal } : {}),
         }),

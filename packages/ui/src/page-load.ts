@@ -1,5 +1,7 @@
 import { batch, createSignal, onCleanup } from 'solid-js'
 
+export const LOADING_DELAY_MS = 200
+
 /** The read resolves only after all facts deciding the page have arrived. */
 export function createPageLoad<T>() {
   const [result, setResult] = createSignal<{ value: T }>()
@@ -24,7 +26,7 @@ export function createPageLoad<T>() {
         shownAt ??= performance.now()
         setLoading(true)
       }
-    }, 200)
+    }, LOADING_DELAY_MS)
     cancel = () => {
       clearTimeout(loadingTimer)
       clearTimeout(revealTimer)
