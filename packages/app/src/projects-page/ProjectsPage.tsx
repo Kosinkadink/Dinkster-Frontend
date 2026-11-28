@@ -35,6 +35,7 @@ import {
   createPageLoad,
   ProductPageAnswer,
   ProductPageLoad,
+  ProductPath,
   ProductProjectFacts,
   ProductProjectHeader,
   ProductProjectListHeader,
@@ -639,7 +640,7 @@ export function ProjectsView(props: {
     const locationFacts = createMemo(() => [
       ...(project().filesFolder || project().folder ? [{
         label: message('projects.facts.filesFolder'),
-        value: <ProductPageAnswer page={page}>{project().filesFolder ?? project().folder}</ProductPageAnswer>,
+        value: <ProductPageAnswer page={page}><ProductPath value={(project().filesFolder ?? project().folder)!} /></ProductPageAnswer>,
         action: <Show when={installations()?.openFolder}>
           <ProductTextButton label={message('projects.facts.showInFolder')} onClick={() => {
             setFolderFailed(undefined)

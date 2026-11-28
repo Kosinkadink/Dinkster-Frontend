@@ -8,6 +8,7 @@ import {
   ProductNotice,
   ProductPageAnswer,
   ProductPageLoad,
+  ProductPath,
   ProductProjectFacts,
   ProductProjectHeader,
   ProductProjectListHeader,
@@ -129,7 +130,7 @@ function SelectedInstallationFacts(props: { readonly root: string; readonly revi
     <ProductPageLoad page={page} read={read} loadingLabel={message('installations.factsLoading')}>
     {(facts) => <ProductProjectFacts label={message('installations.facts')} columns={[
       [
-        { label: message('setup.folder'), value: props.root },
+        { label: message('setup.folder'), value: <ProductPath value={props.root} /> },
         { label: message('installations.host'), value: facts.host.kind === 'wsl' ? 'WSL2' : message('resources.thisComputer'), detail: facts.host.distribution },
         { label: message('setup.build'), value: facts.build?.label ?? message('installations.noSelectedBuild') },
       ],
