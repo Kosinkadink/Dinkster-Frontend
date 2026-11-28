@@ -7317,7 +7317,7 @@ export class AppState {
         // The server session was created but nobody adopted it: it must not
         // linger in the discovery list. Best-effort - a failed DELETE leaves
         // an empty session the backend's retention rules own.
-        void this.collabTransport.end(backend.baseUrl, descriptor.sessionId).catch(() => undefined)
+        await this.collabTransport.end(backend.baseUrl, descriptor.sessionId).catch(() => undefined)
         throw e
       }
     } catch (e) {
@@ -7419,8 +7419,9 @@ export class AppState {
     opts?: {
       /**
        * Share-path guard: adoption commits only if the tab being shared still
-       * exists with this exact store at this exact revision. Edits made or a
-       * close/replace performed while create+connect were in flight would
+       * exists with this store or its authority continuation, unchanged at
+       * this exact revision. Edits or a close/replace performed while
+       * create+connect were in flight would
        * otherwise be silently overwritten by the snapshot captured at share
        * time. Joins pass no expectation: a joiner takes the session's document
        * as truth by definition.
@@ -7494,7 +7495,9 @@ export class AppState {
       throw new Error('The shared session could not be opened; the existing tabs were kept')
     }
     let prior = this.tabs.get().find((t) => t.id === owner && t.execution === undefined)
-    if (expect !== undefined && (prior === undefined || prior.store !== expect.store || expect.store.revision !== expect.revision)) {
+    if (expect !== undefined && (prior === undefined || this.liveTabContinuing(expect.store) !== prior ||
+      expect.store.revision !== expect.revision || prior.store.revision !== expect.revision ||
+      JSON.stringify(prior.store.doc) !== JSON.stringify(expect.store.doc))) {
       session.close()
       throw new Error(
         prior === undefined
@@ -7506,10 +7509,10 @@ export class AppState {
       session.close()
       throw new CollabRejoinTabGoneError()
     }
-    const preservesHistory = expect !== undefined && JSON.stringify(session.doc) === JSON.stringify(expect.store.doc)
+    const preservesHistory = expect !== undefined && prior !== undefined && JSON.stringify(session.doc) === JSON.stringify(prior.store.doc)
     if (preservesHistory) {
-      session.adoptHistory(expect.store.historySnapshot())
-      const kept = this.keptNumberFixes.get(expect.store)
+      session.adoptHistory(prior.store.historySnapshot())
+      const kept = this.keptNumberFixes.get(prior.store)
       if (kept !== undefined) this.keptNumberFixes.set(session, new Map(kept))
     }
     const backend = this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')

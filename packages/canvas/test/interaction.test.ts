@@ -72,6 +72,8 @@ function interactionHarness(
     getNodeBadgeLayout: (node: SceneNode) => layoutNodeBadges(node, badges[node.id] ?? [], { tokens: defaultTokens }),
     getLensCapabilities: () => lensCapabilities,
     getDesignTokens: () => defaultTokens,
+    widgetContentWidth: (node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>) =>
+      CanvasRenderer.prototype.widgetContentWidth.call({ tokens: defaultTokens, lensCapabilities } as unknown as CanvasRenderer, node, row),
     widgetPaintState: (node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>, driven?: { readonly value?: Json }) => ({
       value: row.derivedValue ?? node.node.values[row.valueKey],
       ...(driven?.value === undefined ? {} : { companion: { value: driven.value } }),
@@ -199,8 +201,6 @@ describe('lens widget-row affordance', () => {
     const rect = widgetRowAffordanceRect(
       scene.nodes[0]!.layout.width - row.inset * 2,
       defaultTokens.rowHeight,
-      row,
-      defaultTokens.rowGeometry,
     )
     const harness = interactionHarness(
       scene,
@@ -217,6 +217,15 @@ describe('lens widget-row affordance', () => {
     expect(activateAffordance).toHaveBeenCalledOnce()
     expect(activateWidget).not.toHaveBeenCalled()
     expect(harness.dispatched).toEqual([])
+
+    // The number's plus is before the trailing tick, not underneath it.
+    const plusX = scene.nodes[0]!.x + row.inset + rect.x - 4 - defaultTokens.rowGeometry.stepperCenter
+    harness.fire('pointerdown', plusX, y)
+    harness.fire('pointerup', plusX, y)
+    expect(harness.dispatched).toEqual([{
+      command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n1', inputId: 'amount', value: 0.3 },
+    }])
+    expect(activateAffordance).toHaveBeenCalledOnce()
   })
 
 })

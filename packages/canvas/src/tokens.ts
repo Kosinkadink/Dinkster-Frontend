@@ -647,7 +647,7 @@ export const canvasPaintTokens = {
     staleValueStroke: 1.5,
     companion: { stroke: 1, underlineOffset: canvasSemanticTokens.space[4] },
     fallbackValueWidthPadding: canvasSemanticTokens.space[8],
-    fallback: { opacity: 0.75, textInset: 4, labelRatio: 0.45, valueRatio: 0.5 },
+    fallback: { opacity: 0.75, textInset: 4 },
     /**
      * A button on a node (a group's add row, a declared button): its outline,
      * the room kept beside its words, how far a disabled one fades, and a

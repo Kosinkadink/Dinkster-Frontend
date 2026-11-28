@@ -122,6 +122,7 @@ import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
 import { SettingsSectionGallery } from './settings-section.js'
 import { FieldAlignmentGallery, SelectGallery } from './select.js'
+import { TooltipsGallery } from './tooltips.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -254,6 +255,8 @@ function Gallery() {
             ? 'Dropdowns'
             : route().endsWith('field-alignment')
             ? 'Field alignment'
+            : route() === '#tooltips'
+            ? 'Tooltips'
             : route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
@@ -584,6 +587,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#dropdowns'}>
               <SelectGallery />
+            </Match>
+            <Match when={route() === '#tooltips'}>
+              <TooltipsGallery />
             </Match>
             <Match when={route() === '#field-alignment' || route() === '#site-field-alignment'}>
               <FieldAlignmentGallery />
