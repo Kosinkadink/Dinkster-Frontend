@@ -1,17 +1,22 @@
-import { createEffect, createSignal, createUniqueId, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createSignal, createUniqueId, For, onCleanup, onMount, Show } from 'solid-js'
 import {
   createPageLoad,
   ProductEmptyState,
+  ProductList,
+  ProductListRow,
   ProductPageAnswer,
   ProductPageLoad,
   ProductProjectFacts,
   ProductProjectHeader,
   ProductProjectListHeader,
   ProductProjectRows,
+  ProductProjectSection,
   ProductProjectsView,
 } from '@dinkster/ui'
+import { activeLocale } from '@dinkster/core'
 import { requestFailure, requestFetch } from '@dinkster/client'
 import { useAppMessage } from '../locale.js'
+import { useSignal } from '../solid-adapter.js'
 import { SetupForm, type SetupStatus } from '../SetupForm.js'
 import { failureMessage } from '../request-failure.js'
 import type { EngineState, PageInstallation, ProjectsSource } from './ProjectsPage.js'
@@ -21,6 +26,57 @@ const fetchRequest = requestFetch((url, init) => fetch(url, init))
 
 interface InstallationFacts {
   readonly build: { readonly version: string; readonly variant: string } | null
+}
+
+interface InstallationHistory {
+  readonly current: number | null
+  readonly history: readonly {
+    readonly id: number
+    readonly kind?: 'activation' | 'import'
+    readonly generation: number
+    readonly reason: string
+    readonly timestamp: string
+    readonly snapshot: { readonly engine: { readonly version: string } }
+  }[]
+}
+
+function SelectedInstallationHistory(props: { readonly root: string }) {
+  const message = useAppMessage()
+  const locale = useSignal(activeLocale)
+  const page = createPageLoad<InstallationHistory>()
+  const read = async () => {
+    try {
+      const response = await fetchRequest(`/supervisor/installations/history?${new URLSearchParams({ root: props.root })}`, { cache: 'no-store' })
+      if (!response.ok) throw await requestFailure(response)
+      return await response.json() as InstallationHistory
+    } catch (failure) {
+      throw new Error(failureMessage(failure))
+    }
+  }
+  const refresh = () => { void page.load(read) }
+  refresh()
+  onMount(() => {
+    globalThis.addEventListener('focus', refresh)
+    onCleanup(() => globalThis.removeEventListener('focus', refresh))
+  })
+  const title = (entry: InstallationHistory['history'][number]) => {
+    const reason = entry.kind === 'import' ? 'import' : entry.reason
+    const key = `installations.history.event.${reason}`
+    const label = message(key, { version: entry.snapshot.engine.version })
+    return label === key ? message('installations.history.recorded', { version: entry.snapshot.engine.version }) : label
+  }
+
+  return <ProductProjectSection title={message('installations.history.title')}>
+    <ProductPageLoad page={page} read={read} loadingLabel={message('installations.history.loading')}>
+      {(record) => <Show when={record.history.length} fallback={<ProductEmptyState message={message('installations.history.empty')} />}>
+        <ProductList label={message('installations.history.title')}>
+          <For each={[...record.history].reverse()}>{(entry) => <ProductListRow title={title(entry)}
+            description={<time dateTime={entry.timestamp}>{new Date(entry.timestamp).toLocaleString(locale().tag, { dateStyle: 'medium', timeStyle: 'short' })}</time>}
+            trailing={entry.kind !== 'import' && entry.generation === record.current ? message('installations.history.current') : undefined} />}</For>
+        </ProductList>
+      </Show>}
+    </ProductPageLoad>
+  </ProductProjectSection>
 }
 
 function SelectedInstallationFacts(props: { readonly root: string }) {
@@ -118,6 +174,7 @@ export function InstallationsView(props: {
               <Show when={installation().root} keyed>{(root) => <>
                 <SelectedInstallationFacts root={root} />
                 <InstallationSandbox root={root} engine={installation().engine} />
+                <SelectedInstallationHistory root={root} />
               </>}</Show>
             </div>}
           </Show>

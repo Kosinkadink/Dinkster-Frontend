@@ -18,6 +18,7 @@ import {
 
 function installationFactsReply(input: unknown): Response | undefined {
   const url = new URL(String(input), 'http://localhost')
+  if (url.pathname.endsWith('/history')) return Response.json({ root: url.searchParams.get('root'), current: null, history: [] })
   return url.pathname.endsWith('/facts')
     ? Response.json({ root: url.searchParams.get('root'), current: 1, build: { version: '0.0.19', variant: 'linux-cpu' }, engines: [] })
     : undefined
@@ -103,6 +104,67 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 const rows = () => [...document.querySelectorAll('[role="option"]')].map((row) => row.textContent)
 const loading = (label: string) => [...document.querySelectorAll('[role="status"]')].find((node) => node.textContent === label)
 
+it('shows recorded history newest first and keeps current generations, imports and failures distinct across roots', async () => {
+  let finishStable: (response: Response) => void = () => {}
+  let stableRead = new Promise<Response>((resolve) => { finishStable = resolve })
+  let unavailable = false
+  let empty = false
+  const entry = (id: number, generation: number, reason: string, version: string, kind: 'activation' | 'import' = 'activation') => ({
+    id, generation, reason, kind, timestamp: `2026-11-${10 + id}T12:34:00Z`, snapshot: { engine: { version } },
+  })
+  const nightlyHistory = {
+    current: 4,
+    history: [entry(1, 4, 'legacy-import', '0.1.0', 'import'), entry(2, 9, 'update', '0.2.0'),
+      entry(3, 4, 'restore', '0.3.0'), entry(4, 12, 'new-operation', '0.7.0')],
+  }
+  vi.stubGlobal('fetch', vi.fn(async (input) => {
+    const url = new URL(String(input), 'http://localhost')
+    if (url.pathname.endsWith('/history')) {
+      if (url.searchParams.get('root') === stable.root) return stableRead
+      return unavailable ? Response.json({ error: 'history-unavailable', message: 'Recorded history cannot be read' }, { status: 503 })
+        : Response.json(empty ? { current: null, history: [] } : nightlyHistory)
+    }
+    return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
+  }))
+  const dispose = render(() => <InstallationsView source={{ installations: async () => ({ all: [stable, nightly], engine: 'stopped' }) }} />, document.body)
+  await settle()
+  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  await settle()
+  const history = () => document.querySelector('[aria-label="History"]')!
+  const items = () => [...history().querySelectorAll('li')]
+  expect(items().map((row) => row.textContent)).toEqual([
+    expect.stringContaining('Recorded version 0.7.0'), expect.stringContaining('Restored to 0.3.0'),
+    expect.stringContaining('Updated to 0.2.0'), expect.stringContaining('Imported record of 0.1.0'),
+  ])
+  expect(items().filter((row) => row.textContent?.includes('Current')).map((row) => row.textContent)).toEqual([
+    expect.stringContaining('Restored to 0.3.0'),
+  ])
+  expect(items()[0]!.querySelector('time')?.dateTime).toBe('2026-11-14T12:34:00Z')
+  finishStable(Response.json({ current: 1, history: [entry(1, 1, 'setup', '9.9.9')] }))
+  await settle()
+  expect(history().textContent).not.toContain('9.9.9')
+  stableRead = Promise.resolve(Response.json({ current: 1, history: [entry(1, 1, 'setup', '9.9.9')] }))
+  document.querySelectorAll<HTMLElement>('[role="option"]')[0]!.click()
+  await settle()
+  expect(history().textContent).toContain('Set up with 9.9.9')
+  unavailable = true
+  document.querySelectorAll<HTMLElement>('[role="option"]')[1]!.click()
+  await settle()
+  expect(document.body.textContent).toContain('Recorded history cannot be read')
+  expect(document.body.textContent).not.toContain('No recorded installation history')
+  unavailable = false
+  empty = true
+  ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Try again')!.click()
+  await settle()
+  expect(document.body.textContent).toContain('No recorded installation history')
+  expect(document.body.textContent).not.toContain('Recorded history cannot be read')
+  empty = false
+  globalThis.dispatchEvent(new Event('focus'))
+  await settle()
+  expect(history().textContent).toContain('Restored to 0.3.0')
+  dispose()
+})
+
 it('keeps recorded facts with their selected installation through late replies, failures and retry', async () => {
   let finishStable: (response: Response) => void = () => {}
   let stableRead = new Promise<Response>((resolve) => { finishStable = resolve })
@@ -117,7 +179,7 @@ it('keeps recorded facts with their selected installation through late replies, 
         : Response.json({ root: nightly.root, current: noBuild ? null : 7,
           build: noBuild ? null : { version: '0.3.7', variant: 'linux-cuda128' }, engines: [] })
     }
-    return Response.json({ sandboxPacks: false, available: true, detail: '' })
+    return installationFactsReply(input) ?? Response.json({ sandboxPacks: false, available: true, detail: '' })
   }))
   const dispose = render(() => <InstallationsView source={{ installations: async () => ({
     all: [stable, nightly], open: stable, engine: 'ready',
