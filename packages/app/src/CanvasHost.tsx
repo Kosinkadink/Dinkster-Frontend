@@ -2780,6 +2780,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
       repaintMinimap?.()
     }
     updateTheme()
+    createEffect(() => renderer.setTypeDisplayNames((registry() ?? keptRegistry())?.typeDisplayNames))
     createEffect(() => renderer.setRenamingNode(nodePrompt()?.nodeId))
     createEffect(() => {
       const summaries = { ...editorSummaries() }
@@ -4818,7 +4819,9 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         : undefined
       const built = valuesUpdated ?? repositioned ?? (() => {
         props.app.extensionRevision.get()
-        const resolve = documentResolver(doc, (type) => props.app.virtualNodeSchema(type) ?? shown?.resolve(type))
+        const resolve = documentResolver(doc, Object.assign((type: string) => props.app.virtualNodeSchema(type) ?? shown?.resolve(type), {
+          typeDisplayNames: shown?.typeDisplayNames,
+        }))
         const occurrenceView = occurrenceDynamicView(doc, resolve, path, path.length === 0 ? graphId : doc.root)
         const valueRegistry = widgetRegistry()
         const fresh = buildScene({
@@ -4833,7 +4836,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           storedValueProblem: (row, value) => !numberIsKept(row.nodeId, row.valueKey) &&
             storedValueProblems(valueRegistry, graphId, row, value).some((d) => d.severity !== 'info'),
           renderVirtualNode: (node) => props.app.virtualNodeKinds.get(node.type)?.render(node),
-          tokens: defaultTokens,
+          tokens: { ...defaultTokens, typeDisplayNames: shown?.typeDisplayNames },
           measure,
           widgetMeasure,
           ...(editorControls === undefined ? {} : { editorControls }),
@@ -5479,6 +5482,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           badges: decorations.badges,
           rowProblems: model.rowProblems,
           outputTexts: nodeOutputTexts,
+          typeDisplayNames: (registry() ?? keptRegistry())?.typeDisplayNames,
         },
       })
       setPreviewA11yTargets(selectedInputPreviewA11yTargets(scene, model.selectedInputPreviews))
@@ -8119,6 +8123,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             entries={paletteEntries}
             recentTypes={recentNodeTypes}
             widgetRegistry={widgetRegistry()}
+            typeDisplayNames={(registry() ?? keptRegistry())?.typeDisplayNames}
             catalogRecovery={registry()?.schemas.size === 0 && activeTab() !== undefined
               ? <Show when={props.app.backendForTab(activeTab()!)} keyed>{(backend) => <NodeCatalogRecovery app={props.app} backend={backend} />}</Show>
               : undefined}

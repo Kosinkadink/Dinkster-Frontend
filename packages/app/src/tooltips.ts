@@ -1,7 +1,7 @@
-import { defaultTokens, presentedType, typeIdDisplayLabel } from '@dinkster/canvas'
-import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, isIntegerWidgetValue, t as translate } from '@dinkster/core'
+import { defaultTokens, presentedType } from '@dinkster/canvas'
+import { effectiveAbsentPolicy, effectiveWidgetDefault, elaborateInterface, formatWidgetValue, isIntegerWidgetValue, typeExprFromTypeId, t as translate } from '@dinkster/core'
 import { storedNumberNote } from './widget-commit.js'
-import type { InputSpec, Json, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr, WidgetSpec } from '@dinkster/core'
+import type { InputSpec, Json, NodeData, NodeSchema, OutputSpec, RegionContract, TypeExpr, TypeDisplayNames, WidgetSpec } from '@dinkster/core'
 
 export interface TooltipContent {
   readonly title?: string
@@ -145,6 +145,7 @@ const isDomTooltipTarget = (target: unknown): target is DomTooltipTarget =>
   typeof target === 'object' && target !== null && (target as { kind?: unknown }).kind === 'dom'
 
 export interface CanvasTooltipContext {
+  readonly typeDisplayNames?: TypeDisplayNames | undefined
   readonly resolveSchema?: (type: string) => any
   readonly resolvePack?: (id: string) => any
   /** The row view's whole-value readout lines, when the view writes one. */
@@ -309,7 +310,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
   if (t.kind === 'memberRemove') return { lines: [t.hit.remove.disabledReason ?? 'Remove member'] }
   if (t.kind === 'reroute') {
     const rerouteTypeName: string | undefined = t.hit.reroute.typeName
-    return { title: 'Reroute', lines: [rerouteTypeName !== undefined ? typeIdDisplayLabel(rerouteTypeName) : 'Any'] }
+    return { title: 'Reroute', lines: [rerouteTypeName !== undefined ? presentedType({ ...defaultTokens, typeDisplayNames: context.typeDisplayNames }, typeExprFromTypeId(rerouteTypeName)).tooltip : 'Any'] }
   }
   if (t.kind === 'link' && t.hit.link.mismatch === true && t.hit.link.diagnostics?.length > 0) {
     return {
@@ -321,12 +322,12 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
   if (t.kind === 'pin') {
     const schema = context.resolveSchema?.(t.hit.node.node.type)
     const port = portSpecOf(schema, t.hit.node.node, t.hit.direction === 'in' ? 'input' : 'output', t.hit.portId)
-    const type = presentedType(defaultTokens, t.hit.type)
+    const type = presentedType({ ...defaultTokens, typeDisplayNames: context.typeDisplayNames }, t.hit.type)
     const matchVariable: string | undefined = t.hit.pin.matchVariable
     const matchConstraint = t.hit.pin.matchConstraint as TypeExpr | undefined
     const acceptedTypes = matchConstraint === undefined
       ? undefined
-      : presentedType(defaultTokens, matchConstraint).label
+      : presentedType({ ...defaultTokens, typeDisplayNames: context.typeDisplayNames }, matchConstraint).tooltip
     const matchDescription = matchVariable === undefined ? [] : [
       `Match type ${matchVariable}: every ${matchVariable} port on this node must resolve to the same type.`,
     ]
@@ -350,7 +351,7 @@ export function resolveCanvasTooltip(target: unknown, opts: TooltipResolveOption
     }
   }
   if (t.kind === 'widgetTap') {
-    const type = presentedType(defaultTokens, t.hit.type)
+    const type = presentedType({ ...defaultTokens, typeDisplayNames: context.typeDisplayNames }, t.hit.type)
     const row = t.hit.node.layout.rows.find((candidate: any) =>
       candidate.kind === 'widget' && candidate.inputId === t.hit.input)
     return {

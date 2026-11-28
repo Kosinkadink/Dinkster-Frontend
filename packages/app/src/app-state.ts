@@ -2835,6 +2835,7 @@ export class AppState {
             ) ?? fallback.forEditorRole?.(role),
         },
       )
+      Object.defineProperty(resolver, 'typeDisplayNames', { get: () => fallback.typeDisplayNames })
       this.virtualSchemaResolvers.set(fallback, resolver)
     }
     return resolver
@@ -4347,9 +4348,9 @@ export class AppState {
       return live ? this.registryForTab(live) : undefined
     }
     const resolve = this.resolverWithVirtualNodes(
-      Object.assign((type: string) => registry()?.resolve(type), {
+      Object.defineProperty(Object.assign((type: string) => registry()?.resolve(type), {
         forEditorRole: (role: string) => registry()?.resolve.forEditorRole?.(role),
-      }),
+      }), 'typeDisplayNames', { get: () => registry()?.typeDisplayNames }),
     )
     let session: SharedDocumentSession | undefined
     try {
@@ -6918,9 +6919,9 @@ export class AppState {
       return tab ? this.registryForTab(tab) : initialRegistry
     }
     const resolve = this.resolverWithVirtualNodes(
-      Object.assign((type: string) => registry()?.resolve(type), {
+      Object.defineProperty(Object.assign((type: string) => registry()?.resolve(type), {
         forEditorRole: (role: string) => registry()?.resolve.forEditorRole?.(role),
-      }),
+      }), 'typeDisplayNames', { get: () => registry()?.typeDisplayNames }),
     )
     return {
       id: execution ? `frozen:${executionKey(execution)}` : document.lineage,
@@ -7460,9 +7461,9 @@ export class AppState {
       return tab ? this.registryForTab(tab) : undefined
     }
     const sessionResolver = this.resolverWithVirtualNodes(
-      Object.assign((type: string) => sessionRegistry()?.resolve(type), {
+      Object.defineProperty(Object.assign((type: string) => sessionRegistry()?.resolve(type), {
         forEditorRole: (role: string) => sessionRegistry()?.resolve.forEditorRole?.(role),
-      }),
+      }), 'typeDisplayNames', { get: () => sessionRegistry()?.typeDisplayNames }),
     )
     let session: SharedDocumentSession
     try {
@@ -8996,6 +8997,7 @@ export class AppState {
     const schemas = new Map([...reg.schemas, ...extras])
     const resolve = Object.assign((type: string) => extras.get(type) ?? reg.resolve(type), {
       forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+      ...(reg.typeDisplayNames === undefined ? {} : { typeDisplayNames: reg.typeDisplayNames }),
     })
     return {
       ...reg,

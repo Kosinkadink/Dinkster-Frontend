@@ -57,6 +57,7 @@ import { asPortId, isPortEndpoint, type LinkId, type NodeId, type PortRef } from
 import { buildRerouteIndex, traceEndpointAll } from '../reroute.js'
 import { admittedInputType, assetCoercible, atomNamesOf, coercionTargetsOf, typesCompatible } from './type-relations.js'
 import type { SchemaResolver } from './derive-boundary.js'
+import { typeAtomDisplayLabel, typeDisplayAliases, type TypeDisplayNames } from './type-presentation.js'
 import {
   buildGraphConnectivity,
   elabInputsOf,
@@ -68,33 +69,34 @@ import {
 import { canonicalTypeIdOf, cardinalityOf, effectiveAbsentPolicy, inputsOf, outputsOf, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type NodeSchema, type NodeSelectorSpec, type TypeExpr } from './model.js'
 
 /** Type words used by solver problems on every surface; never a type variable's storage name. */
-export function typeProblemWords(type: TypeExpr, form: 'value' | 'name' | 'plural' | 'one' = 'value'): string {
+export function typeProblemWords(type: TypeExpr, form: 'value' | 'name' | 'plural' | 'one' = 'value', names?: TypeDisplayNames): string {
   if (type.kind === 'concrete') {
     const parsed = typeExprFromTypeId(type.name)
-    if (parsed.kind !== 'concrete') return typeProblemWords(parsed, form)
+    if (parsed.kind !== 'concrete') return typeProblemWords(parsed, form, names)
     const words: Readonly<Record<string, readonly [string, string, string]>> = {
       IMAGE: ['image', 'an image', 'images'], MASK: ['mask', 'a mask', 'masks'],
       STRING: ['text', 'text', 'text values'], INT: ['whole number', 'a whole number', 'whole numbers'],
       FLOAT: ['number', 'a number', 'numbers'], LATENT: ['latent data', 'latent data', 'latent values'],
       BOOLEAN: ['true/false value', 'a true/false value', 'true/false values'],
     }
-    const shown = type.name === 'comfy.IMAGE' ? 'IMAGE' : type.name === 'comfy.MASK' ? 'MASK' : type.name
-    const [name, value, plural] = Object.hasOwn(words, shown) ? words[shown]! : [shown, shown, `${shown} values`]
+    const shown = typeAtomDisplayLabel(type.name, names)
+    const builtin = typeDisplayAliases[type.name] ?? type.name
+    const [name, value, plural] = Object.hasOwn(words, builtin) ? words[builtin]! : [shown, shown, `${shown} values`]
     return form === 'name' ? name : form === 'plural' ? plural : form === 'one'
-      ? `one ${shown === 'LATENT' ? 'latent value' : shown === 'STRING' ? 'text value' : name}` : value
+      ? `one ${builtin === 'LATENT' ? 'latent value' : builtin === 'STRING' ? 'text value' : name}` : value
   }
-  if (type.kind === 'union') return type.names.map((name) => typeProblemWords(typeExprFromTypeId(name), form)).join(' or ')
+  if (type.kind === 'union') return type.names.map((name) => typeProblemWords(typeExprFromTypeId(name), form, names)).join(' or ')
   if (type.kind === 'variable') return type.allowedTypes?.length
-    ? type.allowedTypes.map((allowed) => typeProblemWords(allowed, form)).join(' or ')
+    ? type.allowedTypes.map((allowed) => typeProblemWords(allowed, form, names)).join(' or ')
     : 'any type'
   if (type.kind === 'wildcard') return 'any type'
-  if (type.kind === 'tuple_element') return type.element === undefined ? 'a value from a group' : typeProblemWords(type.element, form)
+  if (type.kind === 'tuple_element') return type.element === undefined ? 'a value from a group' : typeProblemWords(type.element, form, names)
   if (type.kind === 'tuple') return `${form === 'plural' ? 'groups' : form === 'name' ? 'group' : 'a group'} of ${type.elements.length} values`
   if (type.kind === 'asset') {
-    const element = typeProblemWords(type.element, form === 'plural' ? 'plural' : 'name')
+    const element = typeProblemWords(type.element, form === 'plural' ? 'plural' : 'name', names)
     return `${form === 'plural' || form === 'name' || element === 'latent data' || element === 'text' ? 'stored' : 'a stored'} ${element}`
   }
-  return `${form === 'plural' ? `${type.kind}s` : form === 'name' ? type.kind : `a ${type.kind}`} of ${typeProblemWords(type.element, 'plural')}`
+  return `${form === 'plural' ? `${type.kind}s` : form === 'name' ? type.kind : `a ${type.kind}`} of ${typeProblemWords(type.element, 'plural', names)}`
 }
 
 /** Every variable occurring in `t`, including inside list/asset elements. */
@@ -322,6 +324,7 @@ export function solveGraphTypes(
   resolve: SchemaResolver,
   options: SolveOptions = {},
 ): SolveResult {
+  const words = (type: TypeExpr, form?: 'value' | 'name' | 'plural' | 'one'): string => typeProblemWords(type, form, resolve.typeDisplayNames)
   const diagnostics: Diagnostic[] = []
   const linkVerdicts = new Map<LinkId, EdgeVerdict>()
   const netSinkVerdicts = new Map<string, EdgeVerdict>()
@@ -676,7 +679,7 @@ export function solveGraphTypes(
       setVerdict(source, 'mismatch')
       const code = cf === 'list' ? 'solve.listIntoScalar' : 'solve.scalarIntoList'
       diagnostics.push(
-        problem('error', code, to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${typeProblemWords(toType, ct === 'list' ? 'value' : 'one')}, but ${producer} sends ${typeProblemWords(fromType, cf === 'list' ? 'value' : 'one')}.`, {
+        problem('error', code, to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${words(toType, ct === 'list' ? 'value' : 'one')}, but ${producer} sends ${words(fromType, cf === 'list' ? 'value' : 'one')}.`, {
           anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
         }),
       )
@@ -773,7 +776,7 @@ export function solveGraphTypes(
           // Mixed-cardinality union with no matching members left: mismatch.
           setVerdict(source, 'mismatch')
           diagnostics.push(
-            problem('warning', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${typeProblemWords(origin?.toType ?? toType)}, but ${producer} sends ${typeProblemWords(origin?.fromType ?? fromType)}.`, {
+            problem('warning', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${words(origin?.toType ?? toType)}, but ${producer} sends ${words(origin?.fromType ?? fromType)}.`, {
               anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
               data: { sourceNode: from.node, sourcePort: from.port },
             }),
@@ -798,7 +801,7 @@ export function solveGraphTypes(
     }
     setVerdict(source, 'mismatch')
     diagnostics.push(
-      problem('warning', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${typeProblemWords(origin?.toType ?? toType)}, but ${producer} sends ${typeProblemWords(origin?.fromType ?? fromType)}.`, {
+      problem('warning', 'solve.linkMismatch', to, 'input', `${capitalized(rowLabel(to, 'input'))} needs ${words(origin?.toType ?? toType)}, but ${producer} sends ${words(origin?.fromType ?? fromType)}.`, {
         anchor: source.kind === 'link' ? { link: source.id, port: to } : { port: to },
         data: { sourceNode: from.node, sourcePort: from.port },
       }),
@@ -962,7 +965,7 @@ export function solveGraphTypes(
       const labels = inputLabels.get(node)
       const named = [...brought]
         .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
-        .map(([port, types]) => `the input ${labels?.get(port) ?? port} is ${[...types].map((type) => typeProblemWords(typeExprFromTypeId(type))).join(' or ')}`)
+        .map(([port, types]) => `the input ${labels?.get(port) ?? port} is ${[...types].map((type) => words(typeExprFromTypeId(type))).join(' or ')}`)
       return { key, node, into, message: `The inputs must be the same type, but ${named.join(' and ')}.` }
     })
   }
@@ -1012,16 +1015,16 @@ export function solveGraphTypes(
     if (firstSlotBinding !== undefined) {
       const selected = specializedSlots.find((slot) => slot.ref.node === target.node && slot.ref.port === target.port)!.selectedType
       const origin = incoming === undefined ? undefined : incoming.source.kind === 'projectedInput' ? 'the outer input' : sourceName(incoming.from, incoming.fromSide)
-      message = `${capitalized(rowLabel(target, 'input'))} is set to ${typeProblemWords(selected, 'name')}, but ${incoming === undefined
-        ? `the input ${declared === undefined ? rowLabel(target, 'input') : rowLabel({ node: ownerNode, port: asPortId(declared[0]) }, 'input')} needs ${typeProblemWords(declared?.[1] ?? { kind: 'wildcard' }, 'name')}`
-        : `${origin} sends ${typeProblemWords(incoming.fromType)}`}.`
+      message = `${capitalized(rowLabel(target, 'input'))} is set to ${words(selected, 'name')}, but ${incoming === undefined
+        ? `the input ${declared === undefined ? rowLabel(target, 'input') : rowLabel({ node: ownerNode, port: asPortId(declared[0]) }, 'input')} needs ${words(declared?.[1] ?? { kind: 'wildcard' }, 'name')}`
+        : `${origin} sends ${words(incoming.fromType)}`}.`
     } else if (incoming !== undefined && outgoing !== undefined) {
-      message = `${capitalized(rowLabel(incoming.to, 'input'))} receives ${typeProblemWords(incoming.fromType)}, but its output feeds the input ${rowLabel(outgoing.to, 'input')} of ${nodeTitles.get(outgoing.to.node)}, which needs ${typeProblemWords(outgoing.toType)}.`
+      message = `${capitalized(rowLabel(incoming.to, 'input'))} receives ${words(incoming.fromType)}, but its output feeds the input ${rowLabel(outgoing.to, 'input')} of ${nodeTitles.get(outgoing.to.node)}, which needs ${words(outgoing.toType)}.`
     } else if (incoming !== undefined) {
       const origin = incoming.source.kind === 'projectedInput' ? 'the outer input' : sourceName(incoming.from, incoming.fromSide)
-      message = `${capitalized(rowLabel(target, 'input'))} needs ${typeProblemWords(incoming.toType)}, but ${origin} sends ${typeProblemWords(incoming.fromType)}.`
+      message = `${capitalized(rowLabel(target, 'input'))} needs ${words(incoming.toType)}, but ${origin} sends ${words(incoming.fromType)}.`
     } else {
-      message = `${capitalized(rowLabel(target, side))} must match the connected inputs, but ${edges.map((edge) => `the input ${rowLabel(edge.to, 'input')} of ${nodeTitles.get(edge.to.node)} needs ${typeProblemWords(edge.toType)}`).join(' and ')}.`
+      message = `${capitalized(rowLabel(target, side))} must match the connected inputs, but ${edges.map((edge) => `the input ${rowLabel(edge.to, 'input')} of ${nodeTitles.get(edge.to.node)} needs ${words(edge.toType)}`).join(' and ')}.`
     }
     diagnostics.push(
       problem('warning', 'solve.varConflict', target, side, message, {
@@ -1051,7 +1054,7 @@ export function solveGraphTypes(
       if (declared === undefined) continue
       const solved = substitute(declared, trace.ref.node)
       if (!isKnown(solved) || typesCompatible(solved, slot.selectedType)) continue
-      diagnostics.push(problem('warning', 'solve.slot.staleSpecialization', slot.ref, 'input', `${capitalized(rowLabel(slot.ref, 'input'))} is set to ${typeProblemWords(slot.selectedType, 'name')}, but ${sourceName(trace.ref)} sends ${typeProblemWords(solved)}.`, {
+      diagnostics.push(problem('warning', 'solve.slot.staleSpecialization', slot.ref, 'input', `${capitalized(rowLabel(slot.ref, 'input'))} is set to ${words(slot.selectedType, 'name')}, but ${sourceName(trace.ref)} sends ${words(solved)}.`, {
         anchor: { port: slot.ref },
         data: { sourceNode: trace.ref.node, sourcePort: trace.ref.port },
       }))

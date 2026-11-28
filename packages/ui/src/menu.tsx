@@ -37,6 +37,7 @@ export interface ProductAttention {
 
 export interface ProductMenuItem {
   label: string
+  accessibleDescription?: string
   /** Non-interactive visible content; label still names the item. */
   labelContent?: JSX.Element
   description?: string
@@ -403,6 +404,7 @@ function Menu(props: {
                         }
                         aria-checked={item().checked}
                         aria-describedby={item().description ? descriptionId : undefined}
+                        aria-description={item().accessibleDescription}
                         tabindex="-1"
                         aria-label={(() => {
                           const attention = item().attention

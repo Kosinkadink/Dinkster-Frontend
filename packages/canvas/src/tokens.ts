@@ -3,7 +3,7 @@
  * geometry used together by drawing, layout and hit testing.
  */
 
-import { canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, typeAtomDisplayLabel, typeDisplayAliases, type NodeRunState, type TypeExpr, type TypeDisplayNames } from '@dinkster/core'
+import { canvasSemanticTokens, DIM_FILL_SHARE, semanticDesignTokens, semanticTokensForTheme, canonicalTypeIdOf, IMAGE_OPACITY_MAX, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, typeAtomDisplayLabel, typeDisplayAliases, type NodeRunState, type TypeExpr, type TypeDisplayNames } from '@dinkster/core'
 
 export { typeDisplayAliases } from '@dinkster/core'
 
@@ -809,7 +809,7 @@ export interface RowGeometry {
 }
 
 export interface DesignTokens {
-  readonly typeDisplayNames?: TypeDisplayNames
+  readonly typeDisplayNames?: TypeDisplayNames | undefined
   readonly rowHeight: number
   readonly headerHeight: number
   readonly padX: number
@@ -1204,6 +1204,8 @@ export const typeIdDisplayLabel = (typeId: string, names?: TypeDisplayNames): st
   if (listInner !== undefined) return `list<${typeIdDisplayLabel(listInner, names)}>`
   const assetInner = parseAssetTypeId(typeId)
   if (assetInner !== undefined) return `asset<${typeIdDisplayLabel(assetInner, names)}>`
+  const streamInner = parseStreamTypeId(typeId)
+  if (streamInner !== undefined) return `stream<${typeIdDisplayLabel(streamInner, names)}>`
   return typeAtomDisplayLabel(typeId, names)
 }
 
@@ -1243,8 +1245,11 @@ export interface PresentedType {
 /** Display label for a TypeExpr without changing its semantic identity. */
 const typeExprLabelWith = (type: TypeExpr, atom: (id: string) => string): string => {
   switch (type.kind) {
-    case 'concrete': return atom(type.name)
-    case 'union': return type.names.map(atom).join(' | ')
+    case 'concrete': {
+      const parsed = typeExprFromTypeId(type.name)
+      return parsed.kind === 'concrete' ? atom(type.name) : typeExprLabelWith(parsed, atom)
+    }
+    case 'union': return type.names.map((name) => typeExprLabelWith(typeExprFromTypeId(name), atom)).join(' | ')
     case 'wildcard': return 'Any'
     case 'tuple': return `tuple<${type.elements.map((element, index) => `${index}: ${typeExprLabelWith(element, atom)}`).join(', ')}>`
     case 'tuple_element': return `${type.element === undefined ? type.input : typeExprLabelWith(type.element, atom)}[${type.index}]`

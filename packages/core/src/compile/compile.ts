@@ -160,7 +160,8 @@ export function documentResolver(doc: WorkflowDocument, base: SchemaResolver): S
       return derived.schema
     },
     {
-      ...(base.forEditorRole === undefined ? {} : { forEditorRole: base.forEditorRole })
+      ...(base.forEditorRole === undefined ? {} : { forEditorRole: base.forEditorRole }),
+      ...(base.typeDisplayNames === undefined ? {} : { typeDisplayNames: base.typeDisplayNames }),
     }
   )
   return resolve

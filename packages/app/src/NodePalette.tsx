@@ -9,7 +9,7 @@ import {
   hintsMatchPortFilters, isDeprecated, parseSearchFilters,
   rankSearch, schemaInputTypes, schemaMatchesLinkDrop,
   schemaMatchesPortFilters, schemaOutputTypes, semanticDesignTokens, typeExprFromTypeId,
-  type Json, type NodeSchema, type PackBlueprintDescriptor, type SearchAction, type TypeExpr, type WidgetRegistry,
+  type Json, type NodeSchema, type PackBlueprintDescriptor, type SearchAction, type TypeExpr, type TypeDisplayNames, type WidgetRegistry,
 } from '@dinkster/core'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import {
@@ -125,10 +125,10 @@ export function buildCategoryTree(categories: readonly string[]): { folders: Cat
   return { folders: freeze(roots), uncategorized }
 }
 
-export const typeLabelOf = (type: TypeExpr): string => {
+export const typeLabelOf = (type: TypeExpr, names?: TypeDisplayNames): string => {
   if (type.kind === 'variable' && !hasKnownLinkDropAnchorType(type)) return 'Any'
-  if (type.kind === 'list') return `${typeLabelOf(type.element)} list`
-  return productSearchTypeName(presentedType(defaultTokens, type).label)
+  if (type.kind === 'list') return `${typeLabelOf(type.element, names)} list`
+  return productSearchTypeName(presentedType({ ...defaultTokens, typeDisplayNames: names }, type).label)
 }
 
 /** The host owns corpus and placement; all browsing state lasts only for this open. */
@@ -137,6 +137,7 @@ export function NodePalette(props: {
   entries: () => PaletteEntry[]
   recentTypes: () => readonly string[]
   widgetRegistry: WidgetRegistry
+  typeDisplayNames?: TypeDisplayNames | undefined
   catalogRecovery?: JSX.Element
   bounds: () => { width: number; height: number }
   onCommit: (entry: PaletteEntry) => void
@@ -291,8 +292,9 @@ export function NodePalette(props: {
       label={label()} title={label()}
       filter={{ label: message(direction === 'takes' ? 'palette.filter.inputTypes' : 'palette.filter.outputTypes'), placeholder: message('palette.filter.findType') }}
       items={typeOptions(direction === 'takes' ? 'in' : 'out').map((type) => ({
-          label: `${label()} ${productSearchTypeName(typeIdDisplayLabel(type))}`,
-          labelContent: <ProductSearchTypeLabel label={productSearchTypeName(typeIdDisplayLabel(type))} direction={direction} color={typeColor(defaultTokens, type)} shape={typeShape(type)} />,
+          label: `${label()} ${productSearchTypeName(typeIdDisplayLabel(type, props.typeDisplayNames))}`,
+          accessibleDescription: type,
+          labelContent: <ProductSearchTypeLabel label={productSearchTypeName(typeIdDisplayLabel(type, props.typeDisplayNames))} direction={direction} color={typeColor(defaultTokens, type)} shape={typeShape(type)} />,
           checked: selected(type),
           onSelect: () => change(type),
         }))} />
@@ -337,16 +339,16 @@ export function NodePalette(props: {
         kinds={kinds()} kind={kind()} onKind={(value) => { setKind(value); setCurrent(undefined) }}
         chips={[
           ...(props.anchor.linkDrop === undefined ? [] : [{
-          label: typeLabelOf(props.anchor.linkDrop.anchorType),
-          name: `${message(props.anchor.linkDrop.seeking === 'in' ? 'palette.filter.takes' : 'palette.filter.gives')} ${typeLabelOf(props.anchor.linkDrop.anchorType)}`,
+          label: typeLabelOf(props.anchor.linkDrop.anchorType, props.typeDisplayNames),
+          name: `${message(props.anchor.linkDrop.seeking === 'in' ? 'palette.filter.takes' : 'palette.filter.gives')} ${typeLabelOf(props.anchor.linkDrop.anchorType, props.typeDisplayNames)} (${typeExprCanonicalLabel(props.anchor.linkDrop.anchorType)})`,
           direction: props.anchor.linkDrop.seeking === 'in' ? 'takes' as const : 'gives' as const,
           color: presentedType(defaultTokens, props.anchor.linkDrop.anchorType).color,
           shape: cardinalityOf(props.anchor.linkDrop.anchorType) === 'list' ? 'diamond' as const : 'circle' as const,
           removeLabel: message('palette.filter.removeConnection'), onRemove: props.onRemoveLinkDrop,
           }]),
           ...requirements().map((item) => {
-            const label = productSearchTypeName(typeIdDisplayLabel(item.type))
-            const name = `${message(item.direction === 'takes' ? 'palette.filter.takes' : 'palette.filter.gives')} ${label}`
+            const label = productSearchTypeName(typeIdDisplayLabel(item.type, props.typeDisplayNames))
+            const name = `${message(item.direction === 'takes' ? 'palette.filter.takes' : 'palette.filter.gives')} ${label} (${item.type})`
             return { label, name, direction: item.direction, color: typeColor(defaultTokens, item.type), shape: typeShape(item.type),
               removeLabel: message('palette.filter.removeType', { type: name }),
               onRemove: () => { setRequirements((items) => items.filter((candidate) => candidate !== item)); setCurrent(undefined) } }
@@ -377,7 +379,7 @@ export function NodePalette(props: {
               ...(entry().schema !== undefined && isDeprecated(entry().schema!) ? [message('palette.status.deprecated')] : []),
               ...(entry().schema?.experimental === true ? [message('palette.status.experimental')] : []),
             ]}
-            drawing={<Show when={palettePreviewSchema(entry())}>{(schema) => <SchemaPreview schema={schema()} widgets={props.widgetRegistry} maximize subgraph={entry().kind === 'subgraph' || entry().kind === 'blueprint'} />}</Show>} />
+            drawing={<Show when={palettePreviewSchema(entry(), props.typeDisplayNames)}>{(schema) => <SchemaPreview schema={schema()} widgets={props.widgetRegistry} typeDisplayNames={props.typeDisplayNames} maximize subgraph={entry().kind === 'subgraph' || entry().kind === 'blueprint'} />}</Show>} />
           <Show when={entry().schema?.hasDocs === true && props.onHelp !== undefined}>
             <ProductButton onClick={() => props.onHelp?.(entry())}>{message('nodeHelp.action.help')}</ProductButton>
           </Show>

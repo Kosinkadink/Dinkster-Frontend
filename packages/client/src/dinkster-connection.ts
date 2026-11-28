@@ -4862,6 +4862,7 @@ export function buildDinksterRegistry(
     typeof raw.epoch === 'number' && Number.isInteger(raw.epoch) && raw.epoch > 0 ? raw.epoch : undefined
   const resolve: SchemaResolver = Object.assign((type: string) => schemas.get(type), {
     forEditorRole: (role: string) => schemaForEditorRole(schemas.values(), role),
+    typeDisplayNames,
   })
   return {
     connection,

@@ -126,6 +126,16 @@ describe('canvas tooltip provider', () => {
     expect(resolveCanvasTooltip(target, { detailed: true }, context)?.detail).toEqual(['Model used for sampling.'])
   })
 
+  it('keeps the canonical pack type in existing pin and reroute help', () => {
+    const typeDisplayNames = new Map([['seg-pack.SEGS', 'SEGS (seg-pack)']])
+    const type = { kind: 'list', element: { kind: 'concrete', name: 'seg-pack.SEGS' } }
+    const target = { kind: 'pin', hit: { node, direction: 'in', portId: 'model', pin: { label: 'model' }, type } }
+    expect(resolveCanvasTooltip(target, { detailed: false }, { ...context, typeDisplayNames })?.lines[0])
+      .toBe('list<SEGS (seg-pack)> (list<seg-pack.SEGS>)')
+    expect(resolveCanvasTooltip({ kind: 'reroute', hit: { reroute: { typeName: 'seg-pack.SEGS' } } },
+      { detailed: false }, { typeDisplayNames })?.lines).toEqual(['SEGS (seg-pack) (seg-pack.SEGS)'])
+  })
+
   it('identifies maybe-absent outputs before they are connected', () => {
     const target = {
       kind: 'pin',

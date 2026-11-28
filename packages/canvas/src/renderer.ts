@@ -1646,6 +1646,12 @@ export class CanvasRenderer {
     return this.tokens
   }
 
+  setTypeDisplayNames(typeDisplayNames: DesignTokens['typeDisplayNames']): void {
+    this.tokens = { ...this.tokens, typeDisplayNames }
+    this.refreshTypeAdornments()
+    this.invalidate()
+  }
+
   getDetailLevel(): CanvasDetailLevel {
     return canvasDetailLevel(this.viewport.scale, this.tokens.detailMinScale)
   }

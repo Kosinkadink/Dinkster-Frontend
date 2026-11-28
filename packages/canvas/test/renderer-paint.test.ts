@@ -1324,6 +1324,13 @@ describe('lens capability paint', () => {
 
     const inactive = paintWith(scene, (renderer) => renderer.setLensCapabilities({}))
     expect(inactive.some((call) => call.method === 'fillText' && call.args[0] === 'FLOAT')).toBe(false)
+
+    const named = paintWith(emptyScene({ links: [typedLensLink('custom', 'list<seg-pack.SEGS>')] }), (renderer) => {
+      renderer.setLensCapabilities({ typeAdornments: true })
+      renderer.setTypeDisplayNames(new Map([['seg-pack.SEGS', 'SEGS (seg-pack)']]))
+    })
+    expect(named.some((call) => call.method === 'fillText' && call.args[0] === 'list<SEGS (seg-pack)>')).toBe(true)
+    expect(named.some((call) => call.method === 'fillText' && call.args[0] === 'list<seg-pack.SEGS>')).toBe(false)
   })
 
 })
