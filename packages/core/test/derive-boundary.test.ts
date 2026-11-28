@@ -2083,6 +2083,10 @@ describe('Boundary sample acceptance compilation', () => {
         'layers.layer0.strength': 0.1, 'layers.layer1.strength': 0.4,
         'layers.layer2.image': ['imageA', 0], 'layers.layer2.strength': 0.8, 'layers.layer3.strength': 0.25,
       })
+      expect(Object.keys(compiled[path]!.inputs).filter((id) => id.startsWith('layers.') && id.endsWith('.image')))
+        .toEqual(['layers.layer2.image'])
+      expect(Object.keys(compiled[second]!.inputs).filter((id) => id.startsWith('layers.') && id.endsWith('.image')))
+        .toEqual([])
       expect(compiled[second]!.inputs['layers.layer2.strength']).toBe(0.6)
       expect(compiled[second]!.outputMembers?.layers).toEqual(['layer0', 'layer1', 'layer2'])
       const check = (current: WorkflowDocument, reordered: boolean) => {
@@ -2107,6 +2111,9 @@ describe('Boundary sample acceptance compilation', () => {
       check(original, false)
       edit(store, 'dynamic.moveMember', { graphId: 'root', nodeId: 'first', construct: 'layers', member: 'layer1', index: 0 })
       const reordered = store.doc
+      const expected = structuredClone(original)
+      Object.assign(expected.graphs.root!.nodes.first!.dynamic!.layers!, { members: ['layer1', 'layer0'] })
+      expect(reordered).toEqual(expected)
       check(reordered, true)
       expect(store.undo()).toBe(true)
       expect(store.doc).toEqual(original)
