@@ -203,7 +203,6 @@ export function ProductWindowAction(
         intent={local.intent ?? 'neutral'}
         pending={local.pending ?? false}
         aria-label={local.label}
-        title={local.shortcut ? undefined : local.label}
         data-tooltip-label={local.label}
         data-tooltip-shortcut={local.shortcut}
         aria-description={local.shortcut ? productShortcutKeys(local.shortcut).join('+') : undefined}
@@ -270,7 +269,7 @@ export function ProductIconButton(
       pending={local.pending}
       iconOnly={local.labelContent === undefined}
       aria-label={local.label}
-      title={button['data-tooltip-label'] ? undefined : local.label}
+      data-tooltip-label={button['data-tooltip-label'] ?? (local.labelContent === undefined ? local.label : undefined)}
     >
       <Show when={!local.pending}><ProductIcon icon={local.icon} /></Show>
       {local.labelContent}
