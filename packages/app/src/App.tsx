@@ -28,7 +28,8 @@ import FileIcon from 'lucide-solid/icons/file'
 import FileText from 'lucide-solid/icons/file-text'
 import Film from 'lucide-solid/icons/film'
 import type { LucideIcon } from 'lucide-solid'
-import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type Tab } from './app-state.js'
+import { ProductImageUnavailable } from '@dinkster/ui'
+import { backendConnectionStatus, backendMetadataError, currentGraphId, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
@@ -533,6 +534,10 @@ export function App(props: {
     settingsTick()
     return app.appViewEnabled
   })
+  const exposureEnabled = createMemo((): boolean => {
+    settingsTick()
+    return app.exposureEnabled
+  })
   const backends = useSignal(app.backends)
   const backendsTick = useSignal(app.backendsTick)
   const hostUiTick = useSignal(app.hostUiContributions.changed)
@@ -824,12 +829,6 @@ export function App(props: {
       unsubStack()
     })
   })
-  const boundaryIndicator = (): PanelIndicator | undefined => {
-    boundaryStateTick()
-    return editedSubgraphDefinition(activeTab())
-      ? { count: 1, severity: 'info', label: message('shell.status.boundaryEditable') }
-      : undefined
-  }
   const splitLayoutRaw = useSignal(app.editorSplits.layout)
   /**
    * The split layout actually rendered: the stored tree repaired against
@@ -1674,14 +1673,15 @@ export function App(props: {
     const now = useNow()
     const note = () => {
       const execution = known()
+      const run = record()
+      const status = run === undefined ? execution?.status : run.state === 'failed' ? 'error' : run.state
       // Durable records count seconds; the store counts milliseconds.
-      const finished = record()?.finishedAt
-      const ended = execution?.endedAt ?? (finished === undefined ? undefined : finished * 1000)
+      const ended = run === undefined ? execution?.endedAt : run.finishedAt * 1000
       if (ended === undefined) return p.entry.subtitle
       // Runs of one workflow are told apart by their age; the job id stays in the opened run.
       const grouped = p.entry.children?.length ?? 0
       const parts = [
-        ...(execution === undefined ? [] : [executionStatusLabel(execution.status)]),
+        ...(status === undefined ? [] : [executionStatusLabel(status)]),
         runAge(ended, now()),
         ...(grouped > 1 ? [message('runs.row.grouped', { count: grouped })] : []),
       ]
@@ -1717,7 +1717,7 @@ export function App(props: {
       onDelete={act('delete')} />
     return <div class="runs-stored-row" data-job={record()?.jobId ?? p.entry.id}>
       <div class="run-row-line">
-        <span class="run-row-thumbnail" aria-hidden="true">
+        <span class="run-row-thumbnail">
           <Show when={thumbnail()}>{(asset) => <RunThumbnail url={asset().url} mediaType={asset().mediaType} />}</Show>
         </span>
         <span class="run-row-text">
@@ -1896,12 +1896,12 @@ export function App(props: {
     return resolveImportedNodePacks(tab.store.doc, app.registryForTab(tab)?.resolve ?? (() => undefined))
   }
   const problemsIndicator = (): PanelIndicator | undefined => {
-    const list = problemDiagnostics()
+    const list = problemDiagnostics().filter((diagnostic) => diagnostic.severity !== 'info')
     const missingPackCount = new Set(importedNodes().filter((node) => node.status === 'installable').map((node) => node.pack)).size
     if (list.length === 0 && missingPackCount === 0) return undefined
     const severity = list.some((d) => d.severity === 'error')
       ? 'error'
-      : missingPackCount > 0 || list.some((d) => d.severity === 'warning') ? 'warning' : 'info'
+      : 'warning'
     const count = list.length + missingPackCount
     return {
       count,
@@ -1998,7 +1998,6 @@ export function App(props: {
     registerBuiltinPanel({
       id: 'boundary', get title() { return message('shell.panel.boundary.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 40,
-      indicator: boundaryIndicator,
       when: () => {
         boundaryStateTick()
         const tab = activeTab()
@@ -3201,7 +3200,7 @@ export function App(props: {
               activeView={paneEditorKind()}
               appViewEnabled={appViewEnabled()}
               activeLens={paneCanvasLens()}
-              lenses={app.lensRegistry.list().filter((lens) => lens.id !== 'exposure' || appViewEnabled())}
+              lenses={app.lensRegistry.list().filter((lens) => lens.id !== 'exposure' || exposureEnabled())}
               viewMenuOpen={viewMenu()}
               lensMenuOpen={lensMenu()}
               onToggleViewMenu={() => { setLensMenu(false); setViewMenu((open) => !open) }}
@@ -3260,9 +3259,9 @@ export function App(props: {
                       executions={paneWorkflowExecutions()}
                       canQueue={(backendsTick(), app.registryForTab(tab()) !== undefined)}
                       blockedReason={(backendsTick(), app.engineOffReason(tab(), message))}
-                      runControl={(runButton) => <Show when={(backendsTick(), tab().execution === undefined ? app.backendForTab(tab()).supervisor.get() : undefined)} fallback={runButton}>
+                      runControl={(runButton) => <Show when={(backendsTick(), tab().execution === undefined ? app.backendForTab(tab()).supervisor.get() : undefined)} fallback={runButton()}>
                         {(status) => <EngineRunControl status={status()} baseUrl={app.backendForTab(tab()).baseUrl}
-                          onRestart={() => app.restartEngine(app.backendForTab(tab()))}>{runButton}</EngineRunControl>}
+                          onRestart={() => app.restartEngine(app.backendForTab(tab()))}>{runButton()}</EngineRunControl>}
                       </Show>}
                       hideRunList={engineGate(tab())?.state === 'failed'}
                       onQueue={tab().execution === undefined ? () => { void app.queue(tab()) } : undefined}
@@ -3986,7 +3985,7 @@ function Outputs(props: { app: AppState; execution: ExecutionState; details?: JS
                 onClick={(event) => { event.stopPropagation(); setViewerGrid(false); setViewerIndex(index) }}
               >
                 <span class="output-thumbnail-preview">
-                  <Show when={!failed().has(image.key)} fallback={<span class="output-thumbnail-unavailable">Image unavailable</span>}>
+                  <Show when={!failed().has(image.key)} fallback={<ProductImageUnavailable />}>
                     <ViewerImage image={image} alt="" onLoad={() => markLoaded(image.key)} onError={() => markFailed(image.key)} />
                   </Show>
                   <span class="output-thumbnail-position">Output {index + 1} of {images().length}</span>

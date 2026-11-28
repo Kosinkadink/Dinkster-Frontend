@@ -68,7 +68,7 @@ describe('WorkflowQueueControl', () => {
       canQueue={status().state === 'ready'} onQueue={() => undefined} onCancel={() => undefined}
       onOpenExecution={() => undefined} hideRunList={status().state === 'failed'}
       runControl={(runButton) => <EngineRunControl status={status()} baseUrl="" onRestart={async () => undefined}>
-        {runButton}
+        {runButton()}
       </EngineRunControl>} />, root)
     expect(root.querySelector('[data-testid="queue-button"]')).not.toBeNull()
     for (const state of ['stopped', 'starting'] as const) {

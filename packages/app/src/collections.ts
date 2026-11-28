@@ -14,6 +14,7 @@ import {
   t,
   type CollectionEntry,
   type CollectionSource,
+  type BoardCardSource,
 } from '@dinkster/core'
 import { HISTORY_STATES, type ExecutionState, type HistoryPage, type HistoryRunRecord, type LibraryRecord, type TemplateDescriptor } from '@dinkster/client'
 import { LIBRARY_SCOPE, WORKFLOW_LABEL, type AppState, type Backend } from './app-state.js'
@@ -373,12 +374,15 @@ const workflowEntry = (r: LibraryRecord, backend: Backend): CollectionEntry => (
  * loaded page. A V1 backend has no library surface; the source renders
  * its text-first empty state.
  */
-export function workflowsSource(app: AppState): CollectionSource {
+export function workflowsSource(app: AppState,
+  backendForPage = () => app.libraryBackend(),
+  project?: string,
+): CollectionSource {
   return {
     id: 'workflows',
     label: 'Workflows',
     page: async (req) => {
-      const backend = app.libraryBackend()
+      const backend = backendForPage()
       if (!backend) return { items: [], total: 0 }
       const cursor = decodeOwnedCursor(backend.id, req.cursor)
       const page = await backend.connection.listLibrary({
@@ -386,6 +390,7 @@ export function workflowsSource(app: AppState): CollectionSource {
         query: req.query,
         label: WORKFLOW_LABEL,
         limit: req.limit,
+        ...(project === undefined ? {} : { project }),
         ...(cursor !== undefined ? { cursor } : {}),
       })
       const nextCursor = encodeOwnedCursor(backend.id, page.cursor)
@@ -394,6 +399,55 @@ export function workflowsSource(app: AppState): CollectionSource {
         items: page.records.map((r) => workflowEntry(r, backend)),
         ...(nextCursor !== undefined ? { cursor: nextCursor } : {}),
       }
+    },
+  }
+}
+
+/** Saved project and enabled-pack blueprints share one ungrouped picker. */
+export function boardBlueprintsSource(backendForPage: () => Backend | undefined, project: string): CollectionSource {
+  return {
+    id: 'board-blueprints', label: 'Blueprints',
+    page: async (req) => {
+      const backend = backendForPage()
+      if (!backend) return { items: [], total: 0 }
+      const cursor = decodeOwnedCursor(backend.id, req.cursor)
+      const items: CollectionEntry[] = []
+      const errors: string[] = []
+      try {
+        let next: string | undefined
+        do {
+          req.signal?.throwIfAborted()
+          const page = await backend.connection.listLibrary({ scope: LIBRARY_SCOPE, project,
+            label: 'blueprint', limit: 200, ...(next === undefined ? {} : { cursor: next }) })
+          items.push(...page.records.map((record): CollectionEntry => ({
+            id: `saved:${record.id}`, owner: backend.id, title: record.name,
+            kind: 'blueprint',
+            subtitle: `Modified ${formatCollectionRowDate(record.modified * 1000)}`,
+            badges: record.labels.filter((label) => label !== 'blueprint'),
+            details: [{ label: 'blueprint id', text: record.id }, { label: 'backend', text: backend.label },
+              { label: 'digest', text: record.digest }, { label: 'revision', text: String(record.revision) }],
+            ref: { kind: 'library', recordId: record.id } satisfies BoardCardSource,
+          })))
+          next = page.cursor
+        } while (next !== undefined)
+      } catch (reason) { errors.push(reason instanceof Error ? reason.message : String(reason)) }
+      const registry = backend.registry.get()
+      if (!registry) errors.push('Blueprint packs are unavailable')
+      for (const [packId, pack] of registry?.packs ?? []) {
+        for (const blueprint of pack.blueprints ?? []) items.push({
+          id: `pack:${JSON.stringify([packId, blueprint.id])}`, owner: backend.id, title: blueprint.name,
+          kind: 'blueprint',
+          subtitle: blueprint.description ?? pack.displayName, badges: blueprint.tags ?? [],
+          details: [{ label: 'pack', text: pack.displayName }, { label: 'digest', text: blueprint.digest }],
+          ref: { kind: 'pack', packId, blueprintId: blueprint.id, digest: blueprint.digest } satisfies BoardCardSource,
+        })
+      }
+      req.signal?.throwIfAborted()
+      const page = await localCollectionSource({ id: 'board-blueprints', label: 'Blueprints', corpus: () => items })
+        .page({ ...req, ...(cursor === undefined ? {} : { cursor }) })
+      const next = encodeOwnedCursor(backend.id, page.cursor)
+      return { ...page, owner: backend.id, ...(next === undefined ? {} : { cursor: next }),
+        ...(errors.length === 0 ? {} : { error: errors.join('; ') }) }
     },
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BoardStore, boardMediaKindOf, boardPaintOrder, emptyBoard, loadBoard, type BoardItemInput } from '../src/index.js'
+import { BoardStore, boardMediaKindOf, boardPaintOrder, emptyBoard, exposedKey, loadBoard, type BoardCardSource, type BoardItemInput } from '../src/index.js'
 
 const digest = (n: number): string => `blake3:${n.toString(16).padStart(64, '0')}`
 
@@ -12,6 +12,82 @@ const everyKind: readonly BoardItemInput[] = [
 ]
 
 describe('board document', () => {
+  it('refits untouched cards without overlap and retains a manual resize across save and undo', () => {
+    const store = new BoardStore(emptyBoard())
+    expect(store.dispatch({ command: 'board.item.add', params: { items: [
+      { id: 'card', kind: 'workflow', name: 'Rain', source: { kind: 'library', recordId: 'rain' },
+        values: {}, autoSize: true, rect: { x: 40, y: 60, width: 340, height: 100 } },
+      { id: 'note', kind: 'note', text: 'Keep here', rect: { x: 50, y: 320, width: 200, height: 80 } },
+    ] } }).ok).toBe(true)
+    expect(store.dispatch({ command: 'board.card.fit', params: { id: 'card', height: 260 } }).ok).toBe(true)
+    const touching = store.doc
+    expect(store.doc.items['card']!.rect).toEqual({ x: 40, y: 60, width: 340, height: 260 })
+    expect(store.dispatch({ command: 'board.card.fit', params: { id: 'card', height: 261 } }).ok).toBe(false)
+    expect(store.doc).toEqual(touching)
+    expect(store.dispatch({ command: 'board.item.move', params: { moves: [{ id: 'note', x: 600, y: 320 }] } }).ok).toBe(true)
+    expect(store.dispatch({ command: 'board.card.fit', params: { id: 'card', height: 800 } }).ok).toBe(true)
+    expect(store.doc.items['card']!.rect).toEqual({ x: 40, y: 60, width: 340, height: 480 })
+    const fitted = store.doc
+    const manual = { x: 40, y: 60, width: 380, height: 210 }
+    expect(store.dispatch({ command: 'board.item.resize', params: { id: 'card', rect: manual } }).ok).toBe(true)
+    const reopened = new BoardStore(JSON.parse(JSON.stringify(store.doc)))
+    expect(reopened.dispatch({ command: 'board.card.fit', params: { id: 'card', height: 300 } }).ok).toBe(false)
+    expect(reopened.doc.items['card']!.rect).toEqual(manual)
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(fitted)
+    expect(store.redo()).toBe(true)
+    expect(store.doc).toEqual(reopened.doc)
+    expect(store.doc.items['note']).toEqual(fitted.items['note'])
+  })
+
+  it('keeps each card input independent through editing, save, reopen and undo', () => {
+    const input = { graphId: 'graph/one', nodeId: 'node', inputId: 'value' }
+    const otherInput = { graphId: 'graph', nodeId: 'one/node', inputId: 'value' }
+    const sourceValues = { [exposedKey(input)]: { text: 'Original', options: [1, 3] } }
+    const cases: readonly { kind: 'workflow' | 'blueprint'; source: BoardCardSource }[] = [
+      { kind: 'workflow', source: { kind: 'library', recordId: 'saved-workflow' } },
+      { kind: 'blueprint', source: { kind: 'library', recordId: 'saved-blueprint' } },
+      { kind: 'blueprint', source: { kind: 'pack', packId: 'example.pack', blueprintId: 'rain', digest: `sha256:${'a'.repeat(64)}` } },
+    ]
+    for (const { kind, source } of cases) {
+      const store = new BoardStore(emptyBoard())
+      expect(store.dispatch({ command: 'board.item.add', params: { items: ['left', 'right'].map((id, index) => ({
+        id, kind, name: 'Rain', source, values: sourceValues,
+        rect: { x: index * 500, y: 0, width: 340, height: 240 },
+      })) } }).ok).toBe(true)
+      const before = store.doc
+      const change = { text: 'Changed', options: [2, 5] }
+      expect(store.dispatch({ command: 'board.card.input', params: { id: 'left', input, value: change } }).ok).toBe(true)
+      change.options.push(9)
+      expect(store.dispatch({ command: 'board.card.controller', params: { id: 'left', key: exposedKey(input), mode: 'fixed' } }).ok).toBe(true)
+      expect(store.dispatch({ command: 'board.card.input', params: { id: 'left', input: otherInput, value: null } }).ok).toBe(true)
+      const reopened = new BoardStore(JSON.parse(JSON.stringify(store.doc)))
+      expect(reopened.doc.items['left']).toMatchObject({ source, values: {
+        [exposedKey(input)]: { text: 'Changed', options: [2, 5] }, [exposedKey(otherInput)]: null,
+      } })
+      expect(reopened.doc.items['right']).toEqual(before.items['right'])
+      expect(reopened.doc.items['left']).toMatchObject({ controllers: { [exposedKey(input)]: 'fixed' } })
+      expect(sourceValues[exposedKey(input)]).toEqual({ text: 'Original', options: [1, 3] })
+      expect(reopened.dispatch({ command: 'board.card.input', params: { id: 'left', input } }).ok).toBe(true)
+      const reset = reopened.doc.items['left']!
+      expect('values' in reset && Object.hasOwn(reset.values, exposedKey(input))).toBe(false)
+      expect('controllers' in reset && Object.hasOwn(reset.controllers ?? {}, exposedKey(input))).toBe(false)
+      expect(reopened.dispatch({ command: 'board.card.controller', params: { id: 'left', key: exposedKey(input), mode: 'increment' } }).ok).toBe(true)
+      expect(reopened.dispatch({ command: 'board.card.input', params: { id: 'left', input } }).ok).toBe(true)
+      expect(reopened.undo()).toBe(true)
+      expect(reopened.doc.items['left']).toMatchObject({ controllers: { [exposedKey(input)]: 'increment' } })
+      expect(reopened.undo()).toBe(true)
+      expect(reopened.undo()).toBe(true)
+      expect(reopened.doc).toEqual(store.doc)
+      expect(store.undo()).toBe(true)
+      expect(store.undo()).toBe(true)
+      expect(store.undo()).toBe(true)
+      expect(store.doc).toEqual(before)
+      expect(store.redo()).toBe(true)
+      expect(store.doc.items['left']).toMatchObject({ values: { [exposedKey(input)]: { text: 'Changed', options: [2, 5] } } })
+    }
+  })
+
   it('saves and reopens every item kind unchanged, in order', () => {
     const store = new BoardStore(emptyBoard())
     const lineage = store.doc.lineage
@@ -39,6 +115,11 @@ describe('board document', () => {
     expect(loadBoard(newer).diagnostics[0]!.code).toBe('board.version.future')
     expect(loadBoard({ ...store.doc, lineage: '' }).document).toBeUndefined()
     expect(loadBoard({ ...store.doc, camera: { x: 0, y: 0 } }).document).toBeUndefined()
+    for (const runs of [null, [], { job: { card: 'Card', items: [] } },
+      { job: { card: 'card', items: ['result', 'result'] } }, { job: { card: 'card', items: [false] } },
+      { job: { card: 'card', items: [], extra: true } }]) {
+      expect(loadBoard({ ...store.doc, runs }).document).toBeUndefined()
+    }
     saved.items['picture-1'].asset.digest = digest(1)
     saved.items['picture-1'].playing = true
     expect(loadBoard(saved).document).toBeUndefined()
