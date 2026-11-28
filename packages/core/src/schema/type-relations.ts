@@ -6,7 +6,51 @@
  * input, endpoints resolve) are what commands enforce.
  */
 
-import { cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type Cardinality, type TypeExpr } from './model.js'
+import { canonicalTypeIdOf, cardinalityOf, listTypeId, parseAssetTypeId, parseListTypeId, parseStreamTypeId, typeExprFromTypeId, type Cardinality, type TypeExpr } from './model.js'
+
+export const containsRecord = (type: TypeExpr): boolean => type.kind === 'record' ||
+  ((type.kind === 'list' || type.kind === 'asset' || type.kind === 'stream') && containsRecord(type.element)) ||
+  (type.kind === 'tuple' && type.elements.some(containsRecord))
+
+/** Declared fields are checked without reading values or converting their types. */
+export function recordConnectionProblem(from: TypeExpr, to: TypeExpr): string | undefined {
+  if (from.kind === 'wildcard' || from.kind === 'variable' || to.kind === 'wildcard' || to.kind === 'variable') return undefined
+  if (to.kind === 'record') {
+    if (from.kind !== 'record') return `Expected record ${to.name}, got ${canonicalTypeIdOf(from) ?? from.kind}.`
+    const sameRecord = from.name === to.name
+    for (const wanted of to.fields) {
+      const found = from.fields.find((field) => sameRecord ? field.id === wanted.id : field.name === wanted.name)
+      if (found === undefined) return `Missing record field: ${wanted.name}.`
+      const nested = recordConnectionProblem(found.type, wanted.type)
+      if (nested !== undefined) return `Record field '${wanted.name}': ${nested}`
+      if (wanted.type.kind !== 'record' && !recordFieldTypeFits(found.type, wanted.type)) {
+        return `Record field '${wanted.name}': Expected ${canonicalTypeIdOf(wanted.type)}, got ${canonicalTypeIdOf(found.type)}.`
+      }
+    }
+  } else if (from.kind === 'record' && !['wildcard', 'variable', 'union'].includes(to.kind)) {
+    return `Expected ${canonicalTypeIdOf(to) ?? to.kind}, got record ${from.name}.`
+  } else if (from.kind === to.kind) {
+    if ((from.kind === 'list' || from.kind === 'asset' || from.kind === 'stream') && 'element' in to) {
+      return recordConnectionProblem(from.element, to.element!)
+    }
+    if (from.kind === 'tuple' && to.kind === 'tuple' && from.elements.length === to.elements.length) {
+      for (const [index, element] of from.elements.entries()) {
+        const problem = recordConnectionProblem(element, to.elements[index]!)
+        if (problem !== undefined) return problem
+      }
+    }
+  }
+  return undefined
+}
+
+export const recordFieldTypeFits = (from: TypeExpr, to: TypeExpr): boolean => {
+  if (from.kind !== to.kind) return false
+  if (from.kind === 'record' && to.kind === 'record') return recordConnectionProblem(from, to) === undefined
+  if ((from.kind === 'list' || from.kind === 'asset' || from.kind === 'stream') && 'element' in to) return recordFieldTypeFits(from.element, to.element!)
+  if (from.kind === 'tuple' && to.kind === 'tuple') return from.elements.length === to.elements.length && from.elements.every((element, index) => recordFieldTypeFits(element, to.elements[index]!))
+  if (from.kind === 'wildcard') return true
+  return canonicalTypeIdOf(from) !== undefined && canonicalTypeIdOf(from) === canonicalTypeIdOf(to)
+}
 
 /** A whole-list input lifts its declared element type only for a list source. */
 export const admittedInputType = (type: TypeExpr, acceptsList: boolean, sourceCardinality: Cardinality): TypeExpr =>
@@ -27,6 +71,7 @@ export const admittedInputType = (type: TypeExpr, acceptsList: boolean, sourceCa
 export const atomNamesOf = (t: TypeExpr): readonly string[] | undefined => {
   switch (t.kind) {
     case 'concrete':
+    case 'record':
       return [t.name]
     case 'union':
       return t.names
@@ -36,6 +81,7 @@ export const atomNamesOf = (t: TypeExpr): readonly string[] | undefined => {
       if (!t.allowedTypes || t.allowedTypes.length === 0) return undefined
       return t.allowedTypes.flatMap((a) => atomNamesOf(a) ?? [])
     case 'tuple_element':
+    case 'record_field':
       return undefined
     case 'tuple': {
       const positions = t.elements.map(atomNamesOf)
@@ -74,6 +120,8 @@ export function typesCompatible(from: TypeExpr, to: TypeExpr): boolean {
 /** Direct compatibility without the engine's optional asset coercion step. */
 export function typesDirectlyCompatible(from: TypeExpr, to: TypeExpr): boolean {
   if (from.kind === 'wildcard' || to.kind === 'wildcard') return true
+  if (from.kind !== 'variable' && to.kind !== 'variable' && recordConnectionProblem(from, to) !== undefined) return false
+  if (from.kind === 'record' && to.kind === 'record') return true
   if (from.kind === 'tuple' && to.kind === 'tuple') {
     return from.elements.length === to.elements.length && from.elements.every((element, index) => typesDirectlyCompatible(element, to.elements[index]!))
   }

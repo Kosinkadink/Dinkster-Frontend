@@ -2,7 +2,7 @@
 
 import { render } from 'solid-js/web'
 import { createSignal } from 'solid-js'
-import type { LibraryProject } from '@dinkster/client'
+import { RequestFailure, type LibraryProject } from '@dinkster/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectsDialog } from '../src/ProjectsDialog.js'
 import { PROJECTS_KEY } from '../src/projects.js'
@@ -27,7 +27,7 @@ function engine(): ProjectClient & { readonly records: Map<string, LibraryProjec
     },
     renameProject: async (id, name, revision) => {
       const previous = records.get(id)!
-      if (previous.revision !== revision) throw new Error('Project changed elsewhere. Refresh before renaming.')
+      if (previous.revision !== revision) throw new RequestFailure('PATCH', `/api/projects/${id}`, 409, 'Project changed elsewhere. Refresh before renaming.')
       const project = row(id, name, revision + 1)
       records.set(id, project)
       return project
@@ -161,9 +161,9 @@ describe('ProjectsDialog', () => {
     actionButton(rows(mounted.root)[0]!, 'Account link').click()
     await flush()
     if (pendingStage !== 'choices') {
-      const select = document.querySelector<HTMLSelectElement>('select')!
-      select.value = accountId
-      select.dispatchEvent(new Event('change', { bubbles: true }))
+      document.querySelector<HTMLButtonElement>('[role="combobox"]')!.click()
+      const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) => entry.textContent === 'Retired account choice')!
+      option.click()
       preflight = true
       const save = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Save link')!
       expect(save.disabled).toBe(false)

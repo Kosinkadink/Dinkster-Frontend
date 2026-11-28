@@ -25,6 +25,8 @@ export interface CollectionEntry {
   readonly id: string
   readonly title: string
   readonly subtitle?: string
+  /** Kind label shown only when the visible list contains different kinds. */
+  readonly kind?: string
   /** Small status/type chips ('running', 'registry', '24 nodes'). */
   readonly badges?: readonly string[]
   /**
@@ -43,7 +45,7 @@ export interface CollectionEntry {
    */
   readonly thumbRender?: (signal?: AbortSignal) => Promise<string>
   /** Label/text pairs for the details rail; order is display order. */
-  readonly details?: readonly { readonly label: string; readonly text: string }[]
+  readonly details?: readonly { readonly label: string; readonly text: string; readonly title?: string }[]
   /**
    * Presentation-only children hidden behind an expandable parent row.
    * Children remain ordinary entries, so their details and actions retain
@@ -82,10 +84,14 @@ export interface CollectionEntry {
 
 export interface CollectionPage {
   readonly items: readonly CollectionEntry[]
+  /** A partial source failure; successful entries remain usable beside shared Retry. */
+  readonly error?: string
   /** Opaque cursor for the NEXT page; absent = exhausted. */
   readonly cursor?: string
   /** Total matches for the query, when the source knows it cheaply. */
   readonly total?: number
+  /** Unavailable source-action ids, based on the whole corpus, not query matches. */
+  readonly disabledActions?: readonly string[]
   /**
    * Identity of the backend/service instance that SERVED this page (remote
    * sources set it, even on empty pages; local sources omit it). Hosts use

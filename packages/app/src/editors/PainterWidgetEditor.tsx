@@ -1,13 +1,15 @@
 import { canvasPaintTokens } from '@dinkster/canvas'
-import { defaultRenditionOf } from '@dinkster/client'
+import { defaultRenditionOf, RequestFailure } from '@dinkster/client'
 import { asNodeId, asPortId, buildRerouteIndex, companionSourcesOf, isAssetRefValue, occurrencesForView, portRefKey } from '@dinkster/core'
+import { ProductColorInput } from '@dinkster/ui'
 import { createSignal, onCleanup, onMount, Show, type Component } from 'solid-js'
 import { viewInstancePath } from '../app-state.js'
 import { liveExactnessFor } from '../companion-display.js'
-import { ProductButton, ProductColorInput, ProductFileInput } from '../ProductControls.js'
+import { ProductButton, ProductFileInput } from '../ProductControls.js'
 import { ProductActionFooter, ProductField, ProductNotice } from '../ProductForm.js'
 import { ProductNumberInput } from '../ProductNumberInput.js'
 import { useAppMessage } from '../locale.js'
+import { failureMessage } from '../request-failure.js'
 import { activeProjectId } from '../projects.js'
 import { UploadDestination } from '../UploadDestination.js'
 import { readUploadDestination, saveUploadDestination } from '../upload-destination.js'
@@ -174,7 +176,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
         await load()
       }
       ready = true
-    })().catch((reason: unknown) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })
+    })().catch((reason: unknown) => { if (live) setError(failureMessage(reason, message('painterWidget.unavailable'))) })
       .finally(() => { if (live) setBusy(false) })
   })
   const pickFile = async (file: File): Promise<void> => {
@@ -228,7 +230,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
       requireCurrent()
       try { saveUploadDestination(String(backend.id), project, choice) } catch { /* Storage failure does not discard a successful upload. */ }
       props.commitValue(ref)
-    } catch (reason) { if (live) setError(reason instanceof Error ? reason.message : String(reason)) }
+    } catch (reason) { if (live) setError(reason instanceof RequestFailure ? failureMessage(reason, message('painterWidget.unavailable')) : reason instanceof Error ? reason.message : String(reason)) }
     finally { if (live) setBusy(false) }
   }
 
@@ -236,7 +238,7 @@ const PainterImplementation: Component<WidgetEditorImplementationProps> = (props
     <div class="painter-content">
     <div class="painter-toolbar">
       <ProductField controlId="painter-color" label={message('painterWidget.color')} layout="compact">
-        <ProductColorInput id="painter-color" value={color()} disabled={busy()} onInput={(event) => setColor(event.currentTarget.value)} />
+        <ProductColorInput id="painter-color" value={color()} disabled={busy()} onChange={setColor} />
       </ProductField>
       <ProductField controlId="painter-size" label={message('painterWidget.size')} layout="compact">
         <ProductNumberInput id="painter-size" value={size()} min={1} max={512} integer disabled={busy()} onCommit={(raw) => setSize(Math.max(1, Math.min(512, Number(raw) || 1)))} />

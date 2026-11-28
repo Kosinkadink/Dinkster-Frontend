@@ -37,6 +37,7 @@ describe('NodeOutputPager', () => {
         index={1}
         count={3}
         rect={{ x: 100, y: 120, width: 300, height: 220 }}
+        scale={1}
         canvas={canvas}
         onPrevious={previous}
         onNext={next}
@@ -79,6 +80,7 @@ describe('NodeOutputPager', () => {
         return { next: () => setIndex(page + 1), previous: () => setIndex(page - 1) }
       })
       return <NodeOutputPager title="Batch" index={index()} count={9}
+        scale={1}
         rect={{ x: 0, y: 0, width: 300, height: 200 }} canvas={document.createElement('canvas')}
         onPrevious={callbacks().previous} onNext={callbacks().next} />
     }, root)
@@ -107,6 +109,7 @@ describe('NodeOutputPager', () => {
         count={3}
         mediaKind="video"
         rect={{ x: 100, y: 120, width: 300, height: 220 }}
+        scale={1}
         canvas={canvas}
         onPrevious={previous}
         onNext={next}
@@ -134,6 +137,7 @@ describe('NodeOutputPager', () => {
         count={1}
         download={{ src: 'blob:recorded-image', name: 'result.png' }}
         rect={{ x: 100, y: 120, width: 300, height: 220 }}
+        scale={1}
         canvas={canvas}
         onPrevious={() => {}}
         onNext={() => {}}

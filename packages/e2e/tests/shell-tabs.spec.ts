@@ -50,6 +50,7 @@ test('sub-threshold movement remains an activating click', async ({ page }) => {
 
 test('drag reorders on release, preserves focus and active tab, and persists', async ({ page }) => {
   const draggedSelect = tab(page, 'Subgraph').locator('.tab-select')
+  const draggedWidth = (await tab(page, 'Subgraph').boundingBox())!.width
   const from = await center(draggedSelect)
   const to = await center(tab(page, 'Basic').locator('.tab-select'))
 
@@ -66,13 +67,16 @@ test('drag reorders on release, preserves focus and active tab, and persists', a
   await expect.poll(() => titles(page)).toEqual(['Subgraph', 'Basic'])
   await expect(tab(page, 'Subgraph')).toHaveClass(/dragging/)
   await expect(tab(page, 'Subgraph')).toHaveAttribute('data-drop-index', '0')
-  const marker = await tab(page, 'Subgraph').evaluate((element) => {
-    const style = getComputedStyle(element, '::before')
-    return { content: style.content, left: Number.parseFloat(style.left), width: Number.parseFloat(style.width) }
-  })
-  expect(marker.content).not.toBe('none')
-  expect(marker.left).toBeGreaterThanOrEqual(0)
-  expect(marker.left + marker.width).toBeLessThanOrEqual((await tab(page, 'Subgraph').boundingBox())!.width)
+  const slot = await tab(page, 'Subgraph').evaluate((element) => ({
+    opacity: getComputedStyle(element).opacity,
+    width: element.getBoundingClientRect().width,
+  }))
+  expect(slot.opacity).toBe('0')
+  expect(slot.width).toBeCloseTo(draggedWidth, 1)
+  for (let step = 0; step < 3; step++) {
+    await page.mouse.move(to.x - 20, to.y)
+    expect(await titles(page)).toEqual(['Subgraph', 'Basic'])
+  }
   expect(await appTitles(page)).toEqual(['Basic', 'Subgraph'])
   await expect(tab(page, 'Basic')).toHaveClass(/active/)
   await expect(draggedSelect).toBeFocused()
@@ -92,6 +96,7 @@ test('drag reorders on release, preserves focus and active tab, and persists', a
 
 test('a dragged workflow tab shows a cursor-following ghost until release', async ({ page }) => {
   const draggedSelect = tab(page, 'Subgraph').locator('.tab-select')
+  const sourceIcon = await draggedSelect.locator('svg').innerHTML()
   const from = await center(draggedSelect)
   const to = await center(tab(page, 'Basic').locator('.tab-select'))
   const ghost = page.getByTestId('tab-drag-ghost')
@@ -105,6 +110,8 @@ test('a dragged workflow tab shows a cursor-following ghost until release', asyn
   await page.mouse.move(to.x - 20, to.y, { steps: 3 })
   await expect(ghost).toBeVisible()
   await expect(ghost.locator('.tab-drag-ghost-title')).toHaveText('Subgraph')
+  await expect(ghost.locator('.tab-drag-ghost-icon svg')).toBeVisible()
+  expect(await ghost.locator('.tab-drag-ghost-icon svg').innerHTML()).toBe(sourceIcon)
   const box = (await ghost.boundingBox())!
   expect(box.x).toBeGreaterThan(to.x - 20)
   expect(box.y).toBeGreaterThan(to.y)
@@ -126,6 +133,7 @@ test('tab close affordances retain activation semantics', async ({ page }) => {
   await expect(tab(page, 'Basic').locator('.tab-select')).toBeFocused()
 
   await page.getByTestId('new-tab').click()
+  await page.getByRole('menuitem', { name: 'Blank workflow', exact: true }).click()
   await expect(page.getByTestId('tab-bar').locator('.tab')).toHaveCount(2)
   await expect.poll(() => page.evaluate(() => {
     const untitled = window.__dinksterTest!.app.tabs.get().find((entry) => entry.title === 'Untitled')
@@ -270,7 +278,10 @@ test('shell separators expose values and resize from the keyboard', async ({ pag
 })
 
 test('tab strip suppresses vertical scrolling and retains horizontal overflow', async ({ page }) => {
-  for (let index = 0; index < 20; index++) await page.getByTestId('new-tab').click()
+  for (let index = 0; index < 20; index++) {
+    await page.getByTestId('new-tab').click()
+    await page.getByRole('menuitem', { name: 'Blank workflow', exact: true }).click()
+  }
   await page.evaluate(() => document.fonts.ready)
   // Tab publication can replace DOM nodes between a locator query and evaluation.
   const titleWidths = await page.evaluate(() => {

@@ -79,11 +79,11 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.route('/object_info', (route) => route.fulfill({ json: {} }))
   }
   await page.goto('/')
+  await waitForWorkspaceReady(page)
   await expect.poll(() => page.evaluate(() => {
     const backend = window.__dinksterTest!.app.backends.get()[0]!
     return backend.schemaState.get().status === 'ready' && backend.workerCatalog.get().status === 'ready'
   })).toBe(true)
-  await waitForWorkspaceReady(page)
   await identityViewport(page)
 })
 
@@ -379,6 +379,9 @@ test('oversized root and child menus stay in a short viewport, flip left, and re
   await page.addStyleTag({ content: '.context-menu .menu-item { padding-top: 30px; padding-bottom: 30px; }' })
   await page.getByRole('button', { name: 'Toggle right rail' }).click()
   await page.getByRole('button', { name: 'Hide minimap' }).click()
+  // The seed's migration notice can cover the node header in this short viewport.
+  const notice = page.getByTestId('fixes-notice')
+  if (await notice.isVisible()) await notice.getByRole('button', { name: 'Dismiss', exact: true }).click()
   const canvas = await page.getByTestId('graph-canvas').boundingBox()
   expect(canvas).not.toBeNull()
   await page.evaluate(({ canvasWidth, canvasHeight }) => {

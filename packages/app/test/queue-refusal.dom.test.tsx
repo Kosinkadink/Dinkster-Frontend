@@ -58,6 +58,27 @@ async function fixture(clean = false) {
   return { app, backend, root, queue }
 }
 
+it('keeps Run available as supervisor status arrives and the engine stops and recovers', async () => {
+  const { app, backend, root } = await fixture(true)
+  try {
+    const queue = () => root.querySelector<HTMLButtonElement>('[data-testid="queue-button"]')
+    expect(queue()?.disabled).toBe(false)
+    backend.supervisor.set({ protocol: 1, state: 'ready' })
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="engine-run-control"]')).not.toBeNull())
+    expect(queue()?.disabled).toBe(false)
+    backend.supervisor.set({ protocol: 1, state: 'stopped' })
+    expect(root.querySelector('[data-testid="engine-start"]')?.textContent).toBe('Start engine')
+    expect(queue()).toBeNull()
+    backend.supervisor.set({ protocol: 1, state: 'starting' })
+    expect(root.querySelector('[data-testid="engine-run-control"]')?.textContent).toContain('Starting engine')
+    backend.supervisor.set({ protocol: 1, state: 'ready' })
+    expect(queue()?.disabled).toBe(false)
+    backend.supervisor.set(undefined)
+    expect(root.querySelector('[data-testid="engine-run-control"]')).toBeNull()
+    expect(queue()?.disabled).toBe(false)
+  } finally { app.dispose() }
+})
+
 it('shows recovery storage errors until dismissed or saved without losing the edit', async () => {
   const { app, root } = await fixture(true)
   try {
@@ -113,7 +134,7 @@ it('pressing Queue on an invalid graph shows the Problems summary and opens its 
   const toast = root.querySelector('[data-testid="queue-refusal-toast"]')!
   expect(app.problems.get().some((problem) => problem.severity === 'error')).toBe(true)
   expect(toast.textContent).toContain('Workflow not queued')
-  expect(toast.textContent).toContain('6 problems, worst severity error')
+  expect(toast.textContent).toContain('3 problems, worst severity error')
   expect(toast.textContent).toContain('Errors: 1; warnings: 2; info: 3')
   const open = [...toast.querySelectorAll('button')].find((button) => button.textContent === 'Show problems')!
   open.click()

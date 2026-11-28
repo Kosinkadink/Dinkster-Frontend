@@ -1,4 +1,4 @@
-import { expect, nativeTest as test, waitForWorkspaceReady } from './fixtures.js'
+import { expect, nativeTest as test, openRailPanel, waitForWorkspaceReady } from './fixtures.js'
 
 
 test('save destination writes the selected relative prefix through the real backend', async ({ page, request }, testInfo) => {
@@ -89,6 +89,109 @@ test('save destination writes the selected relative prefix through the real back
   await capture('save-target-project-default')
   await page.keyboard.press('Enter')
   await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.graphs.g0!.nodes.gallery!.values.destination)).toEqual({ prefix: 'gallery/proof' })
+})
+
+test('two viewers see missing save targets fixed and restored together in one undo step', async ({ page, browser }) => {
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  const peerContext = await browser.newContext({ baseURL: new URL(page.url()).origin })
+  const peer = await peerContext.newPage()
+  let sharedTab: string | undefined
+  try {
+    await peer.goto('/')
+    await waitForWorkspaceReady(peer)
+    const opened = await page.evaluate(async () => window.__dinksterTest!.app.openDocument({
+      format: 'dinkster-workflow', formatVersion: 1, lineage: crypto.randomUUID(), root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Shared save targets', nodes: {
+        gradient: { id: 'gradient', type: 'dev.image.gradient', values: { width: 3, height: 2 } },
+        first: { id: 'first', type: 'dev.image.save_pgm', values: { target: { mount: 'absent-archive', prefix: 'portraits/first' } } },
+        second: { id: 'second', type: 'dev.image.save_pgm', values: { target: { mount: 'absent-clips', prefix: 'clips/second' } } },
+      }, links: {
+        firstImage: { id: 'firstImage', from: { node: 'gradient', port: 'image' }, to: { node: 'first', port: 'image' } },
+        secondImage: { id: 'secondImage', from: { node: 'gradient', port: 'image' }, to: { node: 'second', port: 'image' } },
+      }, nets: {}, reroutes: {}, nextOrdinal: 4 } },
+      view: { graphs: { g0: { nodes: {
+        gradient: { position: { x: 40, y: 100 } }, first: { position: { x: 420, y: 100 } }, second: { position: { x: 420, y: 400 } },
+      } } } },
+    }, 'Shared save targets'))
+    expect(opened).toEqual([])
+    const shared = await page.evaluate(async () => {
+      const app = window.__dinksterTest!.app as NonNullable<typeof window.__dinksterTest>['app'] & {
+        collabFor(tab: string): { descriptor: { sessionId: string } } | undefined
+      }
+      const error = await app.shareActiveTab()
+      const tab = app.activeTab()!
+      return { error, tab: tab.id, session: app.collabFor(tab.id)?.descriptor.sessionId }
+    })
+    expect(shared.error).toBeUndefined()
+    sharedTab = shared.tab
+    expect(shared.session).toBeTruthy()
+    expect(await peer.evaluate((session) =>
+      (window.__dinksterTest!.app as unknown as { joinCollabSession(id: string): Promise<string | undefined> }).joinCollabSession(session), shared.session!)).toBeUndefined()
+    await openRailPanel(page, 'Problems')
+    const problem = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'saveTarget.mountsMissing' })
+    await expect(problem).toHaveCount(1)
+    await problem.locator('summary').click()
+    const action = problem.getByRole('button', { name: 'Use project default for all', exact: true })
+    await expect(action).toBeVisible()
+    const offeredRevision = await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.revision)
+    expect(await peer.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      return app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: {
+        graphId: 'g0', nodeId: 'first', inputId: 'target', value: { mount: 'absent-archive', prefix: 'portraits/peer' },
+      } })
+    })).toMatchObject({ ok: true })
+    for (const viewer of [page, peer]) {
+      await expect.poll(() => viewer.evaluate(() => {
+        const store = window.__dinksterTest!.app.activeTab()!.store
+        return { revision: store.revision, target: store.doc.graphs.g0!.nodes.first!.values.target }
+      })).toEqual({ revision: offeredRevision + 1, target: { mount: 'absent-archive', prefix: 'portraits/peer' } })
+    }
+    await expect(action).toHaveCount(0)
+    const recheck = problem.getByRole('button', { name: 'Check again', exact: true })
+    await expect(recheck).toBeVisible()
+    await expect(problem).toContainText('Could not apply this fix. The workflow changed.')
+    expect(await page.evaluate(() => {
+      const store = window.__dinksterTest!.app.activeTab()!.store
+      return { revision: store.revision, targets: ['first', 'second'].map((node) => store.doc.graphs.g0!.nodes[node]!.values.target) }
+    })).toEqual({ revision: offeredRevision + 1, targets: [
+      { mount: 'absent-archive', prefix: 'portraits/peer' }, { mount: 'absent-clips', prefix: 'clips/second' },
+    ] })
+    await recheck.click()
+    await expect(action).toBeVisible()
+    const beforeRevision = offeredRevision + 1
+    await action.click()
+    for (const viewer of [page, peer]) {
+      await expect.poll(() => viewer.evaluate(() => {
+        const store = window.__dinksterTest!.app.activeTab()!.store
+        return {
+          revision: store.revision,
+          targets: ['first', 'second'].map((node) => store.doc.graphs.g0!.nodes[node]!.values.target),
+        }
+      })).toEqual({ revision: beforeRevision + 1, targets: [{ prefix: 'portraits/peer' }, { prefix: 'clips/second' }] })
+    }
+    await expect(action).toHaveCount(0)
+    expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())).toBe(true)
+    for (const viewer of [page, peer]) {
+      await expect.poll(() => viewer.evaluate(() => {
+        const store = window.__dinksterTest!.app.activeTab()!.store
+        return {
+          revision: store.revision,
+          targets: ['first', 'second'].map((node) => store.doc.graphs.g0!.nodes[node]!.values.target),
+        }
+      })).toEqual({ revision: beforeRevision + 2, targets: [
+        { mount: 'absent-archive', prefix: 'portraits/peer' },
+        { mount: 'absent-clips', prefix: 'clips/second' },
+      ] })
+    }
+  } finally {
+    if (sharedTab !== undefined) {
+      const error = await page.evaluate((tab) =>
+        (window.__dinksterTest!.app as unknown as { endCollabSession(id: string): Promise<string | undefined> }).endCollabSession(tab), sharedTab)
+      expect(error).toBeUndefined()
+    }
+    await peerContext.close()
+  }
 })
 
 test('a chosen finished run shows a saved file that is not a picture as a tile that opens it', async ({ page }) => {

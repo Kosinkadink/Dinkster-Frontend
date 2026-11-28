@@ -44,11 +44,12 @@ export interface WorkflowModelOccurrence {
   readonly input: string
   readonly name: string
   readonly kind: string
+  readonly asset?: AssetRef
   readonly valid: boolean
   readonly instancePath?: readonly string[]
 }
 
-/** Only active, unwired model-name fields participate in local model binding. */
+/** Read active, unwired model fields with their exact reference or name. */
 export function workflowModelOccurrences(
   doc: WorkflowDocument,
   resolveSchema: SchemaResolver,
@@ -87,12 +88,16 @@ export function workflowModelOccurrences(
         const input = valueKeyOf(item)
         if (item.apiName === undefined || item.spec.sent === false || connected.isInputConnected(input) ||
             !isAssetWidgetInput(item.spec) || widget?.selection === true || !widget?.kind?.startsWith('model/')) return []
-        const name = item.derivedValue ?? node.values[input] ?? item.automatic?.value ?? effectiveWidgetDefault(widget)
+        const value = item.derivedValue ?? node.values[input] ?? item.automatic?.value ?? effectiveWidgetDefault(widget)
+        const asset = isAssetRef(value) ? value : undefined
+        const name = asset?.name ?? value
         if (typeof name !== 'string') return []
         const valid = name.length > 0 && name.length <= 4096 && !/[\\\x00-\x1f\x7f]/.test(name) && !/^[A-Za-z]:/.test(name) &&
           !name.split('/').some((part) => part === '' || part === '.' || part === '..') &&
           (!name.includes('/') || widget.kind === 'model/text-encoder')
-        return [{ graph: graph.id, node: node.id, input, name, kind: widget.kind, valid, instancePath: path }]
+        return [{ graph: graph.id, node: node.id, input, name, kind: widget.kind, valid, instancePath: path,
+          ...(asset === undefined ? {} : { asset }),
+        }]
       })
     })
   }

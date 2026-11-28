@@ -324,7 +324,8 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const rightControl = openerIcon !== undefined ? paint.opener.trailingReserve : numeric || combo ? geometry.stepperZone : geometry.textEndInset
     const usableWidth = Math.max(0, width - leftControl - rightControl)
     const lead = labelMarkReserve(row)
-    const naturalLabelWidth = lead + measureWidth(ctx, row.label) + paint.labelWidthPadding
+    const naturalLabelWidth = lead + (row.recordSelection !== undefined && row.recordSelection.depth > 0
+      ? paint.opener.iconSize : measureWidth(ctx, row.label)) + paint.labelWidthPadding
     // Deficit-proportional label/value split (text-fit.ts): when both fit,
     // the label takes exactly its natural width; when they do not, each side
     // shrinks in proportion to its natural width with the label biased to
@@ -384,6 +385,10 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
     const paintLabel = () => {
       ctx.fillStyle = tokens.colors.label
       ctx.textAlign = 'left'
+      if (row.recordSelection !== undefined && row.recordSelection.depth > 0) {
+        paintToolboxIcon(ctx, 'arrow-right', x + paint.labelInset,
+          nameY - paint.opener.iconSize / 2, paint.opener.iconSize, tokens.colors.label)
+      }
       paintCenteredText(ctx,
         ellipsize(ctx, row.label, Math.max(0, (multiline ? width : labelWidth) - lead - paint.labelClipPadding)),
         x + lead + (multiline ? 0 : leftControl) + (numeric && openerIcon === undefined ? geometry.stepperLabelInset : paint.labelInset),
@@ -568,7 +573,9 @@ export function createRegistryPainter(registry: WidgetRegistry): WidgetPainter {
               // A dragged plain number shows its moving value in the accent; a slider shows its fill instead.
               const draggedValue = inRow && args.dragging === true && !declaredSlider && role === 'widgetValue'
               // A value with a word before it ("auto", or a kept row's word) is dimmed with its word, as a placeholder is.
-              ctx.fillStyle = placeholder ? tokens.colors.label : draggedValue ? tokens.colors.widgetAffordanceActive
+              const wholeRecord = row.recordSelection !== undefined && row.recordSelection.depth > 0 &&
+                run === translate('canvas.record.wholeRecord')
+              ctx.fillStyle = placeholder || wholeRecord ? tokens.colors.label : draggedValue ? tokens.colors.widgetAffordanceActive
                 : marked ? tokens.colors.label : tokens.colors.value
               if (placeholder) ctx.font = `italic ${ctx.font}`
               ctx.beginPath()

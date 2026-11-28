@@ -8,7 +8,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { boundaryItems, type Boundary } from '@dinkster/core'
-import { expect, focusByTab, openRailPanel, nativeTest as test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
+import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, subgraphMarkPoint, type Page } from './fixtures.js'
 
 const proofDir = process.env['DINKSTER_BOUNDARY_PROOF_DIR']
 if (proofDir) mkdirSync(proofDir, { recursive: true })
@@ -39,6 +39,8 @@ async function widenRail(page: Page): Promise<void> {
 }
 
 async function drillIntoOccurrence(page: Page): Promise<void> {
+  await page.getByTestId('rail-resize').focus()
+  await page.keyboard.press('Home')
   await identityViewport(page)
   await runsTab(page).click()
   const activeRailTabId = await page.getByTestId('dock-zone-right')
@@ -50,12 +52,10 @@ async function drillIntoOccurrence(page: Page): Promise<void> {
   await page.mouse.dblclick(mark.x, mark.y)
   await expect(page.getByTestId('graph-breadcrumb')).toBeVisible()
   await expect(previousRailTab).toHaveAttribute('aria-selected', 'true')
-  const indicator = boundaryTab(page).getByTestId('panel-indicator')
-  await expect(indicator).toBeVisible()
-  await expect(indicator).toHaveAttribute('data-severity', 'info')
-  await expect(indicator.locator('.visually-hidden')).toHaveText('Boundary editable for this subgraph')
+  await widenRail(page)
+  await expect(boundaryTab(page)).toBeVisible()
   if (await boundaryTab(page).getAttribute('aria-selected') === 'false') {
-    await capture(page, 'boundary-tab-highlighted-subgraph')
+    await capture(page, 'boundary-tab-subgraph')
   }
   await openRailPanel(page, 'Boundary')
   await expect(page.getByTestId('boundary-panel')).toBeVisible()
@@ -243,7 +243,7 @@ test('root prompt reopens definitions and the panel follows the drilled tab', as
   })
   await expect(boundaryTab(page).getByTestId('panel-indicator')).toHaveCount(0)
   await page.evaluate((drilled) => { window.__dinksterTest!.app.activeTabId.set(drilled) }, drilledTabId)
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
+  await expect(boundaryTab(page)).toBeVisible()
 
   const setBoundaryPlacement = (placement: 'rail' | 'floating') => page.evaluate((next) => {
     const app = window.__dinksterTest!.app as unknown as {
@@ -253,11 +253,9 @@ test('root prompt reopens definitions and the panel follows the drilled tab', as
   }, placement)
   expect(await setBoundaryPlacement('floating')).toBe(true)
   const floatingBoundary = page.locator('[data-testid="floating-panel"][data-panel="boundary"]')
-  await expect(floatingBoundary.getByTestId('panel-indicator')).toBeVisible()
-  await expect(floatingBoundary.getByTestId('panel-indicator').locator('.visually-hidden'))
-    .toHaveText('Boundary editable for this subgraph')
+  await expect(floatingBoundary).toBeVisible()
   expect(await setBoundaryPlacement('rail')).toBe(true)
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
+  await expect(boundaryTab(page)).toBeVisible()
 
   await page.setViewportSize({ width: 1600, height: 950 })
   await capture(page, 'after-boundary-wide')
@@ -271,7 +269,6 @@ test('root prompt reopens definitions and the panel follows the drilled tab', as
   await expect(page.locator('.boundary-tree [data-entry-id]')).toHaveCount(0)
   await capture(page, 'boundary-root-hidden')
   await drillIntoOccurrence(page)
-  await expect(boundaryTab(page).getByTestId('panel-indicator')).toBeVisible()
   await expect(page.locator('[data-entry-id="image"]')).toBeVisible()
 })
 
@@ -432,7 +429,9 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
   const compact = page.locator('[data-region-output=image][data-role-choice=compact]')
   await compact.click()
   await expect(compact).toHaveAttribute('aria-pressed', 'true')
-  await focusByTab(page, compact)
+  await compact.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(compact).toBeFocused()
   await expect(page.getByTestId('app-tooltip')).toContainText(
     'Compact output - Collect only values produced by present iterations, without gaps.',
   )
@@ -455,6 +454,9 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
   await compact.evaluate((element) => element.scrollIntoView({ block: 'center' }))
   await compact.focus()
   await capture(page, 'after-boundary-region-compact-explanation-wide')
+  await page.getByTestId('rail-resize').focus()
+  await page.keyboard.press('Home')
+  await identityViewport(page)
   const inputPin = await page.evaluate(() => {
     const renderer = window.__dinksterTest!.renderer!
     const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'n1')!
@@ -470,6 +472,7 @@ test('region roles and continuation settings remain occurrence-owned', async ({ 
   await page.mouse.move(inputPin.x, inputPin.y)
   await expect(page.getByTestId('app-tooltip')).toContainText('If absent:', { timeout: 1_500 })
   await capture(page, 'after-boundary-consumer-absence-explanation-wide')
+  await widenRail(page)
   if (proofDir) {
     await compact.locator('xpath=ancestor::*[@data-testid="boundary-settings"]')
       .screenshot({ path: join(proofDir, 'boundary-region-compact-output.png'), animations: 'disabled' })

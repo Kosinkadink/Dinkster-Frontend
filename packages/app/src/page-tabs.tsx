@@ -99,7 +99,7 @@ export function createPageTabHost<T extends WorkflowTabItem>(state: {
       throw new Error(`page tab id already in use: ${id}`)
     const tab: PageTab = {
       id,
-      title: page.title,
+      get title() { return page.title },
       icon: page.icon,
       editorKind: 'page',
       pageId,

@@ -12,6 +12,7 @@ import { parseDinksterSchema } from '../src/schema/dinkster-wire.js'
 import { initialDynamicStateOf } from '../src/schema/body.js'
 import { boundaryOf, boundaryItems } from '../src/format/document.js'
 import type { NodeSchema } from '../src/schema/model.js'
+import { comboOptionLabel } from '../src/schema/combo-options.js'
 
 const port = (node: string, portId: string) => ({ node: asNodeId(node), port: asPortId(portId) })
 
@@ -182,6 +183,68 @@ describe('DocumentStore.dispatch', () => {
       'resize_type',
       'resize_type.width',
     ])
+  })
+
+  it('saves record selections with their declared type and keeps them through rename, removal and undo', () => {
+    const atom = (name: string) => ({ kind: 'concrete', types: [name] })
+    const snapshot = (id: string, name: string, type: string) => JSON.stringify({ path: [id], name, type: atom(type) })
+    const seed = snapshot('stable-seed', 'seed', 'INT')
+    const text = snapshot('stable-text', 'label', 'STRING')
+    const schemaOf = (id: string, name: string, type: string): NodeSchema => {
+      const parsed = parseDinksterSchema('Read', { body: [
+        { kind: 'input', id: 'record', type: { kind: 'record', types: ['pack.settings'], fields: [
+          { id, name, type: atom(type), optional: false },
+          { id: 'stable-text', name: 'label', type: atom('STRING'), optional: false },
+        ] }, required: true },
+        { kind: 'input', id: 'field', type: atom('COMBO'), default: JSON.stringify([id]), pin: false,
+          widget: { type: 'COMBO', options: [{ value: snapshot(id, name, type), label: name }, { value: text, label: 'label' }] } },
+        { kind: 'output', id: 'value', type: { kind: 'record_field', input: 'record', index: 'field' } },
+      ] } as never)
+      expect(parsed.diagnostics).toEqual([])
+      return parsed.schema!
+    }
+    let schema = schemaOf('stable-seed', 'seed', 'INT')
+    const context = () => ({ kind: 'initial' as const, schemaResolverFor: () => () => schema })
+    const store = new DocumentStore(doc({ g0: graph({ id: 'g0' }) }), coreCommandRegistry(), 200, undefined, context)
+    expect(store.dispatch({ command: 'node.add', params: { graphId: 'g0', type: 'Read', position: { x: 0, y: 0 } } }).ok).toBe(true)
+    const selected = () => store.doc.graphs.g0!.nodes.n100!.values.field
+    expect(selected()).toBe(seed)
+    expect(store.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n100', inputId: 'field', value: '["stable-text"]' } }).ok).toBe(true)
+    expect(selected()).toBe(text)
+    expect(store.undo()).toBe(true)
+    expect(selected()).toBe(seed)
+    expect(store.redo()).toBe(true)
+    expect(selected()).toBe(text)
+    expect(store.undo()).toBe(true)
+    const saved = JSON.parse(JSON.stringify(store.doc)) as WorkflowDocument
+    const reopened = new DocumentStore(saved, coreCommandRegistry(), 200, undefined, context)
+    const field = () => elabInputsOf(elaborateInterface(schema, reopened.doc.graphs.g0!.nodes.n100!)).find((input) => input.spec.id === 'field')!.spec.widget!
+    schema = schemaOf('stable-seed', 'noise', 'INT')
+    expect(reopened.dispatch({ command: 'dynamic.storeStartState', params: {} }).ok).toBe(true)
+    expect(reopened.doc.graphs.g0!.nodes.n100!.values.field).toBe(seed)
+    expect(comboOptionLabel(seed, field())).toBe('noise')
+    expect((field().options.options as { value: string }[]).some((option) => option.value === seed)).toBe(true)
+    schema = schemaOf('stable-seed', 'noise', 'STRING')
+    expect(comboOptionLabel(seed, field())).toBe('seed (removed)')
+    const reselected = snapshot('stable-seed', 'noise', 'STRING')
+    expect(reopened.dispatch({ command: 'node.setValue', params: { graphId: 'g0', nodeId: 'n100', inputId: 'field', value: reselected } }).ok).toBe(true)
+    expect(elaborateInterface(schema, reopened.doc.graphs.g0!.nodes.n100!).items.find((item) => item.kind === 'output')!.spec.type).toEqual({ kind: 'concrete', name: 'STRING' })
+    expect(reopened.undo()).toBe(true)
+    expect(reopened.doc.graphs.g0!.nodes.n100!.values.field).toBe(seed)
+    schema = schemaOf('replacement-id', 'seed', 'STRING')
+    const removed = elaborateInterface(schema, reopened.doc.graphs.g0!.nodes.n100!)
+    expect(comboOptionLabel(seed, field())).toBe('seed (removed)')
+    expect(removed.diagnostics.some((problem) => problem.code === 'record-field-removed')).toBe(true)
+    expect(removed.items.find((item) => item.kind === 'output')!.spec.type).toEqual({ kind: 'concrete', name: 'INT' })
+    expect(reopened.doc.graphs.g0!.nodes.n100!.values.field).toBe(seed)
+    schema = schemaOf('stable-seed', 'seed', 'INT')
+    const oldPath = new DocumentStore({ ...saved, graphs: { g0: { ...saved.graphs.g0!, nodes: { n100: { ...saved.graphs.g0!.nodes.n100!, values: { field: '["stable-seed"]' } } } } } }, coreCommandRegistry(), 200, undefined, context)
+    expect(oldPath.dispatch({ command: 'dynamic.storeStartState', params: {} }).ok).toBe(true)
+    expect(oldPath.doc.graphs.g0!.nodes.n100!.values.field).toBe(seed)
+    const legacy = new DocumentStore({ ...saved, graphs: { g0: { ...saved.graphs.g0!, nodes: { n100: { ...saved.graphs.g0!.nodes.n100!, values: { field: '["unknown-id"]' } } } } } }, coreCommandRegistry(), 200, undefined, context)
+    expect(legacy.dispatch({ command: 'dynamic.storeStartState', params: {} }).ok).toBe(true)
+    expect(legacy.doc.graphs.g0!.nodes.n100!.values.field).toBe('["unknown-id"]')
+    expect(elaborateInterface(schema, legacy.doc.graphs.g0!.nodes.n100!).diagnostics.some((problem) => problem.code === 'elab.record.selection')).toBe(true)
   })
 
   it('commits node.add: allocates id from the cursor, writes node + view position', () => {

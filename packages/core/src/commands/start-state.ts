@@ -4,7 +4,8 @@
  * first option) keeps a saved node's rows, wires and cache key the same when
  * a pack later changes a default or reorders options. A group that grows by
  * hand stores its minimum members the same way: the node always shows them,
- * so they are not the user's to add.
+ * so they are not the user's to add. Record selections store the declared
+ * field snapshot so a later removal cannot retarget a saved wire.
  */
 
 import type { DynamicPortState, Json, WorkflowDocument } from '../format/document.js'
@@ -22,10 +23,9 @@ export interface NodeAt {
 }
 
 /**
- * Store the start key of every required choice, and the minimum members of
- * every group that grows by hand, that exist on the given nodes with nothing
- * stored. Storing one can bring another into being, so each node repeats
- * until nothing changes.
+ * Store required choice keys, minimum members and record field snapshots
+ * that the given nodes show but have not stored. Storing one can bring
+ * another into being, so each node repeats until nothing changes.
  */
 export function storeStartState(tx: TransactionBuilder, resolve: SchemaResolver, nodes: Iterable<NodeAt>): void {
   for (const { graphId, nodeId } of nodes) {
@@ -43,9 +43,11 @@ export function storeStartState(tx: TransactionBuilder, resolve: SchemaResolver,
       )
       const choices = Object.entries(elaborated.unstoredChoices ?? {})
       const minimums = Object.entries(elaborated.unstoredMinimums ?? {})
-      if (choices.length === 0 && minimums.length === 0) break
+      const selections = Object.entries(elaborated.unstoredRecordSelections ?? {})
+      if (choices.length === 0 && minimums.length === 0 && selections.length === 0) break
       const nodePath = ['graphs', graphId, 'nodes', nodeId]
-      if (node.dynamic === undefined) tx.set([...nodePath, 'dynamic'], {})
+      for (const [path, value] of selections) tx.set([...nodePath, 'values', path], value)
+      if ((choices.length > 0 || minimums.length > 0) && node.dynamic === undefined) tx.set([...nodePath, 'dynamic'], {})
       for (const [path, key] of choices) {
         const state: DynamicPortState = { ...node.dynamic?.[path], selected: key }
         tx.set([...nodePath, 'dynamic', path], state as unknown as Json)

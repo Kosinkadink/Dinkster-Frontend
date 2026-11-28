@@ -70,7 +70,7 @@ describe('addBackendByUrl', () => {
       }),
     ).toBeUndefined()
     const problem = app.problems.get().find((p) => p.code === 'backend.discovery-failed')
-    expect(problem?.message).toContain('probe exploded')
+    expect(problem?.message).toBe('The backend could not be found.')
     expect(app.backends.get()).toHaveLength(1)
   })
 

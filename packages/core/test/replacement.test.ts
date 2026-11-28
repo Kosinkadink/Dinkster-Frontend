@@ -1655,6 +1655,60 @@ describe('scanReplacements', () => {
     return reg
   }
 
+  it('upgrades every saved Make of the signed interface once, preserving wires and undo', () => {
+    const make: NodeSchema = { ...schemaOf('settings.make', [
+      widgetInput('seed', 0), widgetInput('iterations'), output('record'),
+    ]), signature: 'current-interface' }
+    const resolver = (type: string) => type === make.type ? make : resolve(type)
+    const rule: ReplacementRule = { from: make.type, fromSignature: 'saved-interface',
+      note: 'Set iterations on saved Make nodes.', cases: [{ to: make.type,
+        inputs: { seed: { kind: 'copy', input: 'seed' }, iterations: { kind: 'constant', value: 23 } },
+        outputs: { record: 'record' },
+      }] }
+    const registry = registryWith(rule)
+    const original: WorkflowDocument = { ...doc({ g0: graph({ id: 'g0', nodes: {
+      first: node('first', make.type, { seed: 29 }),
+      second: node('second', make.type, { seed: 41 }),
+      source: node('source', 'Producer'),
+    }, links: { seed: link('seed', port('source', 'out'), port('first', 'seed')) } }) }),
+    environment: { packs: {}, nodes: { [make.type]: { signature: 'saved-interface' } } } }
+    const items = scanReplacements(original, registry, resolver)
+    expect(items.map((item) => [item.nodeId, item.status, item.hops.length]))
+      .toEqual([['first', 'terminal', 1], ['second', 'terminal', 1]])
+    const store = new DocumentStore(original, coreCommandRegistry(), 200, undefined,
+      () => ({ kind: 'initial', schemaResolverFor: () => resolver }))
+    const first = replacementInvocation(items.slice(0, 1), original, resolver)!
+    expect(store.dispatch(first).ok).toBe(true)
+    expect(scanReplacements(store.doc, registry, resolver).map((item) => item.nodeId)).toEqual(['second'])
+    const partial = store.doc
+    expect(store.dispatch(first).ok).toBe(false)
+    expect(store.doc).toEqual(partial)
+    expect(store.undo()).toBe(true)
+    expect(store.dispatch(replacementInvocation(items, original, resolver)!).ok).toBe(true)
+    const reopened = JSON.parse(JSON.stringify(store.doc)) as WorkflowDocument
+    expect(reopened.graphs.g0!.nodes.first!.values).toEqual({ seed: 29, iterations: 23 })
+    expect(reopened.graphs.g0!.nodes.second!.values).toEqual({ seed: 41, iterations: 23 })
+    expect(reopened.graphs.g0!.links).toEqual(original.graphs.g0!.links)
+    expect(scanReplacements(reopened, registry, resolver)).toEqual([])
+    expect(store.undo()).toBe(true)
+    expect(store.doc).toEqual(original)
+    expect(store.canUndo).toBe(false)
+    expect(store.redo()).toBe(true)
+    expect(scanReplacements(store.doc, registry, resolver)).toEqual([])
+    const restamped = { ...reopened, environment: {
+      packs: {}, nodes: { [make.type]: { signature: 'default-updated-interface' } },
+    } }
+    const nextRegistry = registryWith({ ...rule, fromSignature: 'default-updated-interface' })
+    expect(scanReplacements(restamped, nextRegistry, resolver).map((item) => item.hops.length)).toEqual([1, 1])
+    for (const signature of [undefined, 'unrelated-interface', 'current-interface']) {
+      const { environment: _environment, ...unstamped } = original
+      const document = signature === undefined ? unstamped : { ...original, environment: {
+        packs: {}, nodes: { [make.type]: { signature } },
+      } }
+      expect(scanReplacements(document, registry, resolver)).toEqual([])
+    }
+  })
+
   it('substitutes a retired id only for its recorded signature and saves mapped values once', () => {
     const original = doc({ g0: graph({ id: 'g0', nodes: { old: { ...node('old', 'OldNode'), values: { amount: 0.37 } } } }) })
     const rule: ReplacementRule = { ...basicRule, fromSignature: 'old-interface', cases: [{
