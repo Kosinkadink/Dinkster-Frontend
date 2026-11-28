@@ -64,6 +64,7 @@ export interface SetupPlan {
 export interface SetupJob {
   readonly id: string
   readonly root: string
+  readonly operation?: 'setup' | 'update' | 'restore' | 'check' | 'cleanup'
   readonly channel: 'nightly' | 'stable'
   readonly variant: string
   readonly state: 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed'
@@ -101,7 +102,9 @@ export const setupJobActive = (job: SetupJob | null | undefined): boolean =>
 export async function setupInProgress(): Promise<boolean> {
   try {
     const response = await fetchRequest('/supervisor/setup/active', { cache: 'no-store' })
-    return response.ok && setupJobActive((await response.json()).activeJob)
+    if (!response.ok) return false
+    const job = (await response.json()).activeJob as SetupJob | null
+    return (!job?.operation || job.operation === 'setup') && setupJobActive(job)
   } catch {
     return false
   }
@@ -114,7 +117,11 @@ export function createSetupController(options: {
 } = {}) {
   const page = createPageLoad<SetupPlan>()
   const plan = page.value
-  const [job, setJob] = createSignal<SetupJob | null>(null)
+  const [activeJob, setJob] = createSignal<SetupJob | null>(null)
+  const job = () => {
+    const current = activeJob()
+    return current?.operation && current.operation !== 'setup' ? null : current
+  }
   const planning = page.pending
   const [changing, setChanging] = createSignal(false)
   const [requestError, setError] = createSignal<SetupProblem>()
@@ -156,7 +163,7 @@ export function createSetupController(options: {
 
   const refresh = (next: SetupQuery = query) => page.load(() => readPlan(next))
 
-  const canStart = () => !page.error() && !planning() && !changing() && !setupJobActive(job()) &&
+  const canStart = () => !page.error() && !planning() && !changing() && !setupJobActive(activeJob()) &&
     job()?.state !== 'completed' && plan()?.variant != null && plan()?.refusal === null
 
   async function start(): Promise<void> {
@@ -195,8 +202,9 @@ export function createSetupController(options: {
   }
 
   createEffect(() => {
-    const current = job()
-    if (current?.state === 'completed' && current.installation && !completed.has(current.id)) {
+    const current = activeJob()
+    const ownJob = !current?.operation || current.operation === 'setup'
+    if (ownJob && current?.state === 'completed' && current.installation && !completed.has(current.id)) {
       completed.add(current.id)
       options.onInstallation?.(current.installation)
     }
@@ -207,10 +215,10 @@ export function createSetupController(options: {
         if (!stale) setJob(result)
       }).catch((failure: unknown) => {
         if (stale) return
-        setError(problem(failure))
+        if (ownJob) setError(problem(failure))
         if (failure instanceof SetupRequestError && failure.code === 'unknown-job') {
           setJob(null)
-          options.onLostJob?.()
+          if (ownJob) options.onLostJob?.()
           void refresh()
         } else {
           setJob({ ...current })

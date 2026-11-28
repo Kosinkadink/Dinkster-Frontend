@@ -2,7 +2,7 @@
 
 import { createRoot } from 'solid-js'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createSetupController, type SetupJob, type SetupPlan } from '../src/setup-job.js'
+import { createSetupController, setupInProgress, type SetupJob, type SetupPlan } from '../src/setup-job.js'
 import '../src/locale.js'
 
 const plan: SetupPlan = {
@@ -124,4 +124,30 @@ it('ignores an older folder plan that arrives after the newest one', async () =>
   await old
   expect(setup.plan()?.root).toBe('/new')
   expect(setup.canStart()).toBe(true)
+})
+
+it('waits for maintenance without presenting, cancelling or completing it as setup', async () => {
+  vi.useFakeTimers()
+  let state: SetupJob = { ...running, root: '/other-installation', operation: 'restore' }
+  let deletes = 0
+  const installation = vi.fn()
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'DELETE') deletes++
+    if (url.endsWith('/active')) return answer({ activeJob: state })
+    return answer(url.includes('?') ? { plan, activeJob: state } : state)
+  }))
+  const setup = controller({ onInstallation: installation })
+  await tick()
+  expect(setup.job()).toBeNull()
+  expect(await setupInProgress()).toBe(false)
+  expect(setup.canStart()).toBe(false)
+  await setup.cancel()
+  expect(deletes).toBe(0)
+  state = { ...state, state: 'completed', installation: { root: state.root, engine: 'main' } }
+  await vi.advanceTimersByTimeAsync(750)
+  expect(setup.job()).toBeNull()
+  expect(setup.canStart()).toBe(true)
+  expect(installation).not.toHaveBeenCalled()
+  state = { ...running, operation: 'setup' }
+  expect(await setupInProgress()).toBe(true)
 })
