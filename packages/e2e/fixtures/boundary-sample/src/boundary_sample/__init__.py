@@ -48,6 +48,8 @@ from dinkster_api.v1 import (
     validate_image_encoded,
 )
 
+from .generic import GenericMembers, GenericReceiver
+
 FLOAT = TypeExpr.concrete("FLOAT")
 INT = TypeExpr.concrete("INT")
 STRING = TypeExpr.concrete("STRING")
@@ -545,4 +547,6 @@ NODES = [
     AssetConsumer,
     AssetLiteral,
     AssetSource,
+    GenericReceiver,
+    GenericMembers,
 ]
