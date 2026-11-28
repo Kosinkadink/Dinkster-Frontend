@@ -28,7 +28,7 @@ import FileIcon from 'lucide-solid/icons/file'
 import FileText from 'lucide-solid/icons/file-text'
 import Film from 'lucide-solid/icons/film'
 import type { LucideIcon } from 'lucide-solid'
-import { backendConnectionStatus, backendMetadataError, currentGraphId, editedSubgraphDefinition, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type Tab } from './app-state.js'
+import { backendConnectionStatus, backendMetadataError, currentGraphId, GLOBAL_PROBLEMS_OWNER, LIBRARY_SCOPE, visibleProblems, type AppState, type Backend, type Tab } from './app-state.js'
 import { formatWorkflowDeepLink, resolveDeepLinkBackend } from './connection-profiles.js'
 import { LogPanel } from './LogPanel.js'
 import { BoundaryPanel } from './BoundaryPanel.js'
@@ -823,12 +823,6 @@ export function App(props: {
       unsubStack()
     })
   })
-  const boundaryIndicator = (): PanelIndicator | undefined => {
-    boundaryStateTick()
-    return editedSubgraphDefinition(activeTab())
-      ? { count: 1, severity: 'info', label: message('shell.status.boundaryEditable') }
-      : undefined
-  }
   const splitLayoutRaw = useSignal(app.editorSplits.layout)
   /**
    * The split layout actually rendered: the stored tree repaired against
@@ -1856,12 +1850,12 @@ export function App(props: {
     return resolveImportedNodePacks(tab.store.doc, app.registryForTab(tab)?.resolve ?? (() => undefined))
   }
   const problemsIndicator = (): PanelIndicator | undefined => {
-    const list = problemDiagnostics()
+    const list = problemDiagnostics().filter((diagnostic) => diagnostic.severity !== 'info')
     const missingPackCount = new Set(importedNodes().filter((node) => node.status === 'installable').map((node) => node.pack)).size
     if (list.length === 0 && missingPackCount === 0) return undefined
     const severity = list.some((d) => d.severity === 'error')
       ? 'error'
-      : missingPackCount > 0 || list.some((d) => d.severity === 'warning') ? 'warning' : 'info'
+      : 'warning'
     const count = list.length + missingPackCount
     return {
       count,
@@ -1953,7 +1947,6 @@ export function App(props: {
     registerBuiltinPanel({
       id: 'boundary', get title() { return message('shell.panel.boundary.title') },
       placement: 'rail', allowedPlacements: ['dock', 'rail', 'bottom', 'floating', 'window'], order: 40,
-      indicator: boundaryIndicator,
       when: () => {
         boundaryStateTick()
         const tab = activeTab()

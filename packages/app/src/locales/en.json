@@ -1990,7 +1990,6 @@
   "shell.share.sharing": "Sharing {title}...",
   "shell.sharedSession": "Shared session ({status})",
   "shell.status.backendsCount": "Backends ({count})",
-  "shell.status.boundaryEditable": "Boundary editable for this subgraph",
   "shell.status.composingPacks": "composing packs {done}/{total}",
   "shell.status.frameRate": "{fps} FPS / slowest {slowest} ms",
   "shell.status.frameRateMeasuring": "Measuring frame rate...",
