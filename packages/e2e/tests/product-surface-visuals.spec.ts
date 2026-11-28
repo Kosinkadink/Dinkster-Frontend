@@ -943,6 +943,14 @@ test('A reopened workflow draws from the engine\'s recorded node definitions unl
   await expect.poll(drawn).toEqual({ registry: true, run: false, nodes: { source: 'Source', sink: 'Sink' }, rows: first.rows! + 1 })
 
   // The browser has now kept the real table; a record from before it does not replace it.
+  await expect.poll(() => page.evaluate(async () => {
+    const schemasPath = '/src/kept-schemas.ts', projectsPath = '/src/projects.ts'
+    const { readKeptSchemas } = await import(schemasPath)
+    const { activeProjectId } = await import(projectsPath)
+    const backend = window.__dinksterTest!.app.backendForTab(window.__dinksterTest!.app.activeTab()!)
+    const kept = await readKeptSchemas(backend.baseUrl, activeProjectId())
+    return (kept?.recordedAt ?? 0) > 1 && kept?.nodes['visual.Sink']?.displayName === 'Sink'
+  })).toBe(true)
   record = recorded(1)
   hold()
   await page.reload()
