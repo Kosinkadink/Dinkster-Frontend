@@ -250,7 +250,8 @@ export const InRowListImplementation: Component<WidgetEditorImplementationProps>
   // The declared default, stored by its link even when the current options
   // do not hold it: a choice the person makes, checked like any other.
   // A press's Pick has nothing stored and no default.
-  const defaultValue = ed.target.kind === 'local' && stored === undefined ? undefined : effectiveWidgetDefault(spec)
+  const defaultValue = (inRow.recordSelectionDepth ?? 0) > 0 || ed.target.kind === 'local' && stored === undefined
+    ? undefined : effectiveWidgetDefault(spec)
   const storeDefault = (): void => {
     if (defaultValue === undefined) return
     store(defaultValue as Json, formatWidgetValue(defaultValue, spec))

@@ -740,6 +740,7 @@ export interface StoredValueRow {
   readonly nodeId: string
   readonly inputId: string
   readonly valueKey: string
+  readonly label?: string
   readonly spec: WidgetSpec
   readonly derivedValue?: Json
 }
@@ -985,7 +986,7 @@ export function buildScene(input: BuildSceneInput): Scene {
       const widget = item.spec.widget
       if (check === undefined || widget === undefined) continue
       const spec = resolveWidgetRepresentation(widget, representations?.[valueKey]).spec
-      if (check({ nodeId, inputId: item.spec.id, valueKey, spec }, stored)) problemRows.add(item.address.port)
+      if (check({ nodeId, inputId: item.spec.id, valueKey, label: item.spec.displayName ?? item.spec.id, spec }, stored)) problemRows.add(item.address.port)
     }
     return problemRows.size > (solverProblems?.size ?? 0)
       ? elaborateInterface(schema, node, connectivity, { problemRows, ...lookups })
@@ -1282,7 +1283,11 @@ export function buildScene(input: BuildSceneInput): Scene {
     for (const diagnostic of elaborated?.diagnostics ?? []) {
       const port = diagnostic.data?.['input']
       if ((diagnostic.code !== 'automatic.default' && diagnostic.code !== 'record-field-removed') || typeof port !== 'string') continue
-      const anchored = { ...diagnostic, anchor: { port: { node: asNodeId(node.id), port: asPortId(port) } } }
+      const selection = diagnostic.code === 'record-field-removed'
+        ? elabInputsOf(elaborated!).find((item) => item.spec.id === port)?.recordSelectionRows : undefined
+      const valueKey = selection !== undefined && selection.length > 1 ? `$record/${port}/${selection.length - 1}` : port
+      const anchored = { ...diagnostic, anchor: { port: { node: asNodeId(node.id), port: asPortId(port) } },
+        refs: [{ graphId: input.graphId, nodeId: node.id, portId: port, valueKey, direction: 'input' as const }] }
       fieldDiagnostics.set(JSON.stringify(anchored), anchored)
     }
     const baseLayout = schema
@@ -1313,6 +1318,7 @@ export function buildScene(input: BuildSceneInput): Scene {
           view?.size,
           view?.collapsed === true,
           input.schemasPending === true,
+          input.document.environment?.nodes[node.type]?.inputLabels,
         )
     // A promoted boundary input owns the value and editable menu of the
     // inner row it binds; edits on that row write to the owning instance.
@@ -2262,6 +2268,7 @@ function missingLayout(
   sizeOverride?: SizeOverride,
   minimized = false,
   pending = false,
+  inputLabels: Readonly<Record<string, string>> = {},
 ): NodeLayout {
   const titleRenamed = node.title !== undefined && node.title !== node.type
   // A node waiting for definitions shows its type id without the pack part,
@@ -2275,6 +2282,10 @@ function missingLayout(
   const pins: PinLayout[] = []
   let y = tokens.headerHeight
   let contentWidth = measure(title, titleRenamed ? 'renamedTitle' : 'title') + TITLE_START + tokens.padX + canvasPaintTokens.node.titleWidthPadding
+  const inputKeys = [...new Set([...Object.keys(node.values ?? {}), ...connections.inputs.map((ref) => ref.port)])]
+  const labels = Object.fromEntries(inputKeys.map((key, index) => [key,
+    inputLabels[key] ?? (/^field_[0-9a-f]+$/.test(key) ? `Field ${index + 1}` : key),
+  ]))
 
   const pairs = Math.max(connections.inputs.length, connections.outputs.length)
   for (let i = 0; i < pairs; i++) {
@@ -2283,7 +2294,7 @@ function missingLayout(
     const height = tokens.rowHeight
     const input = inRef === undefined ? undefined : {
       portId: inRef.port,
-      label: inRef.port,
+      label: labels[inRef.port]!,
       type: unknownType,
       address: { port: inRef.port },
     }
@@ -2321,10 +2332,11 @@ function missingLayout(
   }
   for (const [key, value] of Object.entries(node.values ?? {})) {
     const text = fallbackValueText(value)
-    rows.push({ kind: 'fallback', y, height: tokens.rowHeight, label: key, text })
+    const label = labels[key]!
+    rows.push({ kind: 'fallback', y, height: tokens.rowHeight, valueKey: key, label, text })
     contentWidth = Math.max(
       contentWidth,
-      tokens.padX * 2 + measure(key, 'label') + canvasPaintTokens.node.widgetLabelPadding + measure(text, 'value'),
+      tokens.padX * 2 + measure(label, 'label') + canvasPaintTokens.node.widgetLabelPadding + measure(text, 'value'),
     )
     y += tokens.rowHeight
   }

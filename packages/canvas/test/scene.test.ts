@@ -21,9 +21,12 @@ import {
   coreCommandRegistry,
   occurrenceDynamicView,
   loadDocument,
+  effectiveWidgetDefault,
+  formatWidgetValue,
   normalizedComboOptions,
   parseDinksterSchema,
   registerCatalog,
+  stampEnvironment,
   type Json,
   type NodeProgress,
   type NodeSchema,
@@ -455,7 +458,7 @@ describe('buildScene', () => {
         { id: 'settings-id', name: 'settings', type: inner, optional: false },
         { id: 'number-id', name: 'number', type: atom, optional: false },
       ] } },
-      { kind: 'input', id: 'field', pin: false, type: { kind: 'concrete', types: ['COMBO'] }, default: whole,
+      { kind: 'input', id: 'field', pin: false, type: { kind: 'concrete', types: ['COMBO'] }, default: JSON.stringify(['settings-id']),
         widget: { type: 'COMBO', options: [
           { value: whole, label: 'settings' }, { value: seed, label: 'settings / seed' },
           { value: other, label: 'settings / other' },
@@ -481,6 +484,7 @@ describe('buildScene', () => {
     expect(new Set(start.map((row) => row.valueKey)).size).toBe(2)
     expect(start.map((row) => row.familyOwner?.valueKey)).toEqual(['field', 'field'])
     expect(normalizedComboOptions(start[0]!.spec).map((option) => option.label)).toEqual(['settings', 'number'])
+    expect(formatWidgetValue(effectiveWidgetDefault(start[0]!.spec), start[0]!.spec)).toBe('settings')
     expect(normalizedComboOptions(start[1]!.spec).map((option) => option.label).slice(1)).toEqual(['seed', 'other'])
     expect(start[1]!.derivedValue).toBe(whole)
     const choose = (value: Json) => session.dispatch({ command: 'node.setValue', params: {
@@ -520,7 +524,9 @@ describe('buildScene', () => {
         expect(row.derivedValue).toBe(seed)
         expect(normalizedComboOptions(row.spec).find((option) => option.value === seed)?.label)
           .toBe(depth === 'parent' ? 'settings / seed (removed)' : 'seed (removed)')
-        expect(scene().diagnostics.filter((diagnostic) => diagnostic.code === 'record-field-removed')).toHaveLength(1)
+        const warnings = scene().diagnostics.filter((diagnostic) => diagnostic.code === 'record-field-removed')
+        expect(warnings).toHaveLength(1)
+        expect(warnings[0]!.refs?.[0]?.valueKey).toBe(depth === 'parent' ? 'field' : '$record/field/1')
         expect(session.doc.graphs.g0!.nodes.read!.values).toEqual({ field: seed })
       }
     }
@@ -909,6 +915,22 @@ describe('buildScene', () => {
       ['batch_size', '1'],
       ['color', '0'],
     ])
+    const stored = loadDocument({ ...doc, view: { graphs: {} }, graphs: { g0: { ...doc.graphs.g0, links: {}, nets: {}, reroutes: {}, nodes: {
+      n0: { id: 'n0', type: 'Make', values: { field_73656564: 7, field_67756964616e6365: 13 } },
+    } } } }).document!
+    const schema = parseDinksterSchema('Make', { signature: 'make-fields', body: [
+      { kind: 'input', id: 'field_73656564', label: 'renamed seed', type: { kind: 'concrete', types: ['INT'] } },
+      { kind: 'input', id: 'field_67756964616e6365', label: 'guidance', type: { kind: 'concrete', types: ['INT'] } },
+    ] } as never).schema!
+    const environment = stampEnvironment(stored, { resolve: () => schema })
+    const reopened = loadDocument(JSON.parse(JSON.stringify({ ...stored, environment }))).document!
+    const missingRows = (document: WorkflowDocument) => buildScene({ document, graphId: 'g0', resolve: () => undefined,
+      tokens: defaultTokens, measure, widgetMeasure }).nodes[0]!.layout.rows.filter((row) => row.kind === 'fallback')
+    expect(missingRows(reopened).map((row) => [row.valueKey, row.label, row.text])).toEqual([
+      ['field_73656564', 'renamed seed', '7'], ['field_67756964616e6365', 'guidance', '13'],
+    ])
+    expect(missingRows(stored).map((row) => row.label)).toEqual(['Field 1', 'Field 2'])
+    expect(reopened.graphs).toEqual(stored.graphs)
   })
 
   it('an unresolved node keeps its manual size override (never snaps back to natural size)', () => {

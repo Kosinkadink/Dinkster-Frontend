@@ -255,6 +255,7 @@ export const WORKFLOW_SCHEMA = {
             properties: {
               pack: { type: 'string', minLength: 1 },
               signature: { type: 'string', minLength: 1 },
+              inputLabels: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
             },
           },
         },

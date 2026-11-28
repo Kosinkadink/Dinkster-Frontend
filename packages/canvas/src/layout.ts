@@ -406,6 +406,8 @@ export type LayoutRow =
       readonly y: number
       readonly height: number
       /** The node.values key. */
+      readonly valueKey: string
+      /** Saved input name, or a neutral name when none was saved. */
       readonly label: string
       /** Safe single-line rendering of the stored JSON value. */
       readonly text: string

@@ -441,16 +441,16 @@ export function storedValueProblems(
   value: Json | undefined,
 ): Diagnostic[] {
   const refs = [{ graphId, nodeId: row.nodeId, portId: row.inputId, valueKey: row.valueKey, direction: 'input' as const }]
+  const where = `${row.nodeId}.${row.label ?? row.valueKey}`
   const kind = registry.kind(row.spec.widgetType)
   if (!kind) {
-    return [diag('warning', 'schema', 'widget.kindUnavailable', `${row.nodeId}.${row.valueKey}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, { refs })]
+    return [diag('warning', 'schema', 'widget.kindUnavailable', `${where}: widget kind '${row.spec.widgetType}' is not available; using the raw-value editor`, { refs })]
   }
   // JSON cannot store undefined, so undefined means "not stored". An
   // explicit null IS stored (ASSET and MOUNT use it as "no value") and must
   // reach the validator.
   if (value === undefined) return []
   if (row.derivedValue !== undefined) value = row.derivedValue
-  const where = `${row.nodeId}.${row.valueKey}`
   if (row.spec.widgetType === 'ASSET' && row.spec.selection !== true && typeof value === 'string') {
     // Model names are valid bindings; the backend presence read owns their availability.
     if (row.spec.kind?.startsWith('model/')) return []
@@ -5124,7 +5124,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
             out.push(problem)
           } else {
             out.push(...storedValueProblems(widgetRegistry(), scene.graphId,
-              { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, spec: row.spec,
+              { nodeId: node.id, inputId: row.inputId, valueKey: row.valueKey, label: row.label, spec: row.spec,
                 ...(row.derivedValue === undefined ? {} : { derivedValue: row.derivedValue }) }, node.node.values[row.valueKey]))
           }
         }
@@ -5869,6 +5869,7 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
           nodeBottom: hit.node.y + hit.node.layout.height,
           sideEdges: rowSideEdges(hit.node.layout.rows, hit.row),
           storedAtOpen: stored ?? null,
+          ...(hit.row.recordSelection === undefined ? {} : { recordSelectionDepth: hit.row.recordSelection.depth }),
           handOff: () => setRowHandedOff(untrack(editor)),
           ...(help === undefined ? {} : { help }),
           ...(caret === undefined || hit.row.viewId !== 'core.line' ? {} : { caret }),
@@ -6038,7 +6039,8 @@ export function CanvasHost(props: { app: AppState; host?: EditorHostContext; too
         ...(row.disabled ? [row.disabledReason || 'Disabled'] : []),
         ...(!driven && item?.kind === 'input' && item.tooltip ? [item.tooltip] : []),
       ].join('. ') || undefined
-      const declared = effectiveWidgetDefault(row.spec)
+      const declared = row.recordSelection !== undefined && row.recordSelection.depth > 0
+        ? undefined : effectiveWidgetDefault(row.spec)
       const panelWire = rowNodeOf(node.id)?.wired?.[row.valueKey]
       const companion = renderer.fieldCompanion(node.id, row.valueKey) ?? (panelWire === undefined ? undefined
         : panelWire.value === undefined ? { value: null, state: 'unknown' as const } : { value: panelWire.value })

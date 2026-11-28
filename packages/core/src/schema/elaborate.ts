@@ -2747,8 +2747,18 @@ function elaboratePass(
             recordName = field.name
           }
           const index = items.indexOf(selector)
+          const declaredDefault = readWhenUnset(selector.spec)
+          let defaultValue = declaredDefault
+          if (typeof declaredDefault === 'string') {
+            try {
+              const declared = JSON.parse(declaredDefault)
+              const defaultPath = Array.isArray(declared) ? declared : declared.path
+              defaultValue = candidates.find((candidate) => Array.isArray(defaultPath) &&
+                candidate.path.length === defaultPath.length && candidate.path.every((key, depth) => key === defaultPath[depth]))?.value ?? declaredDefault
+            } catch { /* A malformed declaration keeps its ordinary validation problem. */ }
+          }
           items[index] = { ...selector, ...(Array.isArray(widget.options['options']) ? { recordSelectionRows: rows } : {}),
-            spec: { ...selector.spec, widget: { ...widget, options: { ...widget.options, options: presented } } } }
+            spec: { ...selector.spec, widget: { ...widget, default: defaultValue, options: { ...widget.options, options: presented } } } }
         }
       }
       if (fits) return current!

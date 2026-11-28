@@ -84,6 +84,11 @@ describe('a hidden row with a problem', () => {
     expect(fieldRows({ w: 3, extra: 50 })).toEqual(['w', 'extra'])
     expect(fieldRows({ w: 3, extra: 10 })).toEqual(['w'])
     expect(fieldRows({ w: 7, extra: 4 })).toEqual(['w', 'extra'])
+    const named = storedValueProblems(registry, 'g', { nodeId: 'n', inputId: 'field_73656564',
+      valueKey: 'field_73656564', label: 'renamed seed', spec: { widgetType: 'NUMBER', options: { min: 0, max: 10 } } }, 50)
+    expect(named[0]!.message).toContain('n.renamed seed:')
+    expect(named[0]!.message).not.toContain('field_73656564')
+    expect(named[0]!.refs?.[0]?.valueKey).toBe('field_73656564')
   })
 
   it('shows while a run needs a value it has none for, and hides again once one is stored', () => {

@@ -348,6 +348,12 @@ describe('deriveNodeProblems', () => {
     })
     expect(problemBoxLines(projection.nodes['n5-a1b2']!, [{ key: 'field', name: 'Field', field: true }], (row) => row))
       .toContainEqual(expect.objectContaining({ row: 'field', actions: ['edit-field'], problem: { kind: 'warning', row: 'field', diagnostic: selection } }))
+    const nested = deriveProblemProjection({
+      document: document(), graphId: 'g0', instancePath: [], diagnostics: [{ ...selection,
+        refs: [{ graphId: 'g0', nodeId: 'n5-a1b2', portId: 'field', valueKey: '$record/field/1', direction: 'input' }],
+      }],
+    })
+    expect(nested.rows).toEqual({ 'n5-a1b2': { '$record/field/1': 'warning' } })
   })
 
   it('uses exact occurrence paths, filters other graphs and info, and deduplicates ref plus anchor', () => {

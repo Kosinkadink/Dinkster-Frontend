@@ -165,6 +165,8 @@ export interface WidgetEditorState {
     readonly nodeBottom: number
     readonly sideEdges?: { readonly left: boolean; readonly right: boolean }
     readonly help?: string
+    /** Deeper record choices edit the root selection and have no default of their own. */
+    readonly recordSelectionDepth?: number
     /** The raw stored value when the field opened (null when none was stored). */
     readonly storedAtOpen: Json
     /** A seed's after-run mode. */
