@@ -46,6 +46,7 @@ const geometry = new Set([
   'minWidth',
   'minHeight',
   'scale',
+  'webkitLineClamp',
 ])
 
 export async function checkDesignSystem(args = []) {
