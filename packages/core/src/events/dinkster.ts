@@ -811,6 +811,7 @@ function errorHints(value: unknown): readonly RuntimeErrorHint[] {
       code,
       message,
       ...(typeof suggestion === 'string' ? { suggestion } : {}),
+      ...(typeof hint['inputId'] === 'string' ? { inputId: hint['inputId'] } : {}),
     })
   }
   return hints

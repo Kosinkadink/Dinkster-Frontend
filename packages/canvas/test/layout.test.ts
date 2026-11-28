@@ -1799,6 +1799,29 @@ describe('v14 COMBO layout', () => {
   })
 })
 
+describe('secret rows', () => {
+  it.each(['SECRET', 'STRING'])('never gives secret names a pin, including folded taps with a %s widget', (widgetType) => {
+    const key = input('key', {
+      type: { kind: 'concrete', name: 'STRING' }, secret: true, socketless: true,
+      widget: { widgetType, options: {}, default: 'caption-service' },
+    })
+    const ordinary = input('caption', {
+      type: { kind: 'concrete', name: 'STRING' }, socketless: true,
+      widget: { widgetType: 'STRING', options: {} },
+    })
+    const schema = schemaOf([{ kind: 'section', id: 'credentials', rows: [key, ordinary] }])
+    for (const closed of [false, true]) {
+      const layout = layoutNode(schema, nodeData, defaultTokens, measure, widgetMeasure, {
+        sectionOverrides: { credentials: closed },
+        connectedPorts: new Set(['out:key', 'out:caption']),
+      })
+      expect(layout.pins.filter((pin) => pin.portId === 'key')).toEqual([])
+      expect(layout.pins.filter((pin) => pin.portId === 'caption')).toMatchObject([{ direction: 'out', widgetTap: true }])
+      if (!closed) expect(layout.rows).toContainEqual(expect.objectContaining({ kind: 'widget', inputId: 'key' }))
+    }
+  })
+})
+
 describe('editors shown in the node', () => {
   const editorMeasure: WidgetMeasure = (spec) =>
     spec.widgetType === 'WEBCAM' ? { viewId: 'core.webcam', rows: 1 }

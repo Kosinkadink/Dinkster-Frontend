@@ -432,7 +432,7 @@ describe('workflow model presence', () => {
     app.assetConsent.get()!.locateModel!(1)
     expect(app.assetConsent.get()).toBeUndefined()
     expect(app.activeTabId.get()).toBe(tab.id)
-    expect(app.diagnosticFocus.get()).toEqual({ tab, openAssetInput: 'second',
+    expect(app.diagnosticFocus.get()).toEqual({ tab, openFieldInput: 'second',
       anchor: { occurrence: { instancePath: [], node: asNodeId('n0') } },
     })
     app.reviewModelDownload(tab)

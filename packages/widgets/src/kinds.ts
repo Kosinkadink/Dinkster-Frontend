@@ -148,6 +148,15 @@ export const stringKind: WidgetKind<string> = {
   defaultView: (spec) => (spec.options['multiline'] === true ? 'core.text' : 'core.line'),
 }
 
+export const secretKind: WidgetKind<string> = {
+  type: 'SECRET',
+  valueSchema: stringSchema,
+  defaultValue: (spec) => typeof spec.default === 'string' ? spec.default : '',
+  validate: (value) => value === '' || (value.length <= 128 && /^[A-Za-z_]/.test(value) && !/[^A-Za-z0-9_.-]/.test(value)) ? []
+    : [diag('error', 'schema', 'widget.SECRET.invalid', 'Choose a secret name')],
+  defaultView: () => 'core.secret',
+}
+
 export const buttonKind: WidgetKind<null> = {
   type: 'BUTTON',
   valueSchema: { version: 1, validate: (value): value is null => value === null },
@@ -1031,6 +1040,22 @@ export const webcamView: WidgetView<Json> = {
       isAssetRef(value) ? value.name : 'No frame', state, 'widget.edit', !isAssetRef(value))
   },
 }
+export const secretView: WidgetView<string> = {
+  ...makeCompactView<string>('core.secret', 'SECRET'),
+  drawCompact(ctx, value, spec, state) {
+    const presence = state.hostFacts?.['SECRET']
+    const set = isJsonObject(presence) && Object.hasOwn(presence, value) && presence[value] === true
+    const status = t(set ? 'secretWidget.set' : 'secretWidget.notSet')
+    if (state.required === true && !set) ctx.rect(0, 0, 1, 1, { role: 'widgetProblem', severity: 'error' })
+    const name = typeof value === 'string' ? value : ''
+    compactRow(ctx, (spec.options['display_name'] as string | undefined) ?? '', `${name} ${status}`.trim(), state, 'widget.edit', false, {
+      labelFirst: true,
+      parts: [{ text: name }, { text: `${name ? ' ' : ''}${status}`, look: state.required === true && !set ? 'error' : 'muted' }],
+    })
+  },
+  readout: () => [],
+}
+
 export const mountView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.mount', 'MOUNT'),
   drawCompact(ctx, value, spec, state) {
@@ -1247,12 +1272,12 @@ export const widgetRegistrationDoors = (registry: WidgetRegistry): WidgetRegistr
 })
 
 export function registerCoreWidgets(doors: WidgetRegistrationDoors): void {
-  for (const kind of [intKind, floatKind, stringKind, booleanKind, comboKind, multiComboKind,
+  for (const kind of [intKind, floatKind, stringKind, secretKind, booleanKind, comboKind, multiComboKind,
     listKind, colorKind, curveKind, compositorKind, assetKind, mountKind, load3dKind, videoEditKind, buttonKind, markdownKind, audioRecordKind, webcamKind, boundingBoxKind, imageCompareKind, painterKind, cameraAngleKind, saveTargetKind]) {
     doors.widgetKind(kind.type, kind as WidgetKind)
   }
   for (const view of [numberView, floatNumberView, floatSliderView, lineView, textView, toggleView, selectView,
-    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, mountView, load3dView, videoEditView, buttonView, markdownView, audioRecordView, webcamView, boundingBoxView, imageCompareView, painterView, cameraAngleView, saveTargetView]) {
+    multiSelectView, listView, colorView, integerColorView, curveView, compositorView, assetView, secretView, mountView, load3dView, videoEditView, buttonView, markdownView, audioRecordView, webcamView, boundingBoxView, imageCompareView, painterView, cameraAngleView, saveTargetView]) {
     doors.widgetView(view.id, view as WidgetView)
   }
   for (const renderer of [imagePreviewRenderer, videoPreviewRenderer, model3dPreviewRenderer]) {

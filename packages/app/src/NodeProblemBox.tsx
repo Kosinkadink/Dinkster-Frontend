@@ -25,7 +25,10 @@ export function NodeProblemBox(props: {
   readonly ref?: (element: HTMLDivElement) => void
 }) {
   const message = useAppMessage()
-  const actionLabel = (action: ProblemBoxAction): string => action === 'edit-field'
+  const actionLabel = (action: ProblemBoxAction): string => action === 'set-secret'
+    ? message('problems.action.setSecret')
+    : action === 'replace-secret' ? message('problems.action.replaceSecret')
+    : action === 'edit-field'
     ? message('problemBox.editField')
     : action === 'review-model' ? message('problems.action.reviewModel')
     : action === 'model-management' ? message('problems.action.modelManagement')

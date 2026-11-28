@@ -5,6 +5,290 @@ const test = base.extend<{ widgetDocument: boolean }>({ widgetDocument: [true, {
 
 const catalogTest = test.extend({ widgetDocument: false })
 
+catalogTest('secret rows save and remove through the selected connection without changing the workflow', async ({ page }, testInfo) => {
+  let source: 'account' | 'deployment' | null = null
+  let principal = 'account-a'
+  const writes: string[] = []
+  await page.route(/\/api\/(?!library\/retention(?:s\/|-clients(?:\?|$)))/, (route) => route.fulfill({ status: 404 }))
+  await page.routeWebSocket('**/api/events?*', () => {})
+  await page.route('/api/nodes*', (route) => route.fulfill({ json: {
+    schemaVersion: 1, epoch: 1, dinkster: { version: 'secret-editor-fixture', schemaWire: 2 }, nodes: {},
+  } }))
+  await page.route('/api/projects/default', (route) => route.fulfill({ json: { project: {
+    id: 'default', name: 'Default', created: '2026-01-01T00:00:00Z', revision: 1, deleted: false,
+    environment: null, accountProject: null,
+  } } }))
+  await page.route('/api/projects/default/needs', (route) => route.fulfill({ json: { packs: [], installed: [], extra: [], unknown: [] } }))
+  await page.route('/api/account', (route) => route.fulfill({ json: {
+    available: true, canStartSignIn: true, signInUnavailableReason: null, signedIn: true,
+    profile: null, signIn: { state: 'idle' }, principalRevision: principal,
+  } }))
+  await page.route('/api/secrets', (route) => route.fulfill({ json: {
+    names: ['caption-service', 'caption-service-work', 'image-host'], canManageDeployment: false,
+  } }))
+  await page.route('/api/secrets/caption-service*', (route) => {
+    const request = route.request()
+    if (new URL(request.url()).pathname.endsWith('/caption-service-work')) {
+      expect(request.method()).toBe('GET')
+      return route.fulfill({ json: { name: 'caption-service-work', set: true, source: 'account', fallback: false, canManageDeployment: false } })
+    }
+    if (request.method() === 'PUT') {
+      expect(request.postDataJSON()).toEqual({ value: 'synthetic-editor-credential', scope: 'account' })
+      writes.push('save')
+      source = 'account'
+    } else if (request.method() === 'DELETE') {
+      expect(new URL(request.url()).searchParams.get('scope')).toBe('account')
+      writes.push('remove')
+      source = 'deployment'
+    }
+    return route.fulfill({ json: { name: new URL(request.url()).pathname.split('/').at(-1), set: source !== null, source,
+      fallback: source === 'account', canManageDeployment: false } })
+  })
+  await page.goto('/')
+  await waitForWorkspaceReady(page)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    await app.backends.get()[0]!.connection.accountStatus()
+    app.registerSchemas([{
+      type: 'SecretCaption', displayName: 'Caption image', source: 'v3', category: 'test', isOutputNode: false,
+      body: [{ kind: 'section', id: 'access', displayName: 'Access', rows: [
+        { kind: 'input', id: 'credential', displayName: 'Caption service', type: { kind: 'concrete', name: 'STRING' },
+          secret: true, socketless: true, optional: false,
+          widget: { widgetType: 'SECRET', options: {}, default: 'caption-service' } },
+      ] }],
+    }])
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'secret-editor', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Caption', nextOrdinal: 2,
+        nodes: { caption: { id: 'caption', type: 'SecretCaption', values: { credential: 'caption-service' } } },
+        links: {}, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { caption: { position: { x: 100, y: 100 }, size: { width: 450, height: 0 } } } } } },
+    }, 'Secret caption')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  await page.waitForFunction(() => window.__dinksterTest!.renderer!.getScene().nodes.some((node) => node.id === 'caption'))
+  const graph = (await activeDoc(page)).graphs
+  await page.getByRole('tab', { name: /^Problems/ }).click()
+  const missing = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'secret.required.missing' })
+  await expect(missing).toContainText('Secret "caption-service" is not set.')
+  await missing.locator('summary').click()
+  await missing.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+  const box = page.getByTestId('problem-box')
+  await expect(box.getByRole('button', { name: 'Set secret', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('secret-required-before-save.png') })
+  await box.getByRole('button', { name: 'Set secret', exact: true }).click()
+  let dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await missing.getByRole('button', { name: 'Set secret', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
+  await expect(dialog.getByRole('combobox', { name: 'Name', exact: true })).toHaveValue('caption-service')
+  await expect(dialog.getByLabel('Secret value', { exact: true })).toBeFocused()
+  await expect(dialog.getByRole('combobox', { name: 'Scope', exact: true })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Remove secret', exact: true })).toHaveCount(0)
+  await dialog.getByLabel('Secret value', { exact: true }).fill('synthetic-editor-credential')
+  await dialog.getByRole('button', { name: 'Save secret', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(missing).toHaveCount(0)
+  expect(writes).toEqual(['save'])
+  expect((await activeDoc(page)).graphs).toEqual(graph)
+  await page.screenshot({ path: testInfo.outputPath('secret-set-editor.png') })
+  const rejectSecret = async () => page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    const tab = app.activeTab()!
+    type Artifact = Parameters<typeof app.store.register>[1]
+    const compiled = (app as typeof app & {
+      compileTabCached(candidate: typeof tab): { ok: true; artifact: Artifact } | { ok: false } | undefined
+    }).compileTabCached(tab)
+    if (compiled === undefined || !compiled.ok) throw new Error('Secret fixture did not compile')
+    const execution = { connection: app.backends.get()[0]!.id, prompt: `rejected-secret-${Date.now()}` }
+    app.store.register(execution, compiled.artifact)
+    app.store.apply({ kind: 'error', execution, runtimeNodeId: 'caption', timestamp: Date.now(),
+      detail: { exceptionType: 'execution', exceptionMessage: 'The service refused this secret.', traceback: [],
+        hints: [{ code: 'secret-rejected', message: 'The service refused this secret.', inputId: 'credential' }] },
+    } as never)
+  })
+  await rejectSecret()
+  const rejected = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'The service refused the secret "caption-service".' })
+  await expect(rejected).toBeVisible()
+  await rejected.locator('summary').click()
+  await rejected.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+  await expect(box.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
+  await expect(missing).toHaveCount(0)
+  expect(source).toBe('account')
+  await page.screenshot({ path: testInfo.outputPath('secret-refused-editor.png') })
+  const minimize = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const viewport = renderer.getViewport()
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'caption')!
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return {
+      x: canvas.left + (node.x + 14) * viewport.scale + viewport.x,
+      y: canvas.top + (node.y + node.layout.headerHeight / 2) * viewport.scale + viewport.y,
+    }
+  })
+  await page.keyboard.press('Escape')
+  await page.mouse.click(minimize.x, minimize.y)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
+    .find((node) => node.id === 'caption')!.layout.minimized)).toBe(true)
+  await expect(missing).toHaveCount(0)
+  await rejected.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+  await expect(box.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('secret-refused-minimized.png') })
+  await box.getByRole('button', { name: 'Replace secret', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
+  await expect(dialog.getByRole('combobox', { name: 'Name', exact: true })).toHaveValue('caption-service')
+  await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
+  await expect(dialog.getByRole('button', { name: 'Remove secret', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  const section = await page.evaluate(() => {
+    const renderer = window.__dinksterTest!.renderer!
+    const viewport = renderer.getViewport()
+    const node = renderer.getScene().nodes.find((candidate) => candidate.id === 'caption')!
+    const row = node.layout.rows.find((candidate) => candidate.kind === 'section')!
+    const canvas = document.querySelector('[data-testid="graph-canvas"]')!.getBoundingClientRect()
+    return {
+      x: canvas.left + (node.x + node.layout.width / 2) * viewport.scale + viewport.x,
+      y: canvas.top + (node.y + row.y + row.height / 2) * viewport.scale + viewport.y,
+    }
+  })
+  await page.mouse.click(section.x, section.y)
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.renderer!.getScene().nodes
+    .find((node) => node.id === 'caption')!.layout.rows.some((row) => row.kind === 'widget'))).toBe(false)
+  await expect(missing).toHaveCount(0)
+  await rejected.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+  await expect(box.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('secret-refused-folded.png') })
+  await box.getByRole('button', { name: 'Replace secret', exact: true }).click()
+  await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
+  await expect(dialog.getByRole('combobox', { name: 'Name', exact: true })).toHaveValue('caption-service')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await rejected.getByRole('button', { name: 'Replace secret', exact: true }).click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  expect(writes).toEqual(['save'])
+  expect((await activeDoc(page)).graphs).toEqual(graph)
+  let point = await nodeRowPoint(page, 'caption', 'credential')
+  await page.mouse.click(point.x, point.y)
+  dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
+  await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
+  await dialog.getByRole('button', { name: 'Remove secret', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Remove your value for "caption-service"?', exact: true })
+  await expect(dialog).toContainText('Runs will use the deployment value instead.')
+  expect(writes).toEqual(['save'])
+  await page.screenshot({ path: testInfo.outputPath('secret-remove-editor.png') })
+  await dialog.getByRole('button', { name: 'Remove', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(writes).toEqual(['save', 'remove'])
+  expect((await activeDoc(page)).graphs).toEqual(graph)
+  point = await nodeRowPoint(page, 'caption', 'credential')
+  await page.mouse.click(point.x, point.y)
+  dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
+  await expect(dialog.getByRole('button', { name: 'Remove secret', exact: true })).toHaveCount(0)
+  await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
+  await dialog.getByLabel('Secret value', { exact: true }).fill('unsaved-account-a-credential')
+  source = null
+  principal = 'account-b'
+  await page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.connection.accountStatus())
+  await expect(dialog).toHaveCount(0)
+  await expect(missing).toContainText('Secret "caption-service" is not set.')
+  expect(writes).toEqual(['save', 'remove'])
+  expect((await activeDoc(page)).graphs).toEqual(graph)
+  point = await nodeRowPoint(page, 'caption', 'credential')
+  await page.mouse.click(point.x, point.y)
+  await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveValue('')
+  await expect(dialog.getByRole('button', { name: 'Remove secret', exact: true })).toHaveCount(0)
+  await dialog.getByRole('combobox', { name: 'Name', exact: true }).click()
+  await page.getByRole('option', { name: 'caption-service-work', exact: true }).click()
+  await expect(dialog.getByLabel('Secret value', { exact: true })).toHaveAttribute('placeholder', 'Leave empty to keep the saved value')
+  await dialog.getByRole('button', { name: 'Use secret', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(writes).toEqual(['save', 'remove'])
+  expect((await activeDoc(page)).graphs.g0!.nodes.caption!.values.credential).toBe('caption-service-work')
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect((await activeDoc(page)).graphs).toEqual(graph)
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    app.registerSchemas([{
+      type: 'UnnamedSecret', displayName: 'Unnamed secret', source: 'v3', category: 'test', isOutputNode: false,
+      body: [{ kind: 'input', id: 'credential', displayName: 'Caption service', type: { kind: 'concrete', name: 'STRING' },
+        secret: true, socketless: true, optional: false,
+        widget: { widgetType: 'SECRET', options: {} } }],
+    }])
+    await app.openDocument({ format: 'dinkster-workflow', formatVersion: 1, lineage: 'unnamed-secret', root: 'g0',
+      graphs: { g0: { id: 'g0', name: 'Caption', nextOrdinal: 2,
+        nodes: { caption: { id: 'caption', type: 'UnnamedSecret', values: {} } }, links: {}, nets: {}, reroutes: {} } },
+      view: { graphs: { g0: { nodes: { caption: { position: { x: 100, y: 100 }, size: { width: 450, height: 0 } } } } } },
+    }, 'Unnamed secret')
+    window.__dinksterTest!.renderer!.setViewport({ x: 0, y: 0, scale: 1 })
+  })
+  const unnamedGraph = (await activeDoc(page)).graphs
+  const unnamedMissing = page.getByTestId('problems-panel').locator('details.problem', { hasText: 'secret.required.missing' })
+  await expect(unnamedMissing).toContainText('No secret is chosen.')
+  await unnamedMissing.locator('summary').click()
+  await unnamedMissing.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+  await expect(box).toContainText('Caption service: No secret is chosen.')
+  await page.screenshot({ path: testInfo.outputPath('unnamed-secret-required.png') })
+  const unnamedPoint = await nodeRowPoint(page, 'caption', 'credential')
+  await page.mouse.click(unnamedPoint.x, unnamedPoint.y)
+  dialog = page.getByRole('dialog', { name: 'Set secret', exact: true })
+  const name = dialog.getByRole('combobox', { name: 'Name', exact: true })
+  await expect(name).toHaveValue('')
+  await expect(name).toBeFocused()
+  await expect(name).toHaveAttribute('placeholder', 'Choose or type a name')
+  await expect(dialog.getByRole('button', { name: 'Save secret', exact: true })).toBeDisabled()
+  await name.fill('not a name')
+  await expect(name).toHaveAttribute('aria-invalid', 'true')
+  await expect(dialog.getByRole('button', { name: 'Save secret', exact: true })).toBeDisabled()
+  await name.fill('caption-service-new')
+  await name.press('Escape')
+  await dialog.getByLabel('Secret value', { exact: true }).fill('synthetic-editor-credential')
+  await dialog.getByRole('button', { name: 'Save secret', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(writes).toEqual(['save', 'remove', 'save'])
+  expect((await activeDoc(page)).graphs.g0!.nodes.caption!.values.credential).toBe('caption-service-new')
+  await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.undo())
+  expect((await activeDoc(page)).graphs).toEqual(unnamedGraph)
+  source = 'account'
+  principal = 'account-a'
+  await page.evaluate(async () => {
+    const app = window.__dinksterTest!.app
+    await app.backends.get()[0]!.connection.accountStatus()
+    await app.dispatchTo(app.activeTab()!, { command: 'node.setValue', params: {
+      graphId: 'g0', nodeId: 'caption', inputId: 'credential', value: 'caption-service',
+    } })
+  })
+  for (const action of ['box', 'panel']) {
+    await rejectSecret()
+    await expect(rejected).toBeVisible()
+    await rejected.locator('summary').click()
+    await rejected.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+    await expect(box).toContainText('The service refused the secret "caption-service".')
+    await page.screenshot({ path: testInfo.outputPath(`secret-named-refusal-${action}.png`) })
+    const replace = action === 'box' ? box : rejected
+    await replace.getByRole('button', { name: 'Replace secret', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(rejected).toBeVisible()
+    await rejected.getByRole('button', { name: 'Show on canvas', exact: true }).click()
+    await expect(box).toContainText('The service refused the secret "caption-service".')
+    await replace.getByRole('button', { name: 'Replace secret', exact: true }).click()
+    await dialog.getByLabel('Secret value', { exact: true }).fill('synthetic-editor-credential')
+    await dialog.getByRole('button', { name: 'Save secret', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(rejected).toHaveCount(0)
+    await expect(box).toHaveCount(0)
+    expect(await page.evaluate(() => {
+      const app = window.__dinksterTest!.app
+      const live = app.executionForTab(app.activeTab()!)!
+      const original = [...app.store.executions.get().values()].find((execution) =>
+        execution.ref.connection === live.ref.connection && execution.ref.prompt === live.ref.prompt)!
+      return { liveErrors: live.errors.length, liveNode: live.nodes.caption?.state,
+        originalErrors: original.errors.length, status: original.status }
+    })).toEqual({ liveErrors: 0, liveNode: undefined, originalErrors: 1, status: 'error' })
+    await page.screenshot({ path: testInfo.outputPath(`secret-replaced-${action}.png`) })
+  }
+  expect(writes).toEqual(['save', 'remove', 'save', 'save', 'save'])
+})
+
 catalogTest('a Slider with an overflowing range explains its Number fallback', async ({ page }, testInfo) => {
   await page.goto('/')
   await waitForWorkspaceReady(page)

@@ -345,6 +345,7 @@ interface DinksterTestBridge {
     activeTab(): DinksterBridgeTab | undefined
     createWorkflow(): DinksterBridgeTab
     renameTab(id: string, title: string): void
+    executionForTab(tab: DinksterBridgeTab): import('@dinkster/client').ExecutionState | undefined
     executionsForTab(tab: DinksterBridgeTab): readonly import('@dinkster/client').ExecutionState[]
     createRegion(tab: DinksterBridgeTab, graphId: string, position: { x: number; y: number }, kind: 'map' | 'fold' | 'while'):
       Promise<{ ok: boolean; diagnostics: readonly unknown[] }>
@@ -493,6 +494,7 @@ interface DinksterTestBridge {
         connection: Pick<import('@dinkster/client').DinksterConnection,
           'fetchMountSettings' | 'fetchMountLocations' | 'fetchModelSettings' | 'retryMount'> & {
           status: { get(): string }
+          accountStatus(): Promise<unknown>
           ingest(event: Readonly<Record<string, unknown>> & { type: string }): void
           onLiveTerminal(listener: (execution: DinksterBridgeExecutionRef) => void): () => void
         }

@@ -6,8 +6,9 @@
  * as wide as its longest line up to a limit, where its lines wrap; the caller
  * places it and sets the limit.
  */
-import { createEffect, For, Show } from 'solid-js'
+import { createEffect, For, onCleanup, onMount, Show } from 'solid-js'
 import { CircleX, Info, TriangleAlert } from 'lucide-solid'
+import { canvasPaintTokens } from '@dinkster/canvas'
 import { ProductTextButton } from './controls.js'
 
 export type ProblemBoxKind = 'error' | 'warning' | 'info'
@@ -39,7 +40,7 @@ export function ProblemBox(props: {
   readonly notice?: string
   /** Key of the line drawn highlighted. */
   readonly highlighted?: string
-  /** Top-left corner in the positioned parent's px. */
+  /** Preferred top-left in the positioned parent's px; the box stays within its horizontal margins. */
   readonly x: number
   readonly y: number
   /** Widest the box gets in the same px, where its lines wrap; up to it, the box is as wide as its longest line. */
@@ -51,12 +52,26 @@ export function ProblemBox(props: {
   readonly ref?: (element: HTMLDivElement) => void
 }) {
   let element: HTMLDivElement | undefined
-  createEffect(() => {
+  const place = (): void => {
     if (element === undefined) return
-    element.style.left = `${props.x}px`
+    const parent = element.offsetParent
+    const margin = canvasPaintTokens.badge.tab.problemBox.paneMargin
+    const maxWidth = parent instanceof HTMLElement
+      ? Math.min(props.maxWidth, Math.max(0, parent.clientWidth - 2 * margin)) : props.maxWidth
     element.style.top = `${props.y}px`
-    element.style.maxWidth = `${props.maxWidth}px`
-    element.style.minWidth = `${props.minWidth}px`
+    element.style.maxWidth = `${maxWidth}px`
+    element.style.minWidth = `${Math.min(props.minWidth, maxWidth)}px`
+    element.style.left = `${parent instanceof HTMLElement
+      ? Math.max(margin, Math.min(props.x, parent.clientWidth - element.offsetWidth - margin))
+      : props.x}px`
+  }
+  createEffect(place)
+  onMount(() => {
+    if (element === undefined) return
+    const observer = new ResizeObserver(place)
+    observer.observe(element)
+    if (element.offsetParent instanceof HTMLElement) observer.observe(element.offsetParent)
+    onCleanup(() => observer.disconnect())
   })
   const strongest = (): ProblemBoxKind =>
     props.lines.some((line) => line.kind === 'error') ? 'error'

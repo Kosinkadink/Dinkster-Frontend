@@ -5,7 +5,7 @@ import type { ProblemFix } from './problem-fixes.js'
 import type { NodeProblemKind, NodeProblemLine } from './problem-display.js'
 
 /** What a line in the node's box offers; none of them fetches anything by itself. */
-export type ProblemBoxAction = 'edit-field' | 'locate-asset' | 'review-model' | 'model-management' | 'model-storage' | 'apply-problem-fix' | 'check-problem-fix' | 'show-log' | 'dismiss-run'
+export type ProblemBoxAction = 'set-secret' | 'replace-secret' | 'edit-field' | 'locate-asset' | 'review-model' | 'model-management' | 'model-storage' | 'apply-problem-fix' | 'check-problem-fix' | 'show-log' | 'dismiss-run'
 
 /** One line in a node's problem box: one cause, with its row's name and its actions. */
 export interface ProblemBoxLine {
@@ -25,6 +25,7 @@ export interface ProblemBoxRow {
   readonly name: string
   /** The row holds a field the user can put the cursor in. */
   readonly field: boolean
+  readonly secret?: boolean
 }
 
 /** Runtime details remain in Log; the node shows only the message and its input row. */
@@ -46,7 +47,9 @@ export function runtimeProblemBoxLines(
     if (prefix !== undefined && message.startsWith(`${prefix}: `)) message = message.slice(prefix.length + 2)
     if (message.startsWith('execution: ')) message = message.slice('execution: '.length)
     const namedInput = /^input ['"]([^'"]+)['"]: /u.exec(message)
-    const input = diagnostic.anchor?.port?.port ?? diagnostic.data?.['inputId'] ?? namedInput?.[1]
+    const rejected = diagnostic.runtime?.hints?.find((hint) => hint.code === 'secret-rejected'
+      && rows.some((row) => row.key === hint.inputId && row.secret === true))
+    const input = rejected?.inputId ?? diagnostic.anchor?.port?.port ?? diagnostic.data?.['inputId'] ?? namedInput?.[1]
     const row = typeof input === 'string' ? rows.find((candidate) => candidate.key === input) : undefined
     if (row !== undefined && namedInput !== null && namedInput[1] === input) message = message.slice(namedInput[0].length)
     return {
@@ -54,19 +57,20 @@ export function runtimeProblemBoxLines(
       kind: 'error',
       ...(row === undefined ? {} : { row: row.key }),
       message,
-      actions: ['show-log', 'dismiss-run'],
+      actions: [...(rejected === undefined ? [] : ['replace-secret' as const]), 'show-log', 'dismiss-run'],
       problem: { kind: 'error', diagnostic, ...(row === undefined ? {} : { row: row.key }) },
     }
   })
 }
 
-/** The node's rows as problem rows, top to bottom. */
+/** Visible rows top to bottom, followed by fields hidden by presentation state. */
 export function problemBoxRows(node: SceneNode): readonly ProblemBoxRow[] {
   const rows: ProblemBoxRow[] = []
-  for (const row of node.layout.rows) {
+  for (const row of [...node.layout.rows, ...(node.fieldRows ?? [])]) {
     if (row.kind === 'widget') {
-      rows.push({ key: row.valueKey, name: row.name ?? row.label, field: true })
-      if (row.inputId !== row.valueKey) rows.push({ key: row.inputId, name: row.name ?? row.label, field: true })
+      if (rows.some((candidate) => candidate.key === row.valueKey)) continue
+      rows.push({ key: row.valueKey, name: row.name ?? row.label, field: true, ...(row.secret === true ? { secret: true } : {}) })
+      if (row.inputId !== row.valueKey) rows.push({ key: row.inputId, name: row.name ?? row.label, field: true, ...(row.secret === true ? { secret: true } : {}) })
     } else if (row.kind === 'ports') {
       if (row.input !== undefined) rows.push({ key: row.input.portId, name: row.input.name ?? row.input.label, field: false })
       if (row.output !== undefined) rows.push({ key: outputRowKey(row.output.portId), name: row.output.name ?? row.output.label, field: false })
@@ -101,7 +105,9 @@ export function problemBoxLines(
       const row = problem.row === undefined ? undefined : rows.find((candidate) => candidate.key === problem.row)
       const diagnostic = problem.diagnostic
       const nodeMessage = diagnostic.data?.['nodeMessage']
-      const actions: ProblemBoxAction[] = diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'
+      const actions: ProblemBoxAction[] = diagnostic.code === 'secret.required.missing'
+        ? ['set-secret']
+        : diagnostic.code === 'asset.availability.missing' && typeof diagnostic.data?.['input'] === 'string'
         ? [...(typeof diagnostic.data['kind'] === 'string' && diagnostic.data['kind'].startsWith('model/') ? ['review-model' as const] : []), 'locate-asset']
         : diagnostic.code.startsWith('model.availability.') && typeof diagnostic.data?.['input'] === 'string'
           ? [

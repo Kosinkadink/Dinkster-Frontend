@@ -481,6 +481,37 @@ describe('Dinkster schema wire', () => {
     }
   })
 
+  it('preserves secret names through direct and nested-choice compilation without inventing an empty string', () => {
+    const fields = [
+      { kind: 'input', id: 'key', type: concrete('STRING'), pin: false, secret: true, default: 'caption-service' },
+      { kind: 'input', id: 'optional_key', type: concrete('STRING'), pin: false, secret: true, required: false },
+    ]
+    for (const nested of [false, true]) {
+      const result = parseDinksterSchema('SecretFixture', {
+        outputNode: true,
+        body: nested ? [{ kind: 'choice', id: 'service', options: [{ key: 'caption', rows: fields }] }] : fields,
+      })
+      expect(result.diagnostics).toEqual([])
+      const resolve = (type: string) => type === 'SecretFixture' ? result.schema : undefined
+      const imported = importLitegraph({ nodes: [{ id: 1, type: 'SecretFixture', widgets_values: nested ? ['caption'] : [] }], links: [] }, resolve)
+      const compiled = compile({ document: imported.document!, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('secret'), schemaHash: 'secret' })
+      expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('secret compilation failed')
+      expect(compiled.artifact.prompt.n1!.inputs).toEqual(nested ? { 'service.key': 'caption-service' } : { key: 'caption-service' })
+      const inputs = elabInputsOf(elaborateInterface(result.schema!, { values: nested ? { service: 'caption' } : {} })).filter((input) => input.spec.secret)
+      expect(inputs.map((input) => input.spec.widget?.widgetType)).toEqual(['SECRET', 'SECRET'])
+      expect(inputs.every((input) => input.spec.socketless === true)).toBe(true)
+    }
+    for (const invalid of [
+      { pin: true }, { type: concrete('INT') }, { widget: { type: 'STRING' } },
+      { default: 'not a name' }, { default: 'caption-service\n' }, { default: '' }, { default: 'a'.repeat(129) },
+      { acceptsList: true }, { automatic: { formula: 'other' } },
+      { lazy: true }, { sent: false }, { onEdit: [{ kind: 'set', input: 'other', value: 'x' }] },
+    ]) {
+      expect(parseDinksterSchema('InvalidSecret', { body: [{ ...fields[0], ...invalid }] } as never).schema).toBeUndefined()
+    }
+  })
+
   it('keeps socketless widget values positional and compilable in direct and nested inputs', () => {
     const fields = [
       { kind: 'input', id: 'color', type: concrete('STRING'), default: '#123456', pin: false, widget: { type: 'COLOR' } },

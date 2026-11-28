@@ -1281,7 +1281,7 @@ export interface DiagnosticFocusRequest {
   readonly anchor: DiagnosticAnchor
   /** Mark this field without opening its editor. */
   readonly focusRow?: string
-  readonly openAssetInput?: string
+  readonly openFieldInput?: string
   readonly missingAssetDigest?: string
   /** The problem Show on canvas picked; the node's box opens on its line. */
   readonly diagnostic?: Diagnostic
@@ -4679,7 +4679,7 @@ export class AppState {
         entry.asset?.digest === requirement.asset?.digest)
     if (!occurrence) return
     this.activeTabId.set(tab.id)
-    this.diagnosticFocus.set({ tab, openAssetInput: occurrence.input,
+    this.diagnosticFocus.set({ tab, openFieldInput: occurrence.input,
       anchor: { occurrence: { instancePath: (occurrence.instancePath ?? []).map(asNodeId), node: asNodeId(occurrence.node) } },
     })
   }
@@ -11227,7 +11227,14 @@ export class AppState {
    */
   executionForTab(tab: Tab): ExecutionState | undefined {
     if (tab.execution) return this.store.get(tab.execution)
-    return this.pinnedExecutionFor(tab) ?? this.latestExecutionFor(tab.store.doc.lineage)
+    const execution = this.pinnedExecutionFor(tab) ?? this.latestExecutionFor(tab.store.doc.lineage)
+    if (!execution?.resolvedSecretErrors?.length) return execution
+    const resolved = new Set(execution.resolvedSecretErrors)
+    const errors = execution.errors.filter((error) => !resolved.has(error))
+    const repairedNodes = new Set(execution.resolvedSecretErrors.map((error) => error.data?.['runtimeId']))
+    for (const error of errors) repairedNodes.delete(error.data?.['runtimeId'])
+    return { ...execution, errors, nodes: Object.fromEntries(Object.entries(execution.nodes)
+      .filter(([id, progress]) => progress.state !== 'error' || !repairedNodes.has(id))) }
   }
 
   /**

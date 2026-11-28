@@ -92,7 +92,7 @@ export function resolveWidgetTap(
     return { ok: false, code: matches.length === 0 ? 'boundary.tapMissing' : 'boundary.tapAmbiguous' }
   }
   const input = matches[0]!.spec
-  return input.widget !== undefined && input.forceInput !== true
+  return input.widget !== undefined && input.forceInput !== true && input.secret !== true
     ? { ok: true, input }
     : { ok: false, code: 'boundary.tapUnsupported' }
 }
@@ -1001,7 +1001,7 @@ export function deriveBoundarySchema(
     }
     if (route.terminal.kind !== 'port') continue
     const inner = route.terminal.slot as InputSpec
-    const promoted = item.promoted === true && inner.widget !== undefined
+    const promoted = (item.promoted === true || inner.secret === true) && inner.widget !== undefined
     const primaryType = freshenType(inner.type, item.binds.node, typeBindingsFor(node))
     // Fan-out: the PRIMARY binding stays authoritative for type and widget;
     // each additional target must resolve structurally (errors skip the
@@ -1009,7 +1009,8 @@ export function deriveBoundarySchema(
     // documents are never rejected on type grounds). The boundary input is
     // satisfiable without a connection only when EVERY target is (each
     // falls back to its own stored value or optionality).
-    let satisfiable = inner.optional || inner.widget !== undefined
+    // A secret's widget stores a name, not proof that a credential is set.
+    let satisfiable = inner.optional || (inner.secret !== true && inner.widget !== undefined)
     // The subgraph input takes a whole list only when every target does;
     // one single-value target would receive the list unmapped.
     let acceptsList = inner.acceptsList === true
@@ -1045,7 +1046,11 @@ export function deriveBoundarySchema(
         if (!typesCompatible(primaryType, freshenType(targetSlot.type, b.node, typeBindingsFor(r.node)))) {
           diags.push(diag('warning', 'schema', 'boundary.fanoutTypeMismatch', `[${def.id}] boundary input '${item.id}' fan-out target '${b.node}/${b.port}' does not accept the boundary type`))
         }
-        if (!(targetSlot.optional || targetSlot.widget !== undefined)) satisfiable = false
+        if (targetSlot.secret !== inner.secret) {
+          fail('boundary.secretFanout', `${describe} cannot share a secret-name row with an ordinary input`)
+          fanoutOk = false
+        }
+        if (!(targetSlot.optional || (targetSlot.secret !== true && targetSlot.widget !== undefined))) satisfiable = false
         if (targetSlot.acceptsList !== true) acceptsList = false
       }
     }
@@ -1073,11 +1078,11 @@ export function deriveBoundarySchema(
       ...displayNameOf(item, inner),
       ...tooltipOf(item, inner),
       type: primaryType,
-      // A widget-backed inner input has a stored value, so the boundary
-      // input is satisfiable without a connection.
+      // Ordinary widgets provide a fallback; secret names retain requiredness.
       optional: satisfiable,
       ...(acceptsList ? { acceptsList: true as const } : {}),
       ...(promoted && inner.socketless === true ? { socketless: true as const } : {}),
+      ...(inner.secret === true ? { secret: true as const } : {}),
       ...(promotedWidget !== undefined
         ? { widget: promotedWidget }
         : inner.widget !== undefined

@@ -1998,6 +1998,7 @@ function compileImpl(
     const inputs = tappedInputs(path, defId, nodeId, inputId, sink)
     if (inputs === 'muted') return 'muted'
     if (!inputs || inputs.length === 0) return undefined
+    if (inputs.some((entry) => entry.input.spec.secret === true)) return undefined
     const input = inputs[0]!
     const typeId = canonicalTypeIdOf(input.input.spec.type)
     if (typeId === undefined) return undefined
@@ -2126,6 +2127,9 @@ function compileImpl(
             { anchor: anchorOf(path, link.from.node) }))
         } else if (!tapped && !givesNothing) {
           diags.push(diag('error', 'compile', 'compile.tap.missingInput', `${link.from.node}.${link.from.tap}: tapped input is missing in graph ${defId}`))
+          continue
+        } else if (tapped && tapped !== 'muted' && tapped.some((entry) => entry.input.spec.secret === true)) {
+          diags.push(diag('error', 'compile', 'compile.tap.secret', 'A secret-name row cannot pass its value on', { anchor: anchorOf(path, link.from.node) }))
           continue
         } else if (tapped && tapped !== 'muted' && tapped.some((i) => canonicalTypeIdOf(i.input.spec.type) === undefined)) {
           diags.push(diag('error', 'compile', 'compile.tap.nonConcrete', `${link.from.node}.${link.from.tap}: tapped input has no concrete type`))

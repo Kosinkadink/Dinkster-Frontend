@@ -120,6 +120,7 @@ import { BoardResultsGallery } from './board-results.js'
 import { ResultPicturesGallery } from './result-pictures.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
+import { SecretsGallery } from './secrets.js'
 import { SettingsSectionGallery } from './settings-section.js'
 import { FieldAlignmentGallery, SelectGallery } from './select.js'
 
@@ -809,6 +810,12 @@ function Gallery() {
                     <ProductSelect {...attributes} options={[{ value: 'read', label: 'Read only' }, { value: 'disabled', label: 'Unavailable', disabled: true }, { value: 'mint', label: 'Mint only' }]} />
                   )}
                 </ProductField>
+                <ProductField label="Editable choice">
+                  {(attributes) => (
+                    <ProductSelect {...attributes} editable placeholder="Choose or type a name"
+                      options={[{ value: 'caption-service', label: 'caption-service' }, { value: 'caption-service-work', label: 'caption-service-work' }, { value: 'image-host', label: 'image-host' }]} />
+                  )}
+                </ProductField>
                 <ProductField label="Unavailable choice">
                   {(attributes) => (
                     <ProductSelect {...attributes} disabled options={[{ value: 'read', label: 'Read only' }]} />
@@ -843,6 +850,7 @@ function Gallery() {
                 />
               </Section>
             </Match>
+            <Match when={route() === '#secrets'}><SecretsGallery /></Match>
             <Match when={route() === '#forms'}>
               <span class="dinkster-metadata dinkster-mono">ProductForm</span>
               <ProductNotice>

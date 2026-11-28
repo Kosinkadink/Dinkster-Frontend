@@ -67,6 +67,7 @@ export interface CompactState {
   readonly focused: boolean
   readonly connected: boolean
   readonly readonly: boolean
+  readonly required?: boolean
   /** Content is truncated: view MUST render the truncation affordance. */
   readonly truncated?: boolean
   /**

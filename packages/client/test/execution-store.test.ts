@@ -67,6 +67,44 @@ describe('connection queue status', () => {
   })
 })
 
+it('names refused secrets and repairs only existing refusals on that connection without erasing history', () => {
+  const store = new ExecutionStore()
+  const local = asConnectionId('local')
+  const remote = asConnectionId('remote')
+  const artifact = { prompt: { caption: { class_type: 'Caption', inputs: { credential: 'caption-service' } } } } as never
+  const refuse = (connection: typeof local, prompt: string) => {
+    const ref = { connection, prompt: asPromptId(prompt) }
+    store.apply({ kind: 'error', execution: ref, runtimeNodeId: 'caption', timestamp: 1,
+      detail: { exceptionType: 'execution', exceptionMessage: 'The service refused this secret.', traceback: [],
+        hints: [{ code: 'secret-rejected', inputId: 'credential', message: 'The service refused this secret.' }] } })
+    // Socket errors can arrive before the submission returns its compiled artifact.
+    store.register(ref, artifact)
+    return ref
+  }
+  const first = refuse(local, 'first')
+  const other = refuse(remote, 'other')
+  expect(store.get(first)!.errors[0]!.message).toBe('The service refused the secret "caption-service".')
+  expect(store.get(first)!.errors[0]!.runtime!.hints![0]!.message).toBe('The service refused the secret "caption-service".')
+  store.resolveSecretErrors(local, 'different-service')
+  expect(store.get(first)!.resolvedSecretErrors).toBeUndefined()
+  const sameConnection = refuse(local, 'same-connection')
+  store.resolveSecretErrors(local, 'caption-service', { execution: first, runtimeId: 'another', inputId: 'credential' })
+  store.resolveSecretErrors(local, 'caption-service', { execution: first, runtimeId: 'caption', inputId: 'other' })
+  expect(store.get(first)!.resolvedSecretErrors).toBeUndefined()
+  store.resolveSecretErrors(local, 'caption-service', { execution: first, runtimeId: 'caption', inputId: 'credential' })
+  expect(store.get(first)!.resolvedSecretErrors).toEqual([store.get(first)!.errors[0]])
+  expect(store.get(first)!.errors).toHaveLength(1)
+  expect(store.get(sameConnection)!.resolvedSecretErrors).toBeUndefined()
+  expect(store.get(other)!.resolvedSecretErrors).toBeUndefined()
+  store.resolveSecretErrors(local, 'caption-service')
+  expect(store.get(first)!.resolvedSecretErrors).toEqual(store.get(first)!.errors)
+  expect(store.get(first)!.status).toBe('error')
+  expect(store.get(first)!.errors).toHaveLength(1)
+  expect(store.get(other)!.resolvedSecretErrors).toBeUndefined()
+  const next = refuse(local, 'next')
+  expect(store.get(next)!.resolvedSecretErrors).toBeUndefined()
+})
+
 describe('attributed previews', () => {
   const C0 = asConnectionId('c0')
   const exec = (prompt: string) => ({ connection: C0, prompt: asPromptId(prompt) })

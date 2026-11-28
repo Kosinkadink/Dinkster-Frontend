@@ -408,7 +408,12 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-dialog[data-size='confirmation'] { width: min(var(--dinkster-confirmation-max-width), calc(100vw - var(--dinkster-space-32))); }
 .dinkster-dialog .dinkster-stack { gap: var(--dinkster-space-12); }
 .dinkster-dialog .dinkster-button[aria-busy='true'] { opacity: 1; }
-.dinkster-dialog-actions { display: flex; justify-content: flex-end; align-items: center; gap: var(--dinkster-space-8); }
+.dinkster-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--dinkster-space-8); }
+.dinkster-dialog-secondary-action { flex-shrink: 0; margin-inline-end: auto; }
+.dinkster-dialog-primary-actions { display: flex; flex-shrink: 0; align-items: center; gap: var(--dinkster-space-8); }
+.dinkster-button[data-remove-on-hover] { position: relative; }
+.dinkster-button[data-remove-on-hover]:not(:disabled, [aria-disabled='true']):is(:hover, :focus-visible) { color: var(--dinkster-danger-foreground); background: transparent; }
+.dinkster-button[data-remove-on-hover]:not(:disabled, [aria-disabled='true']):is(:hover, :focus-visible)::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--dinkster-danger-foreground); opacity: .12; pointer-events: none; }
 .dinkster-confirmation { display: grid; gap: var(--dinkster-space-8); min-width: 0; }
 .dinkster-confirmation[data-surface='filled'] { padding: var(--dinkster-space-12); border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-quiet); }
 .dinkster-confirmation-actions { display: flex; justify-content: flex-end; gap: var(--dinkster-space-8); margin-top: var(--dinkster-space-8); }
@@ -831,6 +836,9 @@ button.dinkster-row-main { cursor: pointer; }
 [data-density='site'] .dinkster-menu-trigger[data-account] > :is(.dinkster-menu-label, .dinkster-icon), [data-density='site'] .dinkster-menu[data-account] .dinkster-icon { display: none; }
 [data-density='site'] .dinkster-avatar { width: var(--dinkster-site-avatar-size); height: var(--dinkster-site-avatar-size); background: var(--dinkster-interaction-hover); font-size: var(--dinkster-type-body-size); line-height: var(--dinkster-type-body-line); }
 .dinkster-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: var(--dinkster-space-8); min-height: var(--dinkster-control-compact-height); padding: var(--dinkster-space-4) var(--dinkster-space-8) var(--dinkster-space-4) var(--dinkster-field-value-padding-start); text-align: left; font: inherit; cursor: pointer; user-select: none; }
+.dinkster-editable-select { position: relative; }
+.dinkster-editable-select > .dinkster-input { width: 100%; padding-right: var(--dinkster-space-32); }
+.dinkster-editable-select > .dinkster-icon { position: absolute; right: calc(var(--dinkster-space-8) + var(--dinkster-border-width)); top: 50%; transform: translateY(-50%); color: var(--dinkster-text-secondary); pointer-events: none; }
 .dinkster-select-trigger > .dinkster-canvas-list-label { min-width: 0; }
 .dinkster-select-trigger > .dinkster-icon { flex: none; color: var(--dinkster-text-secondary); }
 .dinkster-select-trigger:disabled { color: var(--dinkster-text-disabled); cursor: default; }
@@ -838,6 +846,7 @@ button.dinkster-row-main { cursor: pointer; }
 .dinkster-select-list > .dinkster-canvas-list-option { padding-inline: var(--dinkster-space-8); }
 [data-density='site'] .dinkster-select-trigger { padding-right: var(--dinkster-space-12); }
 .dinkster-select-list[data-density='site'] > .dinkster-canvas-list-option { padding-inline: var(--dinkster-space-12); }
+[data-density='site'] .dinkster-editable-select > .dinkster-icon { right: calc(var(--dinkster-space-12) + var(--dinkster-border-width)); }
 [data-density='site'] .dinkster-disclosure > summary { display: flex; align-items: center; gap: var(--dinkster-space-8); list-style: none; }
 [data-density='site'] .dinkster-disclosure > summary::-webkit-details-marker { display: none; }
 [data-density='site'] .dinkster-disclosure > summary > .dinkster-icon { display: block; }

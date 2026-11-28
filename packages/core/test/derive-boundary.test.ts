@@ -9,7 +9,9 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { BoundaryItem, GraphDef, Json, WorkflowDocument } from '../src/format/document.js'
-import { compile } from '../src/compile/compile.js'
+import { coreCommandRegistry } from '../src/commands/core-commands.js'
+import { DocumentStore } from '../src/commands/store.js'
+import { compile, documentResolver } from '../src/compile/compile.js'
 import { asConnectionId } from '../src/ids.js'
 import { deriveBoundarySchema, type SchemaResolver } from '../src/schema/derive-boundary.js'
 import { elaborateInterface, elabInputsOf } from '../src/schema/elaborate.js'
@@ -356,6 +358,72 @@ describe('widget promotion vs socket-only', () => {
       expect(elabInputsOf(elaborateInterface(schema!, instance))[0]!.spec.widget!.options.options).toEqual(['override'])
       expect(instance.values).toEqual({ menu: 'outside' })
       expect(JSON.stringify(graph)).toBe(before)
+    }
+  })
+})
+
+describe('secret names on subgraphs', () => {
+  it('keeps names editable but unwireable through nested wrappers, without making required credentials optional', () => {
+    const { schema: secret } = parseDinksterSchema('Secret', { outputNode: true, body: [
+      { kind: 'input', id: 'key', type: { kind: 'concrete', types: ['STRING'] }, pin: false, secret: true, default: 'caption-service' },
+      { kind: 'input', id: 'optional_key', type: { kind: 'concrete', types: ['STRING'] }, pin: false, secret: true, required: false },
+      { kind: 'input', id: 'text', type: { kind: 'concrete', types: ['STRING'] }, required: false },
+    ] } as never)
+    const resolve = (type: string): NodeSchema | undefined => type === 'Secret' ? secret : type === 'Source' ? {
+      type: 'Source', displayName: 'Source', category: 'test', source: 'v3', isOutputNode: false,
+      body: [{ kind: 'output', id: 'out', type: { kind: 'concrete', name: 'STRING' } }],
+    } : undefined
+    for (const promoted of [false, true]) {
+      const graph = (id: string, type: string, key: string, optionalKey: string) => asDef({
+        id, name: id, nodes: { n: { id: 'n', type, values: {} } }, links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+        boundary: { body: [
+          { kind: 'input', id: 'credential', binds: { kind: 'port', node: 'n', port: key }, promoted },
+          { kind: 'input', id: 'optional', binds: { kind: 'port', node: 'n', port: optionalKey }, promoted },
+        ] },
+      })
+      const inner = graph('inner', 'Secret', 'key', 'optional_key')
+      const outer = graph('outer', '#inner', 'credential', 'optional')
+      const document = {
+        format: 'dinkster-workflow', formatVersion: 1, lineage: 'secret-wrappers', root: 'root',
+        graphs: {
+          root: asDef({ id: 'root', name: 'root', links: {}, nets: {}, reroutes: {}, nextOrdinal: 1,
+            nodes: { instance: { id: 'instance', type: '#outer', values: { credential: 'account-caption' } }, source: { id: 'source', type: 'Source', values: {} } } }),
+          inner, outer,
+        }, view: { graphs: {} },
+      } as unknown as WorkflowDocument
+      for (const [primary, secondary] of [['key', 'text'], ['text', 'key']]) {
+        const mixed = deriveBoundarySchema(asDef({ ...inner, boundary: { body: [
+          { kind: 'input', id: 'mixed', binds: { kind: 'port', node: 'n', port: primary },
+            alsoBinds: [{ kind: 'port', node: 'n', port: secondary }] },
+        ] } }), resolve)
+        expect(mixed.schema).toBeUndefined()
+        expect(mixed.diagnostics.some((d) => d.code === 'boundary.secretFanout')).toBe(true)
+      }
+      const schemas = documentResolver(document, resolve)
+      const inputs = elabInputsOf(elaborateInterface(schemas('#outer')!, { values: {} }))
+      expect(inputs.map((input) => ({ secret: input.spec.secret, socketless: input.spec.socketless, optional: input.spec.optional, widget: input.spec.widget?.widgetType }))).toEqual([
+        { secret: true, socketless: true, optional: false, widget: 'SECRET' },
+        { secret: true, socketless: true, optional: true, widget: 'SECRET' },
+      ])
+      const store = new DocumentStore(document, coreCommandRegistry(), 200, undefined, () => ({
+        kind: 'initial', schemaResolverFor: (doc) => documentResolver(doc, resolve),
+      }))
+      const before = store.doc
+      const wire = store.dispatch({ command: 'link.connect', params: { graphId: 'root',
+        from: { node: 'source', port: 'out' }, to: { node: 'instance', port: 'optional' },
+      } })
+      expect(wire.ok).toBe(false)
+      expect(wire.diagnostics[0]?.code).toBe('link.socketless')
+      expect(store.doc).toBe(before)
+      const tap = deriveBoundarySchema(asDef({ ...outer, boundary: { body: [
+        { kind: 'output', id: 'exposed', binds: { kind: 'widgetTap', node: 'n', tap: 'credential' } },
+      ] } }), schemas)
+      expect(tap.schema).toBeUndefined()
+      expect(tap.diagnostics.some((d) => d.code === 'boundary.tapUnsupported')).toBe(true)
+      const compiled = compile({ document, revision: 0, resolve, scope: { kind: 'full' }, connection: asConnectionId('secret'), schemaHash: 'secret' })
+      expect(compiled.ok, compiled.ok ? undefined : JSON.stringify(compiled.diagnostics)).toBe(true)
+      if (!compiled.ok) throw new Error('secret wrapper compilation failed')
+      expect(compiled.artifact.prompt['instance.n.n']!.inputs).toEqual({ key: 'account-caption' })
     }
   })
 })

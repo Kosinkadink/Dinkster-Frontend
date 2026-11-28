@@ -1042,6 +1042,41 @@ const dynDoc = (parts: {
 const dynCompile = (doc: WorkflowDocument, scope: ExecutionScope = { kind: 'full' }) =>
   compile({ ...compileInput(doc, scope), resolve: dynResolve })
 
+describe('secret names', () => {
+  it('refuses outgoing name taps on active and bypassed nodes, including selected choice fields', () => {
+    const concrete = (name: string) => ({ kind: 'concrete', types: [name] })
+    const key = { kind: 'input', id: 'key', type: concrete('STRING'), pin: false, default: 'caption-service' }
+    const sink = parseDinksterSchema('TextSink', { outputNode: true, body: [
+      { kind: 'input', id: 'text', type: concrete('STRING') },
+    ] }).schema!
+    for (const nested of [false, true]) {
+      for (const secret of [false, true]) {
+        const field = { ...key, secret }
+        const source = parseDinksterSchema('SecretSource', { body: nested
+          ? [{ kind: 'choice', id: 'service', options: [{ key: 'caption', rows: [field] }] }]
+          : [field],
+        }).schema!
+        const resolve = (type: string) => type === 'SecretSource' ? source : type === 'TextSink' ? sink : undefined
+        for (const mode of ['active', 'bypassed'] as const) {
+          const document = dynDoc({ nodes: {
+            source: { type: 'SecretSource', mode, ...(nested ? { dynamic: { service: { selected: 'caption' } } } : {}) },
+            sink: { type: 'TextSink' },
+          }, links: [[{ node: 'source', tap: nested ? 'service.key' : 'key' }, ['sink', 'text']]] })
+          const result = compile(compileInput(document, { kind: 'full' }, resolve))
+          if (!secret) {
+            expect(result.ok && result.artifact.prompt['sink']!.inputs['text']).toBe('caption-service')
+            continue
+          }
+          expect(result.ok).toBe(false)
+          if (result.ok) throw new Error('A secret-name tap reached a run')
+          expect(result.diagnostics.some((diagnostic) => diagnostic.severity === 'error'
+            && diagnostic.code === 'compile.tap.secret'), JSON.stringify({ nested, mode, diagnostics: result.diagnostics })).toBe(true)
+        }
+      }
+    }
+  })
+})
+
 describe('small flow nodes', () => {
   const flowSchemas = new Map(Object.entries(readJson('test/fixtures/flow_schemas.json') as Record<string, DinksterWireSchema>)
     .map(([type, wire]) => [type, parseDinksterSchema(type, wire).schema!]))

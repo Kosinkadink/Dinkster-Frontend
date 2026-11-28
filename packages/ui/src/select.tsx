@@ -14,6 +14,7 @@ import { Check, ChevronDown } from 'lucide-solid'
 import { placeFloatingSurface } from '@dinkster/core/floating-surface'
 import { semanticDesignTokens } from '@dinkster/core'
 import { useFieldFocus } from './field-focus.js'
+import { ProductTextInput } from './controls.js'
 
 export interface ProductSelectOption {
   readonly value: string
@@ -38,6 +39,8 @@ export function ProductSelect(
     readonly value?: string | undefined
     readonly onChange?: (value: string) => void
     readonly name?: string
+    readonly editable?: boolean
+    readonly placeholder?: string
   },
 ) {
   useFieldFocus()
@@ -46,6 +49,8 @@ export function ProductSelect(
     'value',
     'onChange',
     'name',
+    'editable',
+    'placeholder',
     'id',
     'disabled',
     'ref',
@@ -58,11 +63,10 @@ export function ProductSelect(
   const value = () =>
     local.value ??
     chosen() ??
-    local.options.find((option) => !option.disabled)?.value ??
-    ''
+    (local.editable ? '' : local.options.find((option) => !option.disabled)?.value ?? '')
   const [open, setOpen] = createSignal(false)
   const [active, setActive] = createSignal(-1)
-  let trigger!: HTMLButtonElement
+  let trigger!: HTMLButtonElement | HTMLInputElement
   let list!: HTMLDivElement
   let typed = ''
   let typedAt = 0
@@ -122,9 +126,9 @@ export function ProductSelect(
   }
   const move = (delta: -1 | 1) => {
     const count = local.options.length
-    const start = open() ? active() : initial()
+    const start = open() ? active() : local.editable ? -1 : initial()
     for (let offset = 1; offset <= count; offset++) {
-      const next = (start + delta * offset + count) % count
+      const next = ((start < 0 && delta === -1 ? 0 : start) + delta * offset + count) % count
       if (enabled(next)) {
         if (!open()) show(next)
         else setActive(next)
@@ -146,6 +150,13 @@ export function ProductSelect(
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       move(event.key === 'ArrowDown' ? 1 : -1)
+      return
+    }
+    if (local.editable) {
+      if (event.key === 'Enter' && open() && enabled(active())) {
+        event.preventDefault()
+        pick(active())
+      }
       return
     }
     if (event.key === 'Home' || event.key === 'End') {
@@ -198,7 +209,7 @@ export function ProductSelect(
     const selected = value()
     if (local.disabled) close()
     if (!open()) return
-    if (!enabled(active())) setActive(initial())
+    if (!enabled(active()) && !(local.editable && active() === -1)) setActive(initial())
     void [options, selected]
     queueMicrotask(() => {
       place()
@@ -251,7 +262,7 @@ export function ProductSelect(
           disabled={local.disabled}
         />
       </Show>
-      <button
+      <Show when={local.editable} fallback={<button
         {...button}
         ref={(element) => {
           trigger = element
@@ -278,7 +289,38 @@ export function ProductSelect(
             value()}
         </span>
         <ChevronDown class="dinkster-icon" aria-hidden="true" />
-      </button>
+      </button>}>
+        <div class="dinkster-editable-select">
+          <ProductTextInput
+            ref={(element) => { trigger = element }}
+            id={triggerId()}
+            disabled={local.disabled}
+            value={value()}
+            placeholder={local.placeholder}
+            autofocus={button.autofocus}
+            autocomplete="off"
+            spellcheck={false}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-label={button['aria-label']}
+            aria-labelledby={button['aria-labelledby']}
+            aria-describedby={button['aria-describedby']}
+            aria-invalid={button['aria-invalid']}
+            aria-expanded={open()}
+            aria-controls={open() ? listId : undefined}
+            aria-activedescendant={open() && active() >= 0 ? optionId(active()) : undefined}
+            onClick={() => open() ? close() : show()}
+            onKeyDown={keydown}
+            onInput={(event) => {
+              const next = event.currentTarget.value
+              setChosen(next)
+              local.onChange?.(next)
+              show(-1)
+            }}
+          />
+          <ChevronDown class="dinkster-icon" aria-hidden="true" />
+        </div>
+      </Show>
       <Show when={open()}>
         <Portal mount={trigger.closest('dialog') ?? document.body}>
           <div

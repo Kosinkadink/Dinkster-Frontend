@@ -671,6 +671,85 @@ describe('model download planning and owned jobs', () => {
   })
 })
 
+describe('named secrets', () => {
+  it('reads fresh account presence and exposes only authorized removal fallback', async () => {
+    const absent = { name: 'service_key', set: false, source: null, fallback: false, canManageDeployment: false }
+    const own = { name: 'service_key', set: true, source: 'account', fallback: true, canManageDeployment: false }
+    const deployment = { name: 'service_key', set: true, source: 'deployment', fallback: false, canManageDeployment: false }
+    let presence = absent as unknown
+    const mutations: { method: string; body: unknown }[] = []
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'secrets', token: 'account-session',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (url, init) => {
+        if (url === '/engine/api/secrets') {
+          expect(init?.cache).toBe('no-store')
+          return jsonResponse(200, { names: ['service_key', 'work-key'], canManageDeployment: false })
+        }
+        expect(url).toBe(`/engine/api/secrets/service_key${init?.method === 'DELETE' ? '?scope=account' : ''}`)
+        expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer account-session')
+        expect(init?.cache).toBe('no-store')
+        expect(init?.redirect).toBe('error')
+        if (init?.method === 'PUT') {
+          mutations.push({ method: 'PUT', body: JSON.parse(String(init.body)) as unknown })
+          presence = own
+        } else if (init?.method === 'DELETE') {
+          mutations.push({ method: 'DELETE', body: init.body })
+          presence = deployment
+        }
+        return jsonResponse(200, presence)
+      } })
+    expect(await connection.fetchSecretNames()).toEqual({ names: ['service_key', 'work-key'], canManageDeployment: false })
+    expect(await connection.fetchSecretPresence('service_key')).toEqual(absent)
+    expect(await connection.saveSecret('service_key', 'synthetic credential')).toEqual(own)
+    expect(mutations).toEqual([{ method: 'PUT', body: { value: 'synthetic credential', scope: 'account' } }])
+    expect(await connection.removeSecret('service_key')).toEqual(deployment)
+    presence = absent
+    expect(await connection.fetchSecretPresence('service_key')).toEqual(absent)
+    expect(mutations).toHaveLength(2)
+    presence = { ...absent, canManageDeployment: true }
+    expect((await connection.fetchSecretPresence('service_key')).canManageDeployment).toBe(true)
+    // A host that has not added the permission field must never expose deployment writes.
+    presence = { name: 'service_key', set: true, source: 'deployment', fallback: false }
+    expect((await connection.fetchSecretPresence('service_key')).canManageDeployment).toBe(false)
+    presence = { ...absent, canManageDeployment: 'true' }
+    await expect(connection.fetchSecretPresence('service_key')).rejects.toEqual(new Error('Cannot access secret. Try again'))
+  })
+
+  it('never exports reflected credential values through replies or failures or replays a save', async () => {
+    const secret = 'synthetic-only-private-value'
+    let status = 200
+    let body: unknown = { name: 'service_key', set: true, source: 'account', fallback: false, value: secret }
+    let networkFailure = false
+    let cancel: AbortController | undefined
+    let writes = 0
+    const connection = new DinksterConnection({ id: C0, baseUrl: '/engine', clientId: 'secrets',
+      webSocketFactory: () => ({}) as WebSocketLike, fetchFn: async (_url, init) => {
+        if (init?.method === 'PUT') writes++
+        if (networkFailure) throw new Error(secret)
+        cancel?.abort()
+        return jsonResponse(status, body)
+      } })
+    await expect(connection.fetchSecretPresence('service_key')).rejects.toEqual(new Error('Cannot access secret. Try again'))
+    status = 403
+    body = { error: secret }
+    await expect(connection.saveSecret('service_key', secret)).rejects.toEqual(new Error('Cannot access secret. Try again'))
+    expect(writes).toBe(1)
+    networkFailure = true
+    await expect(connection.saveSecret('service_key', secret)).rejects.toEqual(new Error('Cannot access secret. Try again'))
+    expect(writes).toBe(2)
+    networkFailure = false
+    status = 200
+    body = { name: 'another_name', set: true, source: 'account', fallback: false }
+    await expect(connection.fetchSecretPresence('service_key')).rejects.toEqual(new Error('Cannot access secret. Try again'))
+    body = { name: 'service_key', set: false, source: 'deployment', fallback: true }
+    await expect(connection.fetchSecretPresence('service_key')).rejects.toEqual(new Error('Cannot access secret. Try again'))
+    await expect(connection.fetchSecretPresence('../secrets')).rejects.toThrow('Choose a secret name')
+    await expect(connection.fetchSecretPresence('service_key\n')).rejects.toThrow('Choose a secret name')
+    body = { name: 'service_key', set: true, source: 'account', fallback: false }
+    cancel = new AbortController()
+    await expect(connection.fetchSecretPresence('service_key', cancel.signal)).rejects.toEqual(new Error('Cannot access secret. Try again'))
+  })
+})
+
 describe('shared model management', () => {
   const folder = { id: 'studio', path: '/models/checkpoints', mode: 'read' as const, visibility: 'opt-in' as const, kind: 'model/checkpoint' }
   const state = { settings: { version: 1 as const, locations: [folder], downloadLocation: null },
