@@ -160,14 +160,14 @@ it('keeps mount recovery and declared-default reset inside the Save target edito
     commit={commit} queue={() => {}} />, root)
   const button = (label: string) => [...root.querySelectorAll('button')].find((entry) => entry.textContent === label)
   try {
-    await vi.waitFor(() => expect(root.querySelector('.dinkster-canvas-editor-note')?.textContent).toContain('usb1 not found.'))
+    await vi.waitFor(() => expect(root.querySelector('.dinkster-canvas-editor-note')?.textContent).toContain('"usb1" not found.'))
     expect(root.querySelector('.dinkster-canvas-target-value-text')?.textContent).toBe('usb1')
     setRequestState(1)
     expect(button('Use project default')).toBeUndefined()
     expect(root.querySelector('.dinkster-canvas-target-name')?.getAttribute('title')).toBe('Relative name only')
     button('Details')!.click()
     const recovery = document.querySelector('[role="dialog"] button') as HTMLButtonElement
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('usb1 is not on this machine.')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('"usb1" is not on this machine.')
     recovery.focus()
     const recoverKey = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
     recovery.dispatchEvent(recoverKey)
@@ -194,6 +194,40 @@ it('keeps mount recovery and declared-default reset inside the Save target edito
     expect(button('Use project default')).toBeUndefined()
     expect(button('Reset to default')).toBeUndefined()
     expect(root.querySelector('input')!.readOnly).toBe(true)
+  } finally { dispose() }
+})
+
+it('opens Storage for a missing target until the project output is writable, then restores the fix in the same field', async () => {
+  const [ready, setReady] = createSolidSignal(false)
+  let opened = 0
+  const root = document.createElement('div'); document.body.append(root)
+  const commit = vi.fn(async () => true)
+  const dispose = render(() => <SaveTargetSpace value={{ mount: 'renders', prefix: 'portraits/first' }} wired={false}
+    fetchMounts={ready()
+      ? async () => ({ activeOutputMount: 'output', mountChangesAllowed: false,
+        mounts: [{ id: 'output', mode: 'readwrite', state: 'ready' }] })
+      : async () => ({ activeOutputMount: 'output', mountChangesAllowed: false,
+        mounts: [{ id: 'output', mode: 'readwrite', state: 'offline' }] })}
+    openStorage={() => { opened++ }} commit={commit} queue={() => {}} />, root)
+  const details = () => [...root.querySelectorAll('button')].find((entry) => entry.textContent === 'Details')!
+  try {
+    await vi.waitFor(() => expect(details()).toBeDefined())
+    details().click()
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(`"renders" is missing and this project's output mount "output" is not available.`)
+    const storage = document.querySelector<HTMLButtonElement>('[role="dialog"] button')!
+    expect(storage.textContent).toBe('Open Storage')
+    storage.click()
+    expect(opened).toBe(1)
+    expect(root.querySelector('input')!.value).toBe('portraits/first')
+    setReady(true)
+    await vi.waitFor(() => expect(root.querySelector('.dinkster-canvas-editor-note')?.textContent).toContain('"renders" not found.'))
+    details().click()
+    const fix = document.querySelector<HTMLButtonElement>('[role="dialog"] button')!
+    expect(fix.textContent).toBe('Use project default')
+    fix.click()
+    expect(root.querySelector('.dinkster-canvas-target-value-text')?.textContent).toBe('Project default')
+    expect(root.querySelector('input')!.value).toBe('portraits/first')
+    expect(commit).not.toHaveBeenCalled()
   } finally { dispose() }
 })
 
@@ -342,8 +376,9 @@ it.each([false, true])('edits structured save destinations with writable grants 
       { id: 'archive', mode: 'readwrite', state: 'ready' },
       { id: 'reference', mode: 'read', state: 'ready' },
       { id: 'offline', mode: 'readwrite', state: 'missing' },
+      { id: 'denied', mode: 'readwrite', state: 'ready', saveError: 'Cannot save here: Permission denied' },
     ] }) } }),
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+    dispatchEditTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const open = () => render(() => <WidgetEditor app={app} ed={{
@@ -407,7 +442,7 @@ it.each([
   const registry = createWidgetRegistry()
   const app = { widgetRegistry: registry, widgetRegistryForTab: () => registry,
     registryForTab: () => ({ resolve: () => schema }), executionForTab: () => undefined,
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+    dispatchEditTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const input = inputsOf(schema).find((row) => row.id === id)!
   const root = document.createElement('div'); document.body.append(root)
@@ -508,7 +543,7 @@ it('edits a crop region atomically, rejects invalid drafts and supports undo', a
   const registry = createWidgetRegistry()
   const app = {
     widgetRegistry: registry, widgetRegistryForTab: () => registry,
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+    dispatchEditTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div'); document.body.append(root)
   const dispose = render(() => <WidgetEditor app={app} ed={{
@@ -554,8 +589,9 @@ it('edits only the schema-backed mount string, preserving prefix and undoable de
       { id: 'archive', mode: 'readwrite', state: 'ready' },
       { id: 'reference', mode: 'read', state: 'ready' },
       { id: 'offline', mode: 'readwrite', state: 'missing' },
+      { id: 'denied', mode: 'readwrite', state: 'ready', saveError: 'Cannot save here: Permission denied' },
     ] }) } }),
-    dispatchTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
+    dispatchEditTo: (_tab: Tab, command: Parameters<DocumentStore['dispatch']>[0]) => store.dispatch(command),
   } as unknown as AppState
   const root = document.createElement('div')
   document.body.append(root)

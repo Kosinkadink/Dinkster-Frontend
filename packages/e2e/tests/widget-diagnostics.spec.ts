@@ -15,8 +15,8 @@
  *   the dormant stored literal underneath must not nag
  * - diagnostics REPLACE per scene build (never accumulate) and clear the
  *   moment the value is fixed through the real editor
- * - every message is anchored as <nodeId>.<valueKey> so a report names the
- *   exact node and input
+ * - every message names the visible node and field, while refs retain the
+ *   storage address for focus and fixes
  */
 import { expect, openRailPanel, nativeTest as test, waitForWorkspaceReady, type Page } from './fixtures.js'
 
@@ -159,9 +159,9 @@ test('an additive nested combo field keeps the node editable and reports its nam
 
 test('out-of-range stored INT reports anchored in Problems and clears when fixed in the editor', async ({ page }) => {
   await openFixture(page, { count: 999 })
-  // Anchored as node.valueKey so the report names the exact input.
+  // The panel names the visible node and field.
   await expect(problems(page)).toContainText('widget.INT.aboveMax')
-  await expect(problems(page)).toContainText('widgets.count: 999 > max 100')
+  await expect(problems(page)).toContainText('Diag Widgets: count: 999 > max 100')
   // Fixing the value through the real editor rebuilds the scene and the
   // diagnostic goes with it - replace semantics, not append.
   await openEditor(page, 'widgets', 'count')
@@ -175,13 +175,13 @@ test('a stored value of the wrong JSON shape reports badValue instead of crashin
   // must catch the shape mismatch BEFORE validate() sees the value.
   await openFixture(page, { count: 'not a number' })
   await expect(problems(page)).toContainText('widget.INT.badValue')
-  await expect(problems(page)).toContainText('widgets.count')
+  await expect(problems(page)).toContainText('Diag Widgets: count: The saved value does not fit this field.')
 })
 
 test('unknown stored COMBO option reports and clears when a listed option is picked', async ({ page }) => {
   await openFixture(page, { choice: 'omega' })
   await expect(problems(page)).toContainText('widget.COMBO.unknownOption')
-  await expect(problems(page)).toContainText("widgets.choice: 'omega' is not in the option list")
+  await expect(problems(page)).toContainText("Diag Widgets: choice: 'omega' is not in the option list")
   await openEditor(page, 'widgets', 'choice')
   const search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('beta'); await search.press('ArrowDown'); await search.press('Enter')
@@ -194,7 +194,7 @@ test('invalid stored mount reports the grammar violation and clears through the 
   ] } }))
   await openFixture(page, { mount: '/etc/passwd' })
   await expect(problems(page)).toContainText('widget.MOUNT.invalid')
-  await expect(problems(page)).toContainText('widgets.mount')
+  await expect(problems(page)).toContainText('Diag Widgets: mount:')
   await openEditor(page, 'widgets', 'mount')
   await expect(page.getByTestId('mount-widget-editor')).toHaveAttribute('data-mounts', 'ready')
   await page.getByTestId('mount-widget-choice').click()
@@ -228,7 +228,7 @@ test('diagnostics replace per scene rebuild: unrelated edits never duplicate an 
   const search = page.locator('[data-editor-surface="in-row-list"] input')
   await search.fill('gamma'); await search.press('ArrowDown'); await search.press('Enter')
   await expect(problemEntries(page, 'widget.INT.aboveMax')).toHaveCount(1)
-  await expect(problems(page)).toContainText('widgets.count: 999 > max 100')
+  await expect(problems(page)).toContainText('Diag Widgets: count: 999 > max 100')
 })
 
 test('node problem badges expose friendly details, clear live, and distinguish blocking warnings', async ({ page }) => {
@@ -246,8 +246,7 @@ test('node problem badges expose friendly details, clear live, and distinguish b
   await page.keyboard.down('Alt')
   await page.mouse.move(advisory.x, advisory.y)
   const tooltip = page.getByTestId('app-tooltip')
-  await expect(tooltip).toContainText('Node "Diag Widgets" (widgets)', { timeout: 1_500 })
-  await expect(tooltip).toContainText('input "count"')
+  await expect(tooltip).toContainText('Diag Widgets: count: 999 > max 100', { timeout: 1_500 })
   await page.keyboard.up('Alt')
 
   await page.mouse.click(advisory.x, advisory.y)

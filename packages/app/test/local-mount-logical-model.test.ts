@@ -47,7 +47,7 @@ describe('localMountScanAdapter', () => {
     ], 'model/checkpoint', [], { onSourceError: (message) => errors.push(message) })
 
     expect(ingestLogicalModels([adapter]).models.map((model) => model.displayName)).toEqual(['mounted.safetensors'])
-    expect(errors).toEqual(['Local assets: Catalog offline'])
+    expect(errors).toEqual(['Local assets: Could not load models.'])
   })
 
   it('canonicalizes a digest across mounts and renamed paths before V1 ingestion', async () => {

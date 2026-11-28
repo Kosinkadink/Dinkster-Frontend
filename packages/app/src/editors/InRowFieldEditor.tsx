@@ -68,7 +68,6 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
   const problemId = createUniqueId()
   // A kept stored number's note is not a problem, so it does not mark the field invalid.
   const problem = (): string | undefined => props.commitError() ?? invalid() ?? typed()?.problem
-  const shownProblem = (): string | undefined => problem() ?? note()
 
   // A slider keeps its fill while typing. The fill follows what Enter would
   // store while that lies inside the range, and stays where it was while the
@@ -313,11 +312,12 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
       : []
     const resolved = typed()
     const blocked = props.commitError() ?? invalid()
-    const line = shownProblem() ?? automaticWarning()
+    const line = problem() ?? automaticWarning()
+    const keptNote = line === undefined ? note() : undefined
     const result = blocked === undefined && resolved?.kind === 'store' ? resolved.result : undefined
     const representation = inRow.representation
     const noteLine = lookupNote()
-    if (facts.length === 0 && line === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined && representation === undefined && noteLine === undefined) return undefined
+    if (facts.length === 0 && line === undefined && keptNote === undefined && result === undefined && inRow.help === undefined && inRow.controllerMode === undefined && representation === undefined && noteLine === undefined) return undefined
     return (
       <CanvasSidePart
         {...(representation === undefined ? {} : { representation: {
@@ -344,6 +344,7 @@ export const InRowFieldImplementation: Component<WidgetEditorImplementationProps
         facts={facts}
         {...(result === undefined ? {} : { result })}
         {...(line === undefined ? {} : { problem: line, problemId })}
+        {...(keptNote === undefined ? {} : { note: keptNote })}
         {...(inRow.help === undefined ? {} : { help: inRow.help })}
       />
     )

@@ -1,6 +1,6 @@
 import { createSignal, For, Show, type JSX } from 'solid-js'
 import type { MenuActionItem, MenuSubmenuItem, PreviewMode, ResolvedMenuGroup } from '@dinkster/core'
-import { ProductRunIcon } from '@dinkster/ui'
+import { ProductMenu, ProductRunIcon, type ProductMenuItem } from '@dinkster/ui'
 import Workflow from 'lucide-solid/icons/workflow'
 import Snowflake from 'lucide-solid/icons/snowflake'
 import PanelsTopLeft from 'lucide-solid/icons/panels-top-left'
@@ -23,8 +23,10 @@ export interface WorkflowTabItem {
 
 export type TabRunState = 'idle' | 'queued' | 'running' | 'finished' | 'failed'
 
-const kindIcon = (kind: string | undefined) => {
-  switch (kind) {
+export const workflowTabIcon = (tab: WorkflowTabItem, frozen: boolean) => {
+  if (frozen) return Snowflake
+  if (tab.icon) return tab.icon
+  switch (tab.editorKind) {
     case undefined:
     case 'graph': return Workflow
     case 'app': return PanelsTopLeft
@@ -41,6 +43,7 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly label?: string
   readonly draggedId?: string | undefined
   readonly insertionIndex?: number | undefined
+  readonly dropIndex?: number | undefined
   readonly runState?: ((tab: T) => TabRunState) | undefined
   readonly isDirty: (tab: T) => boolean
   readonly isFrozen: (tab: T) => boolean
@@ -52,6 +55,8 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly onActivate: (event: MouseEvent, tab: T) => void
   readonly onClose: (tab: T) => void
   readonly onRename?: ((tab: T, title: string) => void) | undefined
+  readonly canRename?: ((tab: T) => boolean) | undefined
+  readonly renameName?: ((tab: T) => string | undefined) | undefined
   readonly onDuplicate?: ((tab: T) => void) | undefined
   readonly onCloseOthers?: ((tab: T) => void) | undefined
   readonly targets?: readonly { readonly id: string; readonly label: string }[] | undefined
@@ -59,6 +64,7 @@ export interface WorkflowTabsProps<T extends WorkflowTabItem> {
   readonly onSetTarget?: ((tab: T, id: string) => void) | undefined
   readonly onPointerDown: (event: PointerEvent, tab: T) => void
   readonly onNew: () => void
+  readonly newItems?: readonly (ProductMenuItem & { readonly visible: boolean })[] | undefined
   readonly canShare: (tab: T) => boolean
   readonly onShare: (tab: T) => void
   readonly onPopOut?: ((tab: T) => void) | undefined
@@ -84,26 +90,30 @@ export const workflowTabDomId = (id: string): string => `workflow-tab-${encodeUR
 
 export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps<T>) {
   const message = useAppMessage()
+  const newItems = () => props.newItems?.filter((item) => item.visible) ?? []
   const [menu, setMenu] = createSignal<{ readonly tab: T; readonly x: number; readonly y: number }>()
   const [renaming, setRenaming] = createSignal<string>()
+  const [renameValue, setRenameValue] = createSignal('')
   const documentTab = (tab: T): boolean => tab.editorKind === undefined || tab.editorKind === 'graph' || tab.editorKind === 'app'
-  const canRename = (tab: T): boolean => documentTab(tab) && !props.isFrozen(tab) && props.onRename !== undefined
+  const canRename = (tab: T): boolean => (props.canRename?.(tab) ?? documentTab(tab)) && !props.isFrozen(tab) && props.onRename !== undefined
   const startRename = (tab: T): void => {
-    if (canRename(tab)) setRenaming(tab.id)
+    if (!canRename(tab)) return
+    setRenameValue(props.renameName ? props.renameName(tab) ?? '' : tab.title)
+    setRenaming(tab.id)
   }
   const finishRename = (tab: T, title: string): void => {
     if (renaming() !== tab.id) return
     setRenaming(undefined)
-    if (title.trim()) props.onRename?.(tab, title.trim())
+    if (title.trim() && canRename(tab)) props.onRename?.(tab, title.trim())
   }
   const menuGroups = (tab: T): readonly ResolvedMenuGroup[] => [
-    ...(documentTab(tab) ? [{
+    ...(documentTab(tab) || canRename(tab) ? [{
       group: 'workflow-document',
       items: [
         ...(canRename(tab) ? [{ id: 'workflow.rename', label: message('shell.workflowTabs.rename'),
           action: { kind: 'host', action: 'workflow.rename' } } satisfies MenuActionItem] : []),
-        { id: 'workflow.duplicate', label: message('shell.workflowTabs.duplicate'),
-          action: { kind: 'host', action: 'workflow.duplicate' }, disabled: props.onDuplicate === undefined },
+        ...(documentTab(tab) ? [{ id: 'workflow.duplicate', label: message('shell.workflowTabs.duplicate'),
+          action: { kind: 'host', action: 'workflow.duplicate' }, disabled: props.onDuplicate === undefined } satisfies MenuActionItem] : []),
       ],
     } satisfies ResolvedMenuGroup] : []),
     ...(tab.editorKind !== 'page' ? [{
@@ -139,6 +149,12 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             { id: 'workflow.share', label: message('shell.workflowTabs.share'),
               action: { kind: 'host', action: 'workflow.share' }, disabled: !props.canShare(tab) },
           ],
+    } satisfies ResolvedMenuGroup] : props.canShare(tab) ? [{
+      group: 'workflow-placement',
+      items: [
+        { id: 'workflow.share', label: message('shell.workflowTabs.share'),
+          action: { kind: 'host', action: 'workflow.share' } },
+      ],
     } satisfies ResolvedMenuGroup] : []),
     ...(tab.editorKind !== 'page' ? [{
       group: 'workflow-settings',
@@ -250,7 +266,10 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
       <div class="visually-hidden" role="tablist" aria-label={props.label ?? message('shell.workflowTabs.openWorkflows')}
         aria-owns={props.tabs.map((tab) => workflowTabDomId(tab.id)).join(' ')} />
       <div class="workflow-tablist">
-        <For each={props.tabs}>{(tab) => (
+        <For each={props.tabs}>{(tab, index) => (<>
+          <Show when={props.dropIndex === index()}>
+            <div class="tab-drop-slot" aria-hidden="true" />
+          </Show>
           <div
             classList={{
               tab: true,
@@ -282,7 +301,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
             {props.renderLeading?.(tab)}
             <Show when={renaming() !== tab.id} fallback={<span class="tab-select">
               <ProductRunIcon
-                icon={props.isFrozen(tab) ? Snowflake : tab.icon ?? kindIcon(tab.editorKind)}
+                icon={workflowTabIcon(tab, props.isFrozen(tab))}
                 running={props.runState?.(tab) === 'running'}
                 queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
@@ -290,7 +309,9 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               <ProductTextInput
                 class="tab-rename"
                 aria-label={message('shell.workflowTabs.rename')}
-                value={tab.title}
+                value={renameValue()}
+                placeholder={tab.title}
+                onInput={(event) => setRenameValue(event.currentTarget.value)}
                 ref={(input) => queueMicrotask(() => { input.focus(); input.select() })}
                 onPointerDown={(event) => event.stopPropagation()}
                 onBlur={(event) => finishRename(tab, event.currentTarget.value)}
@@ -321,7 +342,7 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               onKeyDown={(event) => onTabKeyDown(event, tab)}
             >
               <ProductRunIcon
-                icon={props.isFrozen(tab) ? Snowflake : tab.icon ?? kindIcon(tab.editorKind)}
+                icon={workflowTabIcon(tab, props.isFrozen(tab))}
                 running={props.runState?.(tab) === 'running'}
                 queued={props.runState?.(tab) === 'queued'}
                 result={props.runState?.(tab) === 'finished' ? 'finished' : props.runState?.(tab) === 'failed' ? 'failed' : undefined}
@@ -348,16 +369,25 @@ export function WorkflowTabs<T extends WorkflowTabItem>(props: WorkflowTabsProps
               </button>
             </span>
           </div>
-        )}</For>
-        <Show when={props.showNew !== false}><button
-          class="tab-new"
-          data-testid="new-tab"
-          data-tooltip-label={message('shell.workflow.new')}
-          aria-label={message('shell.workflow.new')}
-          onClick={props.onNew}
-        >
-          <Icon icon={Plus} />
-        </button></Show>
+        </>)}</For>
+        <Show when={props.dropIndex === props.tabs.length}>
+          <div class="tab-drop-slot" aria-hidden="true" />
+        </Show>
+        <Show when={props.showNew !== false}>
+          <Show when={newItems().length > 0} fallback={<button
+            class="tab-new"
+            data-testid="new-tab"
+            data-tooltip-label={message('shell.workflow.new')}
+            aria-label={message('shell.workflow.new')}
+            onClick={props.onNew}
+          >
+            <Icon icon={Plus} />
+          </button>}>
+            <span class="tab-new-menu" data-testid="new-tab">
+              <ProductMenu label={message('templatesEntry.newTab')} items={newItems()} icon={Plus} iconOnly fill="quiet" />
+            </span>
+          </Show>
+        </Show>
       </div>
       <Show when={menu()} keyed>{(current) => (
         <ContextMenu

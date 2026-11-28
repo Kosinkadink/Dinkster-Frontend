@@ -123,8 +123,8 @@ for (const state of ['retired', 'inactive', 'linked'] as const) {
       finishPlan = () => route.fulfill({ status: 503, json: { error: 'Requirements service unavailable' } })
     })
     await page.goto('/')
-    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.schemaState.get().status)).toBe('ready')
     await waitForWorkspaceReady(page)
+    await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.backends.get()[0]!.schemaState.get().status)).toBe('ready')
     await page.evaluate(async (state) => {
       const app = window.__dinksterTest!.app
       const assetType = { kind: 'concrete', name: 'ASSET' } as const

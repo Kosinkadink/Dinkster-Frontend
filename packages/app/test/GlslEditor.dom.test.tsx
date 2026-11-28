@@ -104,9 +104,9 @@ afterEach(() => {
 describe('GlslEditor', () => {
   it('selects the preview output, shows runner diagnostics, and applies the exact source', async () => {
     const mounted = await mount()
-    const select = mounted.root.querySelector<HTMLSelectElement>('select[aria-label="Preview output"]')!
-    select.value = '2'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+    mounted.root.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Preview output"]')!.click()
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) => entry.textContent === 'fragColor2')!
+    option.click()
     await vi.waitFor(() => expect(mounted.runner.render).toHaveBeenLastCalledWith(expect.objectContaining({
       output: 2,
       images: { u_image1: expect.any(HTMLImageElement) },

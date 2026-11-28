@@ -391,18 +391,11 @@ export function accountView(options: AccountViewOptions) {
                 value={
                   item.value ?? item.values?.[0] ?? item.options?.[0] ?? ''
                 }
-                onChange={(event) =>
-                  change(item.id!, event.currentTarget.value)
+                onChange={(value) =>
+                  change(item.id!, value)
                 }
-              >
-                <For each={item.options}>
-                  {(option, index) => (
-                    <option value={item.values?.[index()] ?? option}>
-                      {option}
-                    </option>
-                  )}
-                </For>
-              </ProductSelect>
+                options={(item.options ?? []).map((label, index) => ({ value: item.values?.[index] ?? label, label }))}
+              />
             )}
           </ProductField>
         )

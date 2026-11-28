@@ -1,7 +1,7 @@
 .runs-panel { display: flex; flex-direction: column; gap: var(--dinkster-space-8); min-width: 0; }
 .runs-row, .runs-stored-row { display: grid; min-width: 0; gap: var(--dinkster-space-8); }
 .runs-stored-row > p { margin: 0; color: var(--dinkster-text-secondary); font-size: var(--dinkster-type-metadata-size); }
-.runs-stored-row > [role='status'] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runs-stored-row > [role='status'] { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .runs-row { padding: var(--dinkster-space-8); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-control); }
 .runs-row[data-selected='true'] { border-color: var(--dinkster-border-focus); }
 .runs-row-heading { display: flex; align-items: center; gap: var(--dinkster-space-8); min-width: 0; }
@@ -18,6 +18,8 @@
 .runs-output-thumbnails [role='listitem'] { flex: 1; min-width: 0; max-width: 33%; }
 .runs-output-thumbnails .output-thumbnail { padding: 0; }
 .runs-output-thumbnails .output-thumbnail-preview { min-height: 0; aspect-ratio: 1; }
+.runs-output-thumbnails .output-thumbnail:has(.dinkster-image-unavailable) { background: var(--dinkster-surface-inset); }
+.runs-output-thumbnails .output-thumbnail:has(.dinkster-image-unavailable) .output-thumbnail-preview { background: transparent; }
 .runs-output-thumbnails > [data-state] { width: 100%; font-size: var(--dinkster-type-metadata-size); color: var(--dinkster-text-muted); }
 /* A chosen stored run: four pictures, its actions, then Details. */
 .runs-output-thumbnails[data-chosen='true'] { flex-wrap: wrap; }
@@ -33,7 +35,7 @@
 .run-chosen-facts > div { display: grid; min-width: 0; grid-template-columns: 88px minmax(0, 1fr); gap: var(--dinkster-space-8); }
 .run-chosen-facts dt { color: var(--dinkster-text-muted); }
 .run-chosen-facts dd { min-width: 0; margin: 0; color: var(--dinkster-text-secondary); overflow-wrap: anywhere; }
-.runs-panel .collection-entry { display: grid; grid-template-columns: minmax(0, 1fr); }
+.runs-panel .collection-entry.dinkster-list-row { display: grid; grid-template-columns: minmax(0, 1fr); }
 /* Stored runs sit in the same quiet boxes as the run rows above them. */
 .runs-panel .collection-items.list { gap: var(--dinkster-space-4); }
 .runs-panel .collection-entry.dinkster-list-row { border-radius: var(--dinkster-radius-card); background: var(--dinkster-surface-quiet); }
@@ -41,6 +43,7 @@
 .runs-panel .collection-panel { flex: none; min-height: 16rem; padding: 0; }
 .runs-panel .collection-toolbar { flex-wrap: wrap; }
 .runs-panel .collection-content { display: block; }
+.runs-panel:has(.collection-state-list > .collection-error) > .run-section-title { display: none; }
 
 .execution-activity-card {
   display: grid;
@@ -81,7 +84,7 @@
 .execution-incomplete { color: var(--dinkster-warning-foreground) !important; background: var(--dinkster-warning-background) !important; border-color: var(--dinkster-warning-border) !important; }
 .execution-relation { color: var(--dinkster-info-foreground) !important; background: var(--dinkster-info-background) !important; border-color: var(--dinkster-info-border) !important; }
 .execution-progress { display: grid; gap: var(--dinkster-space-4); color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); }
-.execution-progress progress { width: 100%; height: var(--dinkster-space-8); accent-color: var(--dinkster-accent-foreground); }
+.execution-progress .dinkster-product-progress { width: 100%; }
 .execution-region-iterations {
   display: grid;
   max-height: 12rem;
@@ -131,7 +134,6 @@
 .output-thumbnail-preview { position: relative; display: grid; width: 100%; min-height: 128px; aspect-ratio: 16 / 10; overflow: hidden; place-items: center; background: var(--dinkster-surface-canvas); border-radius: var(--dinkster-radius-small); }
 .output-thumbnail-preview img { width: 100%; height: 100%; object-fit: cover; }
 .output-thumbnail-position { position: absolute; left: var(--dinkster-space-8); top: var(--dinkster-space-8); max-width: calc(100% - var(--dinkster-space-16)); padding: 2px var(--dinkster-space-8); color: var(--dinkster-text-primary); background: color-mix(in srgb, var(--dinkster-surface-canvas) 88%, transparent); border: 1px solid var(--dinkster-border-subtle); border-radius: var(--dinkster-radius-capsule); font-size: var(--dinkster-type-metadata-size); }
-.output-thumbnail-unavailable { display: grid; height: 100%; place-items: center; padding: var(--dinkster-space-12); color: var(--dinkster-danger-foreground); background: var(--dinkster-danger-background); font-size: var(--dinkster-type-metadata-size); }
 .output-execution-provenance { display: flex; min-width: 0; flex-wrap: wrap; gap: var(--dinkster-space-8); padding: var(--dinkster-space-8) var(--dinkster-space-12); background: var(--dinkster-surface-raised); border-bottom: 1px solid var(--dinkster-border-subtle); }
 .output-execution-provenance > div { display: grid; min-width: min(180px, 100%); flex: 1; gap: 2px; }
 .output-execution-provenance span { color: var(--dinkster-text-muted); font-size: var(--dinkster-type-metadata-size); }
@@ -161,7 +163,6 @@
 .output-viewer-grid img { width: 100%; height: 100%; object-fit: contain; }
 .output-viewer-grid-position { color: var(--dinkster-text-primary); font-weight: var(--dinkster-weight-bold); }
 .output-viewer-grid-identity, .output-viewer-grid-provenance { min-width: 0; color: var(--dinkster-text-secondary); font-family: var(--dinkster-font-mono); font-size: var(--dinkster-type-metadata-size); overflow-wrap: anywhere; word-break: break-word; }
-.output-viewer-grid .output-viewer-grid-unavailable { display: grid; place-items: center; color: var(--dinkster-danger-foreground); }
 
 @media (max-width: 700px) {
   .modal-surface[data-modal='execution-images'] { width: calc(100vw - var(--dinkster-space-16)); height: calc(100vh - var(--dinkster-space-16)); max-width: none; max-height: none; }
@@ -265,9 +266,8 @@
   font-size: 11px;
 }
 
-.region-iteration-progress progress {
+.region-iteration-progress .dinkster-product-progress {
   width: 100%;
-  accent-color: var(--dinkster-accent-border);
 }
 
 .region-iteration-provenance {

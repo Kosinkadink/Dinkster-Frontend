@@ -1,9 +1,10 @@
 import { createEffect, createMemo, createSignal as createSolidSignal, For, onCleanup, Show, type Component } from 'solid-js'
-import { assetMultiSelect, type CollectionEntry, type JsonObject } from '@dinkster/core'
+import { assetMultiSelect, formatByteSize, type CollectionEntry, type JsonObject } from '@dinkster/core'
 import type { AssetGuessCandidate } from '@dinkster/client'
+import { failureMessage } from '../request-failure.js'
 import { Check, RotateCw, Upload, X } from 'lucide-solid'
 import { assetCollectionSource, assetEntryPickable, assetItemOf } from '../asset-browser/collection-adapter.js'
-import { assetSourcesStatus, committableAssetRef, formatSize, mediaAcceptsFile, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
+import { assetSourcesStatus, committableAssetRef, mediaAcceptsFile, mediaKindForAccept, VIEW_PREFERENCE_KEY } from '../asset-browser/helpers.js'
 import { mountAssetSources } from '../asset-browser/mountAssetSource.js'
 import { localAssetSource } from '../asset-browser/localAssetSource.js'
 import { localMountScanAdapter } from '../asset-browser/local-mount-logical-model.js'
@@ -101,7 +102,6 @@ export { mediaAcceptsFile } from '../asset-browser/helpers.js'
 
 function assetPickerState(state: CollectionPanelState, vocabulary: AssetPickerVocabulary) {
   if (state.kind === 'loading') return <SearchState kind="loading" title={`Loading ${vocabulary.plural}`} detail={`Searching ${state.sourceLabel}.`} />
-  if (state.kind === 'error') return <SearchState kind="error" title={`${vocabulary.titlePlural} unavailable`} detail={state.message ?? `Unable to load ${state.sourceLabel}.`} />
   if (state.kind === 'no-compatible') return <SearchState kind="empty" title={`No available ${vocabulary.plural}`} detail="Choose another source or adjust the picker requirements." />
   if (state.kind === 'no-match') return <SearchState kind="empty" title={`No matching ${vocabulary.plural}`} detail="Try another search or remove an active filter." />
   return <SearchState kind="empty" title={`No ${vocabulary.plural} yet`} detail={`No matching ${vocabulary.plural} are available in ${state.sourceLabel}.`} />
@@ -233,10 +233,10 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
   // is not an authoritative model limit, so they render no limit copy
   // (enforcement still applies through assetUploadMaxBytes).
   const assetUploadLimitLabel = classifiedMediaKind === 'media/image'
-    ? '256 MiB per file'
+    ? `${formatByteSize(IMAGE_UPLOAD_MAX_BYTES)} per file`
     : classifiedMediaKind !== undefined || classifiedLatent
-      ? '1 GiB per file'
-      : uploadKind?.startsWith('model/') === true ? undefined : '16 MiB per file'
+      ? `${formatByteSize(MEDIA_UPLOAD_MAX_BYTES)} per file`
+      : uploadKind?.startsWith('model/') === true ? undefined : `${formatByteSize(GENERIC_UPLOAD_MAX_BYTES)} per file`
   // The SCALAR MERGE arm specifically (multi-select whose declaration is
   // NOT list-outer): an empty selection cannot commit `[]` there - the
   // declared type is scalar T, and a bare empty array would compile as raw
@@ -343,7 +343,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         ...(kind === 'model3d' ? { mime: ref.mediaType } : {}),
       }, url)
     } catch (error) {
-      if (live && request === assetPreviewRequest) setAssetError(error instanceof Error ? error.message : String(error))
+      if (live && request === assetPreviewRequest) setAssetError(failureMessage(error))
     }
   }
   onCleanup(() => {
@@ -376,7 +376,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       const errors = [...sourceErrors, ...result.diagnostics.map((entry) => entry.message)]
       if (errors.length > 0) setLogicalModelsError(errors.join('; '))
     } catch (error) {
-      if (live && load === logicalModelLoad) setLogicalModelsError(error instanceof Error ? error.message : String(error))
+      if (live && load === logicalModelLoad) setLogicalModelsError(failureMessage(error))
     } finally {
       if (live && load === logicalModelLoad) setLogicalModelsLoading(false)
     }
@@ -402,7 +402,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         void loadLogicalModels(combined)
       }).catch((reason: unknown) => {
         if (!live) return
-        setMountDiscoveryError(reason instanceof Error ? reason.message : String(reason))
+        setMountDiscoveryError(failureMessage(reason, 'Folders could not be loaded.'))
         void loadLogicalModels([local])
       })
     }
@@ -447,7 +447,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         return false
       }
       if (!existing && file.size > assetUploadMaxBytes) {
-        setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatSize(assetUploadMaxBytes)} upload limit`)
+        setAssetError(`File exceeds the ${assetUploadLimitLabel?.replace(' per file', '') ?? formatByteSize(assetUploadMaxBytes)} upload limit`)
         return false
       }
       const choice = destination()
@@ -493,7 +493,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
       return true
     } catch (error) {
       if (current()) {
-        setAssetError(error instanceof Error ? error.message : String(error))
+        setAssetError(failureMessage(error))
       }
       return false
     }
@@ -603,7 +603,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
         match.candidates.filter((candidate) => assetGuessCandidateToRef(candidate) !== undefined),
       ))
     } catch (error) {
-      if (live) setAssetMatchError(error instanceof Error ? error.message : String(error))
+      if (live) setAssetMatchError(failureMessage(error))
     } finally {
       if (live) setAssetMatchPending(false)
     }
@@ -772,7 +772,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                           <strong>{candidate.name}</strong>
                           <span>{candidate.virtualPath}</span>
                         </span>
-                        <span class="asset-match-candidate-size">{candidate.size} bytes</span>
+                        <span class="asset-match-candidate-size">{formatByteSize(candidate.size!)}</span>
                         <code title={candidate.digest}>{candidate.digest}</code>
                       </button>
                     )}
@@ -851,7 +851,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                     : assetSelection()[0]?.name ?? selectedUncommittableModel()?.modelName ?? 'Nothing selected'}</h3>
                 </div>
                 <Show when={!assetMulti ? assetSelection()[0]?.size ?? selectedUncommittableModel()?.variant.size : undefined}>
-                  {(size) => <span>{formatSize(size())}</span>}
+                  {(size) => <span>{formatByteSize(size())}</span>}
                 </Show>
               </header>
               <Show when={!assetMulti && assetSelection().length === 0 && selectedUncommittableModel() === undefined}>
@@ -892,7 +892,7 @@ const AssetEditorImplementation: Component<AssetImplementationProps> = (implemen
                       <AssetVideoPreview
                         preview={preview()}
                         onError={(error) => {
-                          if (error !== undefined) setAssetError(error instanceof Error ? error.message : String(error))
+                          if (error !== undefined) setAssetError(failureMessage(error, 'Video preview unavailable.'))
                           setAssetPreviewFailed(true)
                         }}
                         onDimensions={setAssetPreviewDims}

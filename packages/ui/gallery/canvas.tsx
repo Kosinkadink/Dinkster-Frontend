@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js'
 import {
   registerCatalog,
   type Json,
@@ -50,6 +50,8 @@ import {
   ProductSelect,
   ProductSection,
   ProductTextInput,
+  ProductTooltip,
+  TooltipController,
   type ProductNavigationGroup,
 } from '../src/index.js'
 import { NodeLookGallery } from './node-look.js'
@@ -72,6 +74,7 @@ import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
 import { FixesNoticeGallery } from './fixes-notice.js'
 import { RowFilePreviewsGallery } from './row-file-previews.js'
+import { ExposureRowsGallery } from './exposure-rows.js'
 
 type Theme = 'dark' | 'light'
 
@@ -104,6 +107,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'declaration-rows',
         'row-editing',
         'row-states',
+        'exposure-rows',
         'row-automatic',
         'row-lists',
         'lookups',
@@ -215,6 +219,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
   'row-states':
     'What a row shows when a finished run proved that nothing arrives, for a skipped node, while a wired value is not known, for a promoted field, and the control at the end of the side part that switches how a field is drawn. Ready, disabled and busy Buttons keep the shared keyboard outline, with host and declaration reasons beside disabled rows.',
+  'exposure-rows':
+    'Exposure ticks have their own slot after the field controls. Ordinary Graph rows keep their full width.',
   'row-automatic':
     'A number whose value is automatic: closed, opened, stepped, while a lookup loads, and when it cannot be worked out.',
   'row-lists':
@@ -271,7 +277,7 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
   'subgraph-icon':
     'Every place the canvas draws the subgraph icon, a workflow in a frame, at the 14 px it is drawn at 100 percent: the mark in a subgraph node\'s title alone and with a count, the cyan mark on a field shown on the subgraph node, and the Create subgraph button on the toolbox over two plain nodes, which one selected subgraph node does not show. The title mark sits as far from the node\'s right edge as from the top and bottom of the title bar.',
   'small-flow-nodes':
-    'Or else, Has value and Only if as ordinary nodes, one card per state of the design: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
+    'Or else, Has value, Only if and hand-count Unpack as ordinary nodes: they let a graph deal with nothing on purpose. A value on a wire is not painted by the canvas, so each caption names the values. A skipped node shows the Skipped state the canvas draws today, and a node that was not run shows no state, as today.',
   'wire-looks':
     'Every look a wire has. A dashed wire means only that it may carry nothing; every other wire, including one being dragged, is solid. A wire whose source is switched off is faded.',
   'type-conflict':
@@ -387,6 +393,7 @@ function ExampleCard(props: {
   example: CanvasGalleryFixture['examples'][number]
   index: number
   onBadge: (hit: BadgeHit | undefined) => void
+  tooltips: TooltipController
 }) {
   let canvas!: HTMLCanvasElement
   const id = () =>
@@ -532,7 +539,7 @@ function ExampleCard(props: {
     paintLabels()
     let removeListeners: (() => void) | undefined
     if (Object.keys(fixture.badges).length > 0) {
-      const hit = (event: PointerEvent | MouseEvent) => {
+      const hit = (event: PointerEvent | MouseEvent, includePresentation = false) => {
         const rect = canvas.getBoundingClientRect()
         return hitTestBadge(
           renderer.getScene(),
@@ -540,27 +547,37 @@ function ExampleCard(props: {
           (event.clientX - rect.left) / scale + origin.x,
           (event.clientY - rect.top) / scale + origin.y,
           (node) => renderer.getNodeBadgeLayout(node),
+          includePresentation,
         )
       }
+      let hovered: string | undefined
       const hover = (event: PointerEvent) => {
-        const target = event.type === 'pointerleave' ? undefined : hit(event)
-        canvas.title = target
-          ? (target.overflow ?? [target.badge])
-              .map((badge) => badge.glyph)
-              .join(', ')
-          : ''
+        const target = event.type === 'pointerleave' ? undefined : hit(event, true)
         renderer.setOverlay({
           ...fixture.overlay,
-          ...(target
-            ? {
-                hoveredBadge: {
-                  nodeId: target.node.id,
-                  badgeId: target.badge.id,
-                },
-              }
-            : {}),
+          ...(target && target.badge.interactive !== false ? { hoveredBadge: { nodeId: target.node.id, badgeId: target.badge.id } } : {}),
         })
         renderer.renderNow()
+        const key = target && `${target.node.id}:${target.badge.id}`
+        if (key !== hovered) {
+          hovered = key
+          props.tooltips.hideMatching(() => true, canvas)
+          const entry = target && renderer.getNodeBadgeLayout(target.node).find((entry) => entry.badge.id === target.badge.id)
+          if (target && entry && (entry.overflow || renderer.getBadgeText(entry) !== target.badge.glyph)) {
+            const label = (target.overflow ?? [target.badge]).map((badge) => badge.glyph).join(', ')
+            props.tooltips.show(label, {
+              x: event.clientX,
+              y: event.clientY,
+              paintedRect: () => {
+                const rect = canvas.getBoundingClientRect()
+                const badge = renderer.getNodeBadgeLayout(target.node).find((entry) => entry.badge.id === target.badge.id) ?? target.rect
+                return new DOMRect(rect.left + (badge.x - origin.x) * scale,
+                  rect.top + (badge.y - origin.y) * scale,
+                  badge.width * scale, badge.height * scale)
+              },
+            }, false, false, canvas)
+          }
+        }
       }
       const activate = (event: MouseEvent) => props.onBadge(hit(event))
       canvas.addEventListener('pointermove', hover)
@@ -612,7 +629,7 @@ function ExampleCard(props: {
     canvas.dataset.variant = variant.id
     onCleanup(() => {
       removeListeners?.()
-      canvas.removeAttribute('title')
+      props.tooltips.hideMatching(() => true, canvas)
       renderer.dispose()
       delete canvas.dataset.ready
     })
@@ -650,6 +667,28 @@ const canvasFontsLoaded = () => {
 }
 
 export function CanvasGallery() {
+  const tooltips = new TooltipController()
+  const [tooltip, setTooltip] = createSignal(tooltips.visible)
+  tooltips.register({ id: 'gallery.badge', resolve: (target) =>
+    typeof target === 'string' ? { lines: [target] } : undefined })
+  const unsubscribe = tooltips.subscribe(() => setTooltip(tooltips.visible))
+  onCleanup(() => { unsubscribe(); tooltips.hide() })
+  onMount(() => {
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') tooltips.hide() }
+    const dismiss = () => tooltips.hide()
+    document.addEventListener('keydown', key)
+    document.addEventListener('pointerdown', dismiss)
+    window.addEventListener('blur', dismiss)
+    window.addEventListener('resize', dismiss)
+    window.addEventListener('scroll', dismiss, true)
+    onCleanup(() => {
+      document.removeEventListener('keydown', key)
+      document.removeEventListener('pointerdown', dismiss)
+      window.removeEventListener('blur', dismiss)
+      window.removeEventListener('resize', dismiss)
+      window.removeEventListener('scroll', dismiss, true)
+    })
+  })
   // Only the dark theme is designed; `?theme=light` keeps the light theme
   // reachable for checks without a control on the page.
   const theme = (): Theme =>
@@ -682,6 +721,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
+    if (currentPage === 'exposure-rows') return
     if (currentPage === 'row-editing' || currentPage === 'row-states' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'editor-choice-placement' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'fixes-notice' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
@@ -753,10 +793,12 @@ export function CanvasGallery() {
       example={example}
       index={index}
       onBadge={setBadgeDetails}
+      tooltips={tooltips}
     />
   )
   return (
     <>
+      <Show when={tooltip()}>{(tip) => <ProductTooltip tip={tip()} label="Context help" />}</Show>
       <Show when={page() === 'widget-states'}>
         <div class="dinkster-actions">
           <ProductField label="Widget kind">
@@ -764,12 +806,9 @@ export function CanvasGallery() {
               <ProductSelect
                 {...attributes}
                 value={widgetId()}
-                onChange={(event) => setWidgetId(event.currentTarget.value)}
-              >
-                <For each={galleryWidgetInputs}>
-                  {(input) => <option value={input.id}>{input.id}</option>}
-                </For>
-              </ProductSelect>
+                onChange={setWidgetId}
+                options={galleryWidgetInputs.map((input) => ({ value: input.id, label: input.id }))}
+              />
             )}
           </ProductField>
         </div>
@@ -783,6 +822,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-states'}>
           <RowStatesGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'exposure-rows'}>
+          <ExposureRowsGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'row-lists'}>
           <RowListsGallery theme={theme()} />
@@ -968,9 +1010,11 @@ export function CanvasGallery() {
             <For each={details().overflow ?? [details().badge]}>
               {(badge) => <p class="dinkster-description">{badge.glyph}</p>}
             </For>
-            <ProductButton onClick={() => setBadgeDetails(undefined)}>
-              Close
-            </ProductButton>
+            <footer class="dinkster-dialog-actions">
+              <ProductButton onClick={() => setBadgeDetails(undefined)}>
+                Close
+              </ProductButton>
+            </footer>
           </ProductDialog>
         )}
       </Show>

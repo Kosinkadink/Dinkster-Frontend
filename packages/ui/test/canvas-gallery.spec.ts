@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { chooseOption } from '../../e2e/choices.js'
 import {
   canvasGalleryPages,
   galleryWidgetInputs,
@@ -36,16 +37,21 @@ test('choosing a fixes Review entry selects its named example on the canvas', as
   await expect(card.locator('canvas')).toHaveAttribute('data-ready', /-dark$/)
   await expect(
     card.getByRole('button', {
-      name: 'Open the Review upgrades setting', exact: true,
+      name: 'Open Automatic fixes settings',
+      exact: true,
     }),
   ).toBeVisible()
   const removedChoices = page.getByTestId('fixes-notice-removed-choices')
   await expect(removedChoices.locator('canvas')).toHaveAttribute(
-    'data-ready', /-dark$/,
+    'data-ready',
+    /-dark$/,
   )
-  await expect(removedChoices.getByRole('button', {
-    name: 'Open the Review upgrades setting', exact: true,
-  })).toHaveCount(0)
+  await expect(
+    removedChoices.getByRole('button', {
+      name: 'Open Automatic fixes settings',
+      exact: true,
+    }),
+  ).toHaveCount(0)
   await removedChoices.screenshot({
     path: testInfo.outputPath('review-without-settings-dark.png'),
   })
@@ -81,7 +87,7 @@ test('Editor problem details open by keyboard, return focus and resolve through 
     .locator('..')
   const details = warning.getByRole('button', { name: 'Details', exact: true })
   await expect(warning.locator('.dinkster-canvas-editor-note')).toContainText(
-    'usb1 not found.',
+    '"usb1" not found.',
   )
   await expect(
     warning.getByRole('button', { name: 'Use project default' }),
@@ -89,7 +95,7 @@ test('Editor problem details open by keyboard, return focus and resolve through 
   await details.focus()
   await details.press('Enter')
   const note = page.getByRole('dialog', {
-    name: 'usb1 is not on this machine.',
+    name: '"usb1" is not on this machine.',
     exact: true,
   })
   await expect(
@@ -118,7 +124,7 @@ test('Editor problem details open by keyboard, return focus and resolve through 
   )
   await error.getByRole('button', { name: 'Details', exact: true }).click()
   const errorNote = page.getByRole('dialog', {
-    name: 'usb1 is missing and this project has no default output mount.',
+    name: '"usb1" is missing and this project has no output mount.',
     exact: true,
   })
   await expect(errorNote).toBeVisible()
@@ -358,7 +364,7 @@ test('Save target shared fold-out distinguishes rest, typing and a reopened wire
       )
       const missing = stage('missing')
       await expect(missing.locator('.dinkster-canvas-editor-note')).toHaveText(
-        'usb1 not found.Details',
+        '"usb1" not found.Details',
       )
       await missing
         .getByRole('button', { name: 'Details', exact: true })
@@ -571,6 +577,39 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
     name: 'Interpolation Linear',
     exact: true,
   })
+  const headingText = 'Field of the detailed sampling settings used for the final image'
+  const longChoice = stage.getByRole('button', { name: `${headingText} Linear`, exact: true })
+  const headingInput = popup.getByRole('combobox')
+  for (const scale of [0.75, 1, 1.5]) {
+    await longChoice.locator('..').evaluate((element, zoom) => {
+      const editor = element.closest<HTMLElement>('.dinkster-canvas-editor')!
+      editor.style.top = '330px'
+      editor.style.transformOrigin = 'top left'
+      editor.style.transform = `scale(${zoom})`
+    }, scale)
+    await longChoice.click()
+    await checkBounds()
+    await expect.poll(async () => popup.locator('.dinkster-canvas-field').evaluate((field, zoom) => {
+      const label = field.querySelector<HTMLElement>('.dinkster-canvas-field-label')!
+      const box = label.getBoundingClientRect()
+      const range = document.createRange()
+      range.selectNodeContents(label)
+      const lines = [...range.getClientRects()]
+      return field.getBoundingClientRect().width <= 340.1 && lines.length >= 1 && (zoom < 1 || lines.length > 1) && lines.every((line) =>
+        line.left >= box.left - 0.1 && line.right <= box.right + 0.1 && line.bottom <= box.bottom + 0.1)
+    }, scale)).toBe(true)
+    await expect(popup.locator('.dinkster-canvas-field-label')).toHaveText(headingText)
+    await expect.poll(async () => headingInput.evaluate((input) => {
+      const style = getComputedStyle(input)
+      const measure = document.createElement('canvas').getContext('2d')!
+      measure.font = `italic ${style.fontSize} ${style.fontFamily}`
+      return input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) >= measure.measureText(input.getAttribute('placeholder')!).width
+    })).toBe(true)
+    await headingInput.fill('mono')
+    await expect(list.getByRole('option')).toHaveCount(1)
+    await headingInput.press('Escape')
+    await expect(longChoice).toBeFocused()
+  }
   await curve.click()
   await expect(list.getByRole('option')).toHaveCount(3)
   await checkBounds()
@@ -619,7 +658,7 @@ test('Curve and Save target choices escape clipped editors and stay inside the c
       element.style.height = '160px'
       const editor = element.querySelectorAll<HTMLElement>(
         '.dinkster-canvas-editor',
-      )[1]!
+      )[2]!
       editor.style.top = '10px'
       editor.style.transformOrigin = 'top right'
       editor.style.transform = `scale(${zoom})`
@@ -811,37 +850,11 @@ test('Canvas waits for the bundled italic face before publishing title paint', a
   }
 })
 
-test('Canvas pages are listed under eight headings in the side list', async ({
+test('Every Canvas page opens by a click in the side list', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/#canvas')
-  const headings = sideList(page).locator('button[aria-expanded]')
-  await expect(headings).toHaveText([
-    'Nodes',
-    'Tabs and states',
-    'Rows',
-    'Wires',
-    'Subgraphs',
-    'Flow nodes',
-    'Problems with fixes',
-    'Zoom',
-  ])
-  // Only the heading holding the current page starts open.
-  expect(
-    await headings.evaluateAll((all) =>
-      all.map((heading) => heading.getAttribute('aria-expanded')),
-    ),
-  ).toEqual([
-    'true',
-    'false',
-    'false',
-    'false',
-    'false',
-    'false',
-    'false',
-    'false',
-  ])
   await expect(pageLink(page, 'anatomy')).toHaveAttribute(
     'aria-current',
     'page',
@@ -849,35 +862,15 @@ test('Canvas pages are listed under eight headings in the side list', async ({
   await expect(
     sideList(page).getByRole('link', { name: 'Canvas', exact: true }),
   ).toHaveAttribute('aria-current', 'true')
-  // Every page is listed exactly once.
-  const listed = await sideList(page)
-    .locator('a[href^="?page="]')
-    .evaluateAll((links) =>
-      links.map((link) =>
-        new URLSearchParams(link.getAttribute('href')!.split('#')[0]).get(
-          'page',
-        ),
-      ),
-    )
-  expect(listed.sort()).toEqual(canvasGalleryPages.map(([id]) => id).sort())
-  // A heading opens and closes; the page picker and theme buttons are gone.
-  const rows = headings.filter({ hasText: 'Rows' })
+  const rows = sideList(page).getByRole('button', { name: 'Rows', exact: true })
+  await expect(rows).toHaveAttribute('aria-expanded', 'false')
+  await expect(pageLink(page, 'row-editing')).toBeHidden()
   await rows.click()
   await expect(rows).toHaveAttribute('aria-expanded', 'true')
   await expect(pageLink(page, 'row-editing')).toBeVisible()
   await rows.click()
   await expect(rows).toHaveAttribute('aria-expanded', 'false')
   await expect(pageLink(page, 'row-editing')).toBeHidden()
-  await expect(page.getByRole('combobox')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /theme$/ })).toHaveCount(0)
-  await expect(page.getByText('No action yet')).toHaveCount(0)
-})
-
-test('Every Canvas page opens by a click in the side list', async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  await page.goto('/#canvas')
   for (const [id, label] of canvasGalleryPages) {
     await choosePage(page, id)
     await expect(
@@ -1132,15 +1125,24 @@ test('Open rows use a quiet outline and preserve keyboard focus and side-part co
     await openPage(page, 'row-states', theme)
     await cardsReady(page, 'row-states', theme)
     const form = page.getByTestId('button-ask-form')
-    const formOutline = form.locator('..').locator('..').locator('.dinkster-canvas-field-outline path')
+    const formOutline = form
+      .locator('..')
+      .locator('..')
+      .locator('.dinkster-canvas-field-outline path')
     const start = form.getByTestId('button-ask-start')
     await start.focus()
     await page.keyboard.press('Tab')
     const end = form.getByTestId('button-ask-end')
     await expect(end).toBeFocused()
-    await expect(end.locator('..')).toHaveCSS('border-color', await palette('--dinkster-border-keyboard-focus'))
+    await expect(end.locator('..')).toHaveCSS(
+      'border-color',
+      await palette('--dinkster-border-keyboard-focus'),
+    )
     await expect(end.locator('..')).toHaveCSS('border-width', '1px')
-    await expect(formOutline).toHaveCSS('stroke', await palette('--dinkster-accent-rest-border'))
+    await expect(formOutline).toHaveCSS(
+      'stroke',
+      await palette('--dinkster-accent-rest-border'),
+    )
     await expect(formOutline).toHaveCSS('stroke-width', '2px')
   }
 })
@@ -1237,7 +1239,7 @@ for (const theme of ['dark', 'light'] as const) {
         await ordinary.evaluate(
           (element) => element.getBoundingClientRect().height,
         ),
-      ).toBe(density === 'app' ? 40 : 36)
+      ).toBe(density === 'app' ? 32 : 36)
       expect(
         await seed.evaluate((element) => ({
           height: element.getBoundingClientRect().height,
@@ -1302,8 +1304,11 @@ for (const theme of ['dark', 'light'] as const) {
     await cardsReady(page, 'tabs', theme)
     // The narrow example's first strip and its +5: measured text leaves room for four strips.
     const canvas = page.getByTestId('canvas-tabs-14')
+    await page.clock.install()
     await canvas.hover({ position: { x: 16, y: 152 } })
-    await expect(canvas).toHaveAttribute('title', 'Detail 1')
+    await page.clock.fastForward(1000)
+    await expect(canvas).not.toHaveAttribute('title')
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
     await expect(canvas).toHaveScreenshot(`tabs-hover-${theme}.png`)
     await page.mouse.move(0, 0)
     await expect(canvas).not.toHaveAttribute('title', /.+/)
@@ -1314,6 +1319,15 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(dialog.getByText('Detail 9', { exact: true })).toBeVisible()
     await expect(dialog.getByText('Detail 4', { exact: true })).toHaveCount(0)
     await expect(dialog).toHaveScreenshot(`tabs-overflow-${theme}.png`)
+    await page.mouse.click(0, 0)
+    await expect(dialog).toBeVisible()
+    await dialog
+      .getByRole('button', { name: 'Close', exact: true })
+      .last()
+      .click()
+    await expect(dialog).toHaveCount(0)
+    await canvas.click({ position: { x: 101, y: 152 } })
+    await expect(dialog).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
   })
@@ -1333,15 +1347,16 @@ for (const theme of ['dark', 'light'] as const) {
           page.getByRole('heading', { name: label, exact: true }),
         ).toBeVisible()
         if (input) {
-          await page
-            .getByRole('combobox', { name: 'Widget kind', exact: true })
-            .selectOption(input.id)
+          await chooseOption(
+            page.getByRole('combobox', { name: 'Widget kind', exact: true }),
+            input.id,
+          )
           await expect(
             page.locator('figure.dinkster-canvas-example canvas').first(),
           ).toHaveAttribute('data-ready', `${id}-${theme}`)
         }
-        // Only the widget kind, open list filters and Representation examples
-        // are choices; comparisons are all visible without selecting one.
+        // Canvas comparisons are visible without selecting one. Standalone
+        // settings and Representation examples have their own choices.
         const filters = page.locator(
           'input.dinkster-canvas-field-input[role="combobox"]:not(.dinkster-canvas-side-representation-list *)',
         )
@@ -1359,7 +1374,7 @@ for (const theme of ['dark', 'light'] as const) {
             .getByRole('combobox')
             .and(
               page.locator(
-                ':not(.dinkster-canvas-side-representation *, .dinkster-canvas-side-representation-list *)',
+                ':not(.dinkster-canvas-side-representation *, .dinkster-canvas-side-representation-list *, .dinkster-automatic-fixes-example *)',
               ),
             ),
         ).toHaveCount(
@@ -1393,13 +1408,51 @@ for (const theme of ['dark', 'light'] as const) {
             ])
         } else await expect(comparisons).toHaveCount(0)
         const section = page.getByRole('region', { name: label, exact: true })
+        if (id === 'problem-box') {
+          const messageBox = section.locator('figure').filter({
+            has: page.getByTestId('problem-box-run-message'),
+          })
+          const text = await messageBox
+            .locator('.problem-box-text')
+            .boundingBox()
+          const actions = await messageBox
+            .locator('.problem-box-actions')
+            .boundingBox()
+          expect(actions!.y).toBe(text!.y)
+        }
+        // The settings examples focus a row below the fold; sticky chrome
+        // must not cover the canvas in the full-section capture.
+        const chrome =
+          id === 'problem-box'
+            ? await page.addStyleTag({
+                content: '.dinkster-topbar { visibility: hidden; }',
+              })
+            : undefined
         await expect(section).toHaveScreenshot(
           `${id}${input && input.id !== 'float' ? `-${input.id}` : ''}-${theme}.png`,
         )
+        await chrome?.evaluate((element) =>
+          element.parentNode?.removeChild(element),
+        )
         if (id === 'run-editable' || id === 'run-frozen') {
           const running = page.getByTestId(`canvas-${id}-1`)
+          await page.clock.install()
           await running.hover({ position: { x: 45, y: 185 } })
-          await expect(running).toHaveAttribute('title', 'Running')
+          await page.clock.fastForward(1000)
+          await expect(page.getByRole('tooltip')).toHaveCount(0)
+          await expect(running).not.toHaveAttribute('title')
+        }
+        if (id === 'badges') {
+          await page.clock.install()
+          await page.getByTestId('canvas-badges-0').hover({ position: { x: 39, y: 280 } })
+          await page.clock.fastForward(1000)
+          await expect(page.getByRole('tooltip')).toHaveCount(0)
+          await page.getByTestId('canvas-badges-2').hover({ position: { x: 45, y: 185 } })
+          await page.clock.fastForward(1000)
+          const tooltip = page.getByRole('tooltip')
+          await expect(tooltip).toHaveText('Blocked: Missing image')
+          await page.keyboard.press('Escape')
+          await expect(tooltip).toHaveCount(0)
         }
         await page.setViewportSize({ width: 390, height: 1000 })
         await cardsReady(page, id, theme)

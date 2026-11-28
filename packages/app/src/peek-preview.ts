@@ -296,11 +296,11 @@ export async function fetchPeekRendition(
       options?.signal?.throwIfAborted()
       if (!rendition.available) {
         if (!definitiveStatus(rendition.status)) negativeCache = false
-        notice = `${kind}: ${rendition.error} (${rendition.status}, ${rendition.reason})`
+        notice = `${kind} unavailable. ${rendition.error}`
         if (video) videoNotice = notice
         continue
       }
-      if (batchCount !== undefined && rendition.bytes.byteLength > 64 * 1024 * 1024) throw Object.assign(new Error('Image exceeds the 64 MiB preview budget'), { negativeCache: true })
+      if (batchCount !== undefined && rendition.bytes.byteLength > 64 * 1024 * 1024) throw Object.assign(new Error('Image exceeds the 64 MB preview budget'), { negativeCache: true })
       if (!renderableMime(rendition.mime) || !validMediaBytes(rendition.mime, rendition.bytes)) {
         negativeCache = false
         continue

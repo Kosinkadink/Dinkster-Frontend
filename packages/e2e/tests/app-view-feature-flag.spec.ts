@@ -33,7 +33,9 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
   await waitForWorkspaceReady(page)
   await page.evaluate(() => {
-    window.__dinksterTest!.app.registerSchemas([{
+    const app = window.__dinksterTest!.app
+    app.settings.set('features.board.enabled', false)
+    app.registerSchemas([{
       type: 'FlagInput', displayName: 'Flag input', category: 'test', source: 'v3', isOutputNode: false,
       body: [{ kind: 'input', id: 'steps', type: { kind: 'concrete', name: 'INT' }, optional: false,
         widget: { widgetType: 'INT', options: { min: 0, max: 100, step: 1 }, default: 7 } }],
@@ -41,7 +43,7 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('default-off restores app tabs as Graph and hides every App View entry point', async ({ page }) => {
+test('with Board off, default-off restores app tabs as Graph and hides every App View entry point', async ({ page }) => {
   expect(await page.evaluate(() => ({
     enabled: window.__dinksterTest!.app.appViewEnabled,
     editor: window.__dinksterTest!.app.activeTab()!.editorKind,
@@ -77,6 +79,44 @@ test('default-off restores app tabs as Graph and hides every App View entry poin
   await page.reload()
   await expect(page.getByTestId('graph-canvas')).toBeVisible()
   expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.exposed'])).toEqual(exposed)
+})
+
+test('Board enables exposure without enabling App View and keeps it until both features are off', async ({ page }) => {
+  mkdirSync(evidenceGroupDir('board-exposure'), { recursive: true })
+  await page.getByTestId('lens-switcher').click()
+  await expect(page.getByRole('menuitemradio', { name: /Exposure/ })).toHaveCount(0)
+  await page.screenshot({ path: evidencePath('board-exposure', 'board-off.png') })
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('features.board.enabled', true))
+  await page.getByTestId('views-switcher').click()
+  await expect(page.getByRole('menuitemradio', { name: 'App', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.getByTestId('lens-switcher').click()
+  await page.screenshot({ path: evidencePath('board-exposure', 'board-on.png') })
+  await page.getByRole('menuitemradio', { name: /Exposure/ }).click()
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-lens', 'exposure')
+  const exposureToggle = page.getByTestId('canvas-exposure-a11y').filter({ hasText: 'steps' })
+  await expect(exposureToggle).toHaveAttribute('aria-pressed', 'true')
+  await exposureToggle.focus()
+  await page.screenshot({ path: evidencePath('board-exposure', 'exposure-on.png') })
+  await exposureToggle.press('Enter')
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.exposed'])).toEqual([])
+  await expect(exposureToggle).toHaveAttribute('aria-pressed', 'false')
+  await exposureToggle.focus()
+  await exposureToggle.press('Enter')
+  const reexposed = [{ graphId: 'root', nodeId: 'input', inputId: 'steps' }]
+  await expect.poll(() => page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.exposed'])).toEqual(reexposed)
+  await page.evaluate(() => {
+    const app = window.__dinksterTest!.app
+    app.settings.set('features.appView.enabled', true)
+    app.settings.set('features.appView.enabled', false)
+  })
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-lens', 'exposure')
+  await page.evaluate(() => window.__dinksterTest!.app.settings.set('features.board.enabled', false))
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-lens', 'standard')
+  await page.getByTestId('lens-switcher').click()
+  await expect(page.getByRole('menuitemradio', { name: /Exposure/ })).toHaveCount(0)
+  expect(await page.evaluate(() => window.__dinksterTest!.app.activeTab()!.store.doc.ext?.['dinkster.exposed'])).toEqual(reexposed)
 })
 
 test('opting in restores authored controls and disabling returns to Graph without deleting exposure', async ({ page }) => {

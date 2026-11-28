@@ -20,8 +20,10 @@ import type {
   WidgetSpec,
   WidgetView,
   IntegerWidgetValue,
+  SaveTarget,
+  ProjectDefaultTarget,
 } from '@dinkster/core'
-import { comboOptionLabel, diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, specialValueLabel, t } from '@dinkster/core'
+import { isSaveTarget, isProjectDefaultTarget, comboOptionLabel, diag, EMPTY_COMPOSITOR_RECIPE, formatWidgetValue, isCanonicalUnsafeInteger, isComboValue, isCompositorRecipe, isIntegerWidgetValue, isPrimitiveListWidgetValue, normalizedComboOptions, numericStepConstraints, numericStepPrecision, specialValueLabel, t } from '@dinkster/core'
 
 // ---------------------------------------------------------------------------
 // Kind helpers
@@ -179,28 +181,7 @@ export const cameraAngleKind: WidgetKind<string> = {
   defaultView: () => 'core.cameraAngle',
 }
 
-type SaveTarget = { mount: string; prefix: string }
-/**
- * A target on Project default: it names no mount, so each project saves it
- * to its own default output mount. The mount key is left out; there is no
- * other way to write it.
- */
-type ProjectDefaultTarget = { prefix: string }
-
-const usablePrefix = (prefix: unknown): prefix is string =>
-  typeof prefix === 'string' && prefix !== '' && !prefix.includes('\\')
-  && prefix.split('/').every((segment) => !['', '.', '..'].includes(segment))
-
-export const isSaveTarget = (value: unknown): value is SaveTarget => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const target = value as Record<string, unknown>
-  return Object.keys(target).length === 2 && typeof target['mount'] === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(target['mount'])
-    && usablePrefix(target['prefix'])
-}
-
-export const isProjectDefaultTarget = (value: unknown): value is ProjectDefaultTarget =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
-  && Object.keys(value).length === 1 && usablePrefix((value as Record<string, unknown>)['prefix'])
+export { isSaveTarget, isProjectDefaultTarget } from '@dinkster/core'
 
 export const saveTargetKind: WidgetKind<SaveTarget | ProjectDefaultTarget | null> = {
   type: 'SAVE_TARGET',
@@ -857,6 +838,10 @@ export const selectView: WidgetView<Json> = {
   ...makeCompactView<Json>('core.select', 'COMBO'),
   drawCompact(ctx, value, spec, state) {
     const label = (spec.options['display_name'] as string | undefined) ?? ''
+    if (value === '' && typeof spec.options['placeholder'] === 'string') {
+      compactRow(ctx, label, spec.options['placeholder'], state, 'widget.edit', true)
+      return
+    }
     ctx.rect(1, 0, 0, 1, { role: 'comboChevron' })
     compactRow(ctx, label, formatWidgetValue(value, spec), state, 'widget.edit')
   },

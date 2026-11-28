@@ -56,6 +56,14 @@ export async function productOption(page: Page, optionId: string): Promise<Locat
   return option
 }
 
+/** Arrive by keyboard navigation rather than arbitrary or restored focus. */
+export async function focusByTab(page: Page, target: Locator): Promise<void> {
+  await target.focus()
+  await page.keyboard.press('Shift+Tab')
+  await page.keyboard.press('Tab')
+  await expect(target).toBeFocused()
+}
+
 /** Shows this workflow's runs or every workflow's in the Runs panel. */
 export async function chooseRunScope(page: Page, scope: 'workflow' | 'all'): Promise<void> {
   const control = page.getByTestId('runs-scope')

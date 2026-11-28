@@ -38,7 +38,7 @@ import { isPortEndpoint, portAddressKey, type DynamicMemberId } from '../ids.js'
 import { subgraphDefIdOf } from '../invariants.js'
 import { rerouteInputTargets } from '../reroute.js'
 import { typesCompatible, typesDirectlyCompatible } from './type-relations.js'
-import { buildGraphConnectivity, describedEntries, elabInputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from './elaborate.js'
+import { buildGraphConnectivity, describedEntries, elabInputsOf, elabOutputsOf, elaborateInterface, EMPTY_CONNECTIVITY, type Connectivity } from './elaborate.js'
 import { applyUse, choiceScopeRows, framesNamesOf, isRowId, keyPosition, memberKeyAt, memberLimitOf, memberRowsOf, scopeNamesOf } from './body.js'
 import { Formula, FormulaRefused, type FormulaScope } from '../mirror/formula.js'
 import { canonicalTypeIdOf, inputsOf, isNumberWidget, scopeRowsOf, typeExprFromTypeId } from './model.js'
@@ -107,7 +107,7 @@ const mentionsCombo = (type: TypeExpr): boolean => {
 
 const regionSourceMismatch = (source: TypeExpr, expected: TypeExpr): 'error' | 'warning' | undefined => {
   const runtimeType = canonicalTypeIdOf(source)
-  if (runtimeType === undefined || typesDirectlyCompatible(typeExprFromTypeId(runtimeType), expected)) return undefined
+  if (runtimeType === undefined || typesDirectlyCompatible(source, expected)) return undefined
   return mentionsCombo(source) || mentionsCombo(expected) ? 'error' : 'warning'
 }
 
@@ -124,6 +124,8 @@ function freshenType(
   bindings: ReadonlyMap<string, TypeExpr> = NO_TYPE_BINDINGS,
 ): TypeExpr {
   switch (type.kind) {
+    case 'record':
+      return type.templateId === undefined ? type : { ...type, templateId: `${nodeId}:${type.templateId}` }
     case 'tuple':
       return { ...type, elements: type.elements.map((element) => freshenType(element, nodeId, bindings)) }
     case 'tuple_element':
@@ -695,6 +697,15 @@ export function deriveBoundarySchema(
   const seenIds = new Set<string>()
   const routeCache = new WeakMap<object, Partial<Record<'input' | 'output', { node: NodeData; route: BoundaryRoute }>>>()
   const slotTypeBindings = new WeakMap<NodeData, ReadonlyMap<string, TypeExpr>>()
+  const interfaces = new WeakMap<NodeData, ReturnType<typeof elaborateInterface>>()
+  const interfaceOf = (node: NodeData): ReturnType<typeof elaborateInterface> => {
+    let result = interfaces.get(node)
+    if (result === undefined) {
+      result = elaborateInterface(resolveNode(node)!, node, (connectivityOf ??= buildGraphConnectivity(graph))(node.id))
+      interfaces.set(node, result)
+    }
+    return result
+  }
 
   /** A type variable a chosen variant of a top-scope type choice binds. */
   const typeBindingsFor = (node: NodeData): ReadonlyMap<string, TypeExpr> => {
@@ -1051,6 +1062,8 @@ export function deriveBoundarySchema(
     }
     if (!fanoutOk) continue
     const inheritedOptions = inner.widget?.editableOptions ? node.dynamic?.[item.binds.port]?.options : undefined
+    const recordSelectionSource = promoted
+      ? elabInputsOf(interfaceOf(node)).find((input) => input.spec.id === item.binds.port)?.recordSelectionSource : undefined
     const narrowed = promoted ? narrowedRange(item, inner) : undefined
     const promotedWidget = promoted ? {
       ...inner.widget!,
@@ -1083,6 +1096,7 @@ export function deriveBoundarySchema(
         : inner.widget !== undefined
           ? { forceInput: true }
           : {}),
+      ...(recordSelectionSource !== undefined ? { recordSelectionSource } : {}),
       ...(inner.lazy !== undefined ? { lazy: inner.lazy } : {}),
       ...(automatic !== undefined ? { automatic } : {}),
       ...(promotedWidget?.looked !== undefined || automatic !== undefined
@@ -1151,12 +1165,13 @@ export function deriveBoundarySchema(
     }
     if (route.terminal.kind !== 'port') continue
     const inner = route.terminal.slot as OutputSpec
+    const type = elabOutputsOf(interfaceOf(node)).find((output) => output.spec.id === item.binds.port)?.spec.type ?? inner.type
     items.push({
       kind: 'output',
       id: item.id,
       ...displayNameOf(item, inner),
       ...tooltipOf(item, inner),
-      type: freshenType(inner.type, item.binds.node, typeBindingsFor(node)),
+      type: freshenType(type, item.binds.node, typeBindingsFor(node)),
       ...(inner.isList !== undefined ? { isList: inner.isList } : {}),
       ...(inner.preview !== undefined ? { preview: inner.preview } : {}),
       // An output fed by one that may give nothing may give nothing too.
