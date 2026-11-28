@@ -494,7 +494,7 @@ interface DinksterTestBridge {
           'fetchMountSettings' | 'fetchMountLocations' | 'fetchModelSettings' | 'retryMount'> & {
           status: { get(): string }
           ingest(event: Readonly<Record<string, unknown>> & { type: string }): void
-          onLiveCompletion(listener: (execution: DinksterBridgeExecutionRef) => void): () => void
+          onLiveTerminal(listener: (execution: DinksterBridgeExecutionRef) => void): () => void
         }
         schemaState: { get(): { status: string } }
         registry: { get(): {

@@ -85,6 +85,7 @@ export const canvasGalleryPages = [
   ['declaration-rows', 'Declaration notes and lines'],
   ['row-editing', 'Editing in the row proposal'],
   ['row-states', 'Declaration row states: Display, nothing and skipped'],
+  ['exposure-rows', 'Exposure row space'],
   ['row-automatic', 'Automatic values proposal'],
   ['row-lists', 'Lists in the row proposal'],
   ['lookups', 'Lookup states'],

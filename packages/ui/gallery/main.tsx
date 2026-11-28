@@ -11,7 +11,7 @@ import {
   type JSX,
 } from 'solid-js'
 import { render } from 'solid-js/web'
-import { canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
+import { canvasPaintTokens, canvasTypePaintForTheme, modelKindColorMap } from '@dinkster/canvas'
 import { semanticTokensForTheme } from '@dinkster/core'
 import components from '@dinkster/branding/components' with { type: 'json' }
 import {
@@ -55,6 +55,7 @@ import {
   ProductButton,
   ProductByteSizeInput,
   ProductCheckbox,
+  ProductColorInput,
   ProductConfirmation,
   ProductConfirmationDialog,
   ProductDialog,
@@ -114,10 +115,14 @@ import { EngineStatesGallery } from './engine-states.js'
 import { PageTabsGallery } from './page-tabs.js'
 import { SearchGallery } from './search.js'
 import { BoardGallery } from './board.js'
+import { BoardCardsGallery } from './board-cards.js'
+import { BoardResultsGallery } from './board-results.js'
+import { ResultPicturesGallery } from './result-pictures.js'
 import { NodeSearchGallery } from './node-search.js'
 import { ModelsGallery } from './models.js'
 import { SettingsSectionGallery } from './settings-section.js'
 import { FieldAlignmentGallery, SelectGallery } from './select.js'
+import { TooltipsGallery } from './tooltips.js'
 
 const navigation = [
   { label: 'Buttons and fields', href: '#controls', icon: MousePointer },
@@ -127,6 +132,8 @@ const navigation = [
   { label: 'Confirmations', href: '#confirmations', icon: CircleAlert },
   { label: 'Account data', href: '#account-data', icon: User },
   { label: 'Board', href: '#board', icon: LayoutList },
+  { label: 'Board cards', href: '#board-cards', icon: LayoutList },
+  { label: 'Board results', href: '#board-results', icon: LayoutList },
   {
     label: 'Canvas',
     href: '#canvas',
@@ -174,6 +181,7 @@ function SegmentedStates() {
 
 function Gallery() {
   const [route, setRoute] = createSignal(window.location.hash || '#controls')
+  const [brushColor, setBrushColor] = createSignal(canvasPaintTokens.editor.painter.initialColor)
   const [toast, setToast] = createSignal<{ readonly message: string }>()
   const [error, setError] = createSignal(true)
   const [dialog, setDialog] = createSignal(false)
@@ -228,7 +236,7 @@ function Gallery() {
         route() === '#canvas' ? canvasPageHref(canvasPage()) : route()
       }
       onNavigate={navigate}
-      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#engine-states', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) ? undefined : 'site'}
+      contentDensity={['#canvas', '#canvas-chrome', '#run-controls', '#board', '#board-cards', '#board-results', '#engine-states', '#models', '#settings-section', '#setup-components', '#field-alignment'].includes(route()) ? undefined : 'site'}
       account={
         <Show when={route() !== '#signed-out'}>
           <ProductAccountMenu
@@ -247,6 +255,8 @@ function Gallery() {
             ? 'Dropdowns'
             : route().endsWith('field-alignment')
             ? 'Field alignment'
+            : route() === '#tooltips'
+            ? 'Tooltips'
             : route() === '#signed-out'
             ? 'Signed-out shell'
             : (navigation.find((item) => item.href === route())?.label ??
@@ -257,7 +267,7 @@ function Gallery() {
             ? 'Fixed examples drawn by the canvas renderer the editor uses, without a backend.'
             : 'The live shared components. Use a pointer or keyboard to inspect hover, focus and pressed states.'
         }
-        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#node-search'}
+        table={route() === '#lists' || route() === '#canvas' || route() === '#search' || route() === '#board' || route() === '#board-cards' || route() === '#board-results' || route() === '#node-search'}
       >
         <Show
           when={!loading()}
@@ -266,6 +276,20 @@ function Gallery() {
           <Switch
             fallback={<ProductEmptyState message="Choose a gallery page." />}
           >
+            <Match when={route() === '#color-input'}>
+              <Section title="Color chooser" components="ProductColorInput, CanvasColorPicker, CanvasColorSquare">
+                <ProductField label="Brush color">
+                  {(attributes) => <ProductColorInput {...attributes} value={brushColor()} onChange={setBrushColor} />}
+                </ProductField>
+                <ProductField label="Unavailable brush color">
+                  {(attributes) => <ProductColorInput {...attributes} value={canvasPaintTokens.editor.painter.initialColor} disabled onChange={() => {}} />}
+                </ProductField>
+                <ProductField label="Unchanged brush color" description="The owner does not accept changes.">
+                  {(attributes) => <ProductColorInput {...attributes} value={canvasPaintTokens.editor.painter.initialColor} onChange={() => {}} />}
+                </ProductField>
+                <output aria-label="Chosen brush color">{brushColor()}</output>
+              </Section>
+            </Match>
             <Match when={route() === '#settings-section'}>
               <SettingsSectionGallery />
             </Match>
@@ -536,6 +560,15 @@ function Gallery() {
             <Match when={route() === '#board'}>
               <BoardGallery />
             </Match>
+            <Match when={route() === '#board-cards'}>
+              <BoardCardsGallery />
+            </Match>
+            <Match when={route() === '#board-results'}>
+              <BoardResultsGallery />
+            </Match>
+            <Match when={route() === '#result-pictures'}>
+              <ResultPicturesGallery />
+            </Match>
             <Match when={route() === '#node-search'}>
               <NodeSearchGallery />
             </Match>
@@ -554,6 +587,9 @@ function Gallery() {
             </Match>
             <Match when={route() === '#dropdowns'}>
               <SelectGallery />
+            </Match>
+            <Match when={route() === '#tooltips'}>
+              <TooltipsGallery />
             </Match>
             <Match when={route() === '#field-alignment' || route() === '#site-field-alignment'}>
               <FieldAlignmentGallery />

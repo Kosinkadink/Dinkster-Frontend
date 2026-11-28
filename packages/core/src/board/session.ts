@@ -11,16 +11,18 @@ import { applyOps, applyOwnedOps, getAtPath, invertOps, type PatchOp } from '../
 import { toWirePatch } from '../commands/session.js'
 import { jsonSameValue } from '../commands/store.js'
 import { loadBoard, type BoardDocument } from './model.js'
-import { BoardStore, planBoardCommand, type BoardCommandInvocation, type BoardDispatchOutcome, type BoardSession } from './store.js'
+import { BoardStore, boardUndoableOps, planBoardCommand, type BoardCommandInvocation, type BoardDispatchOutcome, type BoardSession } from './store.js'
 
 function ownedInvocation(invocation: BoardCommandInvocation): BoardCommandInvocation {
   const result = ownJson(invocation, { undefinedProps: 'reject' })
   if (!result.ok) throw new Error(result.reason)
   const owned = result.value as unknown as BoardCommandInvocation
-  if (owned.command !== 'board.item.add') return owned
-  return { ...owned, params: { items: owned.params.items.map((item) => ({
+  if (owned.command !== 'board.item.add' && owned.command !== 'board.run.add') return owned
+  const items = owned.params.items.map((item) => ({
     ...item, id: item.id ?? `${item.kind}-${uuidv4()}`,
-  })) } }
+  }))
+  return owned.command === 'board.item.add' ? { ...owned, params: { items } }
+    : { ...owned, params: { ...owned.params, items } }
 }
 
 function loaded(value: unknown): BoardDocument {
@@ -71,6 +73,12 @@ function replayHistory(document: BoardDocument, operations: readonly PatchOp[]):
   const applied: PatchOp[] = []
   for (const operation of operations) {
     const current = getAtPath(cursor, operation.path)
+    if (operation.path.length === 3 && operation.path[0] === 'items' && operation.path[2] === 'controllers' &&
+      current !== null && typeof current === 'object' && !Array.isArray(current)) {
+      // Keep a shared mode container when undo/redo only owns one of its entries.
+      if (operation.op === 'remove' && jsonSameValue(operation.oldValue, {}) && Object.keys(current).length > 0) continue
+      if (operation.op === 'add' && jsonSameValue(operation.value, {})) continue
+    }
     if (operation.op === 'replace' && operation.path.length === 1 && operation.path[0] === 'order' &&
       Array.isArray(current) && Array.isArray(operation.oldValue) && Array.isArray(operation.value)) {
       const before = operation.oldValue as readonly string[]
@@ -169,11 +177,16 @@ export class SharedBoardSession implements BoardSession {
       const intention = ownedInvocation(invocation)
       const plan = planBoardCommand(this.doc, intention)
       if (!plan.ok) return plan
+      if (invocation.command === 'board.run.add' && plan.forward.length === 0)
+        return { ok: true, document: this.doc, revision: this.revision, created: [] }
       const document = loaded(applyOwnedOps(this.doc as unknown as Json, plan.forward))
-      const history = { forward: plan.forward, inverse: invertOps(plan.forward) }
-      this.undoStack.push(history)
-      if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
-      this.redoStack.length = 0
+      const forward = boardUndoableOps(plan.forward)
+      const history = { forward, inverse: invertOps(forward) }
+      if (invocation.command !== 'board.run.add' || forward.length > 0) {
+        this.undoStack.push(history)
+        if (this.undoStack.length > this.maxUndo) this.undoStack.shift()
+        this.redoStack.length = 0
+      }
       this.pending.push({ intention, origin: invocation.command, history, patch: plan.forward })
       this.documentSignal.set(document)
       this.pump()
@@ -376,6 +389,10 @@ export class SharedBoardSession implements BoardSession {
         } else {
           const plan = planBoardCommand(cursor, entry.intention)
           if (!plan.ok) throw new Error(plan.diagnostics[0]?.message ?? 'Board command no longer applies')
+          if (entry.intention.command === 'board.run.add' && plan.forward.length === 0) {
+            this.pending.splice(this.pending.indexOf(entry), 1)
+            continue
+          }
           document = loaded(applyOwnedOps(cursor as unknown as Json, plan.forward))
           entry.patch = plan.forward
         }
@@ -394,6 +411,7 @@ export class SharedBoardSession implements BoardSession {
 
   private advanceHistory(entry: PendingEntry, undo: HistoryEntry[], redo: HistoryEntry[]): void {
     if (typeof entry.intention !== 'string') {
+      if (entry.intention.command === 'board.run.add' && entry.history.forward.length === 0) return
       undo.push(entry.history)
       if (undo.length > this.maxUndo) undo.shift()
       redo.length = 0
@@ -407,8 +425,9 @@ export class SharedBoardSession implements BoardSession {
   }
 
   private updateHistory(history: HistoryEntry, intention: PendingEntry['intention'], patch: readonly PatchOp[]): void {
-    history.forward = intention === 'undo' ? invertOps(patch) : patch
-    history.inverse = intention === 'undo' ? patch : invertOps(patch)
+    const operations = boardUndoableOps(patch)
+    history.forward = intention === 'undo' ? invertOps(operations) : operations
+    history.inverse = intention === 'undo' ? operations : invertOps(operations)
   }
 
   private async retry(): Promise<void> {

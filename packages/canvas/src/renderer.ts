@@ -6,7 +6,7 @@
  * owner pushes scene/state and the renderer repaints on a rAF dirty loop.
  */
 
-import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, effectiveWidgetDefault, formatWidgetValue, t as translate, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
+import { atomNamesOf, canonicalTypeIdOf, cardinalityOf, effectiveWidgetDefault, formatWidgetValue, isComboWidgetInput, t as translate, type CanvasLayerContribution, type CanvasLayerNode, type Json, type NodeDecoration, type NodeProgress, type NodeRunState, type TypeExpr } from '@dinkster/core'
 import {
   BYPASSED_BADGE,
   LAST_RUN_BADGE,
@@ -55,7 +55,7 @@ import {
 } from './toolbox.js'
 import { paintSeedControllerIcon, paintToolboxIcon } from './icons.js'
 import { isButtonIcon, paintButtonIcon } from './button-icons.js'
-import { canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens, type RowGeometry } from './tokens.js'
+import { canvasDetailLevel, canvasPaintTokens, defaultTokens, IN_NODE_EDITORS, presentedType, typeColor, type CanvasDetailLevel, type DesignTokens } from './tokens.js'
 import { fitText, measureWidth, paintCenteredText, shareRowWidth, wrapText } from './text-fit.js'
 
 /**
@@ -430,20 +430,11 @@ export interface RendererLensCapabilities {
 export function widgetRowAffordanceRect(
   rowWidth: number,
   rowHeight: number,
-  row: Extract<LayoutRow, { kind: 'widget' }>,
-  geometry: RowGeometry,
 ): { readonly x: number; readonly y: number; readonly width: number; readonly height: number } {
   const paint = canvasPaintTokens.lensAffordance
   const size = Math.max(paint.rowMinSize, Math.min(paint.rowMaxSize, rowHeight - paint.rowPadding))
-  const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
-  const trailingEdge = row.controllerMode !== undefined
-    ? controllerChipRect(rowWidth, rowHeight, geometry).x - CONTROLLER_CHIP_TEXT_GAP
-    : rowWidth - (numeric ? geometry.stepperZone + CONTROLLER_CHIP_TEXT_GAP : CONTROLLER_CHIP_TEXT_GAP)
   return {
-    x: Math.max(
-      geometry.stepperZone + CONTROLLER_CHIP_TEXT_GAP,
-      trailingEdge - size,
-    ),
+    x: Math.max(0, rowWidth - CONTROLLER_CHIP_TEXT_GAP - size),
     y: (rowHeight - size) / 2,
     width: size,
     height: size,
@@ -1624,6 +1615,13 @@ export class CanvasRenderer {
     return this.lensCapabilities
   }
 
+  /** Field controls and editors stop before a lens control's trailing slot. */
+  widgetContentWidth(node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>): number {
+    const width = row.width ?? node.layout.width - row.inset * 2
+    if (this.lensCapabilities.widgetRowAffordance?.(node, row) === undefined) return width
+    return Math.max(0, widgetRowAffordanceRect(width, this.tokens.rowHeight).x - CONTROLLER_CHIP_TEXT_GAP)
+  }
+
   /** The value and wire state shared by field painting and label-mark hit testing. */
   widgetPaintState(node: SceneNode, row: Extract<LayoutRow, { kind: 'widget' }>, driven?: { readonly value?: Json }): Pick<WidgetPaintArgs, 'value' | 'companion' | 'connected'> {
     const arriving = this.rowCompanion(node.id, row, driven)
@@ -2691,7 +2689,7 @@ export class CanvasRenderer {
       const batches = new Map<string | undefined, Array<readonly [number, number, number, number]>>()
       for (const link of scene.links) {
         if (link.hidden === true || this.overlay.hiddenLinkIds?.has(link.id) === true ||
-            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || this.nothingLinks.has(link.id) || link.dimmed === true || link.mismatch === true) continue
+            this.overlay.linkSelection?.has(link.id) === true || link.maybeAbsent === true || this.nothingLinks.has(link.id) || link.dimmed === true || link.sourceMuted === true || link.mismatch === true) continue
         const bounds = linkBounds(link.x1, link.y1, link.x2, link.y2)
         if (bounds.maxX + paintPad < view.x || bounds.minX - paintPad > view.x + view.w ||
             bounds.maxY + paintPad < view.y || bounds.minY - paintPad > view.y + view.h) continue
@@ -2820,7 +2818,7 @@ export class CanvasRenderer {
         this.scopeHighlight === undefined) {
       const batches = new Map<string | undefined, Array<readonly [number, number]>>()
       for (const reroute of this.scene.reroutes) {
-        if (this.overlay.rerouteSelection?.has(reroute.id) === true ||
+        if (reroute.dimmed === true || reroute.sourceMuted === true || this.overlay.rerouteSelection?.has(reroute.id) === true ||
             this.overlay.dropTargets?.has(rerouteTargetKey(reroute.id)) === true ||
             this.overlay.hoveredReroute === reroute.id) continue
         const pad = Math.max(rerouteRadius + canvasPaintTokens.reroute.cullPadding, statusRingCullPad(rerouteRadius, scale))
@@ -2861,6 +2859,8 @@ export class CanvasRenderer {
         : Math.max(rerouteRadius + canvasPaintTokens.reroute.cullPadding, statusRingCullPad(rerouteRadius, scale))
       if (rx + pad < view.x || rx - pad > view.x + view.w || ry + pad < view.y || ry - pad > view.y + view.h) continue
       if (this.scopeHighlight && !this.scopeHighlight.reroutes.has(r.id)) ctx.globalAlpha = SCOPE_DIM
+      if (r.dimmed) ctx.globalAlpha *= canvasPaintTokens.widget.inactiveOpacity
+      if (r.sourceMuted) ctx.globalAlpha *= canvasPaintTokens.node.modeOpacity
       if (this.overlay.dropTargets?.has(rerouteTargetKey(r.id))) {
         ctx.beginPath()
         ctx.arc(rx, ry, rerouteRadius + STATUS_RING_GAP, 0, Math.PI * 2)
@@ -4309,12 +4309,17 @@ export class CanvasRenderer {
           const paint = canvasPaintTokens.widget
           ctx.fillRect(node.x + t.padX, rowY + t.rowGeometry.fieldInsetY, l.width - t.padX * 2, row.height - t.rowGeometry.fieldInsetY * 2)
           ctx.globalAlpha = rowAlpha * paint.fallback.opacity
+          const usable = Math.max(0, l.width - t.padX * 2 - paint.fallback.textInset * 2)
+          const labelZone = shareRowWidth(usable, measureWidth(ctx, row.label) + paint.labelWidthPadding,
+            measureWidth(ctx, row.text) + paint.fallbackValueWidthPadding, true)
           ctx.fillStyle = t.colors.label
           ctx.textAlign = 'left'
-          ctx.fillText(row.label, node.x + t.padX + paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.labelRatio)
+          ctx.fillText(fitText(ctx, row.label, Math.max(0, labelZone - paint.labelClipPadding)),
+            node.x + t.padX + paint.fallback.textInset, rowY + row.height / 2)
           ctx.fillStyle = t.colors.value
           ctx.textAlign = 'right'
-          ctx.fillText(row.text, node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2, (l.width - t.padX * 2) * paint.fallback.valueRatio)
+          ctx.fillText(fitText(ctx, row.text, Math.max(0, usable - labelZone)),
+            node.x + l.width - t.padX - paint.fallback.textInset, rowY + row.height / 2)
           ctx.textAlign = 'left'
           ctx.globalAlpha = rowAlpha
           // A problem on this stored value outlines its row.
@@ -4840,10 +4845,13 @@ export class CanvasRenderer {
     const t = this.tokens
     const l = node.layout
     const rowY = node.y + row.y
-    if (this.openRows[sceneNode.id] === row.valueKey) return
+    if (this.openRows[sceneNode.id] === row.valueKey) {
+      this.drawWidgetRowAffordance(ctx, sceneNode, node, row)
+      return
+    }
     const display = this.widgetPaintState(node, row, driven)
     const { companion, connected } = display
-    const widgetWidth = row.width ?? l.width - row.inset * 2
+    const widgetWidth = this.widgetContentWidth(sceneNode, row)
     const rowAlpha = ctx.globalAlpha
     if (row.disabled) ctx.globalAlpha = rowAlpha * canvasPaintTokens.widget.inactiveOpacity
     else {
@@ -4969,7 +4977,7 @@ export class CanvasRenderer {
       ctx.strokeStyle = t.colors.selection
       ctx.strokeRect(x, y, chip.width, chip.height)
       const icon = chip.width * canvasPaintTokens.controller.chipIconRatio
-      paintSeedControllerIcon(ctx, row.controllerMode, x + (chip.width - icon) / 2, y + (chip.height - icon) / 2, icon, t.colors.label, row.spec.controller)
+      paintSeedControllerIcon(ctx, row.controllerMode, x + (chip.width - icon) / 2, y + (chip.height - icon) / 2, icon, t.colors.label, isComboWidgetInput({ widget: row.spec }))
       ctx.globalAlpha = chipAlpha
     }
     const numeric = (row.spec.widgetType === 'INT' || row.spec.widgetType === 'FLOAT') && row.viewId !== 'core.integerColor'
@@ -5004,39 +5012,48 @@ export class CanvasRenderer {
       ctx.lineCap = previousLineCap
       ctx.globalAlpha = glyphAlpha
     }
-    const lensAffordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
-    if (lensAffordance !== undefined) {
-      const rowWidth = widgetWidth
-      const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight, row, t.rowGeometry)
-      const x = node.x + row.inset + rect.x
-      const y = rowY + rect.y
-      const affordanceAlpha = ctx.globalAlpha
-      const paint = canvasPaintTokens.lensAffordance
-      if (lensAffordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
-      ctx.fillStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
-      ctx.strokeStyle = lensAffordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
-      ctx.lineWidth = paint.stroke
-      ctx.beginPath()
-      ctx.roundRect(x, y, rect.width, rect.height, paint.radius)
-      ctx.fill()
-      ctx.stroke()
-      ctx.strokeStyle = lensAffordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
-      ctx.lineCap = 'round'
-      ctx.beginPath()
-      if (lensAffordance.active) {
-        ctx.moveTo(x + rect.width * paint.check.startX, y + rect.height * paint.check.startY)
-        ctx.lineTo(x + rect.width * paint.check.middleX, y + rect.height * paint.check.middleY)
-        ctx.lineTo(x + rect.width * paint.check.endX, y + rect.height * paint.check.endY)
-      } else {
-        ctx.moveTo(x + rect.width * paint.plus.start, y + rect.height / 2)
-        ctx.lineTo(x + rect.width * paint.plus.end, y + rect.height / 2)
-        ctx.moveTo(x + rect.width / 2, y + rect.height * paint.plus.start)
-        ctx.lineTo(x + rect.width / 2, y + rect.height * paint.plus.end)
-      }
-      ctx.stroke()
-      ctx.globalAlpha = affordanceAlpha
-    }
+    this.drawWidgetRowAffordance(ctx, sceneNode, node, row)
     ctx.globalAlpha = rowAlpha
+  }
+
+  private drawWidgetRowAffordance(
+    ctx: CanvasRenderingContext2D,
+    sceneNode: SceneNode,
+    node: SceneNode,
+    row: Extract<LayoutRow, { kind: 'widget' }>,
+  ): void {
+    const affordance = this.lensCapabilities.widgetRowAffordance?.(sceneNode, row)
+    if (affordance === undefined) return
+    const t = this.tokens
+    const rowWidth = row.width ?? node.layout.width - row.inset * 2
+    const rect = widgetRowAffordanceRect(rowWidth, t.rowHeight)
+    const x = node.x + row.inset + rect.x
+    const y = node.y + row.y + rect.y
+    const paint = canvasPaintTokens.lensAffordance
+    ctx.save()
+    if (affordance.disabled === true) ctx.globalAlpha *= paint.disabledOpacity
+    ctx.fillStyle = affordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetBackground
+    ctx.strokeStyle = affordance.active ? t.colors.widgetAffordanceActive : t.colors.widgetAffordance
+    ctx.lineWidth = paint.stroke
+    ctx.beginPath()
+    ctx.roundRect(x, y, rect.width, rect.height, paint.radius)
+    ctx.fill()
+    ctx.stroke()
+    ctx.strokeStyle = affordance.active ? t.colors.canvasBackground : t.colors.widgetAffordance
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    if (affordance.active) {
+      ctx.moveTo(x + rect.width * paint.check.startX, y + rect.height * paint.check.startY)
+      ctx.lineTo(x + rect.width * paint.check.middleX, y + rect.height * paint.check.middleY)
+      ctx.lineTo(x + rect.width * paint.check.endX, y + rect.height * paint.check.endY)
+    } else {
+      ctx.moveTo(x + rect.width * paint.plus.start, y + rect.height / 2)
+      ctx.lineTo(x + rect.width * paint.plus.end, y + rect.height / 2)
+      ctx.moveTo(x + rect.width / 2, y + rect.height * paint.plus.start)
+      ctx.lineTo(x + rect.width / 2, y + rect.height * paint.plus.end)
+    }
+    ctx.stroke()
+    ctx.restore()
   }
 
   private drawRunningGlow(

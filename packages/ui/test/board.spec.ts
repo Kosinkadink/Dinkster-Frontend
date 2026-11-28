@@ -2,6 +2,210 @@ import { expect, test } from '@playwright/test'
 
 test.use({ hasTouch: true })
 
+test('reserved results share progress and recorded history follows edits without leaving empty terminal frames', async ({
+  page,
+}) => {
+  await page.goto('/#board-results')
+  const pending = page.locator('[data-board-pending]')
+  const history = page.locator('[data-board-history]')
+  await expect(pending).toHaveCount(1)
+  await expect(history).toHaveCount(1)
+  for (const state of ['Preparing', 'Queued']) {
+    await page.getByRole('button', { name: state, exact: true }).click()
+    await expect(pending).toHaveText(state)
+    await expect(
+      page.getByRole('progressbar', { name: 'Run progress' }),
+    ).toHaveCount(0)
+  }
+  await page
+    .getByRole('button', { name: 'Unknown progress', exact: true })
+    .click()
+  await expect(pending).toHaveText('Running')
+  await expect(
+    page.getByRole('progressbar', { name: 'Run progress' }),
+  ).not.toHaveAttribute('aria-valuenow')
+  await page.getByRole('button', { name: 'Running', exact: true }).click()
+  await expect(
+    page.getByRole('progressbar', { name: 'Run progress' }),
+  ).toHaveAttribute('aria-valuenow', '0.41')
+  await page.getByRole('button', { name: 'Finish run', exact: true }).click()
+  await expect(pending).toHaveCount(0)
+  await expect(
+    page.locator('[data-board-item][data-kind="picture"]'),
+  ).toHaveCount(4)
+  await expect(history).toHaveCount(1)
+  const path = await history.getAttribute('d')
+  const last = page.locator('[data-board-item="result-3"]')
+  await last.scrollIntoViewIfNeeded()
+  const box = (await last.boundingBox())!
+  await page.mouse.move(box.x + 40, box.y + 40)
+  await page.mouse.down()
+  await page.mouse.move(box.x + 40, box.y + 100, { steps: 5 })
+  await page.mouse.up()
+  await expect(history).toHaveAttribute('d', path!)
+  const first = page.locator('[data-board-item="result-0"]')
+  const firstBox = (await first.boundingBox())!
+  await page.mouse.move(firstBox.x + 40, firstBox.y + 40)
+  await page.mouse.down()
+  await page.mouse.move(firstBox.x + 40, firstBox.y + 90, { steps: 5 })
+  await page.mouse.up()
+  await expect(history).not.toHaveAttribute('d', path!)
+  for (const id of ['result-3', 'result-2', 'result-1', 'result-0']) {
+    await page
+      .locator(`[data-board-item="${id}"]`)
+      .click({ position: { x: 30, y: 30 } })
+    await page.keyboard.press('Delete')
+  }
+  await expect(history).toHaveCount(0)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(history).toHaveCount(1)
+  await page
+    .getByRole('button', { name: 'Blocked next cell', exact: true })
+    .click()
+  await page.getByRole('button', { name: 'Finish run', exact: true }).click()
+  expect(
+    await history.evaluate((element) => {
+      const line = element as SVGPathElement
+      const end = line.getPointAtLength(line.getTotalLength())
+      return { x: end.x, y: end.y }
+    }),
+  ).toEqual({ x: 388, y: 111.5 })
+  await page.getByRole('button', { name: 'Later run', exact: true }).click()
+  await expect(pending).toHaveCount(4)
+  for (const progress of await page
+    .getByRole('progressbar', { name: 'Run progress' })
+    .all())
+    await expect(progress).toHaveAttribute('aria-valuenow', '0.41')
+  await page.getByTestId('canvas-fit-view').click()
+  const surface = (await page.locator('.dinkster-board').boundingBox())!
+  for (const place of await pending.all()) {
+    const rect = (await place.boundingBox())!
+    expect(rect.x).toBeGreaterThanOrEqual(surface.x)
+    expect(rect.y).toBeGreaterThanOrEqual(surface.y)
+    expect(rect.x + rect.width).toBeLessThanOrEqual(surface.x + surface.width)
+    expect(rect.y + rect.height).toBeLessThanOrEqual(surface.y + surface.height)
+  }
+  await page
+    .getByRole('button', { name: 'Failed without files', exact: true })
+    .click()
+  await page.getByRole('button', { name: 'Finish run', exact: true }).click()
+  await expect(pending).toHaveCount(0)
+  await expect(history).toHaveCount(0)
+  await expect(
+    page.locator('[data-board-item="workflow"]').getByRole('status'),
+  ).toHaveText('Failed')
+})
+
+test('card controls edit without dragging, menus dismiss, and removal is undoable', async ({
+  page,
+}) => {
+  await page.goto('/#board-cards')
+  const card = page.locator('[data-board-item="workflow-1"]')
+  const blueprint = page.locator('[data-board-item="blueprint-1"]')
+  const original = (await card.boundingBox())!
+  await card
+    .getByRole('textbox', { name: 'Prompt', exact: true })
+    .fill('Morning light')
+  await card.getByRole('textbox', { name: 'Prompt', exact: true }).press('Tab')
+  await expect(
+    card.getByRole('textbox', { name: 'Prompt', exact: true }),
+  ).toHaveValue('Morning light')
+  await expect(
+    blueprint.getByRole('textbox', { name: 'Motion', exact: true }),
+  ).toHaveValue('Slow push in')
+  await blueprint
+    .getByRole('button', { name: 'Actions for Image to video' })
+    .click()
+  await expect(
+    page.getByRole('menuitem', { name: 'Choose inputs', exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('menuitem', { name: 'Open workflow', exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('menuitem', { name: 'Remove from board', exact: true }),
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
+  await card.getByRole('button', { name: 'Run', exact: true }).click()
+  await expect(
+    card.getByRole('button', { name: 'Stop', exact: true }),
+  ).toBeVisible()
+  await expect(card.getByRole('status')).toHaveText('Running')
+  expect((await card.boundingBox())!.x).toBeCloseTo(original.x)
+  expect((await card.boundingBox())!.y).toBeCloseTo(original.y)
+  await card.getByRole('button', { name: 'Stop', exact: true }).click()
+  await expect(
+    card.getByRole('button', { name: 'Run', exact: true }),
+  ).toBeVisible()
+  const actions = card.getByRole('button', {
+    name: 'Actions for Diner establishing shot',
+  })
+  await actions.click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu', { name: 'Card actions' })).toHaveCount(0)
+  await actions.click()
+  await page
+    .getByRole('menuitem', { name: 'Choose inputs', exact: true })
+    .click()
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Choose inputs:' }),
+  ).toHaveText('Choose inputs: Diner establishing shot')
+  await actions.click()
+  const remove = page.getByRole('menuitem', {
+    name: 'Remove from board',
+    exact: true,
+  })
+  const colors = await remove.evaluate((element) => {
+    const probe = document.createElement('span')
+    element.append(probe)
+    probe.style.color = 'var(--dinkster-text-primary)'
+    const neutral = getComputedStyle(probe).color
+    probe.style.color = 'var(--dinkster-danger-foreground)'
+    const danger = getComputedStyle(probe).color
+    probe.remove()
+    return { neutral, danger }
+  })
+  await expect(remove).toHaveCSS('color', colors.neutral)
+  await remove.hover()
+  await expect(remove).toHaveCSS('color', colors.danger)
+  await page.mouse.move(0, 0)
+  await page.keyboard.press('End')
+  await expect(remove).toBeFocused()
+  await expect(remove).toHaveCSS('color', colors.danger)
+  await remove.press('Enter')
+  await expect(card).toHaveCount(0)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(
+    card.getByRole('textbox', { name: 'Prompt', exact: true }),
+  ).toHaveValue('Morning light')
+  const add = page.getByRole('button', { name: 'Add', exact: true })
+  await add.click()
+  await expect(
+    page.getByRole('menuitem', { name: 'Blueprint', exact: true }),
+  ).toBeVisible()
+  await page.getByRole('heading', { name: 'Board cards', level: 2 }).click()
+  await expect(
+    page.getByRole('menu', { name: 'Add', exact: true }),
+  ).toHaveCount(0)
+  await add.click()
+  await page.getByRole('menuitem', { name: 'Workflow', exact: true }).click()
+  const placed = page.locator('[data-board-item][data-kind="workflow"]').last()
+  await expect(placed).toHaveAttribute('data-selected', 'true')
+  await expect(
+    page.getByRole('menu', { name: 'Add', exact: true }),
+  ).toHaveCount(0)
+  await page.goto('/#board')
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(
+    page.getByRole('menuitem', { name: 'Blueprint', exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('menuitem', { name: 'Workflow', exact: true }),
+  ).toHaveCount(0)
+  await page.getByRole('menuitem', { name: 'Media', exact: true }).click()
+  await expect(page.locator('[data-kind="picture"]')).toHaveCount(4)
+})
+
 test('pictures move and resize without changing their shape, and edits undo and redo', async ({
   page,
 }) => {

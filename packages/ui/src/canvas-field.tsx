@@ -1045,12 +1045,12 @@ export type CanvasSeedMode = 'fixed' | 'increment' | 'decrement' | 'randomize'
 /** The mode's arrow follows numbers up/down and choices next/previous. */
 export function CanvasSeedModeIcon(props: {
   mode: CanvasSeedMode
-  trigger?: 'after_generate' | 'after_refresh'
+  choice?: boolean
 }) {
   const icon = () =>
-    props.trigger === 'after_refresh' && props.mode === 'increment'
+    props.choice && props.mode === 'increment'
       ? ArrowDown
-      : props.trigger === 'after_refresh' && props.mode === 'decrement'
+      : props.choice && props.mode === 'decrement'
         ? ArrowUp
         : SEED_MODE_ICONS[props.mode]
   return (

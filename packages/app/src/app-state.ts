@@ -11,6 +11,12 @@ import { createAppPageTabs } from './app-page-tabs.js'
 import { isPageTab, type PageTab } from './page-tabs.js'
 import type { PaletteEntry } from './NodePalette.js'
 import {
+  BOARD_MAX_NAME,
+  BOARD_MAX_EXTENT,
+  BOARD_MIN_SIDE,
+  type BoardRect,
+  isDinksterRegionEntry,
+  type DinksterGraphWire,
   CORE_VIRTUAL_NODE_KINDS,
   activeLocale,
   analyzeSelectionExecution,
@@ -19,6 +25,7 @@ import {
   asNodeId,
   asPortId,
   asPromptId,
+  boardMediaKindOf,
   canonicalJson,
   canonicalTypeIdOf,
   automaticValuesOfJob,
@@ -47,6 +54,7 @@ import {
   documentNodeResolver,
   detectFormat,
   diag,
+  DocumentStore,
   createLocalSession,
   connectSharedSession,
   type HistorySnapshot,
@@ -65,6 +73,7 @@ import {
   emptyGates,
   environmentDrift,
   executionKey,
+  exposedKey,
   ExtensionHost,
   type ExtensionHostOptions,
   type ExtensionEditorKind,
@@ -174,7 +183,7 @@ import {
   createLookupClient,
   type LookupClient,
   discoverBackend,
-  hydrateDinksterCompletedExecution,
+  hydrateDinksterTerminalExecution,
   noEngineOpen,
   probeSupervisorStatus,
   reconcileDinksterExecutions,
@@ -185,6 +194,7 @@ import {
   type ModelDownloadRequirement,
   type ExecutionState,
   type ExecutionStatus,
+  type HistoryRunRecord,
   type LibraryRecord,
   type LibraryProject,
   type ProjectNeeds,
@@ -284,7 +294,9 @@ import {
   type PersistedExecutionResult,
 } from './execution-result-persistence.js'
 import { COLLAB_SCOPE, httpCollabTransport, stableActorId, type CollabTransport } from './collab.js'
-import { BoardWorkspace } from './board-workspace.js'
+import { BoardWorkspace, type BoardEntry } from './board-workspace.js'
+import { inspectBoardMediaMetadata } from './board-media.js'
+import { buildParamRows } from './app-view-rows.js'
 import { installBoardPages } from './BoardPage.js'
 import { PresenceChannel } from './collab-presence.js'
 import {
@@ -931,6 +943,11 @@ export interface AdvancementPlan {
   /** Per-input value mutation generation captured with the queue-time snapshot. */
   readonly generations: ReadonlyMap<string, number>
   readonly modeGenerations: ReadonlyMap<string, number>
+}
+
+interface BoardAdvancementPlan {
+  readonly apply: () => void
+  readonly dispose: () => void
 }
 
 type AdvancementInputLocation = { readonly graphId: string; readonly nodeId: string; readonly inputId: string }
@@ -2865,7 +2882,7 @@ export class AppState {
   private readonly localExtensions = new ExtensionHost(this.extensionTargets)
   private readonly extensionWorlds = new Map<ConnectionId, Map<string, ExtensionWorld>>()
   private readonly extensionWorldLoads = new WeakMap<ExtensionWorld, Promise<void>>()
-  private readonly submissionWorlds = new Map<AbortController, { readonly tab: Tab; readonly world: ExtensionWorld | undefined }>()
+  private readonly submissionWorlds = new Map<AbortController, { readonly tab: Tab | undefined; readonly world: ExtensionWorld | undefined }>()
   private readonly deniedExtensionPrivileges: readonly FrontendPrivilege[]
   private selectedExtensionWorld: ExtensionWorld | undefined
 
@@ -2965,7 +2982,7 @@ export class AppState {
   }
 
   /** A posted submission can outlive its tab and transfer ownership to a run. */
-  private retainSubmissionWorld(tab: Tab, artifact: CompileArtifact): { readonly signal: AbortSignal; readonly release: () => void; readonly markPosted: () => void } {
+  private retainSubmissionWorld(tab: Tab | undefined, artifact: CompileArtifact): { readonly signal: AbortSignal; readonly release: () => void; readonly markPosted: () => void } {
     const registry = this.retainedRegistries.get(artifact)
     const digest = registry?.extensionSnapshotPair?.digest
     const world = digest === undefined ? undefined : this.extensionWorlds.get(artifact.connection)?.get(digest)
@@ -3030,7 +3047,18 @@ export class AppState {
   readonly activeTabId: Signal<string> = createSignal('')
   readonly pages: ReturnType<typeof createAppPageTabs>
   readonly boards: BoardWorkspace
+  readonly boardCardSubmissions = createSignal<ReadonlyMap<string, {
+    readonly controller: AbortController
+    readonly entry: BoardEntry
+    readonly places?: readonly BoardRect[]
+  }>>(new Map())
   private readonly uninstallBoardPages: () => void
+  readonly boardResultErrors = createSignal<ReadonlyMap<BoardEntry, string>>(new Map())
+  private readonly boardResultDeliveries = new Map<string, {
+    readonly entry: BoardEntry; readonly execution: ExecutionState; readonly generation: number
+    readonly abort: AbortController; pending: boolean
+  }>()
+  private readonly unsubscribeBoardResults: () => void
   /** Never serialized: identifies the first-party GLSL source editor session. */
   readonly glslEditorTarget: Signal<GlslEditorTarget | undefined> = createSignal<GlslEditorTarget | undefined>(undefined)
   /**
@@ -3450,6 +3478,13 @@ export class AppState {
     this.editorSplits = new EditorSplitStore(this.settings)
     this.pages = createAppPageTabs(this)
     this.uninstallBoardPages = installBoardPages(this)
+    const resultSubscriptions = [this.store.executions, this.boards.entries, this.backendsTick]
+      .map((signal) => signal.subscribe(() => this.deliverBoardResults()))
+    this.unsubscribeBoardResults = () => {
+      for (const unsubscribe of resultSubscriptions) unsubscribe()
+      for (const delivery of this.boardResultDeliveries.values()) delivery.abort.abort()
+      this.boardResultDeliveries.clear()
+    }
     // Stale-modal guard (see modalPanel above): registry churn that removes
     // the open modal's panel - or moves it off 'modal' - closes the modal
     // state itself, so a later re-register can never resurrect the dialog.
@@ -3590,7 +3625,7 @@ export class AppState {
     this.textEditorExtensionRegistry.register(new SchemaTextCompletionProvider())
     for (const contribution of coreMenuContributions()) this.menuRegistry.register(
       contribution.id === 'core.widget.expose' || contribution.id === 'core.node.preview.expose'
-        ? { ...contribution, resolve: (context) => this.appViewEnabled ? contribution.resolve(context) : [] }
+        ? { ...contribution, resolve: (context) => this.exposureEnabled ? contribution.resolve(context) : [] }
         : contribution,
     )
     // Reset-to-default items are schema-aware: they resolve through the
@@ -3685,7 +3720,7 @@ export class AppState {
       for (const key of [...executionStatuses.keys()]) {
         if (executions.has(key)) continue
         executionStatuses.delete(key)
-        this.advancementPlans.delete(key)
+        this.dropAdvancement(key)
       }
       for (const execution of executions.values()) {
         const key = executionKey(execution.ref)
@@ -3707,7 +3742,7 @@ export class AppState {
           execution.status === 'error' ||
           execution.status === 'cancelled' ||
           (execution.status === 'interrupted' && !this.store.isProvisionallyLost(execution.ref))
-        ) this.advancementPlans.delete(key)
+        ) this.dropAdvancement(key)
         if (
           previous !== undefined &&
           previous !== execution.status &&
@@ -3804,7 +3839,7 @@ export class AppState {
     // Mirror tab, document, and active-tab changes back into storage.
     this.tabs.subscribe(() => {
       for (const [controller, { tab }] of this.submissionWorlds) {
-        if (this.liveTabContinuing(tab.store) === undefined) controller.abort()
+        if (tab !== undefined && this.liveTabContinuing(tab.store) === undefined) controller.abort()
       }
       this.selectExtensionWorld()
       this.watchTabDocuments()
@@ -3857,6 +3892,8 @@ export class AppState {
         for (const tab of this.tabs.get()) {
           if (tab.editorKind === APP_EDITOR_KIND) this.setTabEditorKind(tab.id, GRAPH_EDITOR_KIND)
         }
+      }
+      if (!this.exposureEnabled) {
         for (const [tabId, lens] of this.lenses.get()) {
           if (lens === 'exposure') this.setLens(tabId, 'standard')
         }
@@ -3870,8 +3907,10 @@ export class AppState {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.unsubscribeBoardResults()
     this.unsubscribeRequestFailures()
     this.uninstallBoardPages()
+    for (const key of this.advancementPlans.keys()) this.dropAdvancement(key)
     this.boards.dispose()
     for (const projects of this.modelDownloadControllers.values()) for (const controller of projects.values()) controller.dispose()
     this.modelDownloadControllers.clear()
@@ -3889,6 +3928,7 @@ export class AppState {
     this.pendingSelectionScopes.clear()
     this.unsubscribePackLocale()
     this.unsubscribeAppView()
+    for (const submission of this.boardCardSubmissions.get().values()) submission.controller.abort()
     for (const controller of this.submissionWorlds.keys()) controller.abort()
     this.submissionWorlds.clear()
     for (const worlds of this.extensionWorlds.values()) for (const world of worlds.values()) world.dispose()
@@ -5431,8 +5471,8 @@ export class AppState {
         if (registry.get() !== undefined) startRefresh('registry static prefix changed')
         else void this.loadBackendSchemas(nativeBackend)
       })
-      const disposeCompletionHydration = connection.onLiveCompletion((ref) => {
-        hydrateDinksterCompletedExecution(connection, this.store, ref, prepareHydration).catch((error: unknown) => {
+      const disposeTerminalHydration = connection.onLiveTerminal((ref) => {
+        hydrateDinksterTerminalExecution(connection, this.store, ref, prepareHydration).catch((error: unknown) => {
           this.reportProblems(GLOBAL_PROBLEMS_OWNER, [
             diag(
               'error',
@@ -5453,7 +5493,7 @@ export class AppState {
           this.clearProblems(schemaProblemsOwner)
           this.clearProblems(packProblemsOwner)
           disposeCatalogSetting()
-          disposeCompletionHydration()
+          disposeTerminalHydration()
           disposeLibraryChanges()
           disposePrincipal()
           disposeMountHealth()
@@ -5630,6 +5670,7 @@ export class AppState {
    * `schemas`/`resolve` while keeping the raw backend hash).
    */
   private readonly retainedRegistries = new WeakMap<CompileArtifact, SchemaRegistry>()
+  private readonly recordedRunValues = new WeakMap<CompileArtifact, DinksterValuesClient>()
   private readonly pendingWorkspaceRegistrations = new Map<string, WorkspaceRegistration>()
 
   /**
@@ -5678,6 +5719,9 @@ export class AppState {
 
   /** Read historical native values through their original owner, without reconnecting it. */
   valuesForExecution(ref: ExecutionRef): DinksterValuesClient | undefined {
+    const artifact = this.store.get(ref)?.artifact
+    const recorded = artifact && this.recordedRunValues.get(artifact)
+    if (recorded) return recorded
     const backend = this.backendFor(ref.connection) ?? this.retiredBackends.get(ref.connection)
     return backend?.protocol === 'dinkster' ? backend.connection.values() : undefined
   }
@@ -6598,11 +6642,11 @@ export class AppState {
   /** Active canvas lens of a tab ('standard' when never switched). */
   lensFor(tabId: string): CanvasLens {
     const lens = this.lenses.get().get(tabId) ?? 'standard'
-    return lens === 'exposure' && !this.appViewEnabled ? 'standard' : lens
+    return lens === 'exposure' && !this.exposureEnabled ? 'standard' : lens
   }
 
   setLens(tabId: string, lens: CanvasLens): void {
-    if (!this.lensRegistry.get(lens) || (lens === 'exposure' && !this.appViewEnabled)) return
+    if (!this.lensRegistry.get(lens) || (lens === 'exposure' && !this.exposureEnabled)) return
     this.lenses.update((m) => {
       const next = new Map(m)
       if (lens === 'standard') next.delete(tabId)
@@ -6613,7 +6657,7 @@ export class AppState {
 
   /** Toggle a tab between the default view and the given lens. */
   toggleLens(tabId: string, lens: Exclude<CanvasLens, 'standard'>): void {
-    if (lens === 'exposure' && !this.appViewEnabled) return
+    if (lens === 'exposure' && !this.exposureEnabled) return
     this.lenses.update((m) => {
       const next = new Map(m)
       if (next.get(tabId) === lens) next.delete(tabId)
@@ -6812,6 +6856,10 @@ export class AppState {
 
   get appViewEnabled(): boolean {
     return this.settings.get<boolean>('features.appView.enabled')
+  }
+
+  get exposureEnabled(): boolean {
+    return this.appViewEnabled || this.settings.get<boolean>('features.board.enabled')
   }
 
   private availableEditorKind(editorKind: string): string {
@@ -7269,7 +7317,7 @@ export class AppState {
         // The server session was created but nobody adopted it: it must not
         // linger in the discovery list. Best-effort - a failed DELETE leaves
         // an empty session the backend's retention rules own.
-        void this.collabTransport.end(backend.baseUrl, descriptor.sessionId).catch(() => undefined)
+        await this.collabTransport.end(backend.baseUrl, descriptor.sessionId).catch(() => undefined)
         throw e
       }
     } catch (e) {
@@ -7371,8 +7419,9 @@ export class AppState {
     opts?: {
       /**
        * Share-path guard: adoption commits only if the tab being shared still
-       * exists with this exact store at this exact revision. Edits made or a
-       * close/replace performed while create+connect were in flight would
+       * exists with this store or its authority continuation, unchanged at
+       * this exact revision. Edits or a close/replace performed while
+       * create+connect were in flight would
        * otherwise be silently overwritten by the snapshot captured at share
        * time. Joins pass no expectation: a joiner takes the session's document
        * as truth by definition.
@@ -7446,7 +7495,9 @@ export class AppState {
       throw new Error('The shared session could not be opened; the existing tabs were kept')
     }
     let prior = this.tabs.get().find((t) => t.id === owner && t.execution === undefined)
-    if (expect !== undefined && (prior === undefined || prior.store !== expect.store || expect.store.revision !== expect.revision)) {
+    if (expect !== undefined && (prior === undefined || this.liveTabContinuing(expect.store) !== prior ||
+      expect.store.revision !== expect.revision || prior.store.revision !== expect.revision ||
+      JSON.stringify(prior.store.doc) !== JSON.stringify(expect.store.doc))) {
       session.close()
       throw new Error(
         prior === undefined
@@ -7458,10 +7509,10 @@ export class AppState {
       session.close()
       throw new CollabRejoinTabGoneError()
     }
-    const preservesHistory = expect !== undefined && JSON.stringify(session.doc) === JSON.stringify(expect.store.doc)
+    const preservesHistory = expect !== undefined && prior !== undefined && JSON.stringify(session.doc) === JSON.stringify(prior.store.doc)
     if (preservesHistory) {
-      session.adoptHistory(expect.store.historySnapshot())
-      const kept = this.keptNumberFixes.get(expect.store)
+      session.adoptHistory(prior.store.historySnapshot())
+      const kept = this.keptNumberFixes.get(prior.store)
       if (kept !== undefined) this.keptNumberFixes.set(session, new Map(kept))
     }
     const backend = this.backends.get().find((entry) => entry.baseUrl === baseUrl && entry.protocol === 'dinkster')
@@ -9823,15 +9874,52 @@ export class AppState {
     if (scopes?.fromOnwards) await this.queue(tab, scopes.fromOnwards, scopes.analysis.last)
   }
 
-  /**
-   * Controller advancement plans captured at queue time, keyed by
-   * executionKey. Each plan owns the exact DocumentSession it was
-   * planned against - completion applies to that session only if a live tab
-   * still holds it (a replacement session sharing the lineage never
-   * qualifies), and each step is compare-and-set on the raw stored value so
-   * inputs the user edited after queueing are preserved.
-   */
-  private readonly advancementPlans = new Map<string, AdvancementPlan>()
+  /** Completion targets the exact live document owner and preserves later input edits. */
+  private readonly advancementPlans = new Map<string, AdvancementPlan | BoardAdvancementPlan>()
+
+  private dropAdvancement(key: string): void {
+    const plan = this.advancementPlans.get(key)
+    this.advancementPlans.delete(key)
+    if (plan && 'dispose' in plan) plan.dispose()
+  }
+
+  private boardAdvancementPlan(entry: BoardEntry, cardId: string, artifact: CompileArtifact): BoardAdvancementPlan {
+    const card = entry.session.doc.items[cardId]!
+    if (card.kind !== 'workflow' && card.kind !== 'blueprint') throw new Error('Card is no longer available')
+    const registry = this.retainedRegistries.get(artifact)!
+    const rows = buildParamRows(artifact.snapshot, documentResolver(artifact.snapshot, registry.resolve))
+    const steps = controllerAdvancementPlan(artifact.snapshot, artifact).map((step) => {
+      const row = rows.find((row) => row.kind === 'live' && row.entry.graphId === step.graphId &&
+        row.entry.nodeId === step.nodeId && row.valueKey === step.inputId)
+      return row ? { ...step, inputId: row.entry.inputId } : step
+    })
+    const invalid = new Set<AdvancementStep>()
+    let replaced = false
+    const dispose = entry.session.document.subscribe((document) => {
+      const latest = document.items[cardId]
+      if (!latest || latest.kind !== card.kind || !jsonSameValue(latest.source, card.source)) {
+        replaced = true
+        return
+      }
+      for (const step of steps) {
+        const key = exposedKey(step)
+        if (!jsonSameValue(latest.values[key], card.values[key]) ||
+          latest.controllers?.[key] !== card.controllers?.[key]) invalid.add(step)
+      }
+    })
+    return { dispose, apply: () => {
+      dispose()
+      if (replaced || !this.boards.entries.get().includes(entry)) return
+      const latest = entry.session.doc.items[cardId]
+      if (!latest || latest.kind !== card.kind) return
+      const values = { ...latest.values }
+      for (const step of steps) {
+        if (invalid.has(step)) continue
+        values[exposedKey(step)] = step.value
+      }
+      if (!jsonSameValue(values, latest.values)) entry.session.dispatch({ command: 'board.card.inputs', params: { id: cardId, values } })
+    } }
+  }
 
   /**
    * Latest mutation generation by document path. Value equality alone has
@@ -9982,7 +10070,7 @@ export class AppState {
   private installRun(
     ref: ExecutionRef,
     artifact: CompileArtifact,
-    plan: AdvancementPlan | undefined,
+    plan: AdvancementPlan | BoardAdvancementPlan | undefined,
     timestamp?: number,
     identity?: { readonly jobRef?: string; readonly sourceDocument?: string; readonly workflowName?: string },
   ): void {
@@ -10112,6 +10200,11 @@ export class AppState {
     const plan = this.advancementPlans.get(key)
     if (!plan) return
     this.advancementPlans.delete(key)
+    if ('apply' in plan) {
+      if (this.settings.get<boolean>('features.seedController.enabled')) plan.apply()
+      else plan.dispose()
+      return
+    }
     // Disabling the controller mid-run suppresses in-flight plans too.
     if (!this.settings.get<boolean>('features.seedController.enabled')) return
     const tab = this.liveTabContinuing(plan.session)
@@ -10181,17 +10274,15 @@ export class AppState {
    * not driven by a wire or by the subgraph around it. Each comes with the
    * place its value is kept, which for a promoted input is outside the node.
    */
-  private queueCaptureTargets(tab: Tab, artifact: CompileArtifact, widgetType: string): {
+  private queueCaptureTargets(document: WorkflowDocument, resolve: SchemaResolver, artifact: CompileArtifact, widgetType: string): {
     readonly node: CompileArtifact['prompt'][string]
     readonly input: ReturnType<typeof inputsOf>[number]
     readonly location: { readonly graphId: string }
     readonly nodeId: string
     readonly owner: { readonly graphId: string; readonly nodeId: string; readonly valueKey: string }
   }[] {
-    const registry = this.backendForTab(tab).registry.get()!
-    const document = tab.store.doc
     return Object.entries(artifact.prompt).flatMap(([runtimeId, node]) => {
-      const schema = registry.resolve(node.class_type)
+      const schema = resolve(node.class_type)
       const input = schema && inputsOf(schema).find((item) => item.widget?.widgetType === widgetType)
       if (input === undefined || Array.isArray(node.inputs[input.id])) return []
       const occurrence = parseOccurrenceKey(artifact.provenance.toSource[runtimeId]!)
@@ -10203,13 +10294,13 @@ export class AppState {
         Object.values(graph.nets).some((net) => net.sinks.some((sink) => sink.node === target.node && sink.port === target.port))
       if (occurrence.instancePath.length === 0 && definitionDriven) return []
       if (occurrence.instancePath.length > 0) {
-        const topology = effectiveOccurrenceTopology(document, registry.resolve, {
+        const topology = effectiveOccurrenceTopology(document, resolve, {
           instancePath: occurrence.instancePath.slice(0, -1),
           node: occurrence.instancePath.at(-1)!,
         })
         if (effectiveTopologyDrivesPort(topology, graph.id, occurrence.instancePath, target)) return []
       }
-      const view = occurrenceDynamicView(document, registry.resolve, occurrence.instancePath)
+      const view = occurrenceDynamicView(document, resolve, occurrence.instancePath)
       const owner = view.valueOwners.get(occurrence.node)?.get(input.id) ?? {
         graphId: location.graphId, nodeId: occurrence.node, valueKey: input.id,
       }
@@ -10223,13 +10314,18 @@ export class AppState {
    * normal of each 3D view that changed since its pictures were taken. They
    * are stored on their nodes in one step before the run is sent.
    */
-  private captureQueueViews(tab: Tab, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> | undefined {
-    const backend = this.backendForTab(tab)
-    const registry = backend.registry.get()!
-    const document = tab.store.doc
+  private captureQueueViews(owner: {
+    readonly document: WorkflowDocument
+    readonly backend: Backend
+    readonly resolve: SchemaResolver
+    readonly current: () => boolean
+    readonly commit: (invocations: readonly CommandInvocation[]) => Promise<WorkflowDocument>
+    readonly tab?: Tab
+  }, artifact: CompileArtifact, signal: AbortSignal): Promise<WorkflowDocument> | undefined {
+    const { backend, document, resolve } = owner
     const captures: { owner: { graphId: string; nodeId: string; valueKey: string }; width: number; height: number }[] = []
     const capturedOwners = new Map<string, { width: number; height: number }>()
-    for (const { node, input, owner } of this.queueCaptureTargets(tab, artifact, webcamKind.type)) {
+    for (const { node, input, owner } of this.queueCaptureTargets(document, resolve, artifact, webcamKind.type)) {
       // Capture on queue is the row the webcam widget reads under that part; without one, it never captures.
       const captureRow = input.widget?.reads?.['capture_on_queue']
       if (captureRow === undefined || node.inputs[captureRow] !== true) continue
@@ -10252,7 +10348,7 @@ export class AppState {
       captures.push({ owner, ...dimensions })
     }
     // A 3D view on its own input gives pictures; one that writes a separate state row stores its view only.
-    const models = backend.protocol !== 'dinkster' ? [] : this.queueCaptureTargets(tab, artifact, 'LOAD_3D')
+    const models = backend.protocol !== 'dinkster' ? [] : this.queueCaptureTargets(document, resolve, artifact, 'LOAD_3D')
       .filter(({ input }) => input.widget?.writes === undefined || Object.keys(input.widget.writes).length === 0)
       .filter((target, index, all) => all.findIndex((other) => JSON.stringify(other.owner) === JSON.stringify(target.owner)) === index)
     if (captures.length === 0 && models.length === 0) return undefined
@@ -10260,7 +10356,7 @@ export class AppState {
       const invocations: CommandInvocation[] = []
       const current = (): void => {
         signal.throwIfAborted()
-        if (tab.store.doc !== document || backend.registry.get() !== registry || this.backendForTab(tab) !== backend) {
+        if (!owner.current()) {
           throw new Error('Workflow or backend changed while capturing; queue again.')
         }
       }
@@ -10278,7 +10374,7 @@ export class AppState {
         const [{ openLoad3dSource, Load3dSourceError }, { mountModel3dViewer }] = await Promise.all([
           import('./load3d-source.js'), import('./model3d-viewer.js'),
         ])
-        for (const { node, input, location, nodeId, owner } of models) {
+        for (const { node, input, location, nodeId, owner: valueOwner } of models) {
           const stored = node.inputs[input.id]
           const value: Record<string, Json> = typeof stored === 'object' && stored !== null && !Array.isArray(stored)
             ? { ...(stored as Record<string, Json>) } : {}
@@ -10288,11 +10384,12 @@ export class AppState {
           const dropPictures = (): void => {
             if (!pictureKeys.some((name) => name in value)) return
             const rest = Object.fromEntries(Object.entries(value).filter(([name]) => !pictureKeys.includes(name)))
-            invocations.push({ command: 'node.setValue', params: { graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: rest } })
+            invocations.push({ command: 'node.setValue', params: { graphId: valueOwner.graphId, nodeId: valueOwner.nodeId, inputId: valueOwner.valueKey, value: rest } })
           }
           let source
           try {
-            source = await openLoad3dSource(this, tab, { graphId: location.graphId, nodeId, parts: { writes: {}, reads: input.widget?.reads ?? {} } }, signal)
+            source = await openLoad3dSource(this, owner.tab ?? { ...owner, inputs: node.inputs },
+              { graphId: location.graphId, nodeId, parts: { writes: {}, reads: input.widget?.reads ?? {} } }, signal)
           } catch (error) {
             // No model, or one a wire brings in this same run: no pictures can be taken now.
             if (error instanceof Load3dSourceError && error.problem !== 'unavailable') {
@@ -10343,7 +10440,7 @@ export class AppState {
               }
               next['pictures_view'] = view(next)
               current()
-              invocations.push({ command: 'node.setValue', params: { graphId: owner.graphId, nodeId: owner.nodeId, inputId: owner.valueKey, value: next } })
+              invocations.push({ command: 'node.setValue', params: { graphId: valueOwner.graphId, nodeId: valueOwner.nodeId, inputId: valueOwner.valueKey, value: next } })
             } finally {
               viewer.dispose()
             }
@@ -10355,9 +10452,7 @@ export class AppState {
       }
       current()
       if (invocations.length === 0) return document
-      const outcome = await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
-      if (!outcome.ok) throw new Error('Could not save the pictures taken for the run.')
-      return outcome.doc
+      return owner.commit(invocations)
     })()
   }
 
@@ -10397,6 +10492,336 @@ export class AppState {
       const pending = new Set(this.cancellingExecutions.get())
       pending.delete(key)
       this.cancellingExecutions.set(pending)
+    }
+  }
+
+  boardCardKey(entry: BoardEntry, cardId: string): string {
+    return JSON.stringify([entry.baseUrl, entry.id, cardId])
+  }
+
+  /** Restore only a recorded compile, never a new interpretation of an older source. */
+  async restoreBoardCardRun(entry: BoardEntry, cardId: string, run: HistoryRunRecord,
+    stillCurrent: () => boolean,
+  ): Promise<ExecutionRef | undefined> {
+    const backend = this.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)
+    const registry = backend?.registry.get()
+    const jobRef = run.jobRef ?? run.runId
+    if (!backend || !registry || !run.sourceDocument || run.scope !== LIBRARY_SCOPE ||
+      entry.session.doc.runs?.[jobRef]?.card !== cardId) return undefined
+    const project = activeProjectId()
+    const principal = backend.connection.principalGeneration.get()
+    const current = () => !this.disposed && stillCurrent() && this.backends.get().includes(backend) &&
+      activeProjectId() === project && backend.connection.principalGeneration.get() === principal &&
+      backend.registry.get() === registry && this.boards.entries.get().includes(entry) &&
+      entry.session.doc.runs?.[jobRef]?.card === cardId
+    const job = await backend.connection.fetchHistoryJob(run)
+    if (!job || !current()) return undefined
+    const text = await backend.connection.fetchAssetText(run.sourceDocument)
+    if (text === undefined || !current()) return undefined
+    const document: unknown = JSON.parse(text)
+    if (!workspaceRecord(document) || !workspaceRecord(document['ext'])) return undefined
+    const { ['dinkster.executionProof']: proof, ...ext } = document['ext']
+    if (!workspaceRecord(proof)) return undefined
+    const snapshot = { ...document, ext }
+    const ref = { connection: backend.id, prompt: asPromptId(run.jobId) }
+    const registration = decodeWorkspaceRegistration({ ref, artifact: { ...proof, snapshot,
+      connection: backend.id, diagnostics: [] } }, (type) => this.virtualNodeSchema(type)?.virtual === true)
+    const origin = registration?.snapshot.ext?.['dinkster.boardCard']
+    if (!registration || registration.schemaHash !== registry.hash || !workspaceRecord(origin) ||
+      origin['board'] !== entry.id || origin['card'] !== cardId) return undefined
+    const choices = new Map(registration.choices.map((choice) => [JSON.stringify([choice.graph, choice.selector]), choice.candidate]))
+    const compiled = compile({ document: registration.snapshot, revision: registration.revision,
+      resolve: this.resolverWithVirtualNodes(registry.resolve), scope: registration.scope, connection: backend.id, schemaHash: registry.hash,
+      candidateOverride: ({ graph, selector, candidates }) => {
+        const selected = choices.get(JSON.stringify([graph, selector]))
+        return selected !== undefined && candidates.includes(selected) ? selected : undefined
+      }, pickCandidate: () => 0,
+      ...(registry.graphFeatures === undefined ? {} : { graphFeatures: registry.graphFeatures }),
+    })
+    if (!compiled.ok || canonicalJson(persistedCompileProof(compiled.artifact)) !==
+      canonicalJson({ ...proof, connection: backend.id }) || !current()) return undefined
+    // Local job ids belong to a client; never replace another client's retained execution.
+    const existing = this.store.get(ref)
+    if (existing && existing.jobRef !== jobRef) return undefined
+    if (existing?.artifact) return ref
+    const artifact = compiled.artifact
+    this.retainedRegistries.set(artifact, registry)
+    this.recordedRunValues.set(artifact, backend.connection.historyValues(run))
+    batch(() => {
+      this.store.register(ref, artifact, run.submittedAt * 1000, { jobRef, sourceDocument: run.sourceDocument!,
+        ...(run.workflowName === undefined ? {} : { workflowName: run.workflowName }) })
+      this.store.hydrateArtifacts(ref, job.artifacts ?? [])
+      if (workspaceRecord(job.outputs) && Object.values(job.outputs).every(workspaceRecord))
+        this.store.hydrateOutputs(ref, job.outputs as ExecutionState['outputs'])
+      if (job.submittedBy) this.store.hydrateSubmittedBy(ref, job.submittedBy)
+      this.store.hydrateAutomaticValues(ref, automaticValuesOfJob(job))
+      this.store.apply({ kind: 'nodeStates', execution: ref, timestamp: run.finishedAt * 1000,
+        nodes: nodeStatesFromDinksterJob(job) })
+      this.store.apply(run.state === 'failed'
+        ? { kind: 'error', execution: ref, timestamp: run.finishedAt * 1000,
+          detail: { exceptionType: run.error?.kind ?? 'execution', exceptionMessage: run.error?.message ?? 'job failed', traceback: [] } }
+        : { kind: run.state, execution: ref, timestamp: run.finishedAt * 1000 })
+    })
+    return ref
+  }
+
+  executionsForBoardCard(entry: BoardEntry, cardId: string): readonly ExecutionState[] {
+    const backend = this.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)
+    if (!backend) return []
+    return [...this.store.executions.get().values()].filter((execution) => {
+      const origin = execution.artifact?.snapshot.ext?.['dinkster.boardCard']
+      return execution.ref.connection === backend.id && workspaceRecord(origin) &&
+        origin['board'] === entry.id && origin['card'] === cardId
+    }).sort((a, b) => b.queuedAt - a.queuedAt)
+  }
+
+  async stopBoardCard(entry: BoardEntry, cardId: string): Promise<void> {
+    this.boardCardSubmissions.get().get(this.boardCardKey(entry, cardId))?.controller.abort('stop')
+    const active = this.executionsForBoardCard(entry, cardId)
+      .find((run) => run.status === 'queued' || run.status === 'running')
+    if (active) await this.cancelExecution(active.ref)
+  }
+
+  /** Recorded geometry belongs to the submitted snapshot, not the card's current position. */
+  boardResultPlaces(entry: BoardEntry, execution: ExecutionState): readonly BoardRect[] {
+    const origin = execution.artifact?.snapshot.ext?.['dinkster.boardCard']
+    const backend = this.backendFor(execution.ref.connection)
+    if (backend?.baseUrl !== entry.baseUrl || !workspaceRecord(origin) || origin['board'] !== entry.id ||
+      !Array.isArray(origin['places']) || origin['places'].length > 8) return []
+    const places: BoardRect[] = []
+    for (const place of origin['places']) {
+      if (!workspaceRecord(place)) return []
+      const { x, y, width, height } = place
+      if (!(typeof x === 'number' && typeof y === 'number' && typeof width === 'number' && typeof height === 'number' &&
+        [x, y, width, height].every((value) => Number.isFinite(value) && Math.abs(value) <= BOARD_MAX_EXTENT) &&
+        width >= BOARD_MIN_SIDE && height >= BOARD_MIN_SIDE)) return []
+      places.push({ x, y, width, height })
+    }
+    return places
+  }
+
+  private deliverBoardResults(): void {
+    if (this.disposed) return
+    const entries = this.boards.entries.get()
+    const executions = this.store.executions.get()
+    for (const [key, delivery] of this.boardResultDeliveries) {
+      if (entries.includes(delivery.entry) && executions.has(key)) continue
+      delivery.abort.abort()
+      this.boardResultDeliveries.delete(key)
+    }
+    if ([...this.boardResultErrors.get().keys()].some((entry) => !entries.includes(entry)))
+      this.boardResultErrors.set(new Map([...this.boardResultErrors.get()].filter(([entry]) => entries.includes(entry))))
+    for (const execution of executions.values()) {
+      if (!execution.jobRef || !execution.artifactsHydrated || this.store.isProvisionallyLost(execution.ref) ||
+        !['completed', 'error', 'interrupted', 'cancelled'].includes(execution.status)) continue
+      const origin = execution.artifact?.snapshot.ext?.['dinkster.boardCard']
+      const backend = this.backendFor(execution.ref.connection)
+      if (!workspaceRecord(origin) || typeof origin['card'] !== 'string' || backend?.protocol !== 'dinkster') continue
+      const entry = entries.find((entry) => entry.id === origin['board'] && entry.baseUrl === backend.baseUrl)
+      if (!entry || entry.session.doc.runs?.[execution.jobRef] || !entry.session.doc.items[origin['card']] ||
+        (entry.shared && !entry.shared.session.canEdit.get())) continue
+      const places = this.boardResultPlaces(entry, execution)
+      if (!places.length) continue
+      const key = executionKey(execution.ref)
+      const previous = this.boardResultDeliveries.get(key)
+      const generation = this.backendsTick.get()
+      if (previous?.pending || (previous?.execution === execution && previous.generation === generation)) continue
+      const delivery = { entry, execution, generation, abort: new AbortController(), pending: true }
+      this.boardResultDeliveries.set(key, delivery)
+      const current = () => !this.disposed && !delivery.abort.signal.aborted && this.boards.entries.get().includes(entry)
+      void this.placeBoardCardResults(entry, execution.ref, places[0]!, delivery.abort.signal).then(() => {
+        if (current() && this.boardResultErrors.get().has(entry)) {
+          const errors = new Map(this.boardResultErrors.get())
+          errors.delete(entry)
+          this.boardResultErrors.set(errors)
+        }
+      }).catch((reason: unknown) => {
+        if (current()) this.boardResultErrors.set(new Map([...this.boardResultErrors.get(),
+          [entry, reason instanceof Error ? reason.message : String(reason)]]))
+      }).finally(() => {
+        delivery.pending = false
+        this.deliverBoardResults()
+      })
+    }
+  }
+
+  /** Place only a terminal run's recorded files, on its original Board/backend. */
+  async placeBoardCardResults(entry: BoardEntry, ref: ExecutionRef,
+    point: { readonly x: number; readonly y: number },
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<readonly string[]> {
+    const execution = this.store.get(ref)
+    const backend = this.backendFor(ref.connection)
+    const origin = execution?.artifact?.snapshot.ext?.['dinkster.boardCard']
+    if (!this.boards.entries.get().includes(entry) || backend?.protocol !== 'dinkster' ||
+      backend.baseUrl !== entry.baseUrl || !workspaceRecord(origin) ||
+      origin['board'] !== entry.id || typeof origin['card'] !== 'string')
+      throw new Error('Run does not belong to this Board and backend')
+    const job = execution?.jobRef
+    if (!job || !execution.artifactsHydrated ||
+      !['completed', 'error', 'interrupted', 'cancelled'].includes(execution.status)) return []
+    if (entry.session.doc.runs?.[job]) return []
+    const assets = await Promise.all(execution.artifacts.filter((asset) => boardMediaKindOf(asset.mediaType)).map(async (asset) => ({
+      digest: asset.digest, mediaType: asset.mediaType, name: asset.name.slice(0, BOARD_MAX_NAME),
+      origin: { job, node: asset.nodeId },
+      ...await inspectBoardMediaMetadata(backend.connection.assetUrl(asset.digest), asset.mediaType, signal),
+    })))
+    signal.throwIfAborted()
+    if (!this.boards.entries.get().includes(entry) || this.backendFor(ref.connection) !== backend)
+      throw new Error('Run does not belong to this Board and backend')
+    return this.boards.placeMedia(entry.id, {
+      project: activeProjectId(), baseUrl: backend.baseUrl,
+      run: { job, card: origin['card'], places: this.boardResultPlaces(entry, execution) },
+      assets,
+    }, point)
+  }
+
+  /** Submit an independent full workflow; no editing session is opened or written. */
+  async queueBoardCard(entry: BoardEntry, cardId: string): Promise<ExecutionRef | undefined> {
+    const key = this.boardCardKey(entry, cardId)
+    if (this.boardCardSubmissions.get().has(key) || this.executionsForBoardCard(entry, cardId)
+      .some((run) => run.status === 'queued' || run.status === 'running')) return undefined
+    const backend = this.backends.get().find((backend) => backend.baseUrl === entry.baseUrl)
+    const registry = backend?.registry.get()
+    const card = entry.session.doc.items[cardId]
+    if (!backend || !registry || !card || (card.kind !== 'workflow' && card.kind !== 'blueprint'))
+      throw new Error('This card or its backend is unavailable')
+    const project = activeProjectId()
+    const controller = new AbortController()
+    const current = (): boolean => {
+      const latest = entry.session.doc.items[cardId]
+      return !this.disposed && !controller.signal.aborted && activeProjectId() === project &&
+        this.backends.get().includes(backend) && backend.registry.get() === registry &&
+        this.boards.entries.get().includes(entry) && latest?.kind === card.kind &&
+        jsonSameValue(latest.source, card.source)
+    }
+    const invalidate = (): void => { if (!current()) controller.abort() }
+    const subscriptions = [this.boards.changed.subscribe(invalidate), this.backendsTick.subscribe(invalidate)]
+    this.boardCardSubmissions.set(new Map([...this.boardCardSubmissions.get(), [key, { controller, entry }]]))
+    let releaseWorld: (() => void) | undefined
+    let advancement: BoardAdvancementPlan | undefined
+    let installed = false
+    try {
+      const source = await this.boards.loadCard(entry.id, cardId, registry.resolve, current)
+      if (!current()) return undefined
+      const resolve = this.resolverWithVirtualNodes(registry.resolve)
+      const previous = this.executionsForBoardCard(entry, cardId).find((run) =>
+        run.status !== 'queued' && run.status !== 'running' && run.jobRef && entry.session.doc.runs?.[run.jobRef])
+      const occupied = [
+        ...[...this.store.executions.get().values()].filter((run) => run.status === 'queued' || run.status === 'running')
+          .flatMap((run) => this.boardResultPlaces(entry, run)),
+        ...[...this.boardCardSubmissions.get().values()].filter((submission) => submission.entry === entry)
+          .flatMap((submission) => submission.places ?? []),
+      ]
+      const sourceExt = { ...source.ext }
+      delete sourceExt['dinkster.executionProof']
+      let document: WorkflowDocument = { ...source,
+        lineage: asLineageId(`board-card:${entry.id}:${cardId}`),
+        ext: { ...sourceExt, 'dinkster.boardCard': { board: entry.id, card: cardId, source: card.source } },
+      }
+      const stamp = stampEnvironment(document, { resolve,
+        ...(registry.packs === undefined ? {} : { packs: registry.packs }),
+        ...(registry.server === undefined ? {} : { server: registry.server }), frontendVersion: FRONTEND_VERSION,
+      })
+      if (stamp) document = { ...document, environment: stamp }
+      const input: CompileInput = { document, revision: entry.session.revision, resolve, scope: { kind: 'full' },
+        connection: backend.id, schemaHash: registry.hash,
+        ...(registry.graphFeatures === undefined ? {} : { graphFeatures: registry.graphFeatures }),
+        lookupAnswers: lookupAnswersOf(backend.lookups), pickCandidate: ({ count }) => Math.floor(Math.random() * count),
+      }
+      let result = compile(input)
+      if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      const saves = (type: string) => {
+        const schema = resolve(type)
+        return schema !== undefined && inputsOf(schema).some((input) => canonicalTypeIdOf(input.type) === 'SAVE_TARGET') ? 1 : 0
+      }
+      const graphSaves = (graph: DinksterGraphWire): number => Object.values(graph.nodes)
+        .reduce((count, node) => count + (isDinksterRegionEntry(node) ? graphSaves(node.region.body) : saves(node.nodeType)), 0)
+      const savingNodes = result.artifact.dinksterGraph ? graphSaves(result.artifact.dinksterGraph)
+        : Object.values(result.artifact.prompt).reduce((count, node) => count + saves(node.class_type), 0)
+      const places = this.boards.reserveResultPlaces(entry.id, cardId, savingNodes, occupied, previous?.jobRef)
+      this.boardCardSubmissions.set(new Map([...this.boardCardSubmissions.get(), [key, { controller, entry, places }]]))
+      document = { ...document, ext: { ...document.ext, 'dinkster.boardCard': {
+        board: entry.id, card: cardId, source: card.source, places: places.map((place) => ({ ...place })),
+      } } }
+      const choices = new Map((result.artifact.choices ?? []).map((choice) => [JSON.stringify([choice.graph, choice.selector]), choice.candidate]))
+      const recompile = () => compile({ ...input, document, candidateOverride: ({ graph, selector, candidates }) => {
+        const selected = choices.get(JSON.stringify([graph, selector]))
+        return selected !== undefined && candidates.includes(selected) ? selected : undefined
+      } })
+      result = recompile()
+      if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      this.retainedRegistries.set(result.artifact, registry)
+      if (this.settings.get<boolean>('features.seedController.enabled')) advancement = this.boardAdvancementPlan(entry, cardId, result.artifact)
+      const lease = this.retainSubmissionWorld(undefined, result.artifact)
+      releaseWorld = lease.release
+      const capture = this.captureQueueViews({ document, backend, resolve, current,
+        commit: async (invocations) => {
+          const store = new DocumentStore(document, coreCommandRegistry([], documentResolver(document, resolve)))
+          const outcome = store.dispatch({ command: 'batch', params: { invocations } as unknown as Json })
+          if (!outcome.ok) throw new Error('Could not save the pictures taken for the run.')
+          return outcome.doc
+        },
+      }, result.artifact, controller.signal)
+      if (capture !== undefined) {
+        const captured = await capture
+        if (!current()) return undefined
+        if (captured !== document) {
+          document = captured
+          result = recompile()
+          if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+        }
+      }
+      const artifact = result.artifact
+      this.retainedRegistries.set(artifact, registry)
+      const sourceDocument = await backend.connection.uploadAsset(JSON.stringify({ ...document,
+        ext: { ...document.ext, 'dinkster.executionProof': persistedCompileProof(artifact) },
+      }))
+      if (!current()) return undefined
+      const identity = { workflowName: card.name, ...(sourceDocument === undefined ? {} : { sourceDocument }) }
+      lease.markPosted()
+      const submitted = await backend.connection.submit(artifact, { ...identity, previews: resolvePreviewPolicy(
+        artifact.snapshot, artifact.provenance, this.settings.get<PreviewMode>('execution.previews'),
+        this.settings.get<PreviewAnimation>('execution.previewAnimation'),
+      ) })
+      const install = (ok: Extract<DinksterSubmitResult, { ok: true }>): ExecutionRef | undefined => {
+        if (this.disposed) return undefined
+        installed = true
+        this.installRun(ok.execution, artifact, advancement, undefined, { ...identity,
+          ...(ok.jobRef === undefined ? {} : { jobRef: ok.jobRef }),
+        })
+        // Closing a Board does not cancel an accepted run; an explicit Stop does.
+        if (controller.signal.aborted && controller.signal.reason === 'stop') void this.cancelExecution(ok.execution)
+        return ok.execution
+      }
+      if (submitted.ok) return install(submitted)
+      if (!current()) return undefined
+      if (!('assetsMissing' in submitted)) throw new Error(submitted.diagnostics.map((diagnostic) => diagnostic.message).join('; '))
+      const modelReferences = workflowModelOccurrences(artifact.snapshot, registry.resolve, lookupAnswersOf(backend.lookups))
+        .flatMap((occurrence) => occurrence.asset === undefined ? [] : [{ name: occurrence.name, kind: occurrence.kind, asset: occurrence.asset }])
+      return await new Promise<ExecutionRef | undefined>((resolve, reject) => {
+        installAssetConsent({ result: submitted, workflowTitle: card.name, modelReferences, slot: this.assetConsent,
+          signal: controller.signal, beforeRetry: current, onSettled: () => resolve(undefined),
+          modelDownloads: { connection: backend.connection, controller: this.modelDownloadsFor(backend, project),
+            providerConnection: backend.connection, backendUrl: backend.baseUrl, project },
+          enableLocation: async (location) => { await backend.connection.setModelLocationEnabled(location, true) },
+          unhideModel: async (identity) => { await backend.connection.unhideModel(identity) },
+          onSubmitted: (ok) => resolve(install(ok)),
+          onRejected: (diagnostics) => reject(new Error(diagnostics.map((diagnostic) => diagnostic.message).join('; '))),
+          onTransportError: (message) => reject(new Error(message)),
+          onSuperseded: () => reject(new Error('Assets are still missing; run the card again to review them')),
+        })
+      })
+    } catch (error) {
+      if (!controller.signal.aborted) throw error
+      return undefined
+    } finally {
+      if (!installed) advancement?.dispose()
+      for (const unsubscribe of subscriptions) unsubscribe()
+      releaseWorld?.()
+      const pending = new Map(this.boardCardSubmissions.get())
+      pending.delete(key)
+      this.boardCardSubmissions.set(pending)
     }
   }
 
@@ -10466,7 +10891,15 @@ export class AppState {
       const captureRegistry = captureBackend.registry.get()
       let capturedDocument: WorkflowDocument
       try {
-        const capture = this.captureQueueViews(tab, result.artifact, lease.signal)
+        const capture = this.captureQueueViews({ document: tab.store.doc, backend: captureBackend,
+          resolve: captureRegistry!.resolve, tab,
+          current: () => tab.store.doc === compiledDocument && this.backendForTab(tab) === captureBackend && captureBackend.registry.get() === captureRegistry,
+          commit: async (invocations) => {
+            const outcome = await this.dispatchTo(tab, { command: 'batch', params: { invocations } as unknown as Json })
+            if (!outcome.ok) throw new Error('Could not save the pictures taken for the run.')
+            return outcome.doc
+          },
+        }, result.artifact, lease.signal)
         capturedDocument = capture === undefined ? compiledDocument : await capture
         if (tab.store.doc !== capturedDocument || this.backendForTab(tab) !== captureBackend || captureBackend.registry.get() !== captureRegistry) {
           throw new Error('Workflow or backend changed while capturing; queue again.')
@@ -10723,7 +11156,7 @@ export class AppState {
   private hydrateCachedOutputs(execs: ReadonlyMap<string, ExecutionState>): void {
     if (this.disposed) return
     for (const state of execs.values()) {
-      if (state.status !== 'completed' || state.artifactsHydrated) continue
+      if (!['completed', 'error', 'cancelled'].includes(state.status) || state.artifactsHydrated) continue
       if (this.hydrated.has(state.key)) continue
       // Route by the execution's OWN connection; a removed backend's runs
       // simply stay unhydrated (retried if it is ever re-added).
@@ -10731,7 +11164,7 @@ export class AppState {
       if (!backend) continue
       this.hydrated.add(state.key)
       this.pendingExecutionHydrations += 1
-      void hydrateDinksterCompletedExecution(backend.connection, this.store, state.ref, this.prepareExecutionHydration(backend))
+      void hydrateDinksterTerminalExecution(backend.connection, this.store, state.ref, this.prepareExecutionHydration(backend))
         .then(() => {
           if (!this.store.get(state.ref)?.artifactsHydrated) this.hydrated.delete(state.key)
         })
@@ -10914,8 +11347,10 @@ export class AppState {
 
   tabTitleFor(ref: ExecutionRef): string {
     const state = this.store.executions.get().get(executionKey(ref))
-    const lineage = state?.artifact?.snapshot.lineage
-    return (lineage && this.liveTabFor(lineage)?.title) ?? '(external)'
+    const snapshot = state?.artifact?.snapshot
+    if (snapshot?.ext?.['dinkster.boardCard'] !== undefined)
+      return state?.workflowName ?? snapshot.graphs[snapshot.root]?.name ?? 'Untitled'
+    return (snapshot && this.liveTabFor(snapshot.lineage)?.title) ?? '(external)'
   }
 }
 

@@ -1,7 +1,7 @@
-import { BOARD_MAX_NAME, boardMediaKindOf, emptyBoard, t } from '@dinkster/core'
+import { BOARD_MAX_NAME, boardMediaKindOf, emptyBoard, t, type BoardCardSource, type CollectionEntry, type CollectionSource } from '@dinkster/core'
 import { ProductBoard, ProductErrorBanner } from '@dinkster/ui'
 import { Images } from 'lucide-solid'
-import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import type { AppState, Backend } from './app-state.js'
 import type { BoardEntry } from './board-workspace.js'
 import { CanvasCornerControls, type CanvasCornerMenu } from './CanvasChrome.js'
@@ -16,18 +16,114 @@ import { ProductActionFooter } from './ProductForm.js'
 import { UploadDestination } from './UploadDestination.js'
 import { activeProjectId } from './projects.js'
 import { readUploadDestination, saveUploadDestination, type UploadDestinationChoice } from './upload-destination.js'
+import { CollectionPanel } from './CollectionPanel.js'
+import { boardBlueprintsSource, workflowsSource } from './collections.js'
+import { BoardCard, boardCardStatusLabel } from './BoardCard.js'
+import { ProductEmptyState } from './ProductSurfaces.js'
+import { executionProgress } from './ExecutionActivityCard.js'
 
 function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string | undefined; clearSaveError: () => void }) {
   const [menu, setMenu] = createSignal<CanvasCornerMenu>()
   const [error, setError] = createSignal<string>()
-  const clearError = () => { setError(undefined); props.clearSaveError() }
+  const resultErrors = useSignal(props.app.boardResultErrors)
+  const clearError = () => {
+    setError(undefined)
+    props.clearSaveError()
+    const errors = new Map(props.app.boardResultErrors.get())
+    errors.delete(props.entry)
+    props.app.boardResultErrors.set(errors)
+  }
   const backends = useSignal(props.app.backends)
+  const boardBackend = () => backends().find((backend) => backend.baseUrl === props.entry.baseUrl && backend.protocol === 'dinkster')
+  const executions = useSignal(props.app.store.executions)
+  const submissions = useSignal(props.app.boardCardSubmissions)
+  const changed = useSignal(props.app.boards.changed)
+  const pendingRuns = createMemo(() => {
+    executions(); changed(); backends()
+    return Object.values(props.entry.session.doc.items).flatMap((card) => {
+      if (card.kind !== 'workflow' && card.kind !== 'blueprint') return []
+      const active = props.app.executionsForBoardCard(props.entry, card.id)
+        .filter((run) => run.status === 'queued' || run.status === 'running')
+      const preparing = submissions().get(props.app.boardCardKey(props.entry, card.id))
+      if (active.length) return active.map((run) => {
+        const progress = executionProgress(run)?.value
+        return { job: run.jobRef ?? run.key, card: card.id, places: props.app.boardResultPlaces(props.entry, run),
+          label: boardCardStatusLabel(!!preparing, run), running: !preparing && run.status === 'running',
+          ...(progress === undefined ? {} : { progress }) }
+      })
+      return preparing?.places ? [{ job: props.app.boardCardKey(props.entry, card.id), card: card.id,
+        places: preparing.places, label: boardCardStatusLabel(true), running: false }] : []
+    })
+  })
   let live = true
   let drop = 0
   let input!: HTMLInputElement
   let pickerPoint = { x: 0, y: 0 }
   let importAbort: AbortController | undefined
   const [busy, setBusy] = createSignal(false)
+  const [picking, setPicking] = createSignal<{
+    entry: BoardEntry; backend: Extract<Backend, { protocol: 'dinkster' }>; project: string
+    kind: 'workflow' | 'blueprint'
+    point: { x: number; y: number }; source: CollectionSource; finish: (id?: string) => void
+  }>()
+  const [placing, setPlacing] = createSignal(false)
+  const cancelPicker = () => {
+    const request = picking()
+    setPicking(undefined)
+    setPlacing(false)
+    request?.finish()
+  }
+  const chooseCard = (kind: 'workflow' | 'blueprint', point: { x: number; y: number }): Promise<string | undefined> => {
+    cancelPicker()
+    const backend = boardBackend()
+    if (!backend || backend.protocol !== 'dinkster') return Promise.resolve(undefined)
+    const project = activeProjectId()
+    const owner = () => props.app.backends.get().includes(backend) ? backend : undefined
+    return new Promise((finish) => setPicking({
+      entry: props.entry, backend, project, kind, point: { ...point }, finish,
+      source: kind === 'workflow' ? workflowsSource(props.app, owner, project) : boardBlueprintsSource(owner, project),
+    }))
+  }
+  const pickCard = async (selected: CollectionEntry) => {
+    const request = picking()
+    if (!request || placing() || selected.owner !== request.backend.id) return
+    const current = () => live && picking() === request && props.entry === request.entry &&
+      props.app.activeTabId.get() === `page:board:${request.entry.id}` && activeProjectId() === request.project &&
+      props.app.backends.get().includes(request.backend)
+    setPlacing(true)
+    try {
+      const id = await props.app.boards.placeCard(request.entry.id, {
+        project: request.project, baseUrl: request.backend.baseUrl, kind: request.kind,
+        source: request.kind === 'workflow' ? { kind: 'library', recordId: selected.id } : selected.ref as BoardCardSource,
+        name: selected.title,
+      }, request.point, current)
+      if (!current()) return
+      clearError()
+      setPicking(undefined)
+      request.finish(id)
+    } catch (reason) {
+      if (current()) {
+        setError(reason instanceof Error ? reason.message : String(reason))
+        cancelPicker()
+      }
+    } finally {
+      if (picking() === request) setPlacing(false)
+    }
+  }
+  const activeTabId = useSignal(props.app.activeTabId)
+  createEffect(() => {
+    const request = picking()
+    if (request && (request.entry !== props.entry || activeTabId() !== `page:board:${request.entry.id}` ||
+      !backends().includes(request.backend))) cancelPicker()
+  })
+  const openWorkflow = async (recordId: string, exposure: boolean) => {
+    const backend = boardBackend()
+    if (!backend) return
+    if (await props.app.openFromLibrary(recordId, backend.id) && exposure) {
+      const tab = props.app.activeTab()
+      if (tab) props.app.setLens(tab.id, 'exposure')
+    }
+  }
   const [destination, setDestination] = createSignal<UploadDestinationChoice>({ remember: false })
   const [importing, setImporting] = createSignal<{
     files: readonly File[]; point: { x: number; y: number }; entry: BoardEntry; backend: Backend; project: string
@@ -95,6 +191,7 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
   window.addEventListener('keydown', dismiss)
   onCleanup(() => {
     live = false
+    cancelPicker()
     cancelImport()
     window.removeEventListener('pointerdown', dismiss)
     window.removeEventListener('keydown', dismiss)
@@ -105,10 +202,18 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
         stageImport([...event.currentTarget.files ?? []], pickerPoint)
         event.currentTarget.value = ''
       }} />
-    <Show when={error() ?? props.saveError}>{(message) => <ProductErrorBanner onDismiss={clearError}>{message()}</ProductErrorBanner>}</Show>
+    <Show when={error() ?? resultErrors().get(props.entry) ?? props.saveError}>{(message) => <ProductErrorBanner onDismiss={clearError}>{message()}</ProductErrorBanner>}</Show>
     <div class="board-page-canvas"><ProductBoard
     fill
     store={props.entry.session}
+    pendingRuns={pendingRuns()}
+    onAddCard={boardBackend() ? {
+      workflow: (point) => chooseCard('workflow', point), blueprint: (point) => chooseCard('blueprint', point),
+    } : {}}
+    card={(card, remove) => <BoardCard app={props.app} entry={props.entry} card={card()}
+      onOpen={card().source.kind === 'library' ? () => { const source = card().source; if (source.kind === 'library') void openWorkflow(source.recordId, false) } : undefined}
+      onChooseInputs={card().source.kind === 'library' ? () => { const source = card().source; if (source.kind === 'library') void openWorkflow(source.recordId, true) } : undefined}
+      onRemove={remove} />}
     onAddMedia={(point) => { pickerPoint = point; input.click() }}
     onDropMedia={(event, point) => {
       if (event.dataTransfer?.files.length) { stageImport([...event.dataTransfer.files], point); return }
@@ -139,6 +244,14 @@ function BoardPage(props: { app: AppState; entry: BoardEntry; saveError: string 
       onFit={view.onFit} onZoomBy={view.onZoomBy} onZoomTo={view.onZoomTo}
     />}
   /></div>
+    <Show when={picking()} keyed>{(request) => <ModalSurface title={t(request.kind === 'workflow' ? 'board.chooseWorkflow' : 'board.chooseBlueprint')}
+      modalId="board-card-picker" testId="board-card-picker" onRequestClose={cancelPicker}>
+      <CollectionPanel sources={[request.source]} variant="select" defaultMode="list" searchPriority="primary"
+        renderState={(state) => state.kind === 'empty' ? <ProductEmptyState
+          title={t(request.kind === 'workflow' ? 'board.noWorkflows' : 'board.noBlueprints')} /> : undefined}
+        pick={{ pickable: (entry) => entry.owner === request.backend.id,
+          onPick: (entry) => void pickCard(entry) }} onEscape={cancelPicker} />
+    </ModalSurface>}</Show>
     <Show when={importing()} keyed>{(request) => <ModalSurface
       title={t('board.import.title')} modalId="canvas-import" testId="board-import-dialog"
       onRequestClose={cancelImport} closeLabel={t('canvasImport.cancel')}>

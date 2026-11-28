@@ -72,6 +72,7 @@ import { LookupsGallery } from './lookups.js'
 import { ProblemBoxGallery } from './problem-box.js'
 import { FixesNoticeGallery } from './fixes-notice.js'
 import { RowFilePreviewsGallery } from './row-file-previews.js'
+import { ExposureRowsGallery } from './exposure-rows.js'
 
 type Theme = 'dark' | 'light'
 
@@ -104,6 +105,7 @@ const pageGroups: readonly (readonly [string, readonly CanvasGalleryPage[]])[] =
         'declaration-rows',
         'row-editing',
         'row-states',
+        'exposure-rows',
         'row-automatic',
         'row-lists',
         'lookups',
@@ -215,6 +217,8 @@ const pageNotes: Record<CanvasGalleryPage, string> = {
     'Number, single-line text and seed rows become their own field when clicked, with their limits beside the node.',
   'row-states':
     'What a row shows when a finished run proved that nothing arrives, for a skipped node, while a wired value is not known, for a promoted field, and the control at the end of the side part that switches how a field is drawn. Ready, disabled and busy Buttons keep the shared keyboard outline, with host and declaration reasons beside disabled rows.',
+  'exposure-rows':
+    'Exposure ticks have their own slot after the field controls. Ordinary Graph rows keep their full width.',
   'row-automatic':
     'A number whose value is automatic: closed, opened, stepped, while a lookup loads, and when it cannot be worked out.',
   'row-lists':
@@ -682,6 +686,7 @@ export function CanvasGallery() {
     const currentWidget = widgetId()
     document.documentElement.dataset.theme = currentTheme
     setPrepared([])
+    if (currentPage === 'exposure-rows') return
     if (currentPage === 'row-editing' || currentPage === 'row-states' || currentPage === 'row-lists' || currentPage === 'lookups' || currentPage === 'row-automatic' || currentPage === 'color-editing' || currentPage === 'in-node-editors' || currentPage === 'editor-choice-placement' || currentPage === 'node-look' || currentPage === 'problem-box' || currentPage === 'fixes-notice' || currentPage === 'save-target-box' || currentPage === 'row-file-previews') return
     let disposed = false
     void canvasFontsLoaded().then(() => {
@@ -780,6 +785,9 @@ export function CanvasGallery() {
         </Show>
         <Show when={fontsReady() && page() === 'row-states'}>
           <RowStatesGallery theme={theme()} />
+        </Show>
+        <Show when={fontsReady() && page() === 'exposure-rows'}>
+          <ExposureRowsGallery theme={theme()} />
         </Show>
         <Show when={fontsReady() && page() === 'row-lists'}>
           <RowListsGallery theme={theme()} />

@@ -113,7 +113,7 @@ describe('EngineRunControl', () => {
       executions={[]} canQueue={installation().status.state === 'ready'} onQueue={() => undefined}
       onOpenExecution={() => undefined}
       runControl={(runButton) => <EngineRunControl status={installation().status} baseUrl={installation().baseUrl}
-        onRestart={async () => undefined}>{runButton}</EngineRunControl>} />, root)
+        onRestart={async () => undefined}>{runButton()}</EngineRunControl>} />, root)
     const open = () => {
       root.querySelector<HTMLButtonElement>('[data-testid="engine-failed"]')!.click()
       ;[...root.querySelectorAll('button')].find((button) => button.textContent === 'Show log')!.click()
