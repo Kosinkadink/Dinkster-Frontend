@@ -408,7 +408,7 @@
   color: inherit;
   cursor: pointer;
 }
-.gesture-refusal-toast:not([data-frozen]) button.dinkster-button { height: 24px; min-height: 0; }
+.gesture-refusal-toast:not([data-frozen]) button.product-button { height: 24px; min-height: 0; }
 .gesture-refusal-toast button:hover { background: var(--dinkster-interaction-hover); }
 .gesture-refusal-toast button:focus-visible { outline: var(--dinkster-focus-ring-width) solid var(--dinkster-border-keyboard-focus); outline-offset: 1px; }
 .gesture-refusal-toast svg { width: 15px; height: 15px; }
